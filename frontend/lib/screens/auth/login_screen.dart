@@ -199,8 +199,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         SizedBox(height: 16),
 
                         // Register Link
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        Wrap(
+                          alignment: WrapAlignment.center, // Centers the items when they wrap
+                          spacing: 8.0, // Adds horizontal space between children
+                          runSpacing: 4.0, // Adds vertical space between lines if they wrap
                           children: [
                             Text(
                               "Don't have an account? ",
