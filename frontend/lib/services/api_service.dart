@@ -93,10 +93,11 @@ class ApiService {
   }
 
   // Transaction CRUD methods
-  static Future<Transaction> createTransaction({
+    static Future<Transaction> createTransaction({
     required TransactionType type,
     required String mainCategory,
     required String subCategory,
+    required DateTime date, // Added date parameter
     String? description,
     required double amount,
   }) async {
@@ -107,6 +108,7 @@ class ApiService {
         'type': type.name,
         'main_category': mainCategory,
         'sub_category': subCategory,
+        'date': date.toIso8601String(), // Send date in ISO format
         'description': description,
         'amount': amount,
       }),
@@ -162,16 +164,31 @@ class ApiService {
     TransactionType? type,
     String? mainCategory,
     String? subCategory,
+    DateTime? date, // Added date parameter
     String? description,
     double? amount,
   }) async {
     final Map<String, dynamic> updateData = {};
-    
+
     if (type != null) updateData['type'] = type.name;
     if (mainCategory != null) updateData['main_category'] = mainCategory;
     if (subCategory != null) updateData['sub_category'] = subCategory;
+    if (date != null) updateData['date'] = date.toIso8601String(); // Send date in ISO format
     if (description != null) updateData['description'] = description;
     if (amount != null) updateData['amount'] = amount;
+
+    if (updateData.isEmpty) {
+        // No fields to update, return existing transaction or throw error
+        // For simplicity, let's return the original transaction data or fetch it again if needed.
+        // Or we can throw an error indicating nothing was updated.
+        // For now, we'll just return the existing transaction if nothing changed.
+        // A better approach might be to check if the data has changed.
+        // If no updates are provided, we can just return the fetched transaction or throw a specific exception.
+        // For this example, let's assume a call with no data means no update.
+        // However, the API expects some data. Let's return an error if updateData is empty.
+         throw Exception('No fields provided for update');
+    }
+
 
     final response = await http.put(
       Uri.parse('$baseUrl/api/transactions/$transactionId'),

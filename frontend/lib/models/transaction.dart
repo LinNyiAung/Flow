@@ -6,6 +6,7 @@ class Transaction {
   final TransactionType type;
   final String mainCategory;
   final String subCategory;
+  final DateTime date; // Added date field
   final String? description;
   final double amount;
   final DateTime createdAt;
@@ -17,6 +18,7 @@ class Transaction {
     required this.type,
     required this.mainCategory,
     required this.subCategory,
+    required this.date, // Added date field
     this.description,
     required this.amount,
     required this.createdAt,
@@ -30,6 +32,7 @@ class Transaction {
       type: json['type'] == 'inflow' ? TransactionType.inflow : TransactionType.outflow,
       mainCategory: json['main_category'],
       subCategory: json['sub_category'],
+      date: DateTime.parse(json['date']), // Parse the date
       description: json['description'],
       amount: json['amount'].toDouble(),
       createdAt: DateTime.parse(json['created_at']),
@@ -37,18 +40,23 @@ class Transaction {
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'user_id': userId,
+  Map<String, dynamic> toJson({bool forUpdate = false}) {
+    // For update, we don't need id, user_id, created_at, updated_at
+    Map<String, dynamic> data = {
       'type': type.name,
       'main_category': mainCategory,
       'sub_category': subCategory,
+      'date': date.toIso8601String(), // Format date for JSON
       'description': description,
       'amount': amount,
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt.toIso8601String(),
     };
+    if (forUpdate) {
+      data.remove('created_at'); // Remove fields not typically updated directly
+      data.remove('updated_at');
+      data.remove('user_id');
+      data.remove('id');
+    }
+    return data;
   }
 }
 

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/screens/transactions/edit_transaction_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/transaction.dart';
 import '../auth/login_screen.dart';
 import '../transactions/add_transaction_screen.dart';
+import '../transactions/edit_transaction_screen.dart'; // Import for editing
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -17,15 +18,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Fetch initial data when the screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-      transactionProvider.fetchTransactions();
-      transactionProvider.fetchBalance();
+      _refreshData(); // Fetch transactions and balance
     });
+  }
+
+  // Function to refresh data (pull-to-refresh and initial load)
+  Future<void> _refreshData() async {
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+    await Future.wait([
+      transactionProvider.fetchTransactions(), // Fetch list of transactions
+      transactionProvider.fetchBalance(),     // Fetch balance details
+    ]);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Listen to AuthProvider for user details and TransactionProvider for data
+    final authProvider = Provider.of<AuthProvider>(context);
+    final transactionProvider = Provider.of<TransactionProvider>(context);
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -33,84 +46,85 @@ class _HomeScreenState extends State<HomeScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF667eea).withOpacity(0.1),
+              Color(0xFF667eea).withOpacity(0.1), // Subtle gradient
               Colors.white,
             ],
           ),
         ),
         child: SafeArea(
+          // RefreshIndicator allows pull-to-refresh
           child: RefreshIndicator(
             onRefresh: _refreshData,
-            child: CustomScrollView(
+            child: CustomScrollView( // Use CustomScrollView for flexible layouts with slivers
               slivers: [
-                // Header
+                // Header Section
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.all(20.0),
-                    child: Consumer<AuthProvider>(
-                      builder: (context, authProvider, child) {
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Welcome back,',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 16,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                                Text(
-                                  authProvider.user?.name ?? 'User',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF333333),
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              'Welcome back,',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                              ),
                             ),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.grey.withOpacity(0.1),
-                                        spreadRadius: 1,
-                                        blurRadius: 4,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Icon(
-                                    Icons.notifications_outlined,
-                                    color: Color(0xFF667eea),
-                                  ),
-                                ),
-                                SizedBox(width: 12),
-                                GestureDetector(
-                                  onTap: () => _showLogoutDialog(context),
-                                  child: CircleAvatar(
-                                    backgroundColor: Color(0xFF667eea),
-                                    child: Text(
-                                      authProvider.user?.name.substring(0, 1).toUpperCase() ?? 'U',
-                                      style: GoogleFonts.poppins(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              authProvider.user?.name ?? 'User', // Display user name
+                              style: GoogleFonts.poppins(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF333333),
+                              ),
                             ),
                           ],
-                        );
-                      },
+                        ),
+                        Row(
+                          children: [
+                            // Notification Icon
+                            Container(
+                              padding: EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.grey.withOpacity(0.1),
+                                    spreadRadius: 1,
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                Icons.notifications_outlined,
+                                color: Color(0xFF667eea),
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            // User Avatar & Logout Option
+                            GestureDetector(
+                              onTap: () => _showLogoutDialog(context),
+                              child: CircleAvatar(
+                                backgroundColor: Color(0xFF667eea),
+                                child: Text(
+                                  authProvider.user?.name != null && authProvider.user!.name.isNotEmpty
+                                      ? authProvider.user!.name[0].toUpperCase() // First initial
+                                      : 'U', // Default if name is empty
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -119,129 +133,75 @@ class _HomeScreenState extends State<HomeScreen> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20),
-                    child: Consumer<TransactionProvider>(
-                      builder: (context, transactionProvider, child) {
-                        final balance = transactionProvider.balance;
-                        return Container(
-                          width: double.infinity,
-                          padding: EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                            ),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Color(0xFF667eea).withOpacity(0.3),
-                                spreadRadius: 2,
-                                blurRadius: 8,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
+                    child: Card( // Using Card for better elevation and shape
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      elevation: 8,
+                      child: Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF667eea), Color(0xFF764ba2)], // Purple gradient
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Total Balance',
-                                    style: GoogleFonts.poppins(
-                                      color: Colors.white.withOpacity(0.8),
-                                      fontSize: 16,
-                                    ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Total Balance',
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.white.withOpacity(0.8),
+                                    fontSize: 16,
                                   ),
-                                  Icon(
-                                    Icons.account_balance_wallet,
-                                    color: Colors.white,
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                '\$${balance?.balance.toStringAsFixed(2) ?? '0.00'}',
-                                style: GoogleFonts.poppins(
-                                  color: Colors.white,
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
                                 ),
+                                Icon(
+                                  Icons.account_balance_wallet,
+                                  color: Colors.white,
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 8),
+                            // Displaying balance, formatted to 2 decimal places
+                            Text(
+                              '\$${transactionProvider.balance?.balance.toStringAsFixed(2) ?? '0.00'}',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
                               ),
-                              SizedBox(height: 16),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(Icons.arrow_upward, color: Colors.white, size: 16),
-                                            SizedBox(width: 4),
-                                            Text(
-                                              'Inflow',
-                                              style: GoogleFonts.poppins(
-                                                color: Colors.white.withOpacity(0.8),
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Text(
-                                          '\$${balance?.totalInflow.toStringAsFixed(2) ?? '0.00'}',
-                                          style: GoogleFonts.poppins(
-                                            color: Colors.white,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    width: 1,
-                                    height: 40,
-                                    color: Colors.white.withOpacity(0.3),
-                                  ),
-                                  Expanded(
-                                    child: Column(
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(Icons.arrow_downward, color: Colors.white, size: 16),
-                                            SizedBox(width: 4),
-                                            Text(
-                                              'Outflows',
-                                              style: GoogleFonts.poppins(
-                                                color: Colors.white.withOpacity(0.8),
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Text(
-                                          '\$${balance?.totalOutflow.toStringAsFixed(2) ?? '0.00'}',
-                                          style: GoogleFonts.poppins(
-                                            color: Colors.white,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                            ),
+                            SizedBox(height: 16),
+                            // Breakdown of Inflow and Outflow
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround, // Distribute space
+                              children: [
+                                _buildBalanceInfo(
+                                  icon: Icons.arrow_upward,
+                                  label: 'Inflow',
+                                  amount: transactionProvider.balance?.totalInflow ?? 0.0,
+                                  color: Colors.green, // Green for inflow
+                                ),
+                                Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)), // Separator
+                                _buildBalanceInfo(
+                                  icon: Icons.arrow_downward,
+                                  label: 'Outflow',
+                                  amount: transactionProvider.balance?.totalOutflow ?? 0.0,
+                                  color: Colors.red, // Red for outflow
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
 
-                SliverToBoxAdapter(child: SizedBox(height: 30)),
+                SliverToBoxAdapter(child: SizedBox(height: 30)), // Spacer
 
                 // AI Assistant Card
                 SliverToBoxAdapter(
@@ -292,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                                 Text(
-                                  'Get personalized insights and recommendations',
+                                  'Get personalized insights',
                                   style: GoogleFonts.poppins(
                                     fontSize: 12,
                                     color: Colors.grey[600],
@@ -312,7 +272,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                SliverToBoxAdapter(child: SizedBox(height: 30)),
+                SliverToBoxAdapter(child: SizedBox(height: 30)), // Spacer
 
                 // Recent Transactions Header
                 SliverToBoxAdapter(
@@ -332,272 +292,242 @@ class _HomeScreenState extends State<HomeScreen> {
                 SliverToBoxAdapter(child: SizedBox(height: 16)),
 
                 // Transactions List
-                Consumer<TransactionProvider>(
-                  builder: (context, transactionProvider, child) {
-                    if (transactionProvider.isLoading) {
-                      return SliverToBoxAdapter(
-                        child: Container(
-                          height: 200,
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                      );
-                    }
-
-                    if (transactionProvider.transactions.isEmpty) {
-                      return SliverToBoxAdapter(
-                        child: Container(
-                          height: 200,
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.receipt_long_outlined,
-                                  size: 64,
-                                  color: Colors.grey[300],
-                                ),
-                                SizedBox(height: 16),
-                                Text(
-                                  'No transactions yet',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 18,
-                                    color: Colors.grey[500],
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  'Tap the + button to add your first transaction',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 14,
-                                    color: Colors.grey[400],
-                                  ),
-                                ),
-                              ],
+                if (transactionProvider.isLoading) // Show loader while fetching
+                  SliverToBoxAdapter(
+                    child: Container(
+                      height: 200,
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  )
+                else if (transactionProvider.transactions.isEmpty) // Show empty state
+                  SliverToBoxAdapter(
+                    child: Container(
+                      height: 200,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.receipt_long_outlined,
+                              size: 64,
+                              color: Colors.grey[300],
                             ),
-                          ),
+                            SizedBox(height: 16),
+                            Text(
+                              'No transactions yet',
+                              style: GoogleFonts.poppins(
+                                fontSize: 18,
+                                color: Colors.grey[500],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              'Tap the + button to add your first transaction',
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                color: Colors.grey[400],
+                              ),
+                            ),
+                          ],
                         ),
-                      );
-                    }
-
-                    return SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final transaction = transactionProvider.transactions[index];
-                          return Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                            child: _buildTransactionCard(transaction),
-                          );
-                        },
-                        childCount: transactionProvider.transactions.length,
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  )
+                else // Display the list of transactions
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final transaction = transactionProvider.transactions[index];
+                        return Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                          child: _buildTransactionCard(transaction), // Build card for each transaction
+                        );
+                      },
+                      childCount: transactionProvider.transactions.length, // Number of items in the list
+                    ),
+                  ),
 
-                SliverToBoxAdapter(child: SizedBox(height: 100)), // Space for FAB
+                SliverToBoxAdapter(child: SizedBox(height: 100)), // Space at bottom for FAB
               ],
             ),
           ),
         ),
       ),
+      // Floating Action Button to add new transactions
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToAddTransaction(),
-        backgroundColor: Color(0xFF667eea),
+        backgroundColor: Color(0xFF667eea), // Primary color for FAB
         child: Icon(Icons.add, color: Colors.white, size: 28),
         elevation: 8,
       ),
     );
   }
 
+  // Helper widget to display balance information (Inflow/Outflow)
+  Widget _buildBalanceInfo({
+    required IconData icon,
+    required String label,
+    required double amount,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 16),
+            SizedBox(width: 4),
+            Text(
+              label,
+              style: GoogleFonts.poppins(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          '\$${amount.toStringAsFixed(2)}', // Formatted amount
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Widget to build a card for each transaction
   Widget _buildTransactionCard(Transaction transaction) {
-  return GestureDetector(
-    onTap: () => _navigateToEditTransaction(transaction),
-    child: Container(
-      margin: EdgeInsets.only(bottom: 8),
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: transaction.type == TransactionType.inflow
-                  ? Color(0xFF4CAF50).withOpacity(0.1)
-                  : Color(0xFFFF5722).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
+    return GestureDetector(
+      onTap: () => _navigateToEditTransaction(transaction), // Navigate to edit screen on tap
+      child: Container(
+        margin: EdgeInsets.only(bottom: 8),
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 4,
             ),
-            child: Icon(
-              transaction.type == TransactionType.inflow
-                  ? Icons.arrow_upward
-                  : Icons.arrow_downward,
-              color: transaction.type == TransactionType.inflow
-                  ? Color(0xFF4CAF50)
-                  : Color(0xFFFF5722),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Transaction Type Icon
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: transaction.type == TransactionType.inflow
+                    ? Color(0xFF4CAF50).withOpacity(0.1) // Light green
+                    : Color(0xFFFF5722).withOpacity(0.1), // Light red
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                transaction.type == TransactionType.inflow
+                    ? Icons.arrow_upward
+                    : Icons.arrow_downward,
+                color: transaction.type == TransactionType.inflow
+                    ? Color(0xFF4CAF50)
+                    : Color(0xFFFF5722),
+              ),
             ),
-          ),
-          SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  transaction.subCategory,
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                Text(
-                  transaction.mainCategory,
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                if (transaction.description != null) ...[
-                  SizedBox(height: 2),
+            SizedBox(width: 16),
+            // Transaction Details (Category, SubCategory, Description)
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    transaction.description!,
+                    transaction.subCategory, // Display sub-category
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF333333),
+                    ),
+                  ),
+                  Text(
+                    transaction.mainCategory, // Display main category
                     style: GoogleFonts.poppins(
                       fontSize: 12,
-                      color: Colors.grey[500],
+                      color: Colors.grey[600],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
+                  // Display description if available and not empty
+                  if (transaction.description != null && transaction.description!.isNotEmpty) ...[
+                    SizedBox(height: 2),
+                    Text(
+                      transaction.description!,
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: Colors.grey[500],
+                      ),
+                      maxLines: 1, // Limit description to one line
+                      overflow: TextOverflow.ellipsis, // Add ellipsis if text is truncated
+                    ),
+                  ],
                 ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  // Display amount with +/- sign and formatted to 2 decimal places
+                  '${transaction.type == TransactionType.inflow ? '+' : '-'}\$${transaction.amount.toStringAsFixed(2)}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: transaction.type == TransactionType.inflow
+                        ? Color(0xFF4CAF50)
+                        : Color(0xFFFF5722),
+                  ),
+                ),
+                SizedBox(height: 4), // Space between amount and date
+                Text(
+                  // Display transaction date formatted
+                  DateFormat('yyyy-MM-dd').format(transaction.date),
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    color: Colors.grey[500],
+                  ),
+                ),
               ],
             ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '${transaction.type == TransactionType.inflow ? '+' : '-'}\$${transaction.amount.toStringAsFixed(2)}',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: transaction.type == TransactionType.inflow
-                      ? Color(0xFF4CAF50)
-                      : Color(0xFFFF5722),
-                ),
-              ),
-              Text(
-                _formatDate(transaction.createdAt),
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  color: Colors.grey[500],
-                ),
-              ),
-            ],
-          ),
-          SizedBox(width: 8),
-          Icon(
-            Icons.arrow_forward_ios,
-            size: 16,
-            color: Colors.grey[400],
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-// Add this method to navigate to edit transaction:
-void _navigateToEditTransaction(Transaction transaction) async {
-  final result = await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => EditTransactionScreen(transaction: transaction),
-    ),
-  );
-
-  if (result == true) {
-    _refreshData();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Transaction updated successfully!',
-          style: GoogleFonts.poppins(color: Colors.white),
+            SizedBox(width: 8),
+            Icon( // Arrow icon to indicate tappable card
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: Colors.grey[400],
+            ),
+          ],
         ),
-        backgroundColor: Color(0xFF4CAF50),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  } else if (result == 'deleted') {
-    _refreshData();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Transaction deleted successfully!',
-          style: GoogleFonts.poppins(color: Colors.white),
-        ),
-        backgroundColor: Colors.red,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        behavior: SnackBarBehavior.floating,
       ),
     );
   }
-}
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inDays == 0) {
-      return 'Today';
-    } else if (difference.inDays == 1) {
-      return 'Yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else {
-      return '${date.day}/${date.month}/${date.year}';
-    }
-  }
-
-  Future<void> _refreshData() async {
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    await Future.wait([
-      transactionProvider.fetchTransactions(),
-      transactionProvider.fetchBalance(),
-    ]);
-  }
-
+  // Navigate to the AddTransactionScreen and handle results
   void _navigateToAddTransaction() async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => AddTransactionScreen()),
     );
 
+    // If the result is 'true', it means a transaction was added successfully
     if (result == true) {
-      // Refresh data if transaction was added successfully
-      _refreshData();
-      
-      // Show success message
+      _refreshData(); // Refresh the data on the home screen
+      // Show a success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             'Transaction added successfully!',
             style: GoogleFonts.poppins(color: Colors.white),
           ),
-          backgroundColor: Color(0xFF4CAF50),
+          backgroundColor: Color(0xFF4CAF50), // Success green
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
@@ -607,6 +537,49 @@ void _navigateToEditTransaction(Transaction transaction) async {
     }
   }
 
+  // Navigate to the EditTransactionScreen and handle results
+  void _navigateToEditTransaction(Transaction transaction) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditTransactionScreen(transaction: transaction), // Pass transaction data
+      ),
+    );
+
+    if (result == true) { // Transaction updated
+      _refreshData(); // Refresh data
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Transaction updated successfully!',
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Color(0xFF4CAF50), // Success green
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else if (result == 'deleted') { // Transaction deleted
+      _refreshData(); // Refresh data
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Transaction deleted successfully!',
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Colors.red, // Error red
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // Show logout confirmation dialog
   void _showLogoutDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -625,7 +598,7 @@ void _navigateToEditTransaction(Transaction transaction) async {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context), // Close dialog
               child: Text(
                 'Cancel',
                 style: GoogleFonts.poppins(color: Colors.grey[600]),
@@ -633,15 +606,16 @@ void _navigateToEditTransaction(Transaction transaction) async {
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(context);
-                Provider.of<AuthProvider>(context, listen: false).logout();
+                Navigator.pop(context); // Close dialog
+                Provider.of<AuthProvider>(context, listen: false).logout(); // Perform logout
+                // Navigate back to login screen and replace current route
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(builder: (_) => LoginScreen()),
                 );
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF667eea),
+                backgroundColor: Color(0xFF667eea), // Primary purple color
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),

@@ -31,6 +31,7 @@ class TransactionCreate(BaseModel):
     type: TransactionType
     main_category: str
     sub_category: str
+    date: datetime # Add this field
     description: Optional[str] = None
     amount: float
 
@@ -38,6 +39,7 @@ class TransactionUpdate(BaseModel):
     type: Optional[TransactionType] = None
     main_category: Optional[str] = None
     sub_category: Optional[str] = None
+    date: Optional[datetime] = None # Add this field
     description: Optional[str] = None
     amount: Optional[float] = None
 
@@ -47,6 +49,7 @@ class TransactionResponse(BaseModel):
     type: TransactionType
     main_category: str
     sub_category: str
+    date: datetime # Add this field
     description: Optional[str]
     amount: float
     created_at: datetime

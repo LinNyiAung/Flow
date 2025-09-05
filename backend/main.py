@@ -1,10 +1,12 @@
+# backend/main.py
+
 from fastapi import FastAPI, HTTPException, status, Depends, Query, Path
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC # Import UTC
 from typing import List, Optional
 from models import (
-    UserCreate, UserLogin, UserResponse, Token, 
+    UserCreate, UserLogin, UserResponse, Token,
     TransactionCreate, TransactionResponse, CategoryResponse, TransactionType,
     TransactionUpdate
 )
@@ -46,7 +48,7 @@ async def register(user_data: UserCreate):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     hashed_password = get_password_hash(user_data.password)
     user_id = str(uuid.uuid4())
     new_user = {
@@ -54,23 +56,23 @@ async def register(user_data: UserCreate):
         "name": user_data.name,
         "email": user_data.email,
         "password": hashed_password,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now(UTC) # Use timezone-aware datetime
     }
-    
+
     users_collection.insert_one(new_user)
-    
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user_data.email}, expires_delta=access_token_expires
     )
-    
+
     user_response = UserResponse(
         id=user_id,
         name=user_data.name,
         email=user_data.email,
         created_at=new_user["created_at"]
     )
-    
+
     return Token(access_token=access_token, token_type="bearer", user=user_response)
 
 @app.post("/api/auth/login", response_model=Token)
@@ -81,19 +83,19 @@ async def login(user_credentials: UserLogin):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
-    
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user["email"]}, expires_delta=access_token_expires
     )
-    
+
     user_response = UserResponse(
         id=user["_id"],
         name=user["name"],
         email=user["email"],
         created_at=user["created_at"]
     )
-    
+
     return Token(access_token=access_token, token_type="bearer", user=user_response)
 
 @app.get("/api/auth/me", response_model=UserResponse)
@@ -118,20 +120,22 @@ async def create_transaction(
         "type": transaction_data.type.value,
         "main_category": transaction_data.main_category,
         "sub_category": transaction_data.sub_category,
+        "date": transaction_data.date, # Use the date from input
         "description": transaction_data.description,
         "amount": transaction_data.amount,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": datetime.now(UTC), # Use timezone-aware datetime
+        "updated_at": datetime.now(UTC)  # Use timezone-aware datetime
     }
-    
+
     transactions_collection.insert_one(new_transaction)
-    
+
     return TransactionResponse(
         id=transaction_id,
         user_id=current_user["_id"],
         type=transaction_data.type,
         main_category=transaction_data.main_category,
         sub_category=transaction_data.sub_category,
+        date=transaction_data.date, # Return the date
         description=transaction_data.description,
         amount=transaction_data.amount,
         created_at=new_transaction["created_at"],
@@ -148,15 +152,18 @@ async def get_transactions(
     query = {"user_id": current_user["_id"]}
     if transaction_type:
         query["type"] = transaction_type.value
-    
+
+    # --- MODIFICATION FOR SORTING BY DATE ---
+    # Sort by 'date' field descending (latest date first)
     transactions = list(
         transactions_collection
         .find(query)
-        .sort("created_at", -1)
+        .sort("date", -1) # Sort by transaction date, descending
         .skip(skip)
         .limit(limit)
     )
-    
+    # ---------------------------------------
+
     return [
         TransactionResponse(
             id=t["_id"],
@@ -164,10 +171,11 @@ async def get_transactions(
             type=TransactionType(t["type"]),
             main_category=t["main_category"],
             sub_category=t["sub_category"],
+            date=t["date"], # Include the date
             description=t["description"],
             amount=t["amount"],
             created_at=t["created_at"],
-            updated_at=t.get("updated_at", t["created_at"])
+            updated_at=t.get("updated_at", t["created_at"]) # Fallback for older entries
         )
         for t in transactions
     ]
@@ -181,19 +189,20 @@ async def get_transaction(
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
-    
+
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
-    
+
     return TransactionResponse(
         id=transaction["_id"],
         user_id=transaction["user_id"],
         type=TransactionType(transaction["type"]),
         main_category=transaction["main_category"],
         sub_category=transaction["sub_category"],
+        date=transaction["date"], # Include the date
         description=transaction["description"],
         amount=transaction["amount"],
         created_at=transaction["created_at"],
@@ -211,42 +220,45 @@ async def update_transaction(
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
-    
+
     if not existing_transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
-    
+
     # Prepare update data (only include fields that are provided)
-    update_data = {"updated_at": datetime.utcnow()}
-    
+    update_data = {"updated_at": datetime.now(UTC)} # Use timezone-aware datetime
+
     if transaction_data.type is not None:
         update_data["type"] = transaction_data.type.value
     if transaction_data.main_category is not None:
         update_data["main_category"] = transaction_data.main_category
     if transaction_data.sub_category is not None:
         update_data["sub_category"] = transaction_data.sub_category
+    if transaction_data.date is not None: # Handle the date update
+        update_data["date"] = transaction_data.date
     if transaction_data.description is not None:
         update_data["description"] = transaction_data.description
     if transaction_data.amount is not None:
         update_data["amount"] = transaction_data.amount
-    
+
     # Update the transaction
     transactions_collection.update_one(
         {"_id": transaction_id},
         {"$set": update_data}
     )
-    
+
     # Get updated transaction
     updated_transaction = transactions_collection.find_one({"_id": transaction_id})
-    
+
     return TransactionResponse(
         id=updated_transaction["_id"],
         user_id=updated_transaction["user_id"],
         type=TransactionType(updated_transaction["type"]),
         main_category=updated_transaction["main_category"],
         sub_category=updated_transaction["sub_category"],
+        date=updated_transaction["date"], # Return the updated date
         description=updated_transaction["description"],
         amount=updated_transaction["amount"],
         created_at=updated_transaction["created_at"],
@@ -263,25 +275,25 @@ async def delete_transaction(
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
-    
+
     if not existing_transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
-    
+
     # Delete the transaction
     result = transactions_collection.delete_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
-    
+
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete transaction"
         )
-    
+
     return {"message": "Transaction deleted successfully"}
 
 @app.get("/api/categories/{transaction_type}", response_model=List[CategoryResponse])
@@ -289,7 +301,7 @@ async def get_categories(transaction_type: TransactionType):
     categories_doc = categories_collection.find_one({"_id": transaction_type.value})
     if not categories_doc:
         return []
-    
+
     return [
         CategoryResponse(
             main_category=cat["main_category"],
@@ -305,19 +317,19 @@ async def get_balance(current_user: dict = Depends(get_current_user)):
         {"$match": {"user_id": current_user["_id"], "type": "inflow"}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
     ]
-    
+
     pipeline_outflow = [
         {"$match": {"user_id": current_user["_id"], "type": "outflow"}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
     ]
-    
+
     inflow_result = list(transactions_collection.aggregate(pipeline_inflow))
     outflow_result = list(transactions_collection.aggregate(pipeline_outflow))
-    
+
     total_inflow = inflow_result[0]["total"] if inflow_result else 0
     total_outflow = outflow_result[0]["total"] if outflow_result else 0
     balance = total_inflow - total_outflow
-    
+
     return {
         "balance": balance,
         "total_inflow": total_inflow,
