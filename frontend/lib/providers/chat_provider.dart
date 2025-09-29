@@ -1,5 +1,3 @@
-// providers/chat_provider.dart - Updated with streaming support
-
 import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../services/api_service.dart';
@@ -13,7 +11,6 @@ class ChatProvider with ChangeNotifier {
   FinancialInsights? _insights;
   bool _isLoadingInsights = false;
   
-  // Add streaming-specific state
   bool _isStreaming = false;
   String _currentStreamingMessage = '';
   StreamSubscription? _streamSubscription;
@@ -62,45 +59,47 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Updated sendMessage method with streaming
+  // FIXED: Send chat history BEFORE adding the new user message
   Future<bool> sendMessage(String message) async {
     if (message.trim().isEmpty) return false;
 
-    // Cancel any existing stream
     await _cancelStream();
 
     _setSendingMessage(true);
     _setError(null);
     _resetStreamingMessage();
 
-    // Add user message to the chat immediately
-    final userMessage = ChatMessage(
-      role: MessageRole.user,
-      content: message,
-      timestamp: DateTime.now(),
-    );
-    _messages.add(userMessage);
-    notifyListeners();
-
     try {
       _setStreaming(true);
       
-      // Create a placeholder AI message that will be updated as we stream
+      // IMPORTANT: Get chat history BEFORE adding the new user message
+      final chatHistoryToSend = _messages.length > 10 
+          ? _messages.sublist(_messages.length - 10)
+          : List<ChatMessage>.from(_messages);
+      
+      // NOW add user message to UI
+      final userMessage = ChatMessage(
+        role: MessageRole.user,
+        content: message,
+        timestamp: DateTime.now(),
+      );
+      _messages.add(userMessage);
+      notifyListeners();
+      
+      // Create placeholder AI message
       final aiMessageIndex = _messages.length;
       final aiMessage = ChatMessage(
         role: MessageRole.assistant,
-        content: '', // Start empty
+        content: '',
         timestamp: DateTime.now(),
       );
       _messages.add(aiMessage);
       notifyListeners();
 
-      // Start streaming
+      // Start streaming with the OLD chat history (before we added the new message)
       final stream = ApiService.streamChatMessage(
         message: message,
-        chatHistory: _messages.length > 12 
-            ? _messages.sublist(_messages.length - 12, _messages.length - 1) // Exclude the empty AI message we just added
-            : _messages.sublist(0, _messages.length - 1),
+        chatHistory: chatHistoryToSend, // Use the history from before we added the message
       );
 
       String fullResponse = '';
@@ -109,7 +108,6 @@ class ChatProvider with ChangeNotifier {
         (chunk) {
           fullResponse += chunk;
           
-          // Update the AI message in place
           _messages[aiMessageIndex] = ChatMessage(
             role: MessageRole.assistant,
             content: fullResponse,
@@ -122,7 +120,6 @@ class ChatProvider with ChangeNotifier {
           _setStreaming(false);
           _setSendingMessage(false);
           
-          // Remove the empty AI message on error
           if (aiMessageIndex < _messages.length) {
             _messages.removeAt(aiMessageIndex);
             notifyListeners();
@@ -133,7 +130,6 @@ class ChatProvider with ChangeNotifier {
           _setSendingMessage(false);
           _resetStreamingMessage();
           
-          // Ensure the final message is properly set
           if (aiMessageIndex < _messages.length && fullResponse.isNotEmpty) {
             _messages[aiMessageIndex] = ChatMessage(
               role: MessageRole.assistant,
@@ -153,7 +149,6 @@ class ChatProvider with ChangeNotifier {
       _setSendingMessage(false);
       _resetStreamingMessage();
       
-      // Remove the empty AI message if there was an error
       if (_messages.isNotEmpty && _messages.last.role == MessageRole.assistant && _messages.last.content.isEmpty) {
         _messages.removeLast();
         notifyListeners();
@@ -163,7 +158,6 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Helper method to cancel streaming
   Future<void> _cancelStream() async {
     if (_streamSubscription != null) {
       await _streamSubscription!.cancel();
@@ -173,7 +167,6 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Load chat history from server
   Future<void> loadChatHistory() async {
     _setLoading(true);
     _setError(null);
@@ -187,10 +180,9 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Clear chat history
   Future<bool> clearChatHistory() async {
     try {
-      await _cancelStream(); // Cancel any ongoing stream
+      await _cancelStream();
       await ApiService.clearChatHistory();
       _messages.clear();
       _resetStreamingMessage();
@@ -202,7 +194,6 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Get financial insights
   Future<void> getFinancialInsights() async {
     _setLoadingInsights(true);
     _setError(null);
@@ -216,7 +207,6 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Refresh AI data (call this after adding/updating transactions)
   Future<void> refreshAiData() async {
     try {
       await ApiService.refreshAiData();
@@ -225,23 +215,19 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Clear error
   void clearError() {
     _error = null;
     notifyListeners();
   }
 
-  // Add a quick suggestion message
   void addQuickMessage(String message) {
     sendMessage(message);
   }
 
-  // Stop current streaming (for user-initiated cancellation)
   Future<void> stopStreaming() async {
     await _cancelStream();
     _setSendingMessage(false);
     
-    // Complete the current message if there's partial content
     if (_currentStreamingMessage.isNotEmpty && _messages.isNotEmpty) {
       final lastMessage = _messages.last;
       if (lastMessage.role == MessageRole.assistant) {
