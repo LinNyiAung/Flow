@@ -1,5 +1,3 @@
-# backend/ai_chatbot.py - Fixed version with date filtering corrected
-
 import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
@@ -333,15 +331,31 @@ class FinancialChatbot:
                     role = "User" if msg.get("role") == "user" else "Assistant"
                     history_text += f"{role}: {msg.get('content', '')}\n"
             
-            # Create the full prompt (same as before)
-            full_prompt = f"""
-You are Flow Finance AI, a helpful personal finance assistant. You have access to the user's actual financial transaction data.
+            # ============ SEPARATED PROMPTS ============
+            
+            # SYSTEM PROMPT - Role, capabilities, and instructions
+            system_prompt = """You are Flow Finance AI, a helpful personal finance assistant with access to the user's actual financial transaction data.
 
-User Information:
+Your capabilities:
+- Analyze user's real financial transactions, income, and expenses
+- Provide specific insights based on actual amounts and categories
+- Offer actionable financial recommendations
+- Answer questions about spending patterns and financial health
+
+Instructions:
+- Always base your answers on the user's ACTUAL financial data provided
+- Be specific with amounts and categories when available
+- Provide actionable insights and recommendations
+- Always format money amounts as $X.XX
+- If you cannot find specific information, mention what data you do have access to
+- Be conversational, friendly, and helpful
+- Never make up data - only use what's provided in the context
+- Only answer about the asked content"""
+
+            # USER PROMPT - User-specific data and the actual question
+            user_prompt = f"""User Information:
 - Name: {user.get('name', 'User')}
 - Email: {user.get('email', '')}
-
-IMPORTANT: The user HAS financial data available. Use the context and summary below to answer their questions.
 
 Current Financial Summary:
 - Balance: ${summary.get('balance', 0):.2f}
@@ -361,19 +375,7 @@ Detailed Context from User's Financial Data:
 Chat History:
 {history_text}
 
-User's Question: {message}
-
-Instructions:
-- Answer based on the user's ACTUAL financial data shown above
-- Be specific with amounts and categories when available
-- Provide actionable insights and recommendations
-- Always format money amounts as $X.XX
-- If you cannot find specific information, mention what data you do have access to
-- Be conversational and helpful
-- Use the financial summary and context to provide accurate information
-
-Response:
-"""
+User's Question: {message}"""
             
             # Get streaming response from OpenAI
             if not self.openai_api_key:
@@ -386,11 +388,8 @@ Response:
             stream = await client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are Flow Finance AI, a helpful personal finance assistant with access to the user's actual financial data. Always use the provided data to give specific, helpful answers."
-                    },
-                    {"role": "user", "content": full_prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
                 max_tokens=800,
@@ -418,9 +417,20 @@ Response:
             if summary.get("message"):
                 return "I don't have enough financial data to provide insights yet. Please add some transactions first!"
             
-            # Create insights prompt with financial data
-            insights_prompt = f"""
-Analyze this user's financial data and provide 4-5 key insights and actionable recommendations:
+            # ============ SEPARATED PROMPTS FOR INSIGHTS ============
+            
+            # System prompt for insights
+            system_prompt = """You are Flow Finance AI, a financial analyst providing personalized insights based on real user data.
+
+Your role:
+- Analyze financial patterns and trends
+- Identify potential savings opportunities
+- Provide specific, actionable recommendations
+- Speak directly to the user in a friendly, conversational tone
+- Reference actual amounts and categories from their data"""
+            
+            # User prompt with financial data
+            user_prompt = f"""Analyze this user's financial data and provide 4-5 key insights and actionable recommendations:
 
 Financial Summary:
 - Current Balance: ${summary.get('balance', 0):.2f}
@@ -443,10 +453,7 @@ Provide insights on:
 2. Top expense categories and potential savings
 3. Income vs expense ratio
 4. Specific actionable recommendations
-5. Any concerning trends or positive financial behaviors
-
-Be specific, reference actual amounts, and speak directly to the user in a friendly, conversational tone.
-"""
+5. Any concerning trends or positive financial behaviors"""
             
             # Get response from OpenAI
             if not self.openai_api_key:
@@ -458,8 +465,8 @@ Be specific, reference actual amounts, and speak directly to the user in a frien
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are Flow Finance AI providing personalized financial insights based on real user data."},
-                    {"role": "user", "content": insights_prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
                 max_tokens=1000
