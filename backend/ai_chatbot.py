@@ -133,24 +133,36 @@ class FinancialDataProcessor:
             metadata={"type": "financial_summary", "user_id": self.user_id}
         ))
         
-        # Add individual transaction documents for better search
+        # Add individual transaction documents with enhanced date information
         for transaction in transactions:
             # Handle datetime formatting
             if isinstance(transaction["date"], str):
-                date_str = transaction["date"]
+                date_obj = datetime.fromisoformat(transaction["date"].replace("Z", "+00:00"))
             else:
-                date_str = transaction["date"].isoformat()
+                date_obj = transaction["date"]
+            
+            date_str = date_obj.isoformat()
+            
+            # Add human-readable date information
+            day_of_week = date_obj.strftime("%A")  # Monday, Tuesday, etc.
+            month_name = date_obj.strftime("%B")   # January, February, etc.
+            year = date_obj.year
+            week_number = date_obj.isocalendar()[1]  # ISO week number
             
             transaction_text = f"""
             Transaction Details:
             Date: {date_str}
+            Human-readable Date: {day_of_week}, {month_name} {date_obj.day}, {year}
+            Week Number: Week {week_number} of {year}
+            Day of Week: {day_of_week}
+            Month: {month_name} {year}
             Type: {transaction["type"].title()}
             Category: {transaction["main_category"]} > {transaction["sub_category"]}
             Amount: ${transaction["amount"]:.2f}
             Description: {transaction.get("description", "N/A")}
             
-            This is a {transaction["type"]} transaction in the {transaction["main_category"]} category, 
-            specifically for {transaction["sub_category"]}.
+            This is a {transaction["type"]} transaction that occurred on {day_of_week}, {month_name} {date_obj.day}, {year}.
+            It belongs to the {transaction["main_category"]} category, specifically for {transaction["sub_category"]}.
             """
             
             documents.append(Document(
@@ -161,7 +173,12 @@ class FinancialDataProcessor:
                     "transaction_type": transaction["type"],
                     "category": transaction["main_category"],
                     "subcategory": transaction["sub_category"],
-                    "amount": transaction["amount"]
+                    "amount": transaction["amount"],
+                    "date": date_str,
+                    "day_of_week": day_of_week,
+                    "month": month_name,
+                    "year": year,
+                    "week_number": week_number
                 }
             ))
         
@@ -186,9 +203,17 @@ class FinancialDataProcessor:
             """
             
             for t in data["transactions"][-5:]:  # Last 5 transactions
-                date_str = t["date"].isoformat() if not isinstance(t["date"], str) else t["date"]
+                if isinstance(t["date"], str):
+                    date_obj = datetime.fromisoformat(t["date"].replace("Z", "+00:00"))
+                else:
+                    date_obj = t["date"]
+                
+                date_str = date_obj.isoformat()
+                day_of_week = date_obj.strftime("%A")
+                month_name = date_obj.strftime("%B")
+                
                 category_text += f"""
-                - {date_str}: ${t["amount"]:.2f} - {t.get("description", "No description")}
+                - {day_of_week}, {month_name} {date_obj.day}, {date_obj.year}: ${t["amount"]:.2f} - {t.get("description", "No description")}
                 """
             
             documents.append(Document(
@@ -331,23 +356,48 @@ class FinancialChatbot:
                     role = "User" if msg.get("role") == "user" else "Assistant"
                     history_text += f"{role}: {msg.get('content', '')}\n"
             
+            # Get current date information
+            now = datetime.now(timezone.utc)
+            current_date_str = now.strftime("%A, %B %d, %Y")  # e.g., "Monday, October 01, 2025"
+            current_time_str = now.strftime("%I:%M %p %Z")     # e.g., "02:30 PM UTC"
+            current_week = now.isocalendar()[1]
+            
             # ============ SEPARATED PROMPTS ============
             
             # SYSTEM PROMPT - Role, capabilities, and instructions
-            system_prompt = """You are Flow Finance AI, a helpful personal finance assistant with access to the user's actual financial transaction data.
+            system_prompt = f"""You are Flow Finance AI, a helpful personal finance assistant with access to the user's actual financial transaction data.
+
+CRITICAL DATE AWARENESS:
+- Today's date is: {current_date_str}
+- Current time: {current_time_str}
+- Current week: Week {current_week} of {now.year}
+- Current month: {now.strftime("%B %Y")}
+- Current year: {now.year}
+
+When users ask about time periods:
+- "today" = {now.strftime("%B %d, %Y")}
+- "this week" = Week {current_week} of {now.year}
+- "this month" = {now.strftime("%B %Y")}
+- "last week" = Week {current_week - 1} of {now.year}
+- "last month" = {(now.replace(day=1) - timedelta(days=1)).strftime("%B %Y")}
+- Always calculate relative dates from today's date
 
 Your capabilities:
-- Analyze user's real financial transactions, income, and expenses
-- Provide specific insights based on actual amounts and categories
-- Offer actionable financial recommendations
-- Answer questions about spending patterns and financial health
+- Analyze user's real financial transactions with accurate date awareness
+- Answer questions about specific days, weeks, months, and date ranges
+- Provide specific insights based on actual amounts, categories, and dates
+- Offer actionable financial recommendations based on temporal patterns
+- Compare spending across different time periods
 
 Instructions:
 - Always base your answers on the user's ACTUAL financial data provided
-- Be specific with amounts and categories when available
+- Pay careful attention to transaction dates when answering time-specific questions
+- When users ask about "today", "yesterday", "this week", "last month", etc., calculate the exact date range
+- Be specific with amounts, categories, AND dates when available
 - Provide actionable insights and recommendations
 - Always format money amounts as $X.XX
-- If you cannot find specific information, mention what data you do have access to
+- Always format dates in a human-readable way (e.g., "Monday, October 1, 2025")
+- If you cannot find specific information for a requested time period, clearly state that
 - Be conversational, friendly, and helpful
 - Never make up data - only use what's provided in the context
 - Only answer about the asked content"""
@@ -356,6 +406,12 @@ Instructions:
             user_prompt = f"""User Information:
 - Name: {user.get('name', 'User')}
 - Email: {user.get('email', '')}
+
+Current Date and Time Reference:
+- Today is: {current_date_str}
+- Current time: {current_time_str}
+- Current week: Week {current_week} of {now.year}
+- Current month: {now.strftime("%B %Y")}
 
 Current Financial Summary:
 - Balance: ${summary.get('balance', 0):.2f}
@@ -369,13 +425,15 @@ Top Income Categories:
 Top Expense Categories:
 {json.dumps(summary.get('top_outflow_categories', {}), indent=2)}
 
-Detailed Context from User's Financial Data:
+Detailed Context from User's Financial Data (includes transaction dates):
 {context}
 
 Chat History:
 {history_text}
 
-User's Question: {message}"""
+User's Question: {message}
+
+Remember: Use today's date ({current_date_str}) as your reference point for all relative time questions."""
             
             # Get streaming response from OpenAI
             if not self.openai_api_key:
@@ -417,20 +475,29 @@ User's Question: {message}"""
             if summary.get("message"):
                 return "I don't have enough financial data to provide insights yet. Please add some transactions first!"
             
+            # Get current date information
+            now = datetime.now(timezone.utc)
+            current_date_str = now.strftime("%A, %B %d, %Y")
+            
             # ============ SEPARATED PROMPTS FOR INSIGHTS ============
             
             # System prompt for insights
-            system_prompt = """You are Flow Finance AI, a financial analyst providing personalized insights based on real user data.
+            system_prompt = f"""You are Flow Finance AI, a financial analyst providing personalized insights based on real user data.
+
+Current Date: {current_date_str}
 
 Your role:
-- Analyze financial patterns and trends
+- Analyze financial patterns and trends with date awareness
 - Identify potential savings opportunities
 - Provide specific, actionable recommendations
 - Speak directly to the user in a friendly, conversational tone
-- Reference actual amounts and categories from their data"""
+- Reference actual amounts, categories, AND dates from their data
+- Use temporal context (recent vs older transactions, monthly trends, etc.)"""
             
             # User prompt with financial data
-            user_prompt = f"""Analyze this user's financial data and provide 4-5 key insights and actionable recommendations:
+            user_prompt = f"""Analyze this user's financial data and provide 4-5 key insights and actionable recommendations.
+
+Today's date for reference: {current_date_str}
 
 Financial Summary:
 - Current Balance: ${summary.get('balance', 0):.2f}
@@ -438,6 +505,7 @@ Financial Summary:
 - Total Expenses: ${summary.get('total_outflow', 0):.2f}
 - Number of Transactions: {summary.get('total_transactions', 0)}
 - Average Transaction: ${summary.get('avg_transaction_amount', 0):.2f}
+- Date Range: {summary.get('date_range', {}).get('from', 'N/A')} to {summary.get('date_range', {}).get('to', 'N/A')}
 
 Top Income Categories:
 {json.dumps(summary.get('top_inflow_categories', {}), indent=2)}
@@ -449,11 +517,11 @@ Monthly Trends:
 {json.dumps(summary.get('monthly_trends', {}), indent=2)}
 
 Provide insights on:
-1. Spending patterns and trends
+1. Spending patterns and trends (reference specific time periods)
 2. Top expense categories and potential savings
 3. Income vs expense ratio
 4. Specific actionable recommendations
-5. Any concerning trends or positive financial behaviors"""
+5. Any concerning trends or positive financial behaviors (note if they're recent or ongoing)"""
             
             # Get response from OpenAI
             if not self.openai_api_key:
