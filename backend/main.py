@@ -16,7 +16,6 @@ from models import (
 )
 from chat_models import (
     ChatRequest, ChatResponse, ChatMessage, MessageRole,
-    InsightsResponse
 )
 from database import (
     users_collection, transactions_collection, categories_collection,
@@ -520,27 +519,6 @@ async def clear_chat_history(current_user: dict = Depends(get_current_user)):
             detail="An error occurred while clearing chat history"
         )
 
-
-@app.get("/api/insights", response_model=InsightsResponse)
-async def get_financial_insights(current_user: dict = Depends(get_current_user)):
-    """Get AI-generated financial insights"""
-    if financial_chatbot is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI service is currently unavailable"
-        )
-    
-    try:
-        insights = financial_chatbot.get_financial_insights(current_user["_id"])
-        return InsightsResponse(insights=insights, generated_at=datetime.now(UTC))
-    except Exception as e:
-        print(f"Insights error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while generating insights"
-        )
 
 
 @app.post("/api/chat/refresh-data")

@@ -361,20 +361,6 @@ class ApiService {
     }
   }
 
-  static Future<FinancialInsights> getFinancialInsights() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/insights'),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      return FinancialInsights.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to get financial insights');
-    }
-  }
-
   static Future<void> refreshAiData() async {
     final response = await http.post(
       Uri.parse('$baseUrl/api/chat/refresh-data'),

@@ -28,7 +28,3 @@ class ChatSession(BaseModel):
     messages: List[ChatMessage]
     created_at: datetime
     updated_at: datetime
-
-class InsightsResponse(BaseModel):
-    insights: str
-    generated_at: datetime

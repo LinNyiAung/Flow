@@ -63,20 +63,3 @@ class ChatResponse {
     );
   }
 }
-
-class FinancialInsights {
-  final String insights;
-  final DateTime generatedAt;
-
-  FinancialInsights({
-    required this.insights,
-    required this.generatedAt,
-  });
-
-  factory FinancialInsights.fromJson(Map<String, dynamic> json) {
-    return FinancialInsights(
-      insights: json['insights'],
-      generatedAt: DateTime.parse(json['generated_at']),
-    );
-  }
-}

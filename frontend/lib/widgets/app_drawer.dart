@@ -133,18 +133,6 @@ class AppDrawer extends StatelessWidget {
                     },
                   ),
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Icon(Icons.lightbulb_outline, color: Colors.orange),
-                    title: Text(
-                      'Financial Insights',
-                      style: GoogleFonts.poppins(fontSize: 16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/insights');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                 ],
               ),
             ),

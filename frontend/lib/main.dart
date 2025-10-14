@@ -6,7 +6,6 @@ import 'providers/chat_provider.dart'; // Add this import
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/ai/ai_chat_screen.dart'; // Add this import
-import 'screens/ai/financial_insights_screen.dart'; // Add this import
 
 void main() {
   runApp(MyApp());
@@ -59,7 +58,7 @@ class MyApp extends StatelessWidget {
         routes: {
           '/': (context) => AuthWrapper(),
           '/ai-chat': (context) => AiChatScreen(),
-          '/insights': (context) => FinancialInsightsScreen(),
+          
         },
         // REMOVED: Don't use home property when routes contains '/'
         // home: AuthWrapper(),

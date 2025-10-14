@@ -160,21 +160,9 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             onSelected: (value) {
               if (value == 'clear') {
                 _showClearHistoryDialog();
-              } else if (value == 'insights') {
-                _navigateToInsights();
-              }
+              } 
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'insights',
-                child: Row(
-                  children: [
-                    Icon(Icons.lightbulb_outline, size: 20, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Text('Financial Insights'),
-                  ],
-                ),
-              ),
               PopupMenuItem(
                 value: 'clear',
                 child: Row(
@@ -616,7 +604,5 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     );
   }
 
-  void _navigateToInsights() {
-    Navigator.pushNamed(context, '/insights');
-  }
+  
 }

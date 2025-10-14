@@ -367,57 +367,6 @@ Question: {message}"""
             import traceback
             traceback.print_exc()
             yield f"I encountered an error: {str(e)}"
-    
-    def get_financial_insights(self, user_id: str) -> str:
-        """Generate automatic financial insights"""
-        try:
-            processor = FinancialDataProcessor(user_id)
-            summary = processor.get_financial_summary()
-            
-            if summary.get("message"):
-                return "I don't have enough financial data to provide insights yet. Please add some transactions first!"
-            
-            today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
-            
-            system_prompt = f"""You are Flow Finance AI, a financial analyst.
-Today: {today}
-
-Provide 4-5 key insights and actionable recommendations based on the user's financial data.
-Be specific, friendly, and focus on practical advice."""
-            
-            user_prompt = f"""Analyze this financial data:
-
-Balance: ${summary.get('balance', 0):.2f}
-Income: ${summary.get('total_inflow', 0):.2f}
-Expenses: ${summary.get('total_outflow', 0):.2f}
-Transactions: {summary.get('total_transactions', 0)}
-Period: {summary.get('date_range', {}).get('from', 'N/A')} to {summary.get('date_range', {}).get('to', 'N/A')}
-
-Top Income: {json.dumps(summary.get('top_inflow_categories', {}), indent=2)}
-Top Expenses: {json.dumps(summary.get('top_outflow_categories', {}), indent=2)}
-Monthly Trends: {json.dumps(summary.get('monthly_trends', {}), indent=2)}"""
-            
-            if not self.openai_api_key:
-                return "AI service is not available."
-            
-            from openai import OpenAI
-            client = OpenAI(api_key=self.openai_api_key)
-            
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.1,
-                max_tokens=1000
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            print(f"Insights error: {str(e)}")
-            return "Unable to generate insights at this time."
 
 
 # Global chatbot instance

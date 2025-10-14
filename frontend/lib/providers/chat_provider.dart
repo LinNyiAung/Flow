@@ -8,8 +8,6 @@ class ChatProvider with ChangeNotifier {
   bool _isLoading = false;
   bool _isSendingMessage = false;
   String? _error;
-  FinancialInsights? _insights;
-  bool _isLoadingInsights = false;
   
   bool _isStreaming = false;
   String _currentStreamingMessage = '';
@@ -19,8 +17,6 @@ class ChatProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isSendingMessage => _isSendingMessage;
   String? get error => _error;
-  FinancialInsights? get insights => _insights;
-  bool get isLoadingInsights => _isLoadingInsights;
   bool get isStreaming => _isStreaming;
   String get currentStreamingMessage => _currentStreamingMessage;
 
@@ -31,11 +27,6 @@ class ChatProvider with ChangeNotifier {
 
   void _setSendingMessage(bool sending) {
     _isSendingMessage = sending;
-    notifyListeners();
-  }
-
-  void _setLoadingInsights(bool loading) {
-    _isLoadingInsights = loading;
     notifyListeners();
   }
 
@@ -191,19 +182,6 @@ class ChatProvider with ChangeNotifier {
     } catch (e) {
       _setError(e.toString().replaceAll('Exception: ', ''));
       return false;
-    }
-  }
-
-  Future<void> getFinancialInsights() async {
-    _setLoadingInsights(true);
-    _setError(null);
-
-    try {
-      _insights = await ApiService.getFinancialInsights();
-      _setLoadingInsights(false);
-    } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoadingInsights(false);
     }
   }
 
