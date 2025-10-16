@@ -8,7 +8,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 
-from database import transactions_collection, users_collection
+from database import transactions_collection, users_collection, goals_collection
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -54,6 +54,16 @@ class FinancialDataProcessor:
             return transactions
         except Exception as e:
             print(f"Error fetching transactions: {e}")
+            return []
+    
+    def get_user_goals(self) -> List[Dict]:
+        """Get user's financial goals"""
+        try:
+            goals = list(goals_collection.find({"user_id": self.user_id}).sort("created_at", -1))
+            print(f"Found {len(goals)} goals for user {self.user_id}")
+            return goals
+        except Exception as e:
+            print(f"Error fetching goals: {e}")
             return []
     
     def get_financial_summary(self) -> Dict[str, Any]:
@@ -103,25 +113,87 @@ class FinancialDataProcessor:
     def create_financial_documents(self) -> List[Document]:
         """Create optimized documents for GPT-4 with clear chronological structure"""
         transactions = self.get_user_transactions()
+        goals = self.get_user_goals()
         summary = self.get_financial_summary()
         documents = []
         
+        # === FINANCIAL GOALS OVERVIEW ===
+        if goals:
+            goals_text = "╔═══════════════════════════════════════════════════╗\n"
+            goals_text += "║           FINANCIAL GOALS OVERVIEW                ║\n"
+            goals_text += "╚═══════════════════════════════════════════════════╝\n\n"
+            
+            active_goals = [g for g in goals if g["status"] == "active"]
+            achieved_goals = [g for g in goals if g["status"] == "achieved"]
+            
+            total_allocated = sum(g["current_amount"] for g in active_goals)
+            total_target = sum(g["target_amount"] for g in active_goals)
+            
+            goals_text += f"📊 Summary:\n"
+            goals_text += f"  • Total Goals: {len(goals)}\n"
+            goals_text += f"  • Active Goals: {len(active_goals)}\n"
+            goals_text += f"  • Achieved Goals: {len(achieved_goals)}\n"
+            goals_text += f"  • Total Allocated: ${total_allocated:.2f}\n"
+            goals_text += f"  • Total Target (Active): ${total_target:.2f}\n"
+            goals_text += f"  • Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
+            
+            if active_goals:
+                goals_text += "🎯 ACTIVE GOALS:\n\n"
+                for idx, g in enumerate(active_goals, 1):
+                    progress = (g["current_amount"] / g["target_amount"] * 100) if g["target_amount"] > 0 else 0
+                    remaining = g["target_amount"] - g["current_amount"]
+                    
+                    goals_text += f"──── Goal #{idx}: {g['name']} ────\n"
+                    goals_text += f"Type: {g['goal_type'].replace('_', ' ').title()}\n"
+                    goals_text += f"Target: ${g['target_amount']:.2f}\n"
+                    goals_text += f"Current: ${g['current_amount']:.2f}\n"
+                    goals_text += f"Remaining: ${remaining:.2f}\n"
+                    goals_text += f"Progress: {progress:.1f}%\n"
+                    
+                    if g.get("target_date"):
+                        target_date = ensure_utc_datetime(g["target_date"])
+                        days_remaining = (target_date - datetime.now(timezone.utc)).days
+                        goals_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
+                        goals_text += f"Days Remaining: {days_remaining}\n"
+                        
+                        if days_remaining > 0 and remaining > 0:
+                            daily_needed = remaining / days_remaining
+                            goals_text += f"Daily Savings Needed: ${daily_needed:.2f}\n"
+                    
+                    goals_text += f"Created: {ensure_utc_datetime(g['created_at']).strftime('%b %d, %Y')}\n\n"
+            
+            if achieved_goals:
+                goals_text += "🏆 ACHIEVED GOALS:\n\n"
+                for idx, g in enumerate(achieved_goals, 1):
+                    goals_text += f"✓ {g['name']}: ${g['target_amount']:.2f}\n"
+                    if g.get("achieved_at"):
+                        achieved_date = ensure_utc_datetime(g["achieved_at"])
+                        goals_text += f"  Achieved: {achieved_date.strftime('%b %d, %Y')}\n"
+                    goals_text += "\n"
+            
+            documents.append(Document(
+                page_content=goals_text,
+                metadata={
+                    "type": "goals_overview",
+                    "user_id": self.user_id,
+                    "priority": "high"
+                }
+            ))
+        
         # === CRITICAL: CHRONOLOGICAL INDEX ===
-        # This is THE MOST IMPORTANT document for "latest/recent" queries
-        chronological_text = "╔══════════════════════════════════════════════════════╗\n"
+        chronological_text = "╔═══════════════════════════════════════════════════╗\n"
         chronological_text += "║   TRANSACTION TIMELINE - NEWEST TO OLDEST          ║\n"
-        chronological_text += "╚══════════════════════════════════════════════════════╝\n\n"
+        chronological_text += "╚═══════════════════════════════════════════════════╝\n\n"
         chronological_text += "⚠️ IMPORTANT: The transactions below are sorted NEWEST FIRST.\n"
         chronological_text += "When asked about 'latest', 'recent', 'last', or 'newest' - Transaction #1 is the MOST RECENT.\n\n"
         
-        for idx, t in enumerate(transactions[:25], 1):  # Top 25 most recent
+        for idx, t in enumerate(transactions[:25], 1):
             date_obj = ensure_utc_datetime(t["date"])
             days_ago = (datetime.now(timezone.utc) - date_obj).days
             
-            # Visual indicator for very recent transactions
             recency_indicator = "🔴 TODAY" if days_ago == 0 else f"📅 {days_ago} days ago"
             
-            chronological_text += f"═══ Transaction #{idx} ({recency_indicator}) ═══\n"
+            chronological_text += f"─── Transaction #{idx} ({recency_indicator}) ───\n"
             chronological_text += f"Date: {date_obj.strftime('%A, %B %d, %Y')} ({get_date_only(t['date'])})\n"
             chronological_text += f"Type: {t['type'].title()}\n"
             chronological_text += f"Amount: ${t['amount']:.2f}\n"
@@ -143,10 +215,23 @@ class FinancialDataProcessor:
         ))
         
         # === FINANCIAL SUMMARY ===
-        summary_text = "╔══════════════════════════════════════════════════════╗\n"
+        summary_text = "╔═══════════════════════════════════════════════════╗\n"
         summary_text += "║              FINANCIAL SUMMARY                       ║\n"
-        summary_text += "╚══════════════════════════════════════════════════════╝\n\n"
-        summary_text += f"Current Balance: ${summary.get('balance', 0):.2f}\n"
+        summary_text += "╚═══════════════════════════════════════════════════╝\n\n"
+        
+        # Add goals impact to summary
+        if goals:
+            active_goals = [g for g in goals if g["status"] == "active"]
+            total_allocated = sum(g["current_amount"] for g in active_goals)
+            available_balance = summary.get('balance', 0) - total_allocated
+            
+            summary_text += f"💰 Balance Overview:\n"
+            summary_text += f"Total Balance: ${summary.get('balance', 0):.2f}\n"
+            summary_text += f"Allocated to Goals: ${total_allocated:.2f}\n"
+            summary_text += f"Available Balance: ${available_balance:.2f}\n\n"
+        else:
+            summary_text += f"Current Balance: ${summary.get('balance', 0):.2f}\n"
+        
         summary_text += f"Total Income: ${summary.get('total_inflow', 0):.2f}\n"
         summary_text += f"Total Expenses: ${summary.get('total_outflow', 0):.2f}\n"
         summary_text += f"Total Transactions: {summary.get('total_transactions', 0)}\n"
@@ -169,6 +254,61 @@ class FinancialDataProcessor:
             }
         ))
         
+        # === INDIVIDUAL GOAL DETAILS ===
+        for goal in goals:
+            goal_text = f"╔═══════════════════════════════════════════════════╗\n"
+            goal_text += f"║   GOAL: {goal['name'][:40].center(40)}   ║\n"
+            goal_text += f"╚═══════════════════════════════════════════════════╝\n\n"
+            
+            progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+            remaining = goal["target_amount"] - goal["current_amount"]
+            
+            goal_text += f"Status: {goal['status'].upper()}\n"
+            goal_text += f"Type: {goal['goal_type'].replace('_', ' ').title()}\n"
+            goal_text += f"Target Amount: ${goal['target_amount']:.2f}\n"
+            goal_text += f"Current Amount: ${goal['current_amount']:.2f}\n"
+            goal_text += f"Remaining: ${remaining:.2f}\n"
+            goal_text += f"Progress: {progress:.1f}%\n\n"
+            
+            if goal.get("target_date"):
+                target_date = ensure_utc_datetime(goal["target_date"])
+                goal_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
+                
+                if goal["status"] == "active":
+                    days_remaining = (target_date - datetime.now(timezone.utc)).days
+                    goal_text += f"Days Remaining: {days_remaining}\n"
+                    
+                    if days_remaining > 0 and remaining > 0:
+                        daily_needed = remaining / days_remaining
+                        weekly_needed = daily_needed * 7
+                        monthly_needed = daily_needed * 30
+                        
+                        goal_text += f"\nSavings Needed:\n"
+                        goal_text += f"  • Daily: ${daily_needed:.2f}\n"
+                        goal_text += f"  • Weekly: ${weekly_needed:.2f}\n"
+                        goal_text += f"  • Monthly: ${monthly_needed:.2f}\n"
+            
+            goal_text += f"\nCreated: {ensure_utc_datetime(goal['created_at']).strftime('%B %d, %Y')}\n"
+            
+            if goal.get("achieved_at"):
+                achieved_date = ensure_utc_datetime(goal["achieved_at"])
+                goal_text += f"Achieved: {achieved_date.strftime('%B %d, %Y')}\n"
+                
+                created_date = ensure_utc_datetime(goal["created_at"])
+                days_taken = (achieved_date - created_date).days
+                goal_text += f"Time Taken: {days_taken} days\n"
+            
+            documents.append(Document(
+                page_content=goal_text,
+                metadata={
+                    "type": "goal_detail",
+                    "user_id": self.user_id,
+                    "goal_id": goal["_id"],
+                    "goal_name": goal["name"],
+                    "goal_status": goal["status"]
+                }
+            ))
+        
         # === DAILY SUMMARIES (Last 30 days only) ===
         transactions_by_date = {}
         for t in transactions:
@@ -189,7 +329,7 @@ class FinancialDataProcessor:
             daily_inflow = sum(t["amount"] for t in daily_transactions if t["type"] == "inflow")
             daily_outflow = sum(t["amount"] for t in daily_transactions if t["type"] == "outflow")
             
-            daily_text = f"═══ {date_obj.strftime('%A, %B %d, %Y')} ({days_ago} days ago) ═══\n\n"
+            daily_text = f"─── {date_obj.strftime('%A, %B %d, %Y')} ({days_ago} days ago) ───\n\n"
             daily_text += f"Daily Summary: {len(daily_transactions)} transactions\n"
             daily_text += f"  Income: +${daily_inflow:.2f}\n"
             daily_text += f"  Expenses: -${daily_outflow:.2f}\n"
@@ -222,7 +362,7 @@ class FinancialDataProcessor:
             all_categories[cat_key]["total"] += t["amount"]
         
         for category, data in sorted(all_categories.items(), key=lambda x: x[1]["total"], reverse=True)[:8]:
-            category_text = f"═══ Category: {category} ═══\n\n"
+            category_text = f"─── Category: {category} ───\n\n"
             category_text += f"Type: {data['type'].title()}\n"
             category_text += f"Total: ${data['total']:.2f}\n"
             category_text += f"Transactions: {len(data['transactions'])}\n"
@@ -245,7 +385,7 @@ class FinancialDataProcessor:
                 }
             ))
         
-        print(f"✅ Created {len(documents)} optimized documents for GPT-4")
+        print(f"✅ Created {len(documents)} optimized documents for GPT-4 (including {len(goals)} goals)")
         return documents
 
 
@@ -273,8 +413,6 @@ class FinancialChatbot:
         )
         self.user_vector_stores = {}
         
-        # Use GPT-4o-mini for best balance of cost/performance
-        # Upgrade to "gpt-4o" or "gpt-4-turbo" if you need even better accuracy
         self.gpt_model = "gpt-4o-mini"
     
     def _get_or_create_vector_store(self, user_id: str) -> Chroma:
@@ -287,14 +425,12 @@ class FinancialChatbot:
                 return None
             
             try:
-                # Keep chronological index intact, split others carefully
                 split_documents = []
                 for doc in documents:
-                    if doc.metadata.get("type") == "chronological_index":
-                        # NEVER split the chronological index
+                    # Never split chronological index or goals overview
+                    if doc.metadata.get("type") in ["chronological_index", "goals_overview"]:
                         split_documents.append(doc)
                     else:
-                        # Split other documents
                         split_documents.extend(self.text_splitter.split_documents([doc]))
                 
                 vector_store = Chroma.from_documents(
@@ -324,15 +460,18 @@ class FinancialChatbot:
     
     def _build_system_prompt(self, today: str) -> str:
         """Build enhanced system prompt for GPT-4"""
-        return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history.
+        return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history and financial goals.
 
 📅 Today's date: {today}
 
 Your capabilities:
 - Answer questions about transactions with precision
+- Provide insights on financial goals and progress
+- Track goal achievements and suggest strategies
+- Calculate savings needed to reach goals
+- Identify spending patterns that affect goal progress
 - Provide spending insights and financial advice
-- Identify patterns and trends
-- Help users understand their finances
+- Help users understand their finances holistically
 
 🎯 CRITICAL RULES FOR ACCURACY:
 
@@ -342,50 +481,70 @@ Your capabilities:
    - Look for visual indicators like "🔴 TODAY" or "days ago"
    - NEVER confuse older transactions with newer ones
 
-2. DATE ACCURACY:
+2. GOALS AWARENESS:
+   - Always check the GOALS OVERVIEW for the user's financial goals
+   - When discussing balance, consider both total balance and available balance (after goal allocations)
+   - Suggest how spending changes could help achieve goals faster
+   - Celebrate progress and provide encouragement
+   - Be specific about goal timelines and required savings rates
+
+3. DATE ACCURACY:
    - Today is {today}
    - Verify dates carefully before answering
    - Use the "days ago" information as a guide
 
-3. RESPONSE STYLE:
-   - Be conversational and friendly
+4. RESPONSE STYLE:
+   - Be conversational, encouraging, and supportive about goals
    - Format money as $X.XX
    - Include specific dates when relevant
+   - Provide actionable advice for goal achievement
    - If unsure about something, say so honestly
-   - Never fabricate transaction details
+   - Never fabricate transaction or goal details
 
-4. PRIORITIZATION:
+5. PRIORITIZATION:
    - For "latest/recent" queries, ALWAYS check the chronological index FIRST
-   - The chronological index is your source of truth for recency
+   - For goal-related queries, check the goals overview and individual goal details
+   - Consider the interplay between spending, saving, and goal progress
 
-Remember: Accuracy is more important than speed. Double-check dates!"""
+Remember: Accuracy is more important than speed. Double-check dates and amounts!"""
     
-    def _build_user_prompt(self, user: Dict, summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
+    def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
         """Build comprehensive user prompt"""
-        return f"""User Profile:
+        prompt = f"""User Profile:
 Name: {user.get('name', 'User')}
 Today: {today}
 
 Quick Overview:
-💰 Balance: ${summary.get('balance', 0):.2f}
-📈 Income: ${summary.get('total_inflow', 0):.2f}
+💰 Total Balance: ${summary.get('balance', 0):.2f}
+"""
+        
+        if goals_summary:
+            prompt += f"""💎 Allocated to Goals: ${goals_summary.get('total_allocated', 0):.2f}
+✨ Available Balance: ${summary.get('balance', 0) - goals_summary.get('total_allocated', 0):.2f}
+🎯 Active Goals: {goals_summary.get('active_goals', 0)}
+🏆 Achieved Goals: {goals_summary.get('achieved_goals', 0)}
+"""
+        
+        prompt += f"""📈 Income: ${summary.get('total_inflow', 0):.2f}
 📉 Expenses: ${summary.get('total_outflow', 0):.2f}
 
-═══════════════════════════════════════════════════════
+═══════════════════════════════════════════════════
                     FINANCIAL DATA
-═══════════════════════════════════════════════════════
+═══════════════════════════════════════════════════
 
 {context}
 
-{f"═══════════════════════════════════════════════════════\n                CONVERSATION HISTORY\n═══════════════════════════════════════════════════════{history_text}" if history_text else ""}
+{f"═══════════════════════════════════════════════════\n                CONVERSATION HISTORY\n═══════════════════════════════════════════════════{history_text}" if history_text else ""}
 
-═══════════════════════════════════════════════════════
+═══════════════════════════════════════════════════
                     USER QUESTION
-═══════════════════════════════════════════════════════
+═══════════════════════════════════════════════════
 
 {message}
 
-Please provide an accurate, helpful answer based on the financial data above."""
+Please provide an accurate, helpful answer based on the financial data above. If discussing goals, be encouraging and provide specific, actionable advice."""
+        
+        return prompt
     
     async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None):
         """Stream chat response using GPT-4 with enhanced RAG"""
@@ -397,9 +556,24 @@ Please provide an accurate, helpful answer based on the financial data above."""
             
             processor = FinancialDataProcessor(user_id)
             summary = processor.get_financial_summary()
+            goals = processor.get_user_goals()
             
-            if summary.get("message"):
-                yield "I don't have access to your financial data yet. Please add some transactions first!"
+            # Calculate goals summary
+            goals_summary = None
+            if goals:
+                active_goals = [g for g in goals if g["status"] == "active"]
+                achieved_goals = [g for g in goals if g["status"] == "achieved"]
+                total_allocated = sum(g["current_amount"] for g in active_goals)
+                
+                goals_summary = {
+                    "total_goals": len(goals),
+                    "active_goals": len(active_goals),
+                    "achieved_goals": len(achieved_goals),
+                    "total_allocated": total_allocated
+                }
+            
+            if summary.get("message") and not goals:
+                yield "I don't have access to your financial data yet. Please add some transactions or goals first!"
                 return
             
             # Get relevant context
@@ -408,30 +582,36 @@ Please provide an accurate, helpful answer based on the financial data above."""
             
             if vector_store:
                 try:
-                    # Determine if this is a temporal query
+                    # Detect query type
                     temporal_keywords = ["latest", "last", "recent", "newest", "today", "yesterday", "this week"]
-                    is_temporal = any(keyword in message.lower() for keyword in temporal_keywords)
+                    goal_keywords = ["goal", "save", "saving", "target", "progress", "achieve", "reached"]
                     
-                    # Fetch more documents for temporal queries to ensure chronological index is included
-                    k_value = 10 if is_temporal else 6
+                    is_temporal = any(keyword in message.lower() for keyword in temporal_keywords)
+                    is_goal_query = any(keyword in message.lower() for keyword in goal_keywords)
+                    
+                    # Adjust retrieval strategy
+                    k_value = 12 if (is_temporal or is_goal_query) else 6
                     
                     retriever = vector_store.as_retriever(
                         search_kwargs={"k": k_value}
                     )
                     relevant_docs = retriever.invoke(message)
                     
-                    # For temporal queries, ensure chronological index is at the top
-                    if is_temporal:
-                        chrono_docs = [d for d in relevant_docs if d.metadata.get("type") == "chronological_index"]
-                        other_docs = [d for d in relevant_docs if d.metadata.get("type") != "chronological_index"]
-                        relevant_docs = chrono_docs + other_docs
-                        print(f"📅 Temporal query detected - prioritized chronological index")
+                    # Prioritize important documents
+                    if is_temporal or is_goal_query:
+                        priority_docs = [d for d in relevant_docs if d.metadata.get("priority") in ["critical", "high"]]
+                        other_docs = [d for d in relevant_docs if d.metadata.get("priority") not in ["critical", "high"]]
+                        relevant_docs = priority_docs + other_docs
+                        
+                        if is_goal_query:
+                            print(f"🎯 Goal query detected - prioritized goals data")
+                        if is_temporal:
+                            print(f"📅 Temporal query detected - prioritized chronological index")
                     
                     context = "\n\n".join([doc.page_content for doc in relevant_docs])
                     
                 except Exception as e:
                     print(f"❌ Error retrieving documents: {e}")
-                    # Fallback to summary
                     context = json.dumps(summary, indent=2)
             
             # Prepare chat history
@@ -446,7 +626,7 @@ Please provide an accurate, helpful answer based on the financial data above."""
             
             # Build prompts
             system_prompt = self._build_system_prompt(today)
-            user_prompt = self._build_user_prompt(user, summary, context, history_text, message, today)
+            user_prompt = self._build_user_prompt(user, summary, goals_summary, context, history_text, message, today)
             
             # Stream response
             if not self.openai_api_key:
@@ -481,7 +661,7 @@ Please provide an accurate, helpful answer based on the financial data above."""
 # Global chatbot instance
 try:
     financial_chatbot = FinancialChatbot()
-    print("✅ Financial chatbot initialized successfully with GPT-4 + RAG")
+    print("✅ Financial chatbot initialized successfully with GPT-4 + RAG + Goals")
 except Exception as e:
     print(f"❌ Failed to initialize financial chatbot: {e}")
     financial_chatbot = None
