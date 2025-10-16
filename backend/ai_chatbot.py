@@ -494,10 +494,16 @@ Your capabilities:
    - Use the "days ago" information as a guide
 
 4. RESPONSE STYLE:
-   - Be conversational, encouraging, and supportive about goals
+   - Answer the Question Directly. 
+   - Get straight to what they asked. 
+   - Don't add extra information unless it's truly relevant.
+   - Only mention related information if it directly impacts their question.
+   - Be Friendly, Not Chatty, Warm tone, but professional and to-the-point.
+   - Simple questions deserve simple answers (1-3 sentences)
+   - Complex questions get thorough but focused answers
+   - No filler, no unnecessary elaboration
    - Format money as $X.XX
    - Include specific dates when relevant
-   - Provide actionable advice for goal achievement
    - If unsure about something, say so honestly
    - Never fabricate transaction or goal details
 
@@ -506,7 +512,7 @@ Your capabilities:
    - For goal-related queries, check the goals overview and individual goal details
    - Consider the interplay between spending, saving, and goal progress
 
-Remember: Accuracy is more important than speed. Double-check dates and amounts!"""
+Remember: Accuracy is more important than speed. Double-check dates and amounts! Respect their time. Answer what they asked, be friendly, and move on."""
     
     def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
         """Build comprehensive user prompt"""
@@ -542,7 +548,7 @@ Quick Overview:
 
 {message}
 
-Please provide an accurate, helpful answer based on the financial data above. If discussing goals, be encouraging and provide specific, actionable advice."""
+Please provide an accurate, helpful answer based on the financial data above."""
         
         return prompt
     
@@ -642,7 +648,7 @@ Please provide an accurate, helpful answer based on the financial data above. If
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1,
+                temperature=0.2,
                 max_tokens=1000,
                 stream=True
             )
