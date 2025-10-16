@@ -193,14 +193,22 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             SizedBox(height: 4),
+                            Text(
+                              'Available: \$${transactionProvider.balance?.availableBalance.toStringAsFixed(2) ?? '0.00'}',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                             if (transactionProvider.balance?.allocatedToGoals != null && 
                                 transactionProvider.balance!.allocatedToGoals > 0) ...[
                               SizedBox(height: 2),
                               Text(
                                 'Allocated to Goals: \$${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
                                 style: GoogleFonts.poppins(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 14,
+                                  color: Colors.white.withOpacity(0.7),
+                                  fontSize: 12,
                                 ),
                               ),
                             ],

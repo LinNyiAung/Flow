@@ -233,7 +233,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Current Balance',
+                                'Available Balance',
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   color: Colors.grey[600],
