@@ -121,6 +121,31 @@ class AppDrawer extends StatelessWidget {
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
+                      child: Icon(Icons.flag, color: Colors.white, size: 20),
+                    ),
+                    title: Text(
+                      'Goals',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/goals');
+                    },
+                  ),
+                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+                  ListTile(
+                    leading: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                       child: Icon(Icons.smart_toy, color: Colors.white, size: 16),
                     ),
                     title: Text(

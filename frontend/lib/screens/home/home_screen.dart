@@ -152,7 +152,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20),
-                    child: Card( // Using Card for better elevation and shape
+                    child: Card(
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       elevation: 8,
                       child: Container(
@@ -160,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: EdgeInsets.all(24),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [Color(0xFF667eea), Color(0xFF764ba2)], // Purple gradient
+                            colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                           ),
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -184,7 +184,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               ],
                             ),
                             SizedBox(height: 8),
-                            // Displaying balance, formatted to 2 decimal places
                             Text(
                               '\$${transactionProvider.balance?.balance.toStringAsFixed(2) ?? '0.00'}',
                               style: GoogleFonts.poppins(
@@ -193,23 +192,34 @@ class _HomeScreenState extends State<HomeScreen> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
+                            SizedBox(height: 4),
+                            if (transactionProvider.balance?.allocatedToGoals != null && 
+                                transactionProvider.balance!.allocatedToGoals > 0) ...[
+                              SizedBox(height: 2),
+                              Text(
+                                'Allocated to Goals: \$${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
+                                style: GoogleFonts.poppins(
+                                  color: Colors.white.withOpacity(0.8),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
                             SizedBox(height: 16),
-                            // Breakdown of Inflow and Outflow
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround, // Distribute space
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
                                 _buildBalanceInfo(
                                   icon: Icons.arrow_upward,
                                   label: 'Inflow',
                                   amount: transactionProvider.balance?.totalInflow ?? 0.0,
-                                  color: Colors.green, // Green for inflow
+                                  color: Colors.green,
                                 ),
-                                Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)), // Separator
+                                Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
                                 _buildBalanceInfo(
                                   icon: Icons.arrow_downward,
                                   label: 'Outflow',
                                   amount: transactionProvider.balance?.totalOutflow ?? 0.0,
-                                  color: Colors.red, // Red for outflow
+                                  color: Colors.red,
                                 ),
                               ],
                             ),

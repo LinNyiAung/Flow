@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:frontend/models/chat.dart';
+import 'package:frontend/models/goal.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
@@ -308,6 +309,146 @@ class ApiService {
       }
     } catch (e) {
       throw Exception('Streaming chat failed: ${e.toString()}');
+    }
+  }
+
+
+    // Goals CRUD methods
+    static Future<Goal> createGoal({
+    required String name,
+    required double targetAmount,
+    DateTime? targetDate,
+    required GoalType goalType,
+    double initialContribution = 0.0,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/goals'),
+      headers: await _getHeaders(),
+      body: jsonEncode({
+        'name': name,
+        'target_amount': targetAmount,
+        'target_date': targetDate?.toIso8601String(),
+        'goal_type': goalType.name,
+        'initial_contribution': initialContribution,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      return Goal.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to create goal');
+    }
+  }
+
+  static Future<List<Goal>> getGoals({GoalStatus? statusFilter}) async {
+    String url = '$baseUrl/api/goals';
+    
+    if (statusFilter != null) {
+      url += '?status_filter=${statusFilter.name}';
+    }
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => Goal.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to get goals');
+    }
+  }
+
+  static Future<GoalsSummary> getGoalsSummary() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/goals/summary'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return GoalsSummary.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Failed to get goals summary');
+    }
+  }
+
+  static Future<Goal> getGoal(String goalId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/goals/$goalId'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return Goal.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to get goal');
+    }
+  }
+
+  static Future<Goal> updateGoal({
+    required String goalId,
+    String? name,
+    double? targetAmount,
+    DateTime? targetDate,
+    GoalType? goalType,
+  }) async {
+    final Map<String, dynamic> updateData = {};
+
+    if (name != null) updateData['name'] = name;
+    if (targetAmount != null) updateData['target_amount'] = targetAmount;
+    if (targetDate != null) updateData['target_date'] = targetDate.toIso8601String();
+    if (goalType != null) updateData['goal_type'] = goalType.name;
+
+    if (updateData.isEmpty) {
+      throw Exception('No fields provided for update');
+    }
+
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/goals/$goalId'),
+      headers: await _getHeaders(),
+      body: jsonEncode(updateData),
+    );
+
+    if (response.statusCode == 200) {
+      return Goal.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to update goal');
+    }
+  }
+
+  static Future<Goal> contributeToGoal({
+    required String goalId,
+    required double amount,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/goals/$goalId/contribute'),
+      headers: await _getHeaders(),
+      body: jsonEncode({'amount': amount}),
+    );
+
+    if (response.statusCode == 200) {
+      return Goal.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to contribute to goal');
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteGoal(String goalId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/api/goals/$goalId'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to delete goal');
     }
   }
 

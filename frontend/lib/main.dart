@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/goal_provider.dart';
+import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
@@ -22,6 +24,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => TransactionProvider()),
         // Provide ChatProvider to manage AI chat functionality
         ChangeNotifierProvider(create: (_) => ChatProvider()),
+        ChangeNotifierProvider(create: (_) => GoalProvider()),
       ],
       child: MaterialApp(
         title: 'Flow Finance',
@@ -58,6 +61,7 @@ class MyApp extends StatelessWidget {
         routes: {
           '/': (context) => AuthWrapper(),
           '/ai-chat': (context) => AiChatScreen(),
+          '/goals': (context) => GoalsScreen(),
           
         },
         // REMOVED: Don't use home property when routes contains '/'

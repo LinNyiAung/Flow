@@ -11,7 +11,8 @@ def get_database():
 users_collection = database.users
 transactions_collection = database.transactions
 categories_collection = database.categories
-chat_sessions_collection = database.chat_sessions  # New collection for chat history
+chat_sessions_collection = database.chat_sessions
+goals_collection = database.goals  # NEW: Goals collection
 
 # Initialize default categories if they don't exist
 def initialize_categories():

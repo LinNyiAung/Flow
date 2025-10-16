@@ -79,11 +79,15 @@ class Category {
 
 class Balance {
   final double balance;
+  final double availableBalance;
+  final double allocatedToGoals;
   final double totalInflow;
   final double totalOutflow;
 
   Balance({
     required this.balance,
+    required this.availableBalance,
+    required this.allocatedToGoals,
     required this.totalInflow,
     required this.totalOutflow,
   });
@@ -91,6 +95,8 @@ class Balance {
   factory Balance.fromJson(Map<String, dynamic> json) {
     return Balance(
       balance: json['balance'].toDouble(),
+      availableBalance: json['available_balance'].toDouble(),
+      allocatedToGoals: json['allocated_to_goals'].toDouble(),
       totalInflow: json['total_inflow'].toDouble(),
       totalOutflow: json['total_outflow'].toDouble(),
     );
