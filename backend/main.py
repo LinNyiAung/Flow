@@ -174,7 +174,7 @@ async def create_transaction(
 @app.get("/api/transactions", response_model=List[TransactionResponse])
 async def get_transactions(
     current_user: dict = Depends(get_current_user),
-    limit: int = Query(default=50, le=100),
+    limit: int = Query(default=50, le=10000),
     skip: int = Query(default=0, ge=0),
     transaction_type: Optional[TransactionType] = None,
     start_date: Optional[datetime] = None,

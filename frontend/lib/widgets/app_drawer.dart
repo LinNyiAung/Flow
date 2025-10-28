@@ -125,14 +125,55 @@ class AppDrawer extends StatelessWidget {
                     ),
                     title: Text(
                       'Goals',
-                      style: GoogleFonts.poppins(
-                        fontSize: 16,
-
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.pushNamed(context, '/goals');
+                    },
+                  ),
+                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+                  ListTile(
+                    leading: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(Icons.trending_up, color: Colors.white, size: 18),
+                    ),
+                    title: Text(
+                      'Inflow Analytics',
+                      style: GoogleFonts.poppins(fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/inflow-analytics');
+                    },
+                  ),
+                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+                  ListTile(
+                    leading: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFFFF5722), Color(0xFFE64A19)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(Icons.analytics, color: Colors.white, size: 18),
+                    ),
+                    title: Text(
+                      'Outflow Analytics',
+                      style: GoogleFonts.poppins(fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/outflow-analytics');
                     },
                   ),
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),

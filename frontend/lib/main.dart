@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/goal_provider.dart';
+import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
+import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
-import 'providers/chat_provider.dart'; // Add this import
+import 'providers/chat_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
-import 'screens/ai/ai_chat_screen.dart'; // Add this import
+import 'screens/ai/ai_chat_screen.dart';
 
 void main() {
   runApp(MyApp());
@@ -56,16 +58,14 @@ class MyApp extends StatelessWidget {
             contentPadding: EdgeInsets.symmetric(vertical: 15.0, horizontal: 15.0),
           ),
         ),
-        // FIXED: Remove the conflicting routes and use initialRoute instead
         initialRoute: '/',
         routes: {
           '/': (context) => AuthWrapper(),
           '/ai-chat': (context) => AiChatScreen(),
           '/goals': (context) => GoalsScreen(),
-          
+          '/outflow-analytics': (context) => OutflowAnalyticsScreen(), 
+          '/inflow-analytics': (context) => InflowAnalyticsScreen(),
         },
-        // REMOVED: Don't use home property when routes contains '/'
-        // home: AuthWrapper(),
       ),
     );
   }

@@ -128,23 +128,31 @@ class ApiService {
     int limit = 50,
     int skip = 0,
     TransactionType? type,
-    DateTime? startDate, // New parameter for start date filtering
-    DateTime? endDate,   // New parameter for end date filtering
+    DateTime? startDate,
+    DateTime? endDate,
   }) async {
     String url = '$baseUrl/api/transactions?limit=$limit&skip=$skip';
-    
+
     // Add type filter if provided
     if (type != null) {
       url += '&transaction_type=${type.name}';
     }
-    
-    // Add date range filters if provided
+
+    // Add date range filters if provided - FIXED: proper URL encoding
     if (startDate != null) {
-      url += '&start_date=${startDate.toIso8601String()}';
+      // Ensure UTC and format for backend
+      final utcStart = startDate.toUtc();
+      final formattedStart = Uri.encodeComponent(utcStart.toIso8601String());
+      url += '&start_date=$formattedStart';
     }
     if (endDate != null) {
-      url += '&end_date=${endDate.toIso8601String()}';
+      // Ensure UTC and format for backend
+      final utcEnd = endDate.toUtc();
+      final formattedEnd = Uri.encodeComponent(utcEnd.toIso8601String());
+      url += '&end_date=$formattedEnd';
     }
+
+    print('DEBUG: Fetching transactions from: $url'); // Add debug log
 
     final response = await http.get(
       Uri.parse(url),
@@ -155,7 +163,9 @@ class ApiService {
       final List<dynamic> data = jsonDecode(response.body);
       return data.map((json) => Transaction.fromJson(json)).toList();
     } else {
-      throw Exception('Failed to get transactions');
+      print('ERROR: Failed to get transactions - Status: ${response.statusCode}');
+      print('ERROR: Response body: ${response.body}');
+      throw Exception('Failed to get transactions: ${response.body}');
     }
   }
 
