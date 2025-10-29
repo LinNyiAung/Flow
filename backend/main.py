@@ -977,7 +977,8 @@ async def delete_goal(
         "returned_amount": returned_amount
     }
     
-    
+
+# ==================== AI INSIGHTS ====================   
     
 def calculate_data_hash(user_id: str) -> str:
     """Calculate hash of user's financial data to detect changes"""
@@ -1093,6 +1094,59 @@ async def delete_insights(current_user: dict = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete insights"
+        )
+        
+        
+@app.post("/api/insights/regenerate", response_model=InsightResponse)
+async def regenerate_insights(current_user: dict = Depends(get_current_user)):
+    """Force regenerate insights regardless of data changes"""
+    try:
+        insights_collection.delete_many({"user_id": current_user["_id"]})
+        
+        current_hash = calculate_data_hash(current_user["_id"])
+        
+        print(f"🔄 Force regenerating insights for user {current_user['_id']}")
+        
+        if financial_chatbot is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI service is currently unavailable"
+            )
+        
+        insights_content = await financial_chatbot.generate_insights(current_user["_id"])
+        
+        insight_id = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        
+        new_insight = {
+            "_id": insight_id,
+            "user_id": current_user["_id"],
+            "content": insights_content,
+            "generated_at": now,
+            "data_hash": current_hash,
+            "expires_at": None
+        }
+        
+        insights_collection.insert_one(new_insight)
+        
+        print(f"✅ Insights regenerated successfully")
+        
+        return InsightResponse(
+            id=insight_id,
+            user_id=current_user["_id"],
+            content=insights_content,
+            generated_at=now,
+            data_hash=current_hash,
+            expires_at=None
+        )
+        
+    except Exception as e:
+        print(f"❌ Error regenerating insights: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to regenerate insights: {str(e)}"
         )
 
 
