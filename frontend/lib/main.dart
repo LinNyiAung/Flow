@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/goal_provider.dart';
+import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
+import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
@@ -27,6 +29,7 @@ class MyApp extends StatelessWidget {
         // Provide ChatProvider to manage AI chat functionality
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => GoalProvider()),
+        ChangeNotifierProvider(create: (_) => InsightProvider()),
       ],
       child: MaterialApp(
         title: 'Flow Finance',
@@ -65,6 +68,7 @@ class MyApp extends StatelessWidget {
           '/goals': (context) => GoalsScreen(),
           '/outflow-analytics': (context) => OutflowAnalyticsScreen(), 
           '/inflow-analytics': (context) => InflowAnalyticsScreen(),
+          '/insights': (context) => InsightsScreen(),
         },
       ),
     );

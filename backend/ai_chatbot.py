@@ -680,6 +680,178 @@ Please provide an accurate, helpful answer based on the financial data above."""
             import traceback
             traceback.print_exc()
             yield f"I encountered an error: {str(e)}"
+            
+            
+            
+    # Add these methods to the FinancialChatbot class in ai_chatbot.py
+# Place them after the stream_chat method and before the closing of the class
+
+    async def generate_insights(self, user_id: str) -> str:
+        """Generate comprehensive financial insights using GPT-4"""
+        try:
+            from openai import AsyncOpenAI
+            
+            if not self.openai_api_key:
+                raise Exception("OpenAI API key not configured")
+            
+            # Get user data
+            user = users_collection.find_one({"_id": user_id})
+            if not user:
+                raise Exception("User not found")
+            
+            processor = FinancialDataProcessor(user_id)
+            summary = processor.get_financial_summary()
+            goals = processor.get_user_goals()
+            transactions = processor.get_user_transactions()
+            
+            if not transactions and not goals:
+                return "Add some transactions or financial goals to get personalized insights!"
+            
+            # Build comprehensive data context
+            context = self._build_insight_context(user, summary, goals, transactions)
+            
+            # System prompt for insights generation
+            system_prompt = """You are Flow Finance AI, an expert financial analyst providing personalized insights.
+
+    Your task is to analyze the user's complete financial data and generate comprehensive, actionable insights.
+
+    INSIGHT STRUCTURE:
+    Generate insights covering ALL relevant areas:
+
+    1. **Financial Health Overview** - Current state, trends, patterns
+    2. **Spending Analysis** - Where money goes, concerning patterns, opportunities
+    3. **Income Analysis** - Sources, stability, growth opportunities  
+    4. **Savings & Goals Progress** - Goal tracking, recommendations, timeline analysis
+    5. **Budget Recommendations** - Specific, actionable advice
+    6. **Future Projections** - Where they're headed, what to watch
+    7. **Celebration & Encouragement** - Acknowledge wins, motivate progress
+
+    CRITICAL RULES:
+    - Be COMPREHENSIVE - cover all aspects of their finances
+    - Be SPECIFIC - use actual numbers, dates, categories from their data
+    - Be ACTIONABLE - give concrete steps they can take
+    - Be HONEST - point out both strengths and areas for improvement
+    - Be ENCOURAGING - maintain a positive, supportive tone
+    - NO LIMITATIONS - analyze everything thoroughly
+    - Include comparisons (month-over-month, category ratios, goal progress)
+    - Identify both opportunities and risks
+    - Make predictions based on current trends
+
+    Format with clear sections using markdown:
+    - Use ## for main sections
+    - Use **bold** for emphasis
+    - Use bullet points for lists
+    - Include specific dollar amounts and percentages
+    - Add emojis for visual appeal (💰 📈 📉 🎯 ⚠️ ✅ 🎉)
+
+    Length: 800-1500 words of detailed, personalized analysis."""
+
+            today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
+            user_prompt = f"""Today's Date: {today}
+
+    USER FINANCIAL DATA:
+    {context}
+
+    Generate comprehensive financial insights for this user. Analyze everything thoroughly and provide actionable recommendations."""
+
+            client = AsyncOpenAI(api_key=self.openai_api_key)
+            
+            response = await client.chat.completions.create(
+                model=self.gpt_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,  # More creative for insights
+                max_tokens=2500
+            )
+            
+            insights = response.choices[0].message.content
+            return insights
+            
+        except Exception as e:
+            print(f"Error generating insights: {e}")
+            import traceback
+            traceback.print_exc()
+            raise Exception(f"Failed to generate insights: {str(e)}")
+
+    def _build_insight_context(self, user: Dict, summary: Dict, goals: List[Dict], transactions: List[Dict]) -> str:
+        """Build comprehensive context for insight generation"""
+        context = f"User: {user.get('name', 'User')}\n\n"
+        
+        # Financial Summary
+        context += "=== FINANCIAL OVERVIEW ===\n"
+        context += f"Total Balance: ${summary.get('balance', 0):.2f}\n"
+        context += f"Total Income: ${summary.get('total_inflow', 0):.2f}\n"
+        context += f"Total Expenses: ${summary.get('total_outflow', 0):.2f}\n"
+        context += f"Total Transactions: {summary.get('total_transactions', 0)}\n"
+        context += f"Average Transaction: ${summary.get('avg_transaction_amount', 0):.2f}\n"
+        
+        if summary.get('date_range'):
+            context += f"Data Period: {summary['date_range'].get('from', 'N/A')[:10]} to {summary['date_range'].get('to', 'N/A')[:10]}\n"
+        
+        context += "\n"
+        
+        # Goals Summary
+        if goals:
+            active_goals = [g for g in goals if g["status"] == "active"]
+            achieved_goals = [g for g in goals if g["status"] == "achieved"]
+            total_allocated = sum(g["current_amount"] for g in active_goals)
+            total_target = sum(g["target_amount"] for g in active_goals)
+            
+            context += "=== FINANCIAL GOALS ===\n"
+            context += f"Total Goals: {len(goals)}\n"
+            context += f"Active Goals: {len(active_goals)}\n"
+            context += f"Achieved Goals: {len(achieved_goals)}\n"
+            context += f"Total Allocated: ${total_allocated:.2f}\n"
+            context += f"Total Target: ${total_target:.2f}\n"
+            context += f"Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
+            
+            for goal in active_goals[:5]:  # Top 5 active goals
+                progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+                context += f"Goal: {goal['name']}\n"
+                context += f"  Target: ${goal['target_amount']:.2f}\n"
+                context += f"  Current: ${goal['current_amount']:.2f}\n"
+                context += f"  Progress: {progress:.1f}%\n"
+                if goal.get("target_date"):
+                    target_date = ensure_utc_datetime(goal["target_date"])
+                    days_remaining = (target_date - datetime.now(timezone.utc)).days
+                    context += f"  Days Remaining: {days_remaining}\n"
+                context += "\n"
+        
+        # Income Analysis
+        context += "=== INCOME SOURCES ===\n"
+        for cat, amount in list(summary.get('top_inflow_categories', {}).items())[:10]:
+            context += f"{cat}: ${amount:.2f}\n"
+        context += "\n"
+        
+        # Expense Analysis
+        context += "=== EXPENSE CATEGORIES ===\n"
+        for cat, amount in list(summary.get('top_outflow_categories', {}).items())[:10]:
+            context += f"{cat}: ${amount:.2f}\n"
+        context += "\n"
+        
+        # Monthly Trends
+        if summary.get('monthly_trends'):
+            context += "=== MONTHLY TRENDS ===\n"
+            for month, data in sorted(summary['monthly_trends'].items(), reverse=True)[:6]:
+                net = data['inflow'] - data['outflow']
+                context += f"{month}:\n"
+                context += f"  Income: ${data['inflow']:.2f}\n"
+                context += f"  Expenses: ${data['outflow']:.2f}\n"
+                context += f"  Net: ${net:.2f}\n"
+            context += "\n"
+        
+        # Recent Transactions (last 20)
+        context += "=== RECENT TRANSACTIONS ===\n"
+        for t in transactions[:20]:
+            date_obj = ensure_utc_datetime(t["date"])
+            context += f"{date_obj.strftime('%Y-%m-%d')}: {t['type']} ${t['amount']:.2f} - {t['main_category']} > {t['sub_category']}"
+            if t.get('description'):
+                context += f" ({t['description']})"
+            context += "\n"
+        
+        return context
 
 
 # Global chatbot instance

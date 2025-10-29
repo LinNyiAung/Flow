@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/goal.dart';
+import 'package:frontend/models/insight.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
@@ -509,6 +510,47 @@ class ApiService {
     if (response.statusCode != 200) {
       final error = jsonDecode(response.body);
       throw Exception(error['detail'] ?? 'Failed to clear chat history');
+    }
+  }
+
+
+    static Future<Insight> getInsights() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/insights'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return Insight.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to get insights');
+    }
+  }
+
+  static Future<void> deleteInsights() async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/api/insights'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to delete insights');
+    }
+  }
+
+  static Future<Insight> regenerateInsights() async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/insights/regenerate'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return Insight.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to regenerate insights');
     }
   }
 

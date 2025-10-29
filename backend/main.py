@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta, UTC, timezone
@@ -9,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 
+from insight_models import InsightResponse
 from goal_models import GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary
 from models import (
     UserCreate, UserLogin, UserResponse, Token,
@@ -20,7 +22,7 @@ from chat_models import (
 )
 from database import (
     users_collection, transactions_collection, categories_collection,
-    chat_sessions_collection, goals_collection
+    chat_sessions_collection, goals_collection, insights_collection
 )
 from auth import get_password_hash, verify_password, create_access_token, verify_token
 from ai_chatbot import financial_chatbot
@@ -974,6 +976,124 @@ async def delete_goal(
         "message": "Goal deleted successfully",
         "returned_amount": returned_amount
     }
+    
+    
+    
+def calculate_data_hash(user_id: str) -> str:
+    """Calculate hash of user's financial data to detect changes"""
+    # Get counts and totals to create a fingerprint
+    transaction_count = transactions_collection.count_documents({"user_id": user_id})
+    goal_count = goals_collection.count_documents({"user_id": user_id})
+    
+    # Get last transaction date
+    last_transaction = transactions_collection.find_one(
+        {"user_id": user_id},
+        sort=[("date", -1)]
+    )
+    last_transaction_date = last_transaction["date"].isoformat() if last_transaction else "none"
+    
+    # Get last goal update
+    last_goal = goals_collection.find_one(
+        {"user_id": user_id},
+        sort=[("updated_at", -1)]
+    )
+    last_goal_update = last_goal["updated_at"].isoformat() if last_goal else "none"
+    
+    # Create hash from all these elements
+    data_string = f"{user_id}:{transaction_count}:{goal_count}:{last_transaction_date}:{last_goal_update}"
+    return hashlib.sha256(data_string.encode()).hexdigest()
+
+
+@app.get("/api/insights", response_model=InsightResponse)
+async def get_insights(current_user: dict = Depends(get_current_user)):
+    """Get AI-generated financial insights (cached if data unchanged)"""
+    try:
+        # Calculate current data hash
+        current_hash = calculate_data_hash(current_user["_id"])
+        
+        # Check if we have cached insights
+        cached_insight = insights_collection.find_one({
+            "user_id": current_user["_id"],
+            "data_hash": current_hash
+        })
+        
+        if cached_insight:
+            print(f"✅ Returning cached insights for user {current_user['_id']}")
+            return InsightResponse(
+                id=cached_insight["_id"],
+                user_id=cached_insight["user_id"],
+                content=cached_insight["content"],
+                generated_at=cached_insight["generated_at"],
+                data_hash=cached_insight["data_hash"],
+                expires_at=cached_insight.get("expires_at")
+            )
+        
+        # Generate new insights
+        print(f"🔄 Generating new insights for user {current_user['_id']}")
+        
+        if financial_chatbot is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI service is currently unavailable"
+            )
+        
+        insights_content = await financial_chatbot.generate_insights(current_user["_id"])
+        
+        # Save to database
+        insight_id = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        
+        new_insight = {
+            "_id": insight_id,
+            "user_id": current_user["_id"],
+            "content": insights_content,
+            "generated_at": now,
+            "data_hash": current_hash,
+            "expires_at": None  # Never expires, only regenerates on data change
+        }
+        
+        # Delete old insights for this user
+        insights_collection.delete_many({"user_id": current_user["_id"]})
+        
+        # Insert new insight
+        insights_collection.insert_one(new_insight)
+        
+        print(f"✅ New insights generated and cached")
+        
+        return InsightResponse(
+            id=insight_id,
+            user_id=current_user["_id"],
+            content=insights_content,
+            generated_at=now,
+            data_hash=current_hash,
+            expires_at=None
+        )
+        
+    except Exception as e:
+        print(f"❌ Error generating insights: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate insights: {str(e)}"
+        )
+
+
+@app.delete("/api/insights")
+async def delete_insights(current_user: dict = Depends(get_current_user)):
+    """Force regeneration of insights by deleting cached ones"""
+    try:
+        result = insights_collection.delete_many({"user_id": current_user["_id"]})
+        return {
+            "message": f"Deleted {result.deleted_count} cached insights",
+            "deleted_count": result.deleted_count
+        }
+    except Exception as e:
+        print(f"Error deleting insights: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete insights"
+        )
 
 
 
