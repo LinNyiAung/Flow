@@ -16,13 +16,18 @@ class Insight {
   });
 
   factory Insight.fromJson(Map<String, dynamic> json) {
+    // Parse and force it to be treated as UTC, then convert to local
+    DateTime parsedDate = DateTime.parse(json['generated_at'] + 'Z').toLocal();
+
     return Insight(
       id: json['id'],
       userId: json['user_id'],
       content: json['content'],
-      generatedAt: DateTime.parse(json['generated_at']),
+      generatedAt: parsedDate,
       dataHash: json['data_hash'],
-      expiresAt: json['expires_at'] != null ? DateTime.parse(json['expires_at']) : null,
+      expiresAt: json['expires_at'] != null
+          ? DateTime.parse(json['expires_at'] + 'Z').toLocal()
+          : null,
     );
   }
 }

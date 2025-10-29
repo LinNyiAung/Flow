@@ -367,7 +367,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       ),
                     ),
                     Text(
-                      'Generated ${DateFormat.yMMMd().add_jm().format(insightProvider.insight!.generatedAt.toLocal())}',
+                      'Generated ${DateFormat('MMM dd, yyyy • hh:mm a').format(insightProvider.insight!.generatedAt)}',
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         color: Colors.white.withOpacity(0.8),
