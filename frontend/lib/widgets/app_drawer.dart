@@ -183,6 +183,28 @@ class AppDrawer extends StatelessWidget {
                       height: 24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
+                          colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(Icons.assessment, color: Colors.white, size: 16),
+                    ),
+                    title: Text(
+                      'Financial Reports',
+                      style: GoogleFonts.poppins(fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/reports');
+                    },
+                  ),
+                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+                  ListTile(
+                    leading: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
                           colors: [Color(0xFFFFB74D), Color(0xFFFF9800)],
                         ),
                         borderRadius: BorderRadius.circular(4),

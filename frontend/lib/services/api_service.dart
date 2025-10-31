@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
+import 'package:frontend/models/report.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../models/transaction.dart';
@@ -565,4 +568,95 @@ class ApiService {
       throw Exception(error['detail'] ?? 'Failed to refresh AI data');
     }
   }
+
+
+static Future<FinancialReport> generateReport({
+  required ReportPeriod period,
+  DateTime? startDate,
+  DateTime? endDate,
+}) async {
+  final Map<String, dynamic> requestBody = {
+    'period': period.name,
+  };
+
+  if (period == ReportPeriod.custom) {
+    if (startDate == null || endDate == null) {
+      throw Exception('Start date and end date are required for custom period');
+    }
+    // Create UTC dates at midnight without timezone conversion
+    final utcStart = DateTime.utc(startDate.year, startDate.month, startDate.day, 0, 0, 0);
+    final utcEnd = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+    
+    requestBody['start_date'] = utcStart.toIso8601String();
+    requestBody['end_date'] = utcEnd.toIso8601String();
+  }
+
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/reports/generate'),
+    headers: await _getHeaders(),
+    body: jsonEncode(requestBody),
+  );
+
+  if (response.statusCode == 200) {
+    return FinancialReport.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to generate report');
+  }
+}
+
+static Future<String> downloadReportPdf({
+  required ReportPeriod period,
+  DateTime? startDate,
+  DateTime? endDate,
+}) async {
+  // Get user's timezone offset in minutes
+  final now = DateTime.now();
+  final timezoneOffset = now.timeZoneOffset.inMinutes;
+  
+  final Map<String, dynamic> requestBody = {
+    'period': period.name,
+    'timezone_offset': timezoneOffset,  // Add this line
+  };
+
+  if (period == ReportPeriod.custom) {
+    if (startDate == null || endDate == null) {
+      throw Exception('Start date and end date are required for custom period');
+    }
+    final utcStart = DateTime.utc(startDate.year, startDate.month, startDate.day, 0, 0, 0);
+    final utcEnd = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+    
+    requestBody['start_date'] = utcStart.toIso8601String();
+    requestBody['end_date'] = utcEnd.toIso8601String();
+  }
+
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/reports/download'),
+    headers: await _getHeaders(),
+    body: jsonEncode(requestBody),
+  );
+
+  if (response.statusCode == 200) {
+    final directory = await getApplicationDocumentsDirectory();
+    
+    String filename = 'financial_report.pdf';
+    final contentDisposition = response.headers['content-disposition'];
+    if (contentDisposition != null) {
+      final filenameMatch = RegExp(r'filename="?([^"]+)"?').firstMatch(contentDisposition);
+      if (filenameMatch != null) {
+        filename = filenameMatch.group(1)!;
+      }
+    }
+    
+    final file = File('${directory.path}/$filename');
+    await file.writeAsBytes(response.bodyBytes);
+    
+    return file.path;
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to download report');
+  }
+}
+
+
 }

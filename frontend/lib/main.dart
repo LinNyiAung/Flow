@@ -5,6 +5,7 @@ import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
+import 'package:frontend/screens/report/reports_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
@@ -69,6 +70,7 @@ class MyApp extends StatelessWidget {
           '/outflow-analytics': (context) => OutflowAnalyticsScreen(), 
           '/inflow-analytics': (context) => InflowAnalyticsScreen(),
           '/insights': (context) => InsightsScreen(),
+          '/reports': (context) => ReportsScreen(),
         },
       ),
     );
