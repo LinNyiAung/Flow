@@ -394,7 +394,6 @@ class FinancialChatbot:
     
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.openai_project_id = os.getenv("OPENAI_PROJECT_ID")
         if not self.openai_api_key:
             print("Warning: OPENAI_API_KEY not found")
         
@@ -659,7 +658,7 @@ Please provide an accurate, helpful answer based on the financial data above."""
                 return
             
             from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.openai_api_key, organization=self.openai_project_id)
+            client = AsyncOpenAI(api_key=self.openai_api_key)
             
             stream = await client.chat.completions.create(
                 model=self.gpt_model,
@@ -755,7 +754,7 @@ Please provide an accurate, helpful answer based on the financial data above."""
 
     Generate comprehensive financial insights for this user. Analyze everything thoroughly and provide actionable recommendations."""
 
-            client = AsyncOpenAI(api_key=self.openai_api_key, organization=self.openai_project_id)
+            client = AsyncOpenAI(api_key=self.openai_api_key)
             
             response = await client.chat.completions.create(
                 model=self.gpt_model,
