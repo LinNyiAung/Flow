@@ -125,6 +125,8 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
+      drawerEnableOpenDragGesture: true,  // ADD THIS LINE
+      drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
           'All Transactions',

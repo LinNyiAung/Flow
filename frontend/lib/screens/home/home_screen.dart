@@ -55,6 +55,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       key: _scaffoldKey, // Assign the scaffold key to the Scaffold
       drawer: AppDrawer(), // Add the navigation drawer to the scaffold
+      drawerEnableOpenDragGesture: true,
+      drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
           'Dashboard', // Title for the Home Screen AppBar

@@ -95,7 +95,9 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      drawer: AppDrawer(), // Add the navigation drawer
+      drawer: AppDrawer(), 
+      drawerEnableOpenDragGesture: true,  
+      drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         leading: IconButton(
           icon: Icon(Icons.menu),

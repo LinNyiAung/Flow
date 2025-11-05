@@ -100,6 +100,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
+      drawerEnableOpenDragGesture: true,  
+      drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
           'AI Insights',

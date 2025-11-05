@@ -111,6 +111,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
+      drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
           'Financial Reports',

@@ -248,6 +248,8 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
+      drawerEnableOpenDragGesture: true,  
+      drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
           'Outflow Analytics',
