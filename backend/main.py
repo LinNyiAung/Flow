@@ -1,11 +1,12 @@
 import asyncio
+import base64
 import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta, UTC, timezone
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, status, Depends, Query, Path
+from fastapi import FastAPI, File, HTTPException, UploadFile, status, Depends, Query, Path
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,7 @@ from report_models import CategoryBreakdown, FinancialReport, GoalProgress, Repo
 from insight_models import InsightResponse
 from goal_models import GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary
 from models import (
-    UserCreate, UserLogin, UserResponse, Token,
+    TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
     TransactionCreate, TransactionResponse, CategoryResponse, TransactionType,
     TransactionUpdate
 )
@@ -1452,6 +1453,248 @@ async def download_report_pdf(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate PDF: {str(e)}"
+        )
+        
+        
+@app.post("/api/transactions/transcribe-audio")
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Transcribe audio to text using OpenAI Whisper"""
+    try:
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI API key not configured"
+            )
+        
+        # Read audio file
+        audio_data = await audio.read()
+        
+        # Save temporarily
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_audio:
+            temp_audio.write(audio_data)
+            temp_path = temp_audio.name
+        
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            with open(temp_path, 'rb') as audio_file:
+                transcript = await client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="en"
+                )
+            
+            return {"transcription": transcript.text}
+        finally:
+            # Clean up temp file
+            import os
+            os.unlink(temp_path)
+            
+    except Exception as e:
+        print(f"Transcription error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to transcribe audio: {str(e)}"
+        )
+
+
+@app.post("/api/transactions/extract-from-text", response_model=TransactionExtraction)
+async def extract_transaction_from_text(
+    request: TextExtractionRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Extract transaction details from text using GPT-4"""
+    try:
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI API key not configured"
+            )
+        
+        # Get user's categories
+        inflow_cats = categories_collection.find_one({"_id": "inflow"})
+        outflow_cats = categories_collection.find_one({"_id": "outflow"})
+        
+        categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
+        if inflow_cats:
+            for cat in inflow_cats["categories"]:
+                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+        
+        categories_text += "\nOUTFLOW:\n"
+        if outflow_cats:
+            for cat in outflow_cats["categories"]:
+                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+        
+        system_prompt = f"""You are a financial transaction extraction assistant. Extract transaction details from user text.
+
+{categories_text}
+
+RULES:
+1. Determine if it's 'inflow' (income) or 'outflow' (expense)
+2. Select the most appropriate main_category and sub_category from the list above
+3. Extract the amount as a positive number
+4. Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
+5. Extract any description/notes
+6. Provide a confidence score (0.0-1.0) based on clarity
+7. Provide brief reasoning for your categorization
+
+Respond in JSON format:
+{{
+    "type": "inflow" or "outflow",
+    "main_category": "selected main category",
+    "sub_category": "selected sub category",
+    "date": "YYYY-MM-DD",
+    "description": "optional description",
+    "amount": 123.45,
+    "confidence": 0.95,
+    "reasoning": "why you chose these categories"
+}}"""
+
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Extract transaction from: {request.text}"}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        # Validate and parse
+        return TransactionExtraction(
+            type=result["type"],
+            main_category=result["main_category"],
+            sub_category=result["sub_category"],
+            date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
+            description=result.get("description"),
+            amount=float(result["amount"]),
+            confidence=float(result["confidence"]),
+            reasoning=result.get("reasoning")
+        )
+        
+    except Exception as e:
+        print(f"Extraction error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to extract transaction: {str(e)}"
+        )
+
+
+@app.post("/api/transactions/extract-from-image", response_model=TransactionExtraction)
+async def extract_transaction_from_image(
+    image: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Extract transaction details from receipt image using GPT-4 Vision"""
+    try:
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI API key not configured"
+            )
+        
+        # Read and encode image
+        image_data = await image.read()
+        base64_image = base64.b64encode(image_data).decode('utf-8')
+        
+        # Get user's categories
+        inflow_cats = categories_collection.find_one({"_id": "inflow"})
+        outflow_cats = categories_collection.find_one({"_id": "outflow"})
+        
+        categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
+        if inflow_cats:
+            for cat in inflow_cats["categories"]:
+                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+        
+        categories_text += "\nOUTFLOW:\n"
+        if outflow_cats:
+            for cat in outflow_cats["categories"]:
+                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+        
+        system_prompt = f"""You are a financial receipt analyzer. Extract transaction details from receipt images.
+
+{categories_text}
+
+RULES:
+1. Identify if it's 'inflow' or 'outflow' (receipts are usually outflow)
+2. Select the most appropriate category from the list above based on merchant/items
+3. Extract the total amount
+4. Extract the date from receipt (default to today if not visible: {datetime.now(UTC).strftime('%Y-%m-%d')})
+5. Create a brief description including merchant name
+6. Provide confidence score (0.0-1.0)
+7. Explain your reasoning
+
+Respond in JSON format:
+{{
+    "type": "inflow" or "outflow",
+    "main_category": "selected main category",
+    "sub_category": "selected sub category",
+    "date": "YYYY-MM-DD",
+    "description": "merchant name and brief description",
+    "amount": 123.45,
+    "confidence": 0.95,
+    "reasoning": "what you saw on the receipt"
+}}"""
+
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Analyze this receipt and extract transaction details:"
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=1000,
+            temperature=0.3
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        return TransactionExtraction(
+            type=result["type"],
+            main_category=result["main_category"],
+            sub_category=result["sub_category"],
+            date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
+            description=result.get("description"),
+            amount=float(result["amount"]),
+            confidence=float(result["confidence"]),
+            reasoning=result.get("reasoning")
+        )
+        
+    except Exception as e:
+        print(f"Image extraction error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to extract from image: {str(e)}"
         )
 
 

@@ -4,7 +4,9 @@ import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/report.dart';
+import 'package:frontend/models/voice_image_models.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
@@ -655,6 +657,91 @@ static Future<String> downloadReportPdf({
   } else {
     final error = jsonDecode(response.body);
     throw Exception(error['detail'] ?? 'Failed to download report');
+  }
+}
+
+
+static Future<String> transcribeAudio(File audioFile) async {
+  try {
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/transactions/transcribe-audio'),
+    );
+    
+    final headers = await _getHeaders();
+    request.headers.addAll(headers);
+    
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'audio',
+        audioFile.path,
+        contentType: MediaType('audio', 'wav'),
+      ),
+    );
+    
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['transcription'];
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to transcribe audio');
+    }
+  } catch (e) {
+    throw Exception('Audio transcription failed: ${e.toString()}');
+  }
+}
+
+static Future<ExtractedTransactionData> extractTransactionFromText(String text) async {
+  try {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/transactions/extract-from-text'),
+      headers: await _getHeaders(),
+      body: jsonEncode({'text': text}),
+    );
+    
+    if (response.statusCode == 200) {
+      return ExtractedTransactionData.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to extract transaction');
+    }
+  } catch (e) {
+    throw Exception('Transaction extraction failed: ${e.toString()}');
+  }
+}
+
+static Future<ExtractedTransactionData> extractTransactionFromImage(File imageFile) async {
+  try {
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/transactions/extract-from-image'),
+    );
+    
+    final headers = await _getHeaders();
+    request.headers.addAll(headers);
+    
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'image',
+        imageFile.path,
+        contentType: MediaType('image', 'jpeg'),
+      ),
+    );
+    
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    
+    if (response.statusCode == 200) {
+      return ExtractedTransactionData.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to extract from image');
+    }
+  } catch (e) {
+    throw Exception('Image extraction failed: ${e.toString()}');
   }
 }
 

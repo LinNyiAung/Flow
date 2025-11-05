@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
+import 'package:frontend/screens/transactions/voice_input_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -649,31 +651,201 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Navigate to the AddTransactionScreen and handle results
-  void _navigateToAddTransaction() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => AddTransactionScreen()),
-    );
+  void _navigateToAddTransaction() {
+  _showAddTransactionOptions();
+}
 
-    // If the result is 'true', it means a transaction was added successfully
-    if (result == true) {
-      _refreshData(); // Refresh the data on the home screen
-      // Show a success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Transaction added successfully!',
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Color(0xFF4CAF50), // Success green
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          behavior: SnackBarBehavior.floating,
+void _showAddTransactionOptions() {
+  showModalBottomSheet(
+    context: context,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (BuildContext context) {
+      return Container(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.add, color: Colors.white, size: 20),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'Add Transaction',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 24),
+
+            // Manual Entry Option
+            _buildAddOption(
+              icon: Icons.edit_outlined,
+              title: 'Manual Entry',
+              subtitle: 'Type transaction details',
+              gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => AddTransactionScreen()),
+                );
+                if (result == true) {
+                  _refreshData();
+                  _showSuccessSnackBar('Transaction added successfully!');
+                }
+              },
+            ),
+            SizedBox(height: 12),
+
+            // Voice Input Option
+            _buildAddOption(
+              icon: Icons.mic,
+              title: 'Voice Input',
+              subtitle: 'Speak your transaction',
+              gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => VoiceInputScreen()),
+                );
+                if (result == true) {
+                  _refreshData();
+                  _showSuccessSnackBar('Transaction added successfully!');
+                }
+              },
+            ),
+            SizedBox(height: 12),
+
+            // Image Input Option
+            _buildAddOption(
+              icon: Icons.camera_alt,
+              title: 'Scan Receipt',
+              subtitle: 'Take or upload receipt photo',
+              gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => ImageInputScreen()),
+                );
+                if (result == true) {
+                  _refreshData();
+                  _showSuccessSnackBar('Transaction added successfully!');
+                }
+              },
+            ),
+            SizedBox(height: 16),
+          ],
         ),
       );
-    }
-  }
+    },
+  );
+}
+
+Widget _buildAddOption({
+  required IconData icon,
+  required String title,
+  required String subtitle,
+  required List<Color> gradientColors,
+  required VoidCallback onTap,
+}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.grey.withOpacity(0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 4,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: gradientColors),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: Colors.white, size: 24),
+          ),
+          SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.arrow_forward_ios,
+            size: 16,
+            color: Colors.grey[400],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+void _showSuccessSnackBar(String message) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        message,
+        style: GoogleFonts.poppins(color: Colors.white),
+      ),
+      backgroundColor: Color(0xFF4CAF50),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
 
   // Navigate to the EditTransactionScreen and handle results
   void _navigateToEditTransaction(Transaction transaction) async {

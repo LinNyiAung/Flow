@@ -58,3 +58,18 @@ class TransactionResponse(BaseModel):
 class CategoryResponse(BaseModel):
     main_category: str
     sub_categories: List[str]
+    
+    
+    
+class TransactionExtraction(BaseModel):
+    type: str
+    main_category: str
+    sub_category: str
+    date: datetime
+    description: Optional[str] = None
+    amount: float
+    confidence: float
+    reasoning: Optional[str] = None
+
+class TextExtractionRequest(BaseModel):
+    text: str
