@@ -20,6 +20,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isRecording = false;
   bool _isProcessing = false;
+  bool _isSaving = false; // Add this flag
   String? _transcribedText;
   ExtractedTransactionData? _extractedData;
   String? _audioPath;
@@ -124,7 +125,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   }
 
   Future<void> _saveTransaction() async {
-    if (_extractedData == null) return;
+    if (_extractedData == null || _isSaving) return; // Prevent multiple calls
+
+    setState(() {
+      _isSaving = true; // Set saving flag
+      _error = null;
+    });
 
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
     
@@ -140,6 +146,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
     if (success) {
       Navigator.pop(context, true);
+    } else {
+      setState(() {
+        _isSaving = false; // Reset flag on error
+        _error = transactionProvider.error ?? 'Failed to save transaction';
+      });
     }
   }
 
@@ -173,7 +184,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                 child: Row(
                   children: [
                     IconButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: _isSaving ? null : () => Navigator.pop(context), // Disable back button while saving
                       icon: Container(
                         padding: EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -211,7 +222,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       // Recording Button
                       SizedBox(height: 40),
                       GestureDetector(
-                        onTap: _isRecording ? _stopRecording : _startRecording,
+                        onTap: _isSaving ? null : (_isRecording ? _stopRecording : _startRecording), // Disable while saving
                         child: AnimatedBuilder(
                           animation: _pulseAnimation,
                           builder: (context, child) {
@@ -388,28 +399,31 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                           width: double.infinity,
                           height: 56,
                           child: ElevatedButton(
-                            onPressed: _saveTransaction,
+                            onPressed: _isSaving ? null : _saveTransaction, // Disable when saving
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Color(0xFF4CAF50),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
+                              disabledBackgroundColor: Colors.grey[400], // Style for disabled state
                             ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.check_circle, color: Colors.white),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Save Transaction',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white,
+                            child: _isSaving
+                                ? CircularProgressIndicator(color: Colors.white) // Show loading indicator
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.check_circle, color: Colors.white),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Save Transaction',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ],
-                            ),
                           ),
                         ),
                       ],
