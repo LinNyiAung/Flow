@@ -199,10 +199,11 @@ async def get_transactions(
             date_filter["$lte"] = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
         query["date"] = date_filter
 
+    # FIX: Add secondary sort by created_at to show latest added first when dates match
     transactions = list(
         transactions_collection
         .find(query)
-        .sort("date", -1)
+        .sort([("date", -1), ("created_at", -1)])  # Sort by date DESC, then created_at DESC
         .skip(skip)
         .limit(limit)
     )
