@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/transaction.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -656,21 +658,47 @@ class _AddCategoryDialog extends StatefulWidget {
 
 class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _categoryController = TextEditingController();
   final _amountController = TextEditingController();
+  
+  String? _selectedMainCategory;
+  String? _selectedSubCategory;
+  List<Category> _categories = [];
+  bool _isLoadingCategories = false;
 
   @override
   void initState() {
     super.initState();
     if (widget.initialCategory != null) {
-      _categoryController.text = widget.initialCategory!.mainCategory;
+      _selectedMainCategory = widget.initialCategory!.mainCategory;
+      // Note: Since CategoryBudget doesn't have subCategory, we can't restore it
+      // You may want to update the CategoryBudget model to include subCategory if needed
       _amountController.text = widget.initialCategory!.allocatedAmount.toString();
+    }
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    setState(() {
+      _isLoadingCategories = true;
+    });
+
+    try {
+      // Fetch outflow categories from API
+      final categories = await ApiService.getCategories(TransactionType.outflow);
+      setState(() {
+        _categories = categories;
+        _isLoadingCategories = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingCategories = false;
+      });
+      print("Error loading categories: $e");
     }
   }
 
   @override
   void dispose() {
-    _categoryController.dispose();
     _amountController.dispose();
     super.dispose();
   }
@@ -680,46 +708,184 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(
-        widget.initialCategory == null ? 'Add Category' : 'Edit Category',
+        widget.initialCategory == null ? 'Add Category Budget' : 'Edit Category Budget',
         style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
       ),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _categoryController,
-              decoration: InputDecoration(
-                labelText: 'Category Name',
-                prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Main Category Dropdown
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: _isLoadingCategories
+                    ? Container(
+                        padding: EdgeInsets.all(20),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                          ),
+                        ),
+                      )
+                    : DropdownButtonFormField<String>(
+                        decoration: InputDecoration(
+                          hintText: 'Select main category',
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
+                        ),
+                        isExpanded: true, // This prevents overflow
+                        value: _selectedMainCategory,
+                        items: _categories.map((category) {
+                          return DropdownMenuItem(
+                            value: category.mainCategory,
+                            child: Text(
+                              category.mainCategory,
+                              style: GoogleFonts.poppins(fontSize: 14),
+                              overflow: TextOverflow.ellipsis, // Handle long text
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedMainCategory = value;
+                            _selectedSubCategory = null; // Reset sub-category when main category changes
+                          });
+                        },
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please select a main category';
+                          }
+                          return null;
+                        },
+                      ),
               ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter category name';
-                }
-                return null;
-              },
-            ),
-            SizedBox(height: 16),
-            TextFormField(
-              controller: _amountController,
-              decoration: InputDecoration(
-                labelText: 'Budget Amount',
-                prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
+              
+              // Sub Category Dropdown (Optional)
+              if (_selectedMainCategory != null) ...[
+                SizedBox(height: 16),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    decoration: InputDecoration(
+                      hintText: 'Sub category (optional)',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      prefixIcon: Icon(Icons.list_outlined, color: Color(0xFF667eea)),
+                    ),
+                    isExpanded: true, // This prevents overflow
+                    value: _selectedSubCategory,
+                    items: [
+                      // Add "All" option for optional sub-category selection
+                      DropdownMenuItem(
+                        value: 'All',
+                        child: Text(
+                          'All (no filter)',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.grey[600],
+                          ),
+                          overflow: TextOverflow.ellipsis, // Handle long text
+                        ),
+                      ),
+                      // Add actual sub-categories
+                      ..._categories
+                          .firstWhere(
+                            (cat) => cat.mainCategory == _selectedMainCategory,
+                            orElse: () => Category(mainCategory: '', subCategories: []),
+                          )
+                          .subCategories
+                          .map((subCategory) {
+                        return DropdownMenuItem(
+                          value: subCategory,
+                          child: Text(
+                            subCategory,
+                            style: GoogleFonts.poppins(fontSize: 14),
+                            overflow: TextOverflow.ellipsis, // Handle long text
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedSubCategory = value;
+                      });
+                    },
+                    // No validator - sub-category is optional
+                  ),
+                ),
+              ],
+              
+              SizedBox(height: 16),
+              // Amount Field
+              TextFormField(
+                controller: _amountController,
+                decoration: InputDecoration(
+                  labelText: 'Budget Amount',
+                  hintText: '0.00',
+                  prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey[300]!),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
+                  ),
+                ),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter amount';
+                  }
+                  if (double.tryParse(value) == null || double.parse(value) <= 0) {
+                    return 'Please enter valid amount';
+                  }
+                  return null;
+                },
               ),
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter amount';
-                }
-                if (double.tryParse(value) == null || double.parse(value) <= 0) {
-                  return 'Please enter valid amount';
-                }
-                return null;
-              },
-            ),
-          ],
+              
+              // Info text about sub-categories
+              if (_selectedMainCategory != null) ...[
+                SizedBox(height: 12),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Color(0xFF667eea).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: Color(0xFF667eea)),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _selectedSubCategory == null || _selectedSubCategory == 'All'
+                              ? 'Budget will track all sub-categories in ${_selectedMainCategory}'
+                              : 'Budget will only track ${_selectedSubCategory}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: Color(0xFF667eea),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
       actions: [
@@ -730,8 +896,14 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
+              // Create display name based on selections
+              String displayName = _selectedMainCategory!;
+              if (_selectedSubCategory != null && _selectedSubCategory != 'All') {
+                displayName += ' - $_selectedSubCategory';
+              }
+              
               widget.onAdd(CategoryBudget(
-                mainCategory: _categoryController.text,
+                mainCategory: displayName,
                 allocatedAmount: double.parse(_amountController.text),
                 spentAmount: 0,
                 percentageUsed: 0,
@@ -743,8 +915,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: Color(0xFF667eea),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           ),
-          child: Text('Save', style: GoogleFonts.poppins(color: Colors.white)),
+          child: Text('Save', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
         ),
       ],
     );

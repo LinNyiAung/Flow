@@ -139,6 +139,28 @@ class AppDrawer extends StatelessWidget {
                       height: 24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
+                          colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(Icons.account_balance_wallet, color: Colors.white, size: 18),
+                    ),
+                    title: Text(
+                      'Budgets',
+                      style: GoogleFonts.poppins(fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/budgets');
+                    },
+                  ),
+                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+                  ListTile(
+                    leading: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
                           colors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
                         ),
                         borderRadius: BorderRadius.circular(4),
@@ -196,28 +218,6 @@ class AppDrawer extends StatelessWidget {
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.pushNamed(context, '/reports');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.account_balance_wallet, color: Colors.white, size: 18),
-                    ),
-                    title: Text(
-                      'Budgets',
-                      style: GoogleFonts.poppins(fontSize: 16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/budgets');
                     },
                   ),
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),

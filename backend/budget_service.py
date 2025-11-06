@@ -431,23 +431,44 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
         }
     }))
     
-    # Calculate spent amounts per category
-    category_spending = defaultdict(float)
-    for t in transactions:
-        category_spending[t["main_category"]] += t["amount"]
+    # Track counted transactions to avoid double counting in total_spent
+    counted_transaction_ids = set()
     
     # Update budget categories
-    total_spent = 0
     for cat_budget in budget["category_budgets"]:
-        cat_name = cat_budget["main_category"]
-        spent = category_spending.get(cat_name, 0)
+        budget_category = cat_budget["main_category"]
+        spent = 0
+        
+        # Check if this is a main category or main + sub category budget
+        if " - " in budget_category:
+            # This is a specific sub-category budget (e.g., "Shopping - Clothing")
+            parts = budget_category.split(" - ", 1)
+            main_cat = parts[0]
+            sub_cat = parts[1]
+            
+            # Sum transactions that match both main and sub category
+            for t in transactions:
+                if t["main_category"] == main_cat and t["sub_category"] == sub_cat:
+                    spent += t["amount"]
+                    # Mark transaction as counted for total_spent calculation
+                    counted_transaction_ids.add(t["_id"])
+        else:
+            # This is a main category budget (e.g., "Shopping")
+            # Sum all transactions with this main category, regardless of sub-category
+            for t in transactions:
+                if t["main_category"] == budget_category:
+                    spent += t["amount"]
+                    # Mark transaction as counted for total_spent calculation
+                    counted_transaction_ids.add(t["_id"])
+        
         allocated = cat_budget["allocated_amount"]
         
         cat_budget["spent_amount"] = spent
         cat_budget["percentage_used"] = (spent / allocated * 100) if allocated > 0 else 0
         cat_budget["is_exceeded"] = spent > allocated
-        
-        total_spent += spent
+    
+    # Calculate total_spent by summing only unique transactions (no double counting)
+    total_spent = sum(t["amount"] for t in transactions if t["_id"] in counted_transaction_ids)
     
     # Update budget totals
     remaining = budget["total_budget"] - total_spent
