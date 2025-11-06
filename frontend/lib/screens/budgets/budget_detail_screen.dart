@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/screens/budgets/edit_budget_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -96,6 +97,20 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     }
   }
 
+
+  void _navigateToEditBudget() async {
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => EditBudgetScreen(budget: _budget),
+    ),
+  );
+
+  if (result == true) {
+    await _refreshBudget();
+  }
+}
+
   Color _getStatusColor() {
     switch (_budget.status) {
       case BudgetStatus.exceeded:
@@ -140,6 +155,10 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           IconButton(
             icon: Icon(Icons.refresh, color: Color(0xFF667eea)),
             onPressed: _isRefreshing ? null : _refreshBudget,
+          ),
+          IconButton(
+            icon: Icon(Icons.edit, color: Color(0xFF667eea)),
+            onPressed: () => _navigateToEditBudget(),
           ),
           IconButton(
             icon: Icon(Icons.delete, color: Colors.red),
