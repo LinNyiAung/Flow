@@ -94,7 +94,7 @@ class BudgetAnalyzer:
                 "total_allocated": total_goal_current,
                 "remaining_to_allocate": total_goal_target - total_goal_current
             },
-            "total_expenses": sum(data["total"] for data in category_stats.values())
+            "total_expenses": sum(data["total_spent"] for data in category_stats.values())
         }
     
     def calculate_period_dates(self, period: BudgetPeriod, start_date: datetime, end_date: Optional[datetime] = None):
