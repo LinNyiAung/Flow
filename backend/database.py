@@ -14,6 +14,7 @@ categories_collection = database.categories
 chat_sessions_collection = database.chat_sessions
 goals_collection = database.goals 
 insights_collection = database.insights
+budgets_collection = database.budgets
 
 # Initialize default categories if they don't exist
 def initialize_categories():

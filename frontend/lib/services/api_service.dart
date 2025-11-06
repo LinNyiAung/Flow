@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
@@ -13,7 +14,7 @@ import '../models/user.dart';
 import '../models/transaction.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://flowfinance.onrender.com';
+  static const String baseUrl = 'http://10.80.21.130:8000';
   
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -742,6 +743,190 @@ static Future<ExtractedTransactionData> extractTransactionFromImage(File imageFi
     }
   } catch (e) {
     throw Exception('Image extraction failed: ${e.toString()}');
+  }
+}
+
+
+
+static Future<AIBudgetSuggestion> getAIBudgetSuggestions({
+  required BudgetPeriod period,
+  required DateTime startDate,
+  DateTime? endDate,
+  List<String>? includeCategories,
+  int analysisMonths = 3,
+}) async {
+  final Map<String, dynamic> requestBody = {
+    'period': period.name,
+    'start_date': startDate.toUtc().toIso8601String(),
+    'analysis_months': analysisMonths,
+  };
+
+  if (endDate != null) {
+    requestBody['end_date'] = endDate.toUtc().toIso8601String();
+  }
+
+  if (includeCategories != null && includeCategories.isNotEmpty) {
+    requestBody['include_categories'] = includeCategories;
+  }
+
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/budgets/ai-suggest'),
+    headers: await _getHeaders(),
+    body: jsonEncode(requestBody),
+  );
+
+  if (response.statusCode == 200) {
+    return AIBudgetSuggestion.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to get AI budget suggestions');
+  }
+}
+
+static Future<Budget> createBudget({
+  required String name,
+  required BudgetPeriod period,
+  required DateTime startDate,
+  DateTime? endDate,
+  required List<CategoryBudget> categoryBudgets,
+  required double totalBudget,
+  String? description,
+}) async {
+  final Map<String, dynamic> requestBody = {
+    'name': name,
+    'period': period.name,
+    'start_date': startDate.toUtc().toIso8601String(),
+    'category_budgets': categoryBudgets.map((cat) => cat.toJson()).toList(),
+    'total_budget': totalBudget,
+  };
+
+  if (endDate != null) {
+    requestBody['end_date'] = endDate.toUtc().toIso8601String();
+  }
+
+  if (description != null) {
+    requestBody['description'] = description;
+  }
+
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/budgets'),
+    headers: await _getHeaders(),
+    body: jsonEncode(requestBody),
+  );
+
+  if (response.statusCode == 200) {
+    return Budget.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to create budget');
+  }
+}
+
+static Future<List<Budget>> getBudgets({
+  bool activeOnly = false,
+  BudgetPeriod? period,
+}) async {
+  String url = '$baseUrl/api/budgets?active_only=$activeOnly';
+
+  if (period != null) {
+    url += '&period=${period.name}';
+  }
+
+  final response = await http.get(
+    Uri.parse(url),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    final List<dynamic> data = jsonDecode(response.body);
+    return data.map((json) => Budget.fromJson(json)).toList();
+  } else {
+    throw Exception('Failed to get budgets');
+  }
+}
+
+static Future<BudgetSummary> getBudgetsSummary() async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/budgets/summary'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return BudgetSummary.fromJson(jsonDecode(response.body));
+  } else {
+    throw Exception('Failed to get budgets summary');
+  }
+}
+
+static Future<Budget> getBudget(String budgetId) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/budgets/$budgetId'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return Budget.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to get budget');
+  }
+}
+
+static Future<Budget> updateBudget({
+  required String budgetId,
+  String? name,
+  List<CategoryBudget>? categoryBudgets,
+  double? totalBudget,
+  String? description,
+}) async {
+  final Map<String, dynamic> updateData = {};
+
+  if (name != null) updateData['name'] = name;
+  if (description != null) updateData['description'] = description;
+  if (totalBudget != null) updateData['total_budget'] = totalBudget;
+  if (categoryBudgets != null) {
+    updateData['category_budgets'] = categoryBudgets.map((cat) => cat.toJson()).toList();
+  }
+
+  if (updateData.isEmpty) {
+    throw Exception('No fields provided for update');
+  }
+
+  final response = await http.put(
+    Uri.parse('$baseUrl/api/budgets/$budgetId'),
+    headers: await _getHeaders(),
+    body: jsonEncode(updateData),
+  );
+
+  if (response.statusCode == 200) {
+    return Budget.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to update budget');
+  }
+}
+
+static Future<void> deleteBudget(String budgetId) async {
+  final response = await http.delete(
+    Uri.parse('$baseUrl/api/budgets/$budgetId'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to delete budget');
+  }
+}
+
+static Future<void> refreshBudget(String budgetId) async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/budgets/$budgetId/refresh'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to refresh budget');
   }
 }
 

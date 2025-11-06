@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
+import 'package:frontend/screens/budgets/budgets_screen.dart';
 import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
@@ -31,6 +33,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => GoalProvider()),
         ChangeNotifierProvider(create: (_) => InsightProvider()),
+        ChangeNotifierProvider(create: (_) => BudgetProvider()),
       ],
       child: MaterialApp(
         title: 'Flow Finance',
@@ -71,6 +74,7 @@ class MyApp extends StatelessWidget {
           '/inflow-analytics': (context) => InflowAnalyticsScreen(),
           '/insights': (context) => InsightsScreen(),
           '/reports': (context) => ReportsScreen(),
+          '/budgets': (context) => BudgetsScreen(),
         },
       ),
     );
