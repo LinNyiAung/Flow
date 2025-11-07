@@ -28,7 +28,9 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.budget.name);
-    _descriptionController = TextEditingController(text: widget.budget.description ?? '');
+    _descriptionController = TextEditingController(
+      text: widget.budget.description ?? '',
+    );
     _categoryBudgets = List.from(widget.budget.categoryBudgets);
   }
 
@@ -38,6 +40,78 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     _descriptionController.dispose();
     super.dispose();
   }
+
+  String? _validateDuplicateCategory(
+    String mainCategory,
+    String? subCategory, {
+    int? excludeIndex,
+  }) {
+    // Check for exact duplicates
+    for (int i = 0; i < _categoryBudgets.length; i++) {
+      // Skip the category being edited
+      if (excludeIndex != null && i == excludeIndex) continue;
+
+      var existingCat = _categoryBudgets[i];
+      String existingMain = existingCat.mainCategory;
+      String? existingSubStr;
+
+      // Parse existing category
+      if (existingMain.contains(' - ')) {
+        final parts = existingMain.split(' - ');
+        existingMain = parts[0];
+        existingSubStr = parts[1];
+      }
+
+      // Check if it's the same main category with same sub-category (or both have no sub-category)
+      if (existingMain == mainCategory) {
+        if ((subCategory == null || subCategory == 'All') &&
+            existingSubStr == null) {
+          return 'This category already exists';
+        }
+        if (subCategory != null &&
+            subCategory != 'All' &&
+            existingSubStr == subCategory) {
+          return 'This category already exists';
+        }
+      }
+    }
+    return null;
+  }
+
+
+  // In create_budget_screen.dart, replace the totalBudget calculation
+double _calculateTotalBudget() {
+  Set<String> mainCategories = {};
+  List<MapEntry<String, double>> subCategories = [];
+  
+  // Separate main categories and sub-categories
+  for (var cat in _categoryBudgets) {
+    if (cat.mainCategory.contains(' - ')) {
+      final parts = cat.mainCategory.split(' - ');
+      subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
+    } else {
+      mainCategories.add(cat.mainCategory);
+    }
+  }
+  
+  double total = 0.0;
+  
+  // Add all main category budgets
+  for (var cat in _categoryBudgets) {
+    if (!cat.mainCategory.contains(' - ')) {
+      total += cat.allocatedAmount;
+    }
+  }
+  
+  // Add sub-category budgets only if their main category doesn't exist
+  for (var entry in subCategories) {
+    if (!mainCategories.contains(entry.key)) {
+      total += entry.value;
+    }
+  }
+  
+  return total;
+}
 
   void _addCategoryBudget() {
     showDialog(
@@ -57,6 +131,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       context: context,
       builder: (context) => _AddCategoryDialog(
         initialCategory: _categoryBudgets[index],
+        editingIndex: index, // Pass the index being edited
         onAdd: (categoryBudget) {
           setState(() {
             _categoryBudgets[index] = categoryBudget;
@@ -87,18 +162,18 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 
     setState(() => _isLoading = true);
 
-    final totalBudget = _categoryBudgets.fold<double>(
-      0,
-      (sum, cat) => sum + cat.allocatedAmount,
-    );
+    final totalBudget = _calculateTotalBudget();
 
-    final success = await Provider.of<BudgetProvider>(context, listen: false).updateBudget(
-      budgetId: widget.budget.id,
-      name: _nameController.text,
-      categoryBudgets: _categoryBudgets,
-      totalBudget: totalBudget,
-      description: _descriptionController.text.isEmpty ? null : _descriptionController.text,
-    );
+    final success = await Provider.of<BudgetProvider>(context, listen: false)
+        .updateBudget(
+          budgetId: widget.budget.id,
+          name: _nameController.text,
+          categoryBudgets: _categoryBudgets,
+          totalBudget: totalBudget,
+          description: _descriptionController.text.isEmpty
+              ? null
+              : _descriptionController.text,
+        );
 
     setState(() => _isLoading = false);
 
@@ -106,7 +181,10 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Budget updated successfully', style: GoogleFonts.poppins(color: Colors.white)),
+          content: Text(
+            'Budget updated successfully',
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -125,10 +203,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final totalBudget = _categoryBudgets.fold<double>(
-      0,
-      (sum, cat) => sum + cat.allocatedAmount,
-    );
+    final totalBudget = _calculateTotalBudget();
 
     return Scaffold(
       appBar: AppBar(
@@ -150,10 +225,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
+            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
           ),
         ),
         child: Form(
@@ -166,7 +238,10 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                 padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFF667eea).withOpacity(0.1), Color(0xFF764ba2).withOpacity(0.1)],
+                    colors: [
+                      Color(0xFF667eea).withOpacity(0.1),
+                      Color(0xFF764ba2).withOpacity(0.1),
+                    ],
                   ),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
@@ -189,7 +264,11 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       ],
                     ),
                     SizedBox(height: 12),
-                    _buildInfoRow(Icons.calendar_today, 'Period', widget.budget.period.name.toUpperCase()),
+                    _buildInfoRow(
+                      Icons.calendar_today,
+                      'Period',
+                      widget.budget.period.name.toUpperCase(),
+                    ),
                     _buildInfoRow(
                       Icons.date_range,
                       'Duration',
@@ -267,7 +346,11 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.warning_amber_rounded, color: Colors.orange[700], size: 20),
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orange[700],
+                      size: 20,
+                    ),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -377,7 +460,9 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              totalBudget > widget.budget.totalBudget ? Icons.trending_up : Icons.trending_down,
+                              totalBudget > widget.budget.totalBudget
+                                  ? Icons.trending_up
+                                  : Icons.trending_down,
                               color: Colors.white,
                               size: 16,
                             ),
@@ -441,10 +526,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
           SizedBox(width: 8),
           Text(
             '$label:',
-            style: GoogleFonts.poppins(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
+            style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
           ),
           SizedBox(width: 8),
           Expanded(
@@ -529,9 +611,14 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 // Reuse the same dialog from CreateBudgetScreen
 class _AddCategoryDialog extends StatefulWidget {
   final CategoryBudget? initialCategory;
+  final int? editingIndex; // Add this
   final Function(CategoryBudget) onAdd;
 
-  _AddCategoryDialog({this.initialCategory, required this.onAdd});
+  _AddCategoryDialog({
+    this.initialCategory,
+    this.editingIndex, // Add this
+    required this.onAdd,
+  });
 
   @override
   _AddCategoryDialogState createState() => _AddCategoryDialogState();
@@ -540,7 +627,7 @@ class _AddCategoryDialog extends StatefulWidget {
 class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
-  
+
   String? _selectedMainCategory;
   String? _selectedSubCategory;
   List<Category> _categories = [];
@@ -559,7 +646,8 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
       } else {
         _selectedMainCategory = categoryName;
       }
-      _amountController.text = widget.initialCategory!.allocatedAmount.toString();
+      _amountController.text = widget.initialCategory!.allocatedAmount
+          .toString();
     }
     _loadCategories();
   }
@@ -570,7 +658,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     });
 
     try {
-      final categories = await ApiService.getCategories(TransactionType.outflow);
+      final categories = await ApiService.getCategories(
+        TransactionType.outflow,
+      );
       setState(() {
         _categories = categories;
         _isLoadingCategories = false;
@@ -594,7 +684,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(
-        widget.initialCategory == null ? 'Add Category Budget' : 'Edit Category Budget',
+        widget.initialCategory == null
+            ? 'Add Category Budget'
+            : 'Edit Category Budget',
         style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
       ),
       content: SingleChildScrollView(
@@ -614,7 +706,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         padding: EdgeInsets.all(20),
                         child: Center(
                           child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Color(0xFF667eea),
+                            ),
                           ),
                         ),
                       )
@@ -622,8 +716,14 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         decoration: InputDecoration(
                           hintText: 'Select main category',
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.category,
+                            color: Color(0xFF667eea),
+                          ),
                         ),
                         isExpanded: true,
                         value: _selectedMainCategory,
@@ -651,7 +751,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         },
                       ),
               ),
-              
+
               if (_selectedMainCategory != null) ...[
                 SizedBox(height: 16),
                 Container(
@@ -664,8 +764,14 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                     decoration: InputDecoration(
                       hintText: 'Sub category (optional)',
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      prefixIcon: Icon(Icons.list_outlined, color: Color(0xFF667eea)),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.list_outlined,
+                        color: Color(0xFF667eea),
+                      ),
                     ),
                     isExpanded: true,
                     value: _selectedSubCategory,
@@ -685,19 +791,21 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       ..._categories
                           .firstWhere(
                             (cat) => cat.mainCategory == _selectedMainCategory,
-                            orElse: () => Category(mainCategory: '', subCategories: []),
+                            orElse: () =>
+                                Category(mainCategory: '', subCategories: []),
                           )
                           .subCategories
                           .map((subCategory) {
-                        return DropdownMenuItem(
-                          value: subCategory,
-                          child: Text(
-                            subCategory,
-                            style: GoogleFonts.poppins(fontSize: 14),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }).toList(),
+                            return DropdownMenuItem(
+                              value: subCategory,
+                              child: Text(
+                                subCategory,
+                                style: GoogleFonts.poppins(fontSize: 14),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          })
+                          .toList(),
                     ],
                     onChanged: (value) {
                       setState(() {
@@ -707,14 +815,17 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                   ),
                 ),
               ],
-              
+
               SizedBox(height: 16),
               TextFormField(
                 controller: _amountController,
                 decoration: InputDecoration(
                   labelText: 'Budget Amount',
                   hintText: '0.00',
-                  prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
+                  prefixIcon: Icon(
+                    Icons.attach_money,
+                    color: Color(0xFF667eea),
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: Colors.grey[300]!),
@@ -729,13 +840,14 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                   if (value == null || value.isEmpty) {
                     return 'Please enter amount';
                   }
-                  if (double.tryParse(value) == null || double.parse(value) <= 0) {
+                  if (double.tryParse(value) == null ||
+                      double.parse(value) <= 0) {
                     return 'Please enter valid amount';
                   }
                   return null;
                 },
               ),
-              
+
               if (_selectedMainCategory != null) ...[
                 SizedBox(height: 12),
                 Container(
@@ -746,11 +858,16 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline, size: 16, color: Color(0xFF667eea)),
+                      Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: Color(0xFF667eea),
+                      ),
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          _selectedSubCategory == null || _selectedSubCategory == 'All'
+                          _selectedSubCategory == null ||
+                                  _selectedSubCategory == 'All'
                               ? 'Budget will track all sub-categories in $_selectedMainCategory'
                               : 'Budget will only track $_selectedSubCategory',
                           style: GoogleFonts.poppins(
@@ -770,32 +887,66 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.grey[600])),
+          child: Text(
+            'Cancel',
+            style: GoogleFonts.poppins(color: Colors.grey[600]),
+          ),
         ),
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
               String displayName = _selectedMainCategory!;
-              if (_selectedSubCategory != null && _selectedSubCategory != 'All') {
+              if (_selectedSubCategory != null &&
+                  _selectedSubCategory != 'All') {
                 displayName += ' - $_selectedSubCategory';
               }
-              
-              widget.onAdd(CategoryBudget(
-                mainCategory: displayName,
-                allocatedAmount: double.parse(_amountController.text),
-                spentAmount: 0,
-                percentageUsed: 0,
-                isExceeded: false,
-              ));
+
+              // Validate for duplicates
+              final parent = context
+                  .findAncestorStateOfType<_EditBudgetScreenState>();
+              if (parent != null) {
+                final error = parent._validateDuplicateCategory(
+                  _selectedMainCategory!,
+                  _selectedSubCategory,
+                  excludeIndex: widget.editingIndex,
+                );
+                if (error != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(error, style: GoogleFonts.poppins()),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+              }
+
+              widget.onAdd(
+                CategoryBudget(
+                  mainCategory: displayName,
+                  allocatedAmount: double.parse(_amountController.text),
+                  spentAmount: 0,
+                  percentageUsed: 0,
+                  isExceeded: false,
+                ),
+              );
               Navigator.pop(context);
             }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: Color(0xFF667eea),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
             padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           ),
-          child: Text('Save', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+          child: Text(
+            'Save',
+            style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ],
     );

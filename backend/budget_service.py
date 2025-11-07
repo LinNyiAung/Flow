@@ -431,15 +431,15 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
         }
     }))
     
-    # Track counted transactions to avoid double counting in total_spent
+    # Track which transactions have been counted for total_spent
     counted_transaction_ids = set()
     
-    # Update budget categories
+    # First pass: Calculate spent amounts for each category budget
+    category_spent = {}
     for cat_budget in budget["category_budgets"]:
         budget_category = cat_budget["main_category"]
         spent = 0
         
-        # Check if this is a main category or main + sub category budget
         if " - " in budget_category:
             # This is a specific sub-category budget (e.g., "Shopping - Clothing")
             parts = budget_category.split(" - ", 1)
@@ -450,29 +450,36 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
             for t in transactions:
                 if t["main_category"] == main_cat and t["sub_category"] == sub_cat:
                     spent += t["amount"]
-                    # Mark transaction as counted for total_spent calculation
                     counted_transaction_ids.add(t["_id"])
         else:
             # This is a main category budget (e.g., "Shopping")
-            # Sum all transactions with this main category, regardless of sub-category
+            # Sum all transactions with this main category
             for t in transactions:
                 if t["main_category"] == budget_category:
                     spent += t["amount"]
-                    # Mark transaction as counted for total_spent calculation
                     counted_transaction_ids.add(t["_id"])
         
+        category_spent[budget_category] = spent
+    
+    # Update category budgets with calculated amounts
+    for cat_budget in budget["category_budgets"]:
+        budget_category = cat_budget["main_category"]
+        spent = category_spent.get(budget_category, 0)
         allocated = cat_budget["allocated_amount"]
         
         cat_budget["spent_amount"] = spent
         cat_budget["percentage_used"] = (spent / allocated * 100) if allocated > 0 else 0
         cat_budget["is_exceeded"] = spent > allocated
     
-    # Calculate total_spent by summing only unique transactions (no double counting)
+    # Calculate total_spent by summing only unique transactions
     total_spent = sum(t["amount"] for t in transactions if t["_id"] in counted_transaction_ids)
     
+    # Calculate total_budget excluding hierarchical sub-categories
+    total_budget = calculate_total_budget_excluding_subcategories(budget["category_budgets"])
+    
     # Update budget totals
-    remaining = budget["total_budget"] - total_spent
-    percentage_used = (total_spent / budget["total_budget"] * 100) if budget["total_budget"] > 0 else 0
+    remaining = total_budget - total_spent
+    percentage_used = (total_spent / total_budget * 100) if total_budget > 0 else 0
     
     # Update status
     status = calculate_budget_status(budget, datetime.now(timezone.utc))
@@ -483,6 +490,7 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
         {
             "$set": {
                 "category_budgets": budget["category_budgets"],
+                "total_budget": total_budget,
                 "total_spent": total_spent,
                 "remaining_budget": remaining,
                 "percentage_used": percentage_used,
@@ -492,6 +500,41 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
             }
         }
     )
+
+
+def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
+    """
+    Calculate total budget excluding sub-categories that fall under main categories.
+    For example, if we have "Shopping" and "Shopping - Clothing", only count "Shopping".
+    """
+    main_categories = set()
+    sub_category_pairs = []
+    
+    # First, identify all categories
+    for cat_budget in category_budgets:
+        category_name = cat_budget["main_category"]
+        if " - " in category_name:
+            parts = category_name.split(" - ", 1)
+            main_cat = parts[0]
+            sub_cat = parts[1]
+            sub_category_pairs.append((main_cat, sub_cat, cat_budget["allocated_amount"]))
+        else:
+            main_categories.add(category_name)
+    
+    total = 0.0
+    
+    # Add all main category budgets
+    for cat_budget in category_budgets:
+        category_name = cat_budget["main_category"]
+        if " - " not in category_name:
+            total += cat_budget["allocated_amount"]
+    
+    # Add sub-category budgets only if their main category doesn't exist
+    for main_cat, sub_cat, amount in sub_category_pairs:
+        if main_cat not in main_categories:
+            total += amount
+    
+    return total
 
 
 def update_all_user_budgets(user_id: str):
