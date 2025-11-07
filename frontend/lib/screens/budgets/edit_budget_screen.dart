@@ -78,40 +78,39 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     return null;
   }
 
-
   // In create_budget_screen.dart, replace the totalBudget calculation
-double _calculateTotalBudget() {
-  Set<String> mainCategories = {};
-  List<MapEntry<String, double>> subCategories = [];
-  
-  // Separate main categories and sub-categories
-  for (var cat in _categoryBudgets) {
-    if (cat.mainCategory.contains(' - ')) {
-      final parts = cat.mainCategory.split(' - ');
-      subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
-    } else {
-      mainCategories.add(cat.mainCategory);
+  double _calculateTotalBudget() {
+    Set<String> mainCategories = {};
+    List<MapEntry<String, double>> subCategories = [];
+
+    // Separate main categories and sub-categories
+    for (var cat in _categoryBudgets) {
+      if (cat.mainCategory.contains(' - ')) {
+        final parts = cat.mainCategory.split(' - ');
+        subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
+      } else {
+        mainCategories.add(cat.mainCategory);
+      }
     }
-  }
-  
-  double total = 0.0;
-  
-  // Add all main category budgets
-  for (var cat in _categoryBudgets) {
-    if (!cat.mainCategory.contains(' - ')) {
-      total += cat.allocatedAmount;
+
+    double total = 0.0;
+
+    // Add all main category budgets
+    for (var cat in _categoryBudgets) {
+      if (!cat.mainCategory.contains(' - ')) {
+        total += cat.allocatedAmount;
+      }
     }
-  }
-  
-  // Add sub-category budgets only if their main category doesn't exist
-  for (var entry in subCategories) {
-    if (!mainCategories.contains(entry.key)) {
-      total += entry.value;
+
+    // Add sub-category budgets only if their main category doesn't exist
+    for (var entry in subCategories) {
+      if (!mainCategories.contains(entry.key)) {
+        total += entry.value;
+      }
     }
+
+    return total;
   }
-  
-  return total;
-}
 
   void _addCategoryBudget() {
     showDialog(
@@ -645,6 +644,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
         _selectedSubCategory = parts[1];
       } else {
         _selectedMainCategory = categoryName;
+        _selectedSubCategory = null; // Explicitly set to null instead of 'All'
       }
       _amountController.text = widget.initialCategory!.allocatedAmount
           .toString();
@@ -753,65 +753,34 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
               ),
 
               if (_selectedMainCategory != null) ...[
-                SizedBox(height: 16),
+                SizedBox(height: 12),
                 Container(
+                  padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey[300]!),
+                    color: Color(0xFF667eea).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: DropdownButtonFormField<String>(
-                    decoration: InputDecoration(
-                      hintText: 'Sub category (optional)',
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      prefixIcon: Icon(
-                        Icons.list_outlined,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 16,
                         color: Color(0xFF667eea),
                       ),
-                    ),
-                    isExpanded: true,
-                    value: _selectedSubCategory,
-                    items: [
-                      DropdownMenuItem(
-                        value: 'All',
+                      SizedBox(width: 8),
+                      Expanded(
                         child: Text(
-                          'All (no filter)',
+                          _selectedSubCategory ==
+                                  null // Changed from checking 'All'
+                              ? 'Budget will track all sub-categories in $_selectedMainCategory'
+                              : 'Budget will only track $_selectedSubCategory',
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontStyle: FontStyle.italic,
-                            color: Colors.grey[600],
+                            fontSize: 11,
+                            color: Color(0xFF667eea),
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      ..._categories
-                          .firstWhere(
-                            (cat) => cat.mainCategory == _selectedMainCategory,
-                            orElse: () =>
-                                Category(mainCategory: '', subCategories: []),
-                          )
-                          .subCategories
-                          .map((subCategory) {
-                            return DropdownMenuItem(
-                              value: subCategory,
-                              child: Text(
-                                subCategory,
-                                style: GoogleFonts.poppins(fontSize: 14),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          })
-                          .toList(),
                     ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedSubCategory = value;
-                      });
-                    },
                   ),
                 ),
               ],
@@ -896,8 +865,8 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
           onPressed: () {
             if (_formKey.currentState!.validate()) {
               String displayName = _selectedMainCategory!;
-              if (_selectedSubCategory != null &&
-                  _selectedSubCategory != 'All') {
+              if (_selectedSubCategory != null) {
+                // Removed check for 'All'
                 displayName += ' - $_selectedSubCategory';
               }
 

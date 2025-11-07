@@ -895,7 +895,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                     items: [
                       // Add "All" option for optional sub-category selection
                       DropdownMenuItem(
-                        value: 'All',
+                        value: null,
                         child: Text(
                           'All (no filter)',
                           style: GoogleFonts.poppins(
@@ -990,7 +990,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       Expanded(
                         child: Text(
                           _selectedSubCategory == null ||
-                                  _selectedSubCategory == 'All'
+                                  _selectedSubCategory == null
                               ? 'Budget will track all sub-categories in ${_selectedMainCategory}'
                               : 'Budget will only track ${_selectedSubCategory}',
                           style: GoogleFonts.poppins(
@@ -1021,7 +1021,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
               // Create display name based on selections
               String displayName = _selectedMainCategory!;
               if (_selectedSubCategory != null &&
-                  _selectedSubCategory != 'All') {
+                  _selectedSubCategory != null) {
                 displayName += ' - $_selectedSubCategory';
               }
 
