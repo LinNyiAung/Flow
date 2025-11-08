@@ -6,7 +6,7 @@ from collections import defaultdict
 import statistics
 import uuid
 
-from database import transactions_collection, budgets_collection, goals_collection
+from database import transactions_collection, budgets_collection, goals_collection, categories_collection
 from budget_models import (
     BudgetPeriod, CategoryBudget, AIBudgetSuggestion, BudgetStatus
 )
@@ -220,12 +220,24 @@ class BudgetAnalyzer:
         period: BudgetPeriod,
         days_in_period: int,
         include_categories: Optional[List[str]],
-        user_context: Optional[str] = None  # NEW
+        user_context: Optional[str] = None
     ) -> Dict:
+        """Use OpenAI to generate intelligent budget suggestions - ONLY uses predefined categories"""
         """Use OpenAI to generate intelligent budget suggestions"""
         from openai import AsyncOpenAI
         
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        # NEW: Fetch available categories from database
+        outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
+        available_categories = []
+        
+        if outflow_categories_doc:
+            for cat in outflow_categories_doc["categories"]:
+                available_categories.append(cat["main_category"])
+        
+        # Create categories list string for the prompt
+        categories_list = "\n".join([f"- {cat}" for cat in available_categories])
         
         # Prepare analysis context
         context = {
@@ -246,21 +258,27 @@ class BudgetAnalyzer:
 
     IMPORTANT: The budget period spans {days_in_period} days.
 
-    RULES:
-    1. Suggest budgets based on historical spending patterns, scaled to the {days_in_period}-day period
-    2. Consider income vs expenses ratio
-    3. Account for active financial goals
-    4. Add 10-15% buffer for categories with high variability
-    5. Prioritize essential categories (housing, utilities, food, transportation)
-    6. Suggest reasonable reductions for non-essential categories if overspending
-    7. Ensure total budget doesn't exceed 80% of income (leave room for savings and goals)
+    AVAILABLE CATEGORIES (YOU MUST ONLY USE THESE):
+    {categories_list}
+
+    CRITICAL RULES:
+    1. You MUST ONLY use categories from the "AVAILABLE CATEGORIES" list above
+    2. DO NOT create or suggest any new category names
+    3. If you see spending in a category not in the list, map it to the closest available category
+    4. Suggest budgets based on historical spending patterns, scaled to the {days_in_period}-day period
+    5. Consider income vs expenses ratio
+    6. Account for active financial goals
+    7. Add 10-15% buffer for categories with high variability
+    8. Prioritize essential categories (Housing, Bills & Utilities, Food & Dining, Transportation)
+    9. Suggest reasonable reductions for non-essential categories if overspending
+    10. Ensure total budget doesn't exceed 80% of income (leave room for savings and goals)
     {context_instruction}
 
     Return JSON format:
     {{
         "categories": [
             {{
-                "main_category": "category name",
+                "main_category": "category name from available list",
                 "allocated_amount": 500.00,
                 "spent_amount": 0,
                 "percentage_used": 0,
@@ -275,9 +293,11 @@ class BudgetAnalyzer:
     SPENDING ANALYSIS:
     {json.dumps(context, indent=2)}
 
-    {f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for all spending categories."}
+    {f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for relevant spending categories from the available list."}
 
-    Calculate budgets for {days_in_period} days period."""
+    Calculate budgets for {days_in_period} days period.
+
+    REMEMBER: Only use categories from the AVAILABLE CATEGORIES list provided."""
 
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -291,10 +311,33 @@ class BudgetAnalyzer:
         
         result = json.loads(response.choices[0].message.content)
         
-        # Convert to CategoryBudget objects
-        result["categories"] = [
-            CategoryBudget(**cat) for cat in result["categories"]
-        ]
+        # NEW: Validate that all categories exist in the system
+        valid_categories = []
+        for cat in result["categories"]:
+            category_name = cat["main_category"]
+            
+            # Check if category exists in available categories
+            if category_name in available_categories:
+                valid_categories.append(CategoryBudget(**cat))
+            else:
+                # Try to find closest match (case-insensitive)
+                matched = False
+                for available_cat in available_categories:
+                    if available_cat.lower() == category_name.lower():
+                        cat["main_category"] = available_cat  # Use correct casing
+                        valid_categories.append(CategoryBudget(**cat))
+                        matched = True
+                        break
+                
+                if not matched:
+                    print(f"Warning: AI suggested invalid category '{category_name}', skipping...")
+        
+        # Update result with validated categories
+        result["categories"] = valid_categories
+        
+        # Add warning if some categories were skipped
+        if len(valid_categories) < len(result.get("categories", [])):
+            result["reasoning"] += "\n\nNote: Some suggested categories were not available in your system and were excluded."
         
         return result
     
@@ -681,6 +724,16 @@ async def _generate_ai_category_budgets(
     analyzer = BudgetAnalyzer(user_id)
     days_in_period = (end_date - start_date).days + 1
     
+    # NEW: Fetch available categories from database
+    outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
+    available_categories = []
+    
+    if outflow_categories_doc:
+        for cat in outflow_categories_doc["categories"]:
+            available_categories.append(cat["main_category"])
+    
+    categories_list = "\n".join([f"- {cat}" for cat in available_categories])
+    
     # Analyze spending from the completed budget period
     parent_start = parent_budget["start_date"]
     parent_end = parent_budget["end_date"]
@@ -727,19 +780,24 @@ PREVIOUS BUDGET PERFORMANCE:
 - Total Spent: ${parent_budget['total_spent']:.2f}
 - Utilization: {parent_budget['percentage_used']:.1f}%
 
-RULES:
-1. Adjust budgets based on actual spending patterns
-2. If a category was under-utilized (<80%), reduce allocation
-3. If a category was over-utilized (>100%), increase allocation
-4. If spending was 80-100%, keep similar allocation
-5. Consider seasonal variations
-6. Total budget should be reasonable based on past performance
+AVAILABLE CATEGORIES (YOU MUST ONLY USE THESE):
+{categories_list}
+
+CRITICAL RULES:
+1. You MUST ONLY use categories from the "AVAILABLE CATEGORIES" list above
+2. DO NOT create or suggest any new category names
+3. Adjust budgets based on actual spending patterns
+4. If a category was under-utilized (<80%), reduce allocation
+5. If a category was over-utilized (>100%), increase allocation
+6. If spending was 80-100%, keep similar allocation
+7. Consider seasonal variations
+8. Total budget should be reasonable based on past performance
 
 Return JSON format:
 {{
     "categories": [
         {{
-            "main_category": "category name",
+            "main_category": "category name from available list",
             "allocated_amount": 500.00,
             "spent_amount": 0,
             "percentage_used": 0,
@@ -753,7 +811,9 @@ Return JSON format:
 
 {json.dumps(context, indent=2)}
 
-Provide realistic budget suggestions that learn from past spending patterns."""
+Provide realistic budget suggestions that learn from past spending patterns.
+
+REMEMBER: Only use categories from the AVAILABLE CATEGORIES list provided."""
 
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -766,7 +826,29 @@ Provide realistic budget suggestions that learn from past spending patterns."""
             )
             
             result = json.loads(response.choices[0].message.content)
-            return [CategoryBudget(**cat) for cat in result["categories"]]
+            
+            # NEW: Validate that all categories exist in the system
+            valid_categories = []
+            for cat in result["categories"]:
+                category_name = cat["main_category"]
+                
+                # Check if category exists in available categories
+                if category_name in available_categories:
+                    valid_categories.append(CategoryBudget(**cat))
+                else:
+                    # Try to find closest match (case-insensitive)
+                    matched = False
+                    for available_cat in available_categories:
+                        if available_cat.lower() == category_name.lower():
+                            cat["main_category"] = available_cat
+                            valid_categories.append(CategoryBudget(**cat))
+                            matched = True
+                            break
+                    
+                    if not matched:
+                        print(f"Warning: AI suggested invalid category '{category_name}', skipping...")
+            
+            return valid_categories if valid_categories else _generate_adjusted_budgets(parent_budget, days_in_period)
             
         except Exception as e:
             print(f"Error generating AI budgets: {e}")
