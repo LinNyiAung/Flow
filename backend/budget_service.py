@@ -111,9 +111,12 @@ class BudgetAnalyzer:
             start_date = start_date.replace(tzinfo=timezone.utc)
         
         if period == BudgetPeriod.WEEKLY:
-            # Use the selected start date as-is (don't force to Monday)
-            week_start = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            # End is 6 days after start
+            # Calculate the start of the week (Monday)
+            days_since_monday = start_date.weekday()  # Monday is 0, Sunday is 6
+            week_start = start_date - timedelta(days=days_since_monday)
+            week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # End is Sunday (6 days after Monday)
             week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
             return week_start, week_end
         

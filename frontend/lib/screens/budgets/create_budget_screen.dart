@@ -25,8 +25,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
   bool _isLoading = false;
 
-  bool _autoCreateEnabled = false;     // NEW
-  bool _autoCreateWithAi = false;   
+  bool _autoCreateEnabled = false; // NEW
+  bool _autoCreateWithAi = false;
 
   @override
   void dispose() {
@@ -36,150 +36,146 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   }
 
   void _calculateEndDate() {
-  switch (_selectedPeriod) {
-    case BudgetPeriod.weekly:
-      // Keep the selected start date, end is 6 days later
-      final weekStart = DateTime.utc(
-        _startDate.year,
-        _startDate.month,
-        _startDate.day,
-        0,
-        0,
-        0,
-      );
-      _endDate = DateTime.utc(
-        weekStart.year,
-        weekStart.month,
-        weekStart.day + 6,
-        23,
-        59,
-        59,
-        999,
-      );
-      break;
-      
-    case BudgetPeriod.monthly:
-      // Keep the selected start date, find last day of the month
-      final monthStart = DateTime.utc(
-        _startDate.year,
-        _startDate.month,
-        _startDate.day,
-        0,
-        0,
-        0,
-      );
-      
-      // Get last day of the current month
-      final nextMonth = _startDate.month == 12
-          ? DateTime.utc(_startDate.year + 1, 1, 1)
-          : DateTime.utc(_startDate.year, _startDate.month + 1, 1);
-      final lastDayOfMonth = nextMonth.subtract(Duration(days: 1));
-      
-      // Set end date to last day at 23:59:59 UTC
-      _endDate = DateTime.utc(
-        lastDayOfMonth.year,
-        lastDayOfMonth.month,
-        lastDayOfMonth.day,
-        23,
-        59,
-        59,
-        999,
-      );
-      break;
-      
-    case BudgetPeriod.yearly:
-      // Keep the selected start date, end is Dec 31 of the same year
-      final yearStart = DateTime.utc(
-        _startDate.year,
-        _startDate.month,
-        _startDate.day,
-        0,
-        0,
-        0,
-      );
-      
-      _endDate = DateTime.utc(
-        _startDate.year,
-        12,
-        31,
-        23,
-        59,
-        59,
-        999,
-      );
-      break;
-      
-    case BudgetPeriod.custom:
-      // For custom, end date is set by user
-      break;
+    switch (_selectedPeriod) {
+      case BudgetPeriod.weekly:
+        // Calculate the start of the week (Monday)
+        final daysSinceMonday =
+            _startDate.weekday - 1; // Monday is 1, Sunday is 7
+        final weekStart = DateTime.utc(
+          _startDate.year,
+          _startDate.month,
+          _startDate.day - daysSinceMonday,
+          0,
+          0,
+          0,
+        );
+
+        // End is Sunday (6 days after Monday)
+        _endDate = DateTime.utc(
+          weekStart.year,
+          weekStart.month,
+          weekStart.day + 6,
+          23,
+          59,
+          59,
+          999,
+        );
+        break;
+
+      case BudgetPeriod.monthly:
+        // Keep the selected start date, find last day of the month
+        final monthStart = DateTime.utc(
+          _startDate.year,
+          _startDate.month,
+          _startDate.day,
+          0,
+          0,
+          0,
+        );
+
+        // Get last day of the current month
+        final nextMonth = _startDate.month == 12
+            ? DateTime.utc(_startDate.year + 1, 1, 1)
+            : DateTime.utc(_startDate.year, _startDate.month + 1, 1);
+        final lastDayOfMonth = nextMonth.subtract(Duration(days: 1));
+
+        // Set end date to last day at 23:59:59 UTC
+        _endDate = DateTime.utc(
+          lastDayOfMonth.year,
+          lastDayOfMonth.month,
+          lastDayOfMonth.day,
+          23,
+          59,
+          59,
+          999,
+        );
+        break;
+
+      case BudgetPeriod.yearly:
+        // Keep the selected start date, end is Dec 31 of the same year
+        final yearStart = DateTime.utc(
+          _startDate.year,
+          _startDate.month,
+          _startDate.day,
+          0,
+          0,
+          0,
+        );
+
+        _endDate = DateTime.utc(_startDate.year, 12, 31, 23, 59, 59, 999);
+        break;
+
+      case BudgetPeriod.custom:
+        // For custom, end date is set by user
+        break;
+    }
   }
-}
 
   Future<void> _selectStartDate() async {
-  final picked = await showDatePicker(
-    context: context,
-    initialDate: _startDate,
-    firstDate: DateTime.now().subtract(Duration(days: 365)),
-    lastDate: DateTime.now().add(Duration(days: 365)),
-    builder: (context, child) {
-      return Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
-        ),
-        child: child!,
-      );
-    },
-  );
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _startDate,
+      firstDate: DateTime.now().subtract(Duration(days: 365)),
+      lastDate: DateTime.now().add(Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
+          ),
+          child: child!,
+        );
+      },
+    );
 
-  if (picked != null) {
-    setState(() {
-      // Set start date to beginning of day in UTC
-      _startDate = DateTime.utc(
-        picked.year,
-        picked.month,
-        picked.day,
-        0,
-        0,
-        0,
-      );
-      if (_selectedPeriod != BudgetPeriod.custom) {
-        _calculateEndDate();
-      }
-    });
+    if (picked != null) {
+      setState(() {
+        // Set start date to beginning of day in UTC
+        _startDate = DateTime.utc(
+          picked.year,
+          picked.month,
+          picked.day,
+          0,
+          0,
+          0,
+        );
+        if (_selectedPeriod != BudgetPeriod.custom) {
+          _calculateEndDate();
+        }
+      });
+    }
   }
-}
 
   Future<void> _selectEndDate() async {
-  final picked = await showDatePicker(
-    context: context,
-    initialDate: _endDate ?? _startDate.add(Duration(days: 30)),
-    firstDate: _startDate,
-    lastDate: DateTime.now().add(Duration(days: 365)),
-    builder: (context, child) {
-      return Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
-        ),
-        child: child!,
-      );
-    },
-  );
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _endDate ?? _startDate.add(Duration(days: 30)),
+      firstDate: _startDate,
+      lastDate: DateTime.now().add(Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
+          ),
+          child: child!,
+        );
+      },
+    );
 
-  if (picked != null) {
-    setState(() {
-      // Set end date to end of day in UTC
-      _endDate = DateTime.utc(
-        picked.year,
-        picked.month,
-        picked.day,
-        23,
-        59,
-        59,
-        999,
-      );
-    });
+    if (picked != null) {
+      setState(() {
+        // Set end date to end of day in UTC
+        _endDate = DateTime.utc(
+          picked.year,
+          picked.month,
+          picked.day,
+          23,
+          59,
+          59,
+          999,
+        );
+      });
+    }
   }
-}
 
   String? _validateDuplicateCategory(String mainCategory, String? subCategory) {
     // Check for exact duplicates
@@ -210,40 +206,39 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     return null;
   }
 
-
   // In create_budget_screen.dart, replace the totalBudget calculation
-double _calculateTotalBudget() {
-  Set<String> mainCategories = {};
-  List<MapEntry<String, double>> subCategories = [];
-  
-  // Separate main categories and sub-categories
-  for (var cat in _categoryBudgets) {
-    if (cat.mainCategory.contains(' - ')) {
-      final parts = cat.mainCategory.split(' - ');
-      subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
-    } else {
-      mainCategories.add(cat.mainCategory);
+  double _calculateTotalBudget() {
+    Set<String> mainCategories = {};
+    List<MapEntry<String, double>> subCategories = [];
+
+    // Separate main categories and sub-categories
+    for (var cat in _categoryBudgets) {
+      if (cat.mainCategory.contains(' - ')) {
+        final parts = cat.mainCategory.split(' - ');
+        subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
+      } else {
+        mainCategories.add(cat.mainCategory);
+      }
     }
-  }
-  
-  double total = 0.0;
-  
-  // Add all main category budgets
-  for (var cat in _categoryBudgets) {
-    if (!cat.mainCategory.contains(' - ')) {
-      total += cat.allocatedAmount;
+
+    double total = 0.0;
+
+    // Add all main category budgets
+    for (var cat in _categoryBudgets) {
+      if (!cat.mainCategory.contains(' - ')) {
+        total += cat.allocatedAmount;
+      }
     }
-  }
-  
-  // Add sub-category budgets only if their main category doesn't exist
-  for (var entry in subCategories) {
-    if (!mainCategories.contains(entry.key)) {
-      total += entry.value;
+
+    // Add sub-category budgets only if their main category doesn't exist
+    for (var entry in subCategories) {
+      if (!mainCategories.contains(entry.key)) {
+        total += entry.value;
+      }
     }
+
+    return total;
   }
-  
-  return total;
-}
 
   void _addCategoryBudget() {
     showDialog(
@@ -308,7 +303,7 @@ double _calculateTotalBudget() {
     }
   }
 
-    Future<void> _saveBudget() async {
+  Future<void> _saveBudget() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (_categoryBudgets.isEmpty) {
@@ -346,8 +341,8 @@ double _calculateTotalBudget() {
           description: _descriptionController.text.isEmpty
               ? null
               : _descriptionController.text,
-          autoCreateEnabled: _autoCreateEnabled,      // NEW
-          autoCreateWithAi: _autoCreateWithAi,        // NEW
+          autoCreateEnabled: _autoCreateEnabled, // NEW
+          autoCreateWithAi: _autoCreateWithAi, // NEW
         );
 
     setState(() => _isLoading = false);
@@ -364,7 +359,6 @@ double _calculateTotalBudget() {
       );
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -605,8 +599,7 @@ double _calculateTotalBudget() {
 
               SizedBox(height: 24),
 
-
-                            if (_selectedPeriod != BudgetPeriod.custom) ...[
+              if (_selectedPeriod != BudgetPeriod.custom) ...[
                 SizedBox(height: 24),
                 Container(
                   padding: EdgeInsets.all(16),
@@ -618,7 +611,9 @@ double _calculateTotalBudget() {
                       ],
                     ),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
+                    border: Border.all(
+                      color: Color(0xFF667eea).withOpacity(0.3),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -736,7 +731,7 @@ double _calculateTotalBudget() {
                   ),
                 ),
               ],
-              
+
               SizedBox(height: 24),
 
               // Category Budgets Section
