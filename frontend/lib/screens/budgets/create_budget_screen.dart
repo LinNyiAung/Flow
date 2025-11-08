@@ -19,7 +19,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   final _descriptionController = TextEditingController();
 
   BudgetPeriod _selectedPeriod = BudgetPeriod.monthly;
-  DateTime _startDate = DateTime.now();
+  DateTime _startDate = DateTime.now().toUtc();
   DateTime? _endDate;
   List<CategoryBudget> _categoryBudgets = [];
 
@@ -33,72 +33,129 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   }
 
   void _calculateEndDate() {
-    switch (_selectedPeriod) {
-      case BudgetPeriod.weekly:
-        final weekStart = _startDate.subtract(
-          Duration(days: _startDate.weekday - 1),
-        );
-        _endDate = weekStart.add(Duration(days: 6));
-        break;
-      case BudgetPeriod.monthly:
-        _endDate = DateTime(_startDate.year, _startDate.month + 1, 0);
-        break;
-      case BudgetPeriod.yearly:
-        _endDate = DateTime(_startDate.year, 12, 31);
-        break;
-      case BudgetPeriod.custom:
-        break;
-    }
+  switch (_selectedPeriod) {
+    case BudgetPeriod.weekly:
+      // Get the start of the week (Monday) in UTC
+      final weekStart = DateTime.utc(
+        _startDate.year,
+        _startDate.month,
+        _startDate.day - _startDate.weekday + 1,
+      );
+      // End of week is Sunday at 23:59:59
+      _endDate = DateTime.utc(
+        weekStart.year,
+        weekStart.month,
+        weekStart.day + 6,
+        23,
+        59,
+        59,
+        999,
+      );
+      break;
+      
+    case BudgetPeriod.monthly:
+      // Get last day of the month
+      final nextMonth = _startDate.month == 12
+          ? DateTime.utc(_startDate.year + 1, 1, 1)
+          : DateTime.utc(_startDate.year, _startDate.month + 1, 1);
+      final lastDayOfMonth = nextMonth.subtract(Duration(days: 1));
+      
+      // Set end date to last day at 23:59:59 UTC
+      _endDate = DateTime.utc(
+        lastDayOfMonth.year,
+        lastDayOfMonth.month,
+        lastDayOfMonth.day,
+        23,
+        59,
+        59,
+        999,
+      );
+      break;
+      
+    case BudgetPeriod.yearly:
+      // End of year: December 31 at 23:59:59 UTC
+      _endDate = DateTime.utc(
+        _startDate.year,
+        12,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+      break;
+      
+    case BudgetPeriod.custom:
+      // For custom, end date is set by user
+      break;
   }
+}
 
   Future<void> _selectStartDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _startDate,
-      firstDate: DateTime.now().subtract(Duration(days: 365)),
-      lastDate: DateTime.now().add(Duration(days: 365)),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
-          ),
-          child: child!,
-        );
-      },
-    );
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: _startDate,
+    firstDate: DateTime.now().subtract(Duration(days: 365)),
+    lastDate: DateTime.now().add(Duration(days: 365)),
+    builder: (context, child) {
+      return Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
+        ),
+        child: child!,
+      );
+    },
+  );
 
-    if (picked != null) {
-      setState(() {
-        _startDate = picked;
-        if (_selectedPeriod != BudgetPeriod.custom) {
-          _calculateEndDate();
-        }
-      });
-    }
+  if (picked != null) {
+    setState(() {
+      // Set start date to beginning of day in UTC
+      _startDate = DateTime.utc(
+        picked.year,
+        picked.month,
+        picked.day,
+        0,
+        0,
+        0,
+      );
+      if (_selectedPeriod != BudgetPeriod.custom) {
+        _calculateEndDate();
+      }
+    });
   }
+}
 
   Future<void> _selectEndDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _endDate ?? _startDate.add(Duration(days: 30)),
-      firstDate: _startDate,
-      lastDate: DateTime.now().add(Duration(days: 365)),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
-          ),
-          child: child!,
-        );
-      },
-    );
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: _endDate ?? _startDate.add(Duration(days: 30)),
+    firstDate: _startDate,
+    lastDate: DateTime.now().add(Duration(days: 365)),
+    builder: (context, child) {
+      return Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
+        ),
+        child: child!,
+      );
+    },
+  );
 
-    if (picked != null) {
-      setState(() {
-        _endDate = picked;
-      });
-    }
+  if (picked != null) {
+    setState(() {
+      // Set end date to end of day in UTC
+      _endDate = DateTime.utc(
+        picked.year,
+        picked.month,
+        picked.day,
+        23,
+        59,
+        59,
+        999,
+      );
+    });
   }
+}
 
   String? _validateDuplicateCategory(String mainCategory, String? subCategory) {
     // Check for exact duplicates
