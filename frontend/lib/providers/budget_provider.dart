@@ -13,10 +13,16 @@ class BudgetProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  List<Budget> get activeBudgets => _budgets.where((b) => b.isActive && b.status == BudgetStatus.active).toList();
-  List<Budget> get upcomingBudgets => _budgets.where((b) => b.isUpcoming || b.status == BudgetStatus.upcoming).toList();
-  List<Budget> get completedBudgets => _budgets.where((b) => b.status == BudgetStatus.completed).toList();
-  List<Budget> get exceededBudgets => _budgets.where((b) => b.status == BudgetStatus.exceeded).toList();
+  List<Budget> get activeBudgets => _budgets
+      .where((b) => b.isActive && b.status == BudgetStatus.active)
+      .toList();
+  List<Budget> get upcomingBudgets => _budgets
+      .where((b) => b.isUpcoming || b.status == BudgetStatus.upcoming)
+      .toList();
+  List<Budget> get completedBudgets =>
+      _budgets.where((b) => b.status == BudgetStatus.completed).toList();
+  List<Budget> get exceededBudgets =>
+      _budgets.where((b) => b.status == BudgetStatus.exceeded).toList();
 
   void _setLoading(bool loading) {
     _isLoading = loading;
