@@ -9,15 +9,18 @@ class AIBudgetSuggestionScreen extends StatefulWidget {
   final BudgetPeriod period;
   final DateTime startDate;
   final DateTime? endDate;
+  final String? userContext; // NEW
 
   AIBudgetSuggestionScreen({
     required this.period,
     required this.startDate,
     this.endDate,
+    this.userContext, // NEW
   });
 
   @override
-  _AIBudgetSuggestionScreenState createState() => _AIBudgetSuggestionScreenState();
+  _AIBudgetSuggestionScreenState createState() =>
+      _AIBudgetSuggestionScreenState();
 }
 
 class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
@@ -45,6 +48,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
       startDate: widget.startDate,
       endDate: widget.endDate,
       analysisMonths: _analysisMonths,
+      userContext: widget.userContext, // NEW
     );
 
     setState(() {
@@ -120,7 +124,10 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Close', style: GoogleFonts.poppins(color: Color(0xFF667eea))),
+            child: Text(
+              'Close',
+              style: GoogleFonts.poppins(color: Color(0xFF667eea)),
+            ),
           ),
         ],
       ),
@@ -198,10 +205,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
+            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
           ),
         ),
         child: _isLoading
@@ -210,7 +214,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFF667eea),
+                      ),
                     ),
                     SizedBox(height: 16),
                     Text(
@@ -221,10 +227,10 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 ),
               )
             : _error != null
-                ? _buildErrorState()
-                : _suggestion != null
-                    ? _buildSuggestionContent()
-                    : _buildErrorState(),
+            ? _buildErrorState()
+            : _suggestion != null
+            ? _buildSuggestionContent()
+            : _buildErrorState(),
       ),
     );
   }
@@ -260,7 +266,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Color(0xFF667eea),
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],
@@ -281,8 +289,8 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               colors: _suggestion!.dataConfidence >= 0.7
                   ? [Color(0xFF4CAF50), Color(0xFF45a049)]
                   : _suggestion!.dataConfidence >= 0.5
-                      ? [Color(0xFFFF9800), Color(0xFFF57C00)]
-                      : [Color(0xFFFF5722), Color(0xFFE64A19)],
+                  ? [Color(0xFFFF9800), Color(0xFFF57C00)]
+                  : [Color(0xFFFF5722), Color(0xFFE64A19)],
             ),
             borderRadius: BorderRadius.circular(12),
           ),
@@ -292,8 +300,8 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 _suggestion!.dataConfidence >= 0.7
                     ? Icons.check_circle
                     : _suggestion!.dataConfidence >= 0.5
-                        ? Icons.warning
-                        : Icons.info,
+                    ? Icons.warning
+                    : Icons.info,
                 color: Colors.white,
                 size: 32,
               ),
@@ -321,8 +329,8 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                       _suggestion!.dataConfidence >= 0.7
                           ? 'High confidence based on your data'
                           : _suggestion!.dataConfidence >= 0.5
-                              ? 'Moderate confidence - limited data'
-                              : 'Low confidence - very limited data',
+                          ? 'Moderate confidence - limited data'
+                          : 'Low confidence - very limited data',
                       style: GoogleFonts.poppins(
                         fontSize: 11,
                         color: Colors.white.withOpacity(0.8),
@@ -334,6 +342,51 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             ],
           ),
         ),
+
+        if (widget.userContext != null && widget.userContext!.isNotEmpty) ...[
+          SizedBox(height: 16),
+          Container(
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF667eea).withOpacity(0.1),
+                  Color(0xFF764ba2).withOpacity(0.1),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.note_alt, color: Color(0xFF667eea), size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Your Context',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF333333),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                Text(
+                  widget.userContext!,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: Color(0xFF333333),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
 
         // Warnings
         if (_suggestion!.warnings.isNotEmpty) ...[
@@ -350,7 +403,10 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.warning_amber_rounded, color: Colors.orange[700]),
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orange[700],
+                    ),
                     SizedBox(width: 8),
                     Text(
                       'Important Notes',
@@ -363,24 +419,26 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   ],
                 ),
                 SizedBox(height: 8),
-                ..._suggestion!.warnings.map((warning) => Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('• ', style: TextStyle(color: Colors.orange[700])),
-                          Expanded(
-                            child: Text(
-                              warning,
-                              style: GoogleFonts.poppins(
-                                fontSize: 12,
-                                color: Colors.orange[900],
-                              ),
+                ..._suggestion!.warnings.map(
+                  (warning) => Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('• ', style: TextStyle(color: Colors.orange[700])),
+                        Expanded(
+                          child: Text(
+                            warning,
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              color: Colors.orange[900],
                             ),
                           ),
-                        ],
-                      ),
-                    )),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -415,7 +473,11 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               ),
               SizedBox(height: 12),
               _buildInfoRow(Icons.label, 'Name', _suggestion!.suggestedName),
-              _buildInfoRow(Icons.calendar_today, 'Period', widget.period.name.toUpperCase()),
+              _buildInfoRow(
+                Icons.calendar_today,
+                'Period',
+                widget.period.name.toUpperCase(),
+              ),
               _buildInfoRow(
                 Icons.date_range,
                 'Duration',
@@ -437,7 +499,10 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           padding: EdgeInsets.all(16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF667eea).withOpacity(0.1), Color(0xFF764ba2).withOpacity(0.1)],
+              colors: [
+                Color(0xFF667eea).withOpacity(0.1),
+                Color(0xFF764ba2).withOpacity(0.1),
+              ],
             ),
             borderRadius: BorderRadius.circular(12),
           ),
@@ -560,7 +625,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 style: OutlinedButton.styleFrom(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   side: BorderSide(color: Color(0xFF667eea)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: Text(
                   'Cancel',
@@ -579,7 +646,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Color(0xFF667eea),
                   padding: EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: Text(
                   'Use This Budget',
@@ -608,10 +677,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           SizedBox(width: 12),
           Text(
             '$label:',
-            style: GoogleFonts.poppins(
-              fontSize: 13,
-              color: Colors.grey[600],
-            ),
+            style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600]),
           ),
           SizedBox(width: 8),
           Expanded(

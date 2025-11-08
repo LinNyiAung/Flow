@@ -80,6 +80,7 @@ class AIBudgetRequest(BaseModel):
     description: Optional[str] = None
     include_categories: Optional[List[str]] = None  # Specific categories to budget for
     analysis_months: Optional[int] = 3  # How many months of history to analyze
+    user_context: Optional[str] = None  # NEW: User-provided context for AI
 
 class AIBudgetSuggestion(BaseModel):
     suggested_name: str

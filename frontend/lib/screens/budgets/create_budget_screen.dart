@@ -17,6 +17,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _contextController = TextEditingController(); // NEW
 
   BudgetPeriod _selectedPeriod = BudgetPeriod.monthly;
   DateTime _startDate = DateTime.now().toUtc();
@@ -25,13 +26,16 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
   bool _isLoading = false;
 
-  bool _autoCreateEnabled = false; // NEW
+  bool _autoCreateEnabled = false;
   bool _autoCreateWithAi = false;
+
+  bool _showAiFeatures = false;
 
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _contextController.dispose(); // NEW
     super.dispose();
   }
 
@@ -284,6 +288,11 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
       return;
     }
 
+    // Get context from the text field
+    final userContext = _contextController.text.trim().isEmpty
+        ? null
+        : _contextController.text.trim();
+
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -291,6 +300,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
           period: _selectedPeriod,
           startDate: _startDate,
           endDate: _endDate,
+          userContext: userContext, // Pass context from field
         ),
       ),
     );
@@ -394,61 +404,242 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
           child: ListView(
             padding: EdgeInsets.all(20),
             children: [
-              // AI Suggestion Button
+              // NEW: Collapsible AI Features Section
               Container(
                 margin: EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                  ),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.1),
+                      spreadRadius: 1,
+                      blurRadius: 4,
+                    ),
+                  ],
                 ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: _navigateToAISuggestion,
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.auto_awesome,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                          SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'AI Budget Suggestion',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white,
+                child: Column(
+                  children: [
+                    // Toggle Header
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _showAiFeatures = !_showAiFeatures;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Color(0xFF667eea).withOpacity(0.2),
+                                    Color(0xFF764ba2).withOpacity(0.2),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.auto_awesome,
+                                color: Color(0xFF667eea),
+                                size: 24,
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'AI Features',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF333333),
+                                    ),
+                                  ),
+                                  Text(
+                                    _showAiFeatures
+                                        ? 'Get AI-powered budget suggestions'
+                                        : 'Tap to use AI budget suggestions',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              _showAiFeatures
+                                  ? Icons.keyboard_arrow_up
+                                  : Icons.keyboard_arrow_down,
+                              color: Color(0xFF667eea),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Collapsible Content
+                    if (_showAiFeatures) ...[
+                      Divider(height: 1),
+                      Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // AI Context Input
+                            Container(
+                              padding: EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Color(0xFF667eea).withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Color(0xFF667eea).withOpacity(0.2),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.lightbulb_outline,
+                                        color: Color(0xFF667eea),
+                                        size: 18,
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Context (Optional)',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF333333),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'Add context to help AI create better budgets',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _contextController,
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'e.g., "Traveling this week" or "Holiday season"',
+                                      hintStyle: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: Colors.grey[400],
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey[300]!,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey[300]!,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Color(0xFF667eea),
+                                          width: 2,
+                                        ),
+                                      ),
+                                      prefixIcon: Icon(
+                                        Icons.note_alt_outlined,
+                                        color: Color(0xFF667eea),
+                                      ),
+                                      counterText: '',
+                                    ),
+                                    maxLines: 2,
+                                    maxLength: 200,
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            SizedBox(height: 16),
+
+                            // Generate Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _navigateToAISuggestion,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Color(0xFF667eea),
+                                  padding: EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
-                                Text(
-                                  'Let AI analyze your spending and suggest budgets',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 12,
-                                    color: Colors.white.withOpacity(0.9),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.auto_awesome,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Generate AI Budget',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            SizedBox(height: 8),
+
+                            // Info note
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 14,
+                                  color: Color(0xFF667eea),
+                                ),
+                                SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    'AI will analyze your spending and suggest category budgets',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 11,
+                                      color: Color(0xFF667eea),
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                          Icon(
-                            Icons.arrow_forward_ios,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ),
+                    ],
+                  ],
                 ),
               ),
 

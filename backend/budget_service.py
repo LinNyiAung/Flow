@@ -146,7 +146,8 @@ class BudgetAnalyzer:
         start_date: datetime,
         end_date: Optional[datetime] = None,
         analysis_months: int = 3,
-        include_categories: Optional[List[str]] = None
+        include_categories: Optional[List[str]] = None,
+        user_context: Optional[str] = None  # NEW
     ) -> AIBudgetSuggestion:
         """Generate AI budget suggestions"""
         
@@ -173,7 +174,7 @@ class BudgetAnalyzer:
         # Use OpenAI to generate smart suggestions
         if settings.OPENAI_API_KEY and analysis["sufficient_data"]:
             suggestions = await self._generate_with_ai(
-                analysis, period, days_in_period, include_categories
+                analysis, period, days_in_period, include_categories, user_context  # NEW parameter
             )
         else:
             suggestions = self._generate_basic_suggestions(
@@ -214,12 +215,13 @@ class BudgetAnalyzer:
         )
     
     async def _generate_with_ai(
-    self,
-    analysis: Dict,
-    period: BudgetPeriod,
-    days_in_period: int,
-    include_categories: Optional[List[str]]
-) -> Dict:
+        self,
+        analysis: Dict,
+        period: BudgetPeriod,
+        days_in_period: int,
+        include_categories: Optional[List[str]],
+        user_context: Optional[str] = None  # NEW
+    ) -> Dict:
         """Use OpenAI to generate intelligent budget suggestions"""
         from openai import AsyncOpenAI
         
@@ -235,6 +237,11 @@ class BudgetAnalyzer:
             "active_goals": analysis.get("goals", {})
         }
         
+        # NEW: Add user context if provided
+        context_instruction = ""
+        if user_context:
+            context_instruction = f"\n\nUSER CONTEXT: {user_context}\nIMPORTANT: Adjust budget allocations based on this context. For example, if the user mentions travel, increase transportation and entertainment budgets accordingly."
+        
         system_prompt = f"""You are a financial budgeting expert. Analyze the user's spending patterns and suggest realistic budgets.
 
     IMPORTANT: The budget period spans {days_in_period} days.
@@ -247,6 +254,7 @@ class BudgetAnalyzer:
     5. Prioritize essential categories (housing, utilities, food, transportation)
     6. Suggest reasonable reductions for non-essential categories if overspending
     7. Ensure total budget doesn't exceed 80% of income (leave room for savings and goals)
+    {context_instruction}
 
     Return JSON format:
     {{

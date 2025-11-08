@@ -1723,7 +1723,8 @@ async def get_ai_budget_suggestions(
             start_date=request.start_date,
             end_date=request.end_date,
             analysis_months=request.analysis_months,
-            include_categories=request.include_categories
+            include_categories=request.include_categories,
+            user_context=request.user_context  # NEW
         )
         
         return suggestions

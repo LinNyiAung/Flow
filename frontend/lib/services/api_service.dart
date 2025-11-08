@@ -14,18 +14,18 @@ import '../models/user.dart';
 import '../models/transaction.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://10.80.21.130:8000';
-  
+  static const String baseUrl = 'http://192.168.1.8:8000';
+
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('access_token');
   }
-  
+
   static Future<void> saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('access_token', token);
   }
-  
+
   static Future<void> removeToken() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('access_token');
@@ -48,11 +48,7 @@ class ApiService {
     final response = await http.post(
       Uri.parse('$baseUrl/api/auth/register'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'name': name,
-        'email': email,
-        'password': password,
-      }),
+      body: jsonEncode({'name': name, 'email': email, 'password': password}),
     );
 
     if (response.statusCode == 200) {
@@ -72,10 +68,7 @@ class ApiService {
     final response = await http.post(
       Uri.parse('$baseUrl/api/auth/login'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'email': email,
-        'password': password,
-      }),
+      body: jsonEncode({'email': email, 'password': password}),
     );
 
     if (response.statusCode == 200) {
@@ -170,7 +163,9 @@ class ApiService {
       final List<dynamic> data = jsonDecode(response.body);
       return data.map((json) => Transaction.fromJson(json)).toList();
     } else {
-      print('ERROR: Failed to get transactions - Status: ${response.statusCode}');
+      print(
+        'ERROR: Failed to get transactions - Status: ${response.statusCode}',
+      );
       print('ERROR: Response body: ${response.body}');
       throw Exception('Failed to get transactions: ${response.body}');
     }
@@ -265,8 +260,7 @@ class ApiService {
     }
   }
 
-
-    static Stream<String> streamChatMessage({
+  static Stream<String> streamChatMessage({
     required String message,
     List<ChatMessage>? chatHistory,
   }) async* {
@@ -280,7 +274,7 @@ class ApiService {
         'POST',
         Uri.parse('$baseUrl/api/chat/stream'),
       );
-      
+
       final headers = await _getHeaders();
       request.headers.addAll(headers);
       request.body = jsonEncode(chatRequest.toJson());
@@ -291,32 +285,33 @@ class ApiService {
         throw Exception('Failed to start streaming chat');
       }
 
-      await for (final chunk in streamedResponse.stream.transform(utf8.decoder)) {
+      await for (final chunk in streamedResponse.stream.transform(
+        utf8.decoder,
+      )) {
         final lines = chunk.split('\n');
-        
+
         for (final line in lines) {
           if (line.startsWith('data: ')) {
             final jsonData = line.substring(6); // Remove 'data: ' prefix
-            
+
             try {
               final data = jsonDecode(jsonData);
-              
+
               // Check for error
               if (data['error'] != null) {
                 throw Exception(data['error']);
               }
-              
+
               // Check if streaming is done
               if (data['done'] == true) {
                 return; // End the stream
               }
-              
+
               // Yield the text chunk
               final chunk = data['chunk'] as String?;
               if (chunk != null && chunk.isNotEmpty) {
                 yield chunk;
               }
-              
             } catch (jsonError) {
               // Skip malformed JSON lines
               continue;
@@ -329,9 +324,8 @@ class ApiService {
     }
   }
 
-
-    // Goals CRUD methods
-    static Future<Goal> createGoal({
+  // Goals CRUD methods
+  static Future<Goal> createGoal({
     required String name,
     required double targetAmount,
     DateTime? targetDate,
@@ -360,7 +354,7 @@ class ApiService {
 
   static Future<List<Goal>> getGoals({GoalStatus? statusFilter}) async {
     String url = '$baseUrl/api/goals';
-    
+
     if (statusFilter != null) {
       url += '?status_filter=${statusFilter.name}';
     }
@@ -416,7 +410,8 @@ class ApiService {
 
     if (name != null) updateData['name'] = name;
     if (targetAmount != null) updateData['target_amount'] = targetAmount;
-    if (targetDate != null) updateData['target_date'] = targetDate.toIso8601String();
+    if (targetDate != null)
+      updateData['target_date'] = targetDate.toIso8601String();
     if (goalType != null) updateData['goal_type'] = goalType.name;
 
     if (updateData.isEmpty) {
@@ -469,8 +464,6 @@ class ApiService {
     }
   }
 
-
-
   static Future<ChatResponse> sendChatMessage({
     required String message,
     List<ChatMessage>? chatHistory,
@@ -519,8 +512,7 @@ class ApiService {
     }
   }
 
-
-    static Future<Insight> getInsights() async {
+  static Future<Insight> getInsights() async {
     final response = await http.get(
       Uri.parse('$baseUrl/api/insights'),
       headers: await _getHeaders(),
@@ -572,371 +564,411 @@ class ApiService {
     }
   }
 
+  static Future<FinancialReport> generateReport({
+    required ReportPeriod period,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final Map<String, dynamic> requestBody = {'period': period.name};
 
-static Future<FinancialReport> generateReport({
-  required ReportPeriod period,
-  DateTime? startDate,
-  DateTime? endDate,
-}) async {
-  final Map<String, dynamic> requestBody = {
-    'period': period.name,
-  };
-
-  if (period == ReportPeriod.custom) {
-    if (startDate == null || endDate == null) {
-      throw Exception('Start date and end date are required for custom period');
-    }
-    // Create UTC dates at midnight without timezone conversion
-    final utcStart = DateTime.utc(startDate.year, startDate.month, startDate.day, 0, 0, 0);
-    final utcEnd = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
-    
-    requestBody['start_date'] = utcStart.toIso8601String();
-    requestBody['end_date'] = utcEnd.toIso8601String();
-  }
-
-  final response = await http.post(
-    Uri.parse('$baseUrl/api/reports/generate'),
-    headers: await _getHeaders(),
-    body: jsonEncode(requestBody),
-  );
-
-  if (response.statusCode == 200) {
-    return FinancialReport.fromJson(jsonDecode(response.body));
-  } else {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to generate report');
-  }
-}
-
-static Future<String> downloadReportPdf({
-  required ReportPeriod period,
-  DateTime? startDate,
-  DateTime? endDate,
-}) async {
-  // Get user's timezone offset in minutes
-  final now = DateTime.now();
-  final timezoneOffset = now.timeZoneOffset.inMinutes;
-  
-  final Map<String, dynamic> requestBody = {
-    'period': period.name,
-    'timezone_offset': timezoneOffset,  // Add this line
-  };
-
-  if (period == ReportPeriod.custom) {
-    if (startDate == null || endDate == null) {
-      throw Exception('Start date and end date are required for custom period');
-    }
-    final utcStart = DateTime.utc(startDate.year, startDate.month, startDate.day, 0, 0, 0);
-    final utcEnd = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
-    
-    requestBody['start_date'] = utcStart.toIso8601String();
-    requestBody['end_date'] = utcEnd.toIso8601String();
-  }
-
-  final response = await http.post(
-    Uri.parse('$baseUrl/api/reports/download'),
-    headers: await _getHeaders(),
-    body: jsonEncode(requestBody),
-  );
-
-  if (response.statusCode == 200) {
-    final directory = await getApplicationDocumentsDirectory();
-    
-    String filename = 'financial_report.pdf';
-    final contentDisposition = response.headers['content-disposition'];
-    if (contentDisposition != null) {
-      final filenameMatch = RegExp(r'filename="?([^"]+)"?').firstMatch(contentDisposition);
-      if (filenameMatch != null) {
-        filename = filenameMatch.group(1)!;
+    if (period == ReportPeriod.custom) {
+      if (startDate == null || endDate == null) {
+        throw Exception(
+          'Start date and end date are required for custom period',
+        );
       }
+      // Create UTC dates at midnight without timezone conversion
+      final utcStart = DateTime.utc(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+        0,
+        0,
+        0,
+      );
+      final utcEnd = DateTime.utc(
+        endDate.year,
+        endDate.month,
+        endDate.day,
+        23,
+        59,
+        59,
+      );
+
+      requestBody['start_date'] = utcStart.toIso8601String();
+      requestBody['end_date'] = utcEnd.toIso8601String();
     }
-    
-    final file = File('${directory.path}/$filename');
-    await file.writeAsBytes(response.bodyBytes);
-    
-    return file.path;
-  } else {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to download report');
-  }
-}
 
-
-static Future<String> transcribeAudio(File audioFile) async {
-  try {
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/transactions/transcribe-audio'),
-    );
-    
-    final headers = await _getHeaders();
-    request.headers.addAll(headers);
-    
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        'audio',
-        audioFile.path,
-        contentType: MediaType('audio', 'wav'),
-      ),
-    );
-    
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-    
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['transcription'];
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to transcribe audio');
-    }
-  } catch (e) {
-    throw Exception('Audio transcription failed: ${e.toString()}');
-  }
-}
-
-static Future<ExtractedTransactionData> extractTransactionFromText(String text) async {
-  try {
     final response = await http.post(
-      Uri.parse('$baseUrl/api/transactions/extract-from-text'),
+      Uri.parse('$baseUrl/api/reports/generate'),
       headers: await _getHeaders(),
-      body: jsonEncode({'text': text}),
+      body: jsonEncode(requestBody),
     );
-    
+
     if (response.statusCode == 200) {
-      return ExtractedTransactionData.fromJson(jsonDecode(response.body));
+      return FinancialReport.fromJson(jsonDecode(response.body));
     } else {
       final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to extract transaction');
+      throw Exception(error['detail'] ?? 'Failed to generate report');
     }
-  } catch (e) {
-    throw Exception('Transaction extraction failed: ${e.toString()}');
   }
-}
 
-static Future<ExtractedTransactionData> extractTransactionFromImage(File imageFile) async {
-  try {
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/api/transactions/extract-from-image'),
+  static Future<String> downloadReportPdf({
+    required ReportPeriod period,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    // Get user's timezone offset in minutes
+    final now = DateTime.now();
+    final timezoneOffset = now.timeZoneOffset.inMinutes;
+
+    final Map<String, dynamic> requestBody = {
+      'period': period.name,
+      'timezone_offset': timezoneOffset, // Add this line
+    };
+
+    if (period == ReportPeriod.custom) {
+      if (startDate == null || endDate == null) {
+        throw Exception(
+          'Start date and end date are required for custom period',
+        );
+      }
+      final utcStart = DateTime.utc(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+        0,
+        0,
+        0,
+      );
+      final utcEnd = DateTime.utc(
+        endDate.year,
+        endDate.month,
+        endDate.day,
+        23,
+        59,
+        59,
+      );
+
+      requestBody['start_date'] = utcStart.toIso8601String();
+      requestBody['end_date'] = utcEnd.toIso8601String();
+    }
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/reports/download'),
+      headers: await _getHeaders(),
+      body: jsonEncode(requestBody),
     );
-    
-    final headers = await _getHeaders();
-    request.headers.addAll(headers);
-    
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        'image',
-        imageFile.path,
-        contentType: MediaType('image', 'jpeg'),
-      ),
-    );
-    
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-    
+
     if (response.statusCode == 200) {
-      return ExtractedTransactionData.fromJson(jsonDecode(response.body));
+      final directory = await getApplicationDocumentsDirectory();
+
+      String filename = 'financial_report.pdf';
+      final contentDisposition = response.headers['content-disposition'];
+      if (contentDisposition != null) {
+        final filenameMatch = RegExp(
+          r'filename="?([^"]+)"?',
+        ).firstMatch(contentDisposition);
+        if (filenameMatch != null) {
+          filename = filenameMatch.group(1)!;
+        }
+      }
+
+      final file = File('${directory.path}/$filename');
+      await file.writeAsBytes(response.bodyBytes);
+
+      return file.path;
     } else {
       final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to extract from image');
+      throw Exception(error['detail'] ?? 'Failed to download report');
     }
-  } catch (e) {
-    throw Exception('Image extraction failed: ${e.toString()}');
-  }
-}
-
-
-
-static Future<AIBudgetSuggestion> getAIBudgetSuggestions({
-  required BudgetPeriod period,
-  required DateTime startDate,
-  DateTime? endDate,
-  List<String>? includeCategories,
-  int analysisMonths = 3,
-}) async {
-  final Map<String, dynamic> requestBody = {
-    'period': period.name,
-    'start_date': startDate.toUtc().toIso8601String(),
-    'analysis_months': analysisMonths,
-  };
-
-  if (endDate != null) {
-    requestBody['end_date'] = endDate.toUtc().toIso8601String();
   }
 
-  if (includeCategories != null && includeCategories.isNotEmpty) {
-    requestBody['include_categories'] = includeCategories;
+  static Future<String> transcribeAudio(File audioFile) async {
+    try {
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/transactions/transcribe-audio'),
+      );
+
+      final headers = await _getHeaders();
+      request.headers.addAll(headers);
+
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'audio',
+          audioFile.path,
+          contentType: MediaType('audio', 'wav'),
+        ),
+      );
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['transcription'];
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['detail'] ?? 'Failed to transcribe audio');
+      }
+    } catch (e) {
+      throw Exception('Audio transcription failed: ${e.toString()}');
+    }
   }
 
-  final response = await http.post(
-    Uri.parse('$baseUrl/api/budgets/ai-suggest'),
-    headers: await _getHeaders(),
-    body: jsonEncode(requestBody),
-  );
+  static Future<ExtractedTransactionData> extractTransactionFromText(
+    String text,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/transactions/extract-from-text'),
+        headers: await _getHeaders(),
+        body: jsonEncode({'text': text}),
+      );
 
-  if (response.statusCode == 200) {
-    return AIBudgetSuggestion.fromJson(jsonDecode(response.body));
-  } else {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to get AI budget suggestions');
-  }
-}
-
-static Future<Budget> createBudget({
-  required String name,
-  required BudgetPeriod period,
-  required DateTime startDate,
-  DateTime? endDate,
-  required List<CategoryBudget> categoryBudgets,
-  required double totalBudget,
-  String? description,
-  bool autoCreateEnabled = false,      // NEW
-  bool autoCreateWithAi = false,       // NEW
-}) async {
-  final Map<String, dynamic> requestBody = {
-    'name': name,
-    'period': period.name,
-    'start_date': startDate.toUtc().toIso8601String(),
-    'category_budgets': categoryBudgets.map((cat) => cat.toJson()).toList(),
-    'total_budget': totalBudget,
-    'auto_create_enabled': autoCreateEnabled,    // NEW
-    'auto_create_with_ai': autoCreateWithAi,     // NEW
-  };
-
-  if (endDate != null) {
-    requestBody['end_date'] = endDate.toUtc().toIso8601String();
+      if (response.statusCode == 200) {
+        return ExtractedTransactionData.fromJson(jsonDecode(response.body));
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['detail'] ?? 'Failed to extract transaction');
+      }
+    } catch (e) {
+      throw Exception('Transaction extraction failed: ${e.toString()}');
+    }
   }
 
-  if (description != null) {
-    requestBody['description'] = description;
+  static Future<ExtractedTransactionData> extractTransactionFromImage(
+    File imageFile,
+  ) async {
+    try {
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/api/transactions/extract-from-image'),
+      );
+
+      final headers = await _getHeaders();
+      request.headers.addAll(headers);
+
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'image',
+          imageFile.path,
+          contentType: MediaType('image', 'jpeg'),
+        ),
+      );
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        return ExtractedTransactionData.fromJson(jsonDecode(response.body));
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['detail'] ?? 'Failed to extract from image');
+      }
+    } catch (e) {
+      throw Exception('Image extraction failed: ${e.toString()}');
+    }
   }
 
-  final response = await http.post(
-    Uri.parse('$baseUrl/api/budgets'),
-    headers: await _getHeaders(),
-    body: jsonEncode(requestBody),
-  );
+  static Future<AIBudgetSuggestion> getAIBudgetSuggestions({
+    required BudgetPeriod period,
+    required DateTime startDate,
+    DateTime? endDate,
+    List<String>? includeCategories,
+    int analysisMonths = 3,
+    String? userContext, // NEW
+  }) async {
+    final Map<String, dynamic> requestBody = {
+      'period': period.name,
+      'start_date': startDate.toUtc().toIso8601String(),
+      'analysis_months': analysisMonths,
+    };
 
-  if (response.statusCode == 200) {
-    return Budget.fromJson(jsonDecode(response.body));
-  } else {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to create budget');
-  }
-}
+    if (endDate != null) {
+      requestBody['end_date'] = endDate.toUtc().toIso8601String();
+    }
 
-static Future<List<Budget>> getBudgets({
-  bool activeOnly = false,
-  BudgetPeriod? period,
-}) async {
-  String url = '$baseUrl/api/budgets?active_only=$activeOnly';
+    if (includeCategories != null && includeCategories.isNotEmpty) {
+      requestBody['include_categories'] = includeCategories;
+    }
 
-  if (period != null) {
-    url += '&period=${period.name}';
-  }
+    if (userContext != null && userContext.isNotEmpty) {
+      // NEW
+      requestBody['user_context'] = userContext;
+    }
 
-  final response = await http.get(
-    Uri.parse(url),
-    headers: await _getHeaders(),
-  );
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/budgets/ai-suggest'),
+      headers: await _getHeaders(),
+      body: jsonEncode(requestBody),
+    );
 
-  if (response.statusCode == 200) {
-    final List<dynamic> data = jsonDecode(response.body);
-    return data.map((json) => Budget.fromJson(json)).toList();
-  } else {
-    throw Exception('Failed to get budgets');
-  }
-}
-
-static Future<BudgetSummary> getBudgetsSummary() async {
-  final response = await http.get(
-    Uri.parse('$baseUrl/api/budgets/summary'),
-    headers: await _getHeaders(),
-  );
-
-  if (response.statusCode == 200) {
-    return BudgetSummary.fromJson(jsonDecode(response.body));
-  } else {
-    throw Exception('Failed to get budgets summary');
-  }
-}
-
-static Future<Budget> getBudget(String budgetId) async {
-  final response = await http.get(
-    Uri.parse('$baseUrl/api/budgets/$budgetId'),
-    headers: await _getHeaders(),
-  );
-
-  if (response.statusCode == 200) {
-    return Budget.fromJson(jsonDecode(response.body));
-  } else {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to get budget');
-  }
-}
-
-static Future<Budget> updateBudget({
-  required String budgetId,
-  String? name,
-  List<CategoryBudget>? categoryBudgets,
-  double? totalBudget,
-  String? description,
-  bool? autoCreateEnabled,     // NEW
-  bool? autoCreateWithAi,      // NEW
-}) async {
-  final Map<String, dynamic> updateData = {};
-
-  if (name != null) updateData['name'] = name;
-  if (description != null) updateData['description'] = description;
-  if (totalBudget != null) updateData['total_budget'] = totalBudget;
-  if (categoryBudgets != null) {
-    updateData['category_budgets'] = categoryBudgets.map((cat) => cat.toJson()).toList();
-  }
-  if (autoCreateEnabled != null) updateData['auto_create_enabled'] = autoCreateEnabled;  // NEW
-  if (autoCreateWithAi != null) updateData['auto_create_with_ai'] = autoCreateWithAi;    // NEW
-
-  if (updateData.isEmpty) {
-    throw Exception('No fields provided for update');
+    if (response.statusCode == 200) {
+      return AIBudgetSuggestion.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to get AI budget suggestions');
+    }
   }
 
-  final response = await http.put(
-    Uri.parse('$baseUrl/api/budgets/$budgetId'),
-    headers: await _getHeaders(),
-    body: jsonEncode(updateData),
-  );
+  static Future<Budget> createBudget({
+    required String name,
+    required BudgetPeriod period,
+    required DateTime startDate,
+    DateTime? endDate,
+    required List<CategoryBudget> categoryBudgets,
+    required double totalBudget,
+    String? description,
+    bool autoCreateEnabled = false, // NEW
+    bool autoCreateWithAi = false, // NEW
+  }) async {
+    final Map<String, dynamic> requestBody = {
+      'name': name,
+      'period': period.name,
+      'start_date': startDate.toUtc().toIso8601String(),
+      'category_budgets': categoryBudgets.map((cat) => cat.toJson()).toList(),
+      'total_budget': totalBudget,
+      'auto_create_enabled': autoCreateEnabled, // NEW
+      'auto_create_with_ai': autoCreateWithAi, // NEW
+    };
 
-  if (response.statusCode == 200) {
-    return Budget.fromJson(jsonDecode(response.body));
-  } else {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to update budget');
+    if (endDate != null) {
+      requestBody['end_date'] = endDate.toUtc().toIso8601String();
+    }
+
+    if (description != null) {
+      requestBody['description'] = description;
+    }
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/budgets'),
+      headers: await _getHeaders(),
+      body: jsonEncode(requestBody),
+    );
+
+    if (response.statusCode == 200) {
+      return Budget.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to create budget');
+    }
   }
-}
 
-static Future<void> deleteBudget(String budgetId) async {
-  final response = await http.delete(
-    Uri.parse('$baseUrl/api/budgets/$budgetId'),
-    headers: await _getHeaders(),
-  );
+  static Future<List<Budget>> getBudgets({
+    bool activeOnly = false,
+    BudgetPeriod? period,
+  }) async {
+    String url = '$baseUrl/api/budgets?active_only=$activeOnly';
 
-  if (response.statusCode != 200) {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to delete budget');
+    if (period != null) {
+      url += '&period=${period.name}';
+    }
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => Budget.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to get budgets');
+    }
   }
-}
 
-static Future<void> refreshBudget(String budgetId) async {
-  final response = await http.post(
-    Uri.parse('$baseUrl/api/budgets/$budgetId/refresh'),
-    headers: await _getHeaders(),
-  );
+  static Future<BudgetSummary> getBudgetsSummary() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/budgets/summary'),
+      headers: await _getHeaders(),
+    );
 
-  if (response.statusCode != 200) {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to refresh budget');
+    if (response.statusCode == 200) {
+      return BudgetSummary.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Failed to get budgets summary');
+    }
   }
-}
 
+  static Future<Budget> getBudget(String budgetId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/budgets/$budgetId'),
+      headers: await _getHeaders(),
+    );
 
+    if (response.statusCode == 200) {
+      return Budget.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to get budget');
+    }
+  }
+
+  static Future<Budget> updateBudget({
+    required String budgetId,
+    String? name,
+    List<CategoryBudget>? categoryBudgets,
+    double? totalBudget,
+    String? description,
+    bool? autoCreateEnabled, // NEW
+    bool? autoCreateWithAi, // NEW
+  }) async {
+    final Map<String, dynamic> updateData = {};
+
+    if (name != null) updateData['name'] = name;
+    if (description != null) updateData['description'] = description;
+    if (totalBudget != null) updateData['total_budget'] = totalBudget;
+    if (categoryBudgets != null) {
+      updateData['category_budgets'] = categoryBudgets
+          .map((cat) => cat.toJson())
+          .toList();
+    }
+    if (autoCreateEnabled != null)
+      updateData['auto_create_enabled'] = autoCreateEnabled; // NEW
+    if (autoCreateWithAi != null)
+      updateData['auto_create_with_ai'] = autoCreateWithAi; // NEW
+
+    if (updateData.isEmpty) {
+      throw Exception('No fields provided for update');
+    }
+
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/budgets/$budgetId'),
+      headers: await _getHeaders(),
+      body: jsonEncode(updateData),
+    );
+
+    if (response.statusCode == 200) {
+      return Budget.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to update budget');
+    }
+  }
+
+  static Future<void> deleteBudget(String budgetId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/api/budgets/$budgetId'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to delete budget');
+    }
+  }
+
+  static Future<void> refreshBudget(String budgetId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/budgets/$budgetId/refresh'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to refresh budget');
+    }
+  }
 }
