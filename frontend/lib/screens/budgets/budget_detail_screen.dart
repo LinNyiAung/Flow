@@ -28,16 +28,16 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
 
   Future<void> _refreshBudget() async {
     setState(() => _isRefreshing = true);
-    
+
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
     final updatedBudget = await budgetProvider.getBudget(_budget.id);
-    
+
     if (updatedBudget != null) {
       setState(() {
         _budget = updatedBudget;
       });
     }
-    
+
     setState(() => _isRefreshing = false);
   }
 
@@ -60,7 +60,10 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.grey[600])),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: Colors.grey[600]),
+            ),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -69,9 +72,14 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
-            child: Text('Delete', style: GoogleFonts.poppins(color: Colors.white)),
+            child: Text(
+              'Delete',
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -97,19 +105,60 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     }
   }
 
+  String _calculateDaysRemaining() {
+    final now = DateTime.now().toUtc();
+    final startDate = _budget.startDate.toUtc();
+    final endDate = _budget.endDate.toUtc();
+
+    print('\n=== DAYS REMAINING CALCULATION ===');
+    print('Current time (UTC): $now');
+    print('Budget start (UTC): $startDate');
+    print('Budget end (UTC): $endDate');
+
+    // Budget hasn't started yet
+    if (now.isBefore(startDate)) {
+      final daysUntilStart = startDate.difference(now).inDays;
+      print('Budget not started. Days until start: $daysUntilStart');
+      return 'Starts in $daysUntilStart days';
+    }
+
+    // Budget has ended
+    if (now.isAfter(endDate)) {
+      final daysEnded = now.difference(endDate).inDays;
+      print('Budget ended. Days since end: $daysEnded');
+      return 'Ended $daysEnded days ago';
+    }
+
+    // Budget is active
+    final daysRemaining = endDate.difference(now).inDays;
+    print('Budget active. Days remaining: $daysRemaining');
+    return '$daysRemaining days remaining';
+  }
+
+  String _getBudgetStatusLabel() {
+    final now = DateTime.now().toUtc();
+    final startDate = _budget.startDate.toUtc();
+    final endDate = _budget.endDate.toUtc();
+
+    if (now.isBefore(startDate)) {
+      return 'Starts In';
+    } else if (now.isAfter(endDate)) {
+      return 'Ended';
+    } else {
+      return 'Days Remaining';
+    }
+  }
 
   void _navigateToEditBudget() async {
-  final result = await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => EditBudgetScreen(budget: _budget),
-    ),
-  );
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => EditBudgetScreen(budget: _budget)),
+    );
 
-  if (result == true) {
-    await _refreshBudget();
+    if (result == true) {
+      await _refreshBudget();
+    }
   }
-}
 
   Color _getStatusColor() {
     switch (_budget.status) {
@@ -171,10 +220,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
+            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
           ),
         ),
         child: RefreshIndicator(
@@ -217,14 +263,21 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                           ),
                         ),
                         Container(
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Row(
                             children: [
-                              Icon(_getStatusIcon(), color: Colors.white, size: 16),
+                              Icon(
+                                _getStatusIcon(),
+                                color: Colors.white,
+                                size: 16,
+                              ),
                               SizedBox(width: 4),
                               Text(
                                 _budget.status.name.toUpperCase(),
@@ -298,6 +351,66 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 ),
               ),
 
+              // Add this after the main budget overview card and before "Budget Period Info"
+              if (DateTime.now().toUtc().isBefore(
+                _budget.startDate.toUtc(),
+              )) ...[
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.schedule, color: Colors.blue[700], size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This budget will start on ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.blue[900],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (!_budget.isActive &&
+                  DateTime.now().toUtc().isAfter(_budget.endDate.toUtc())) ...[
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        color: Colors.grey[600],
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This budget ended on ${DateFormat('MMMM dd, yyyy').format(_budget.endDate)}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               SizedBox(height: 24),
 
               // Budget Period Info
@@ -330,10 +443,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                     Divider(height: 24),
                     _buildInfoRow(
                       Icons.timelapse,
-                      'Days Remaining',
-                      _budget.isActive
-                          ? '${_budget.endDate.difference(DateTime.now()).inDays} days'
-                          : 'Ended',
+                      _getBudgetStatusLabel(),
+                      _calculateDaysRemaining(),
                     ),
                   ],
                 ),
@@ -462,10 +573,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         SizedBox(width: 12),
         Text(
           '$label:',
-          style: GoogleFonts.poppins(
-            fontSize: 13,
-            color: Colors.grey[600],
-          ),
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600]),
         ),
         Spacer(),
         Text(
@@ -484,8 +592,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final statusColor = catBudget.isExceeded
         ? Color(0xFFFF5722)
         : catBudget.percentageUsed > 80
-            ? Color(0xFFFF9800)
-            : Color(0xFF4CAF50);
+        ? Color(0xFFFF9800)
+        : Color(0xFF4CAF50);
 
     return Container(
       margin: EdgeInsets.only(bottom: 8),
@@ -501,10 +609,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           ),
         ],
         border: Border(
-          left: BorderSide(
-            color: statusColor.withOpacity(0.3),
-            width: 3,
-          ),
+          left: BorderSide(color: statusColor.withOpacity(0.3), width: 3),
         ),
       ),
       child: Column(

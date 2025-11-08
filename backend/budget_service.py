@@ -412,7 +412,12 @@ def is_budget_active(budget: Dict, current_date: datetime) -> bool:
     if end_date.tzinfo is None:
         end_date = end_date.replace(tzinfo=timezone.utc)
     
-    return start_date <= current_date <= end_date
+    # Budget is active if current date is within the range (inclusive)
+    is_active = start_date <= current_date <= end_date
+    
+    print(f"DEBUG is_budget_active: start={start_date}, current={current_date}, end={end_date}, active={is_active}")
+    
+    return is_active
 
 
 def update_budget_spent_amounts(user_id: str, budget_id: str):
