@@ -1,8 +1,10 @@
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from collections import defaultdict
 import statistics
+import uuid
 
 from database import transactions_collection, budgets_collection, goals_collection
 from budget_models import (
@@ -513,6 +515,18 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
             }
         }
     )
+    
+        # NEW: Check if budget just completed and should auto-create next
+    if status == BudgetStatus.COMPLETED and budget.get("auto_create_enabled"):
+        # Run auto-create asynchronously
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(auto_create_next_budget(budget))
+            else:
+                asyncio.run(auto_create_next_budget(budget))
+        except Exception as e:
+            print(f"Error triggering auto-create: {e}")
 
 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
@@ -548,6 +562,244 @@ def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict])
             total += amount
     
     return total
+
+
+async def auto_create_next_budget(budget: Dict) -> Optional[str]:
+    """
+    Automatically create next budget based on completed budget
+    Returns new budget ID if successful
+    """
+    if not budget.get("auto_create_enabled", False):
+        return None
+    
+    # Only auto-create for completed budgets
+    if budget["status"] != BudgetStatus.COMPLETED.value:
+        return None
+    
+    # Check if next budget already exists
+    end_date = budget["end_date"]
+    next_start_date = end_date + timedelta(days=1)
+    
+    # Check for existing budget starting on next_start_date
+    existing = budgets_collection.find_one({
+        "user_id": budget["user_id"],
+        "parent_budget_id": budget["_id"],
+        "start_date": next_start_date
+    })
+    
+    if existing:
+        print(f"Next budget already exists for budget {budget['_id']}")
+        return None
+    
+    try:
+        # Calculate new dates based on period
+        analyzer = BudgetAnalyzer(budget["user_id"])
+        period = BudgetPeriod(budget["period"])
+        new_start, new_end = analyzer.calculate_period_dates(
+            period,
+            next_start_date,
+            None
+        )
+        
+        # Generate category budgets
+        if budget.get("auto_create_with_ai", False):
+            # Use AI to generate new budgets based on historical data
+            print(f"Generating AI-based budget for next period...")
+            category_budgets = await _generate_ai_category_budgets(
+                budget["user_id"],
+                period,
+                new_start,
+                new_end,
+                parent_budget=budget
+            )
+        else:
+            # Use same category budgets as parent
+            category_budgets = [
+                CategoryBudget(**cat) for cat in budget["category_budgets"]
+            ]
+        
+        # Create new budget
+        new_budget_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        
+        total_budget = sum(cat.allocated_amount for cat in category_budgets)
+        
+        new_budget = {
+            "_id": new_budget_id,
+            "user_id": budget["user_id"],
+            "name": f"{budget['name']} (Auto-created)",
+            "period": budget["period"],
+            "start_date": new_start,
+            "end_date": new_end,
+            "category_budgets": [cat.dict() for cat in category_budgets],
+            "total_budget": total_budget,
+            "total_spent": 0.0,
+            "remaining_budget": total_budget,
+            "percentage_used": 0.0,
+            "status": BudgetStatus.UPCOMING.value,
+            "description": budget.get("description"),
+            "is_active": False,
+            "auto_create_enabled": budget.get("auto_create_enabled", False),
+            "auto_create_with_ai": budget.get("auto_create_with_ai", False),
+            "parent_budget_id": budget["_id"],
+            "created_at": now,
+            "updated_at": now
+        }
+        
+        budgets_collection.insert_one(new_budget)
+        print(f"✅ Auto-created new budget: {new_budget_id}")
+        
+        return new_budget_id
+        
+    except Exception as e:
+        print(f"❌ Error auto-creating budget: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+async def _generate_ai_category_budgets(
+    user_id: str,
+    period: BudgetPeriod,
+    start_date: datetime,
+    end_date: datetime,
+    parent_budget: Dict
+) -> List[CategoryBudget]:
+    """Generate AI-based category budgets using parent budget and recent data"""
+    
+    analyzer = BudgetAnalyzer(user_id)
+    days_in_period = (end_date - start_date).days + 1
+    
+    # Analyze spending from the completed budget period
+    parent_start = parent_budget["start_date"]
+    parent_end = parent_budget["end_date"]
+    
+    transactions = list(transactions_collection.find({
+        "user_id": user_id,
+        "type": "outflow",
+        "date": {
+            "$gte": parent_start,
+            "$lte": parent_end
+        }
+    }))
+    
+    if not transactions:
+        # No data, use parent budget allocations
+        return [CategoryBudget(**cat) for cat in parent_budget["category_budgets"]]
+    
+    # Calculate actual spending per category from parent budget
+    category_spending = {}
+    for cat_budget in parent_budget["category_budgets"]:
+        category_name = cat_budget["main_category"]
+        category_spending[category_name] = cat_budget.get("spent_amount", 0)
+    
+    if settings.OPENAI_API_KEY:
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            
+            context = {
+                "period_type": period.value,
+                "days_in_period": days_in_period,
+                "parent_budget_categories": parent_budget["category_budgets"],
+                "actual_spending": category_spending,
+                "total_allocated": parent_budget["total_budget"],
+                "total_spent": parent_budget["total_spent"],
+                "utilization_rate": parent_budget["percentage_used"]
+            }
+            
+            system_prompt = f"""You are a financial budgeting expert. Analyze the previous budget performance and suggest improved budgets for the next period.
+
+PREVIOUS BUDGET PERFORMANCE:
+- Period: {period.value} ({days_in_period} days)
+- Total Allocated: ${parent_budget['total_budget']:.2f}
+- Total Spent: ${parent_budget['total_spent']:.2f}
+- Utilization: {parent_budget['percentage_used']:.1f}%
+
+RULES:
+1. Adjust budgets based on actual spending patterns
+2. If a category was under-utilized (<80%), reduce allocation
+3. If a category was over-utilized (>100%), increase allocation
+4. If spending was 80-100%, keep similar allocation
+5. Consider seasonal variations
+6. Total budget should be reasonable based on past performance
+
+Return JSON format:
+{{
+    "categories": [
+        {{
+            "main_category": "category name",
+            "allocated_amount": 500.00,
+            "spent_amount": 0,
+            "percentage_used": 0,
+            "is_exceeded": false
+        }}
+    ],
+    "reasoning": "Brief explanation of adjustments made"
+}}"""
+
+            user_prompt = f"""Based on this budget performance data, suggest optimized budgets for the next {period.value} period:
+
+{json.dumps(context, indent=2)}
+
+Provide realistic budget suggestions that learn from past spending patterns."""
+
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.3
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            return [CategoryBudget(**cat) for cat in result["categories"]]
+            
+        except Exception as e:
+            print(f"Error generating AI budgets: {e}")
+            # Fallback to adjusted budgets based on spending
+            return _generate_adjusted_budgets(parent_budget, days_in_period)
+    else:
+        return _generate_adjusted_budgets(parent_budget, days_in_period)
+
+
+def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List[CategoryBudget]:
+    """Generate adjusted budgets based on spending without AI"""
+    adjusted_budgets = []
+    
+    for cat_budget in parent_budget["category_budgets"]:
+        allocated = cat_budget["allocated_amount"]
+        spent = cat_budget.get("spent_amount", 0)
+        utilization = (spent / allocated * 100) if allocated > 0 else 0
+        
+        # Adjust based on utilization
+        if utilization < 50:
+            # Significant under-utilization - reduce by 20%
+            new_amount = allocated * 0.8
+        elif utilization < 80:
+            # Slight under-utilization - reduce by 10%
+            new_amount = allocated * 0.9
+        elif utilization > 120:
+            # Significant over-spending - increase by 20%
+            new_amount = allocated * 1.2
+        elif utilization > 100:
+            # Slight over-spending - increase by 10%
+            new_amount = allocated * 1.1
+        else:
+            # Good utilization (80-100%) - keep same
+            new_amount = allocated
+        
+        adjusted_budgets.append(CategoryBudget(
+            main_category=cat_budget["main_category"],
+            allocated_amount=round(new_amount, 2),
+            spent_amount=0,
+            percentage_used=0,
+            is_exceeded=False
+        ))
+    
+    return adjusted_budgets
 
 
 def update_all_user_budgets(user_id: str):

@@ -1787,6 +1787,9 @@ async def create_budget(
             "status": BudgetStatus.ACTIVE.value,
             "description": budget_data.description,
             "is_active": is_active,
+            "auto_create_enabled": budget_data.auto_create_enabled,  # NEW
+            "auto_create_with_ai": budget_data.auto_create_with_ai,  # NEW
+            "parent_budget_id": None,  # NEW
             "created_at": now,
             "updated_at": now
         }
@@ -1817,6 +1820,9 @@ async def create_budget(
             status=BudgetStatus(updated_budget["status"]),
             description=updated_budget.get("description"),
             is_active=updated_budget["is_active"],
+            auto_create_enabled=updated_budget.get("auto_create_enabled", False),  # NEW
+            auto_create_with_ai=updated_budget.get("auto_create_with_ai", False),  # NEW
+            parent_budget_id=updated_budget.get("parent_budget_id"),  # NEW
             created_at=updated_budget["created_at"],
             updated_at=updated_budget["updated_at"]
         )

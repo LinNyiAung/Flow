@@ -791,6 +791,8 @@ static Future<Budget> createBudget({
   required List<CategoryBudget> categoryBudgets,
   required double totalBudget,
   String? description,
+  bool autoCreateEnabled = false,      // NEW
+  bool autoCreateWithAi = false,       // NEW
 }) async {
   final Map<String, dynamic> requestBody = {
     'name': name,
@@ -798,6 +800,8 @@ static Future<Budget> createBudget({
     'start_date': startDate.toUtc().toIso8601String(),
     'category_budgets': categoryBudgets.map((cat) => cat.toJson()).toList(),
     'total_budget': totalBudget,
+    'auto_create_enabled': autoCreateEnabled,    // NEW
+    'auto_create_with_ai': autoCreateWithAi,     // NEW
   };
 
   if (endDate != null) {
@@ -878,6 +882,8 @@ static Future<Budget> updateBudget({
   List<CategoryBudget>? categoryBudgets,
   double? totalBudget,
   String? description,
+  bool? autoCreateEnabled,     // NEW
+  bool? autoCreateWithAi,      // NEW
 }) async {
   final Map<String, dynamic> updateData = {};
 
@@ -887,6 +893,8 @@ static Future<Budget> updateBudget({
   if (categoryBudgets != null) {
     updateData['category_budgets'] = categoryBudgets.map((cat) => cat.toJson()).toList();
   }
+  if (autoCreateEnabled != null) updateData['auto_create_enabled'] = autoCreateEnabled;  // NEW
+  if (autoCreateWithAi != null) updateData['auto_create_with_ai'] = autoCreateWithAi;    // NEW
 
   if (updateData.isEmpty) {
     throw Exception('No fields provided for update');

@@ -24,6 +24,10 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
   late List<CategoryBudget> _categoryBudgets;
   bool _isLoading = false;
 
+
+  late bool _autoCreateEnabled;     // NEW
+  late bool _autoCreateWithAi;      // NEW
+
   @override
   void initState() {
     super.initState();
@@ -32,6 +36,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       text: widget.budget.description ?? '',
     );
     _categoryBudgets = List.from(widget.budget.categoryBudgets);
+    _autoCreateEnabled = widget.budget.autoCreateEnabled;     // NEW
+    _autoCreateWithAi = widget.budget.autoCreateWithAi;       // NEW
   }
 
   @override
@@ -146,7 +152,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     });
   }
 
-  Future<void> _saveBudget() async {
+    Future<void> _saveBudget() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (_categoryBudgets.isEmpty) {
@@ -172,6 +178,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
           description: _descriptionController.text.isEmpty
               ? null
               : _descriptionController.text,
+          autoCreateEnabled: _autoCreateEnabled,      // NEW
+          autoCreateWithAi: _autoCreateWithAi,        // NEW
         );
 
     setState(() => _isLoading = false);
@@ -199,6 +207,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -307,6 +316,140 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                 ),
                 maxLines: 2,
               ),
+
+              SizedBox(height: 24),
+
+
+                            if (widget.budget.period != BudgetPeriod.custom) ...[
+                SizedBox(height: 20),
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Color(0xFF667eea).withOpacity(0.1),
+                        Color(0xFF764ba2).withOpacity(0.1),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.autorenew, color: Color(0xFF667eea)),
+                          SizedBox(width: 8),
+                          Text(
+                            'Auto-Create Next Budget',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Automatically create a new budget when this one ends',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      SwitchListTile(
+                        value: _autoCreateEnabled,
+                        onChanged: (value) {
+                          setState(() {
+                            _autoCreateEnabled = value;
+                            if (!value) {
+                              _autoCreateWithAi = false;
+                            }
+                          });
+                        },
+                        title: Text(
+                          'Enable Auto-Create',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        activeColor: Color(0xFF667eea),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      if (_autoCreateEnabled) ...[
+                        Divider(),
+                        Text(
+                          'Choose how to create the next budget:',
+                          style: GoogleFonts.poppins(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF333333),
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        RadioListTile<bool>(
+                          value: false,
+                          groupValue: _autoCreateWithAi,
+                          onChanged: (value) {
+                            setState(() {
+                              _autoCreateWithAi = value!;
+                            });
+                          },
+                          title: Text(
+                            'Use Current Categories',
+                            style: GoogleFonts.poppins(fontSize: 13),
+                          ),
+                          subtitle: Text(
+                            'Keep the same budget amounts for all categories',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          activeColor: Color(0xFF667eea),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        RadioListTile<bool>(
+                          value: true,
+                          groupValue: _autoCreateWithAi,
+                          onChanged: (value) {
+                            setState(() {
+                              _autoCreateWithAi = value!;
+                            });
+                          },
+                          title: Row(
+                            children: [
+                              Icon(
+                                Icons.auto_awesome,
+                                size: 16,
+                                color: Color(0xFF667eea),
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'AI-Optimized Budget',
+                                style: GoogleFonts.poppins(fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          subtitle: Text(
+                            'AI analyzes your spending and suggests optimized amounts',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          activeColor: Color(0xFF667eea),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
 
               SizedBox(height: 24),
 

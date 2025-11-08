@@ -26,16 +26,20 @@ class BudgetCreate(BaseModel):
     name: str
     period: BudgetPeriod
     start_date: datetime
-    end_date: Optional[datetime] = None  # Auto-calculated for weekly/monthly/yearly
+    end_date: Optional[datetime] = None
     category_budgets: List[CategoryBudget]
     total_budget: float
     description: Optional[str] = None
+    auto_create_enabled: bool = False  # NEW
+    auto_create_with_ai: bool = False  # NEW
 
 class BudgetUpdate(BaseModel):
     name: Optional[str] = None
     category_budgets: Optional[List[CategoryBudget]] = None
     total_budget: Optional[float] = None
     description: Optional[str] = None
+    auto_create_enabled: Optional[bool] = None  # NEW
+    auto_create_with_ai: Optional[bool] = None  # NEW
 
 class BudgetResponse(BaseModel):
     id: str
@@ -51,9 +55,12 @@ class BudgetResponse(BaseModel):
     percentage_used: float
     status: BudgetStatus
     description: Optional[str]
-    is_active: bool  # Whether the budget period is currently active
+    is_active: bool
     created_at: datetime
     updated_at: datetime
+    auto_create_enabled: bool = False  # NEW
+    auto_create_with_ai: bool = False  # NEW
+    parent_budget_id: Optional[str] = None  # NEW - to track budget lineage
 
 class BudgetSummary(BaseModel):
     total_budgets: int

@@ -63,38 +63,42 @@ class BudgetProvider with ChangeNotifier {
   }
 
   Future<bool> createBudget({
-    required String name,
-    required BudgetPeriod period,
-    required DateTime startDate,
-    DateTime? endDate,
-    required List<CategoryBudget> categoryBudgets,
-    required double totalBudget,
-    String? description,
-  }) async {
-    _setLoading(true);
-    _setError(null);
+  required String name,
+  required BudgetPeriod period,
+  required DateTime startDate,
+  DateTime? endDate,
+  required List<CategoryBudget> categoryBudgets,
+  required double totalBudget,
+  String? description,
+  bool autoCreateEnabled = false,      // NEW
+  bool autoCreateWithAi = false,       // NEW
+}) async {
+  _setLoading(true);
+  _setError(null);
 
-    try {
-      final budget = await ApiService.createBudget(
-        name: name,
-        period: period,
-        startDate: startDate,
-        endDate: endDate,
-        categoryBudgets: categoryBudgets,
-        totalBudget: totalBudget,
-        description: description,
-      );
+  try {
+    final budget = await ApiService.createBudget(
+      name: name,
+      period: period,
+      startDate: startDate,
+      endDate: endDate,
+      categoryBudgets: categoryBudgets,
+      totalBudget: totalBudget,
+      description: description,
+      autoCreateEnabled: autoCreateEnabled,    // NEW
+      autoCreateWithAi: autoCreateWithAi,      // NEW
+    );
 
-      _budgets.insert(0, budget);
-      await fetchSummary();
-      _setLoading(false);
-      return true;
-    } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
-      return false;
-    }
+    _budgets.insert(0, budget);
+    await fetchSummary();
+    _setLoading(false);
+    return true;
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
+    return false;
   }
+}
 
   Future<void> fetchBudgets({
     bool activeOnly = false,
@@ -133,39 +137,43 @@ class BudgetProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> updateBudget({
-    required String budgetId,
-    String? name,
-    List<CategoryBudget>? categoryBudgets,
-    double? totalBudget,
-    String? description,
-  }) async {
-    _setLoading(true);
-    _setError(null);
+Future<bool> updateBudget({
+  required String budgetId,
+  String? name,
+  List<CategoryBudget>? categoryBudgets,
+  double? totalBudget,
+  String? description,
+  bool? autoCreateEnabled,     // NEW
+  bool? autoCreateWithAi,      // NEW
+}) async {
+  _setLoading(true);
+  _setError(null);
 
-    try {
-      final updatedBudget = await ApiService.updateBudget(
-        budgetId: budgetId,
-        name: name,
-        categoryBudgets: categoryBudgets,
-        totalBudget: totalBudget,
-        description: description,
-      );
+  try {
+    final updatedBudget = await ApiService.updateBudget(
+      budgetId: budgetId,
+      name: name,
+      categoryBudgets: categoryBudgets,
+      totalBudget: totalBudget,
+      description: description,
+      autoCreateEnabled: autoCreateEnabled,    // NEW
+      autoCreateWithAi: autoCreateWithAi,      // NEW
+    );
 
-      final index = _budgets.indexWhere((b) => b.id == budgetId);
-      if (index != -1) {
-        _budgets[index] = updatedBudget;
-      }
-
-      await fetchSummary();
-      _setLoading(false);
-      return true;
-    } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
-      return false;
+    final index = _budgets.indexWhere((b) => b.id == budgetId);
+    if (index != -1) {
+      _budgets[index] = updatedBudget;
     }
+
+    await fetchSummary();
+    _setLoading(false);
+    return true;
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
+    return false;
   }
+}
 
   Future<bool> deleteBudget(String budgetId) async {
     _setLoading(true);

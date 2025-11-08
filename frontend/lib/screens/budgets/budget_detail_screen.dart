@@ -376,6 +376,94 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 ),
               ),
 
+              if (_budget.isAutoCreated) ...[
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0xFF667eea).withOpacity(0.1),
+                      Color(0xFF764ba2).withOpacity(0.1),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.autorenew,
+                      color: Color(0xFF667eea),
+                      size: 20,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _budget.autoCreateWithAi
+                            ? 'This budget was automatically created with AI optimization'
+                            : 'This budget was automatically created from the previous budget',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Color(0xFF667eea),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // NEW: Show auto-create status
+            if (_budget.autoCreateEnabled) ...[
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      color: Colors.green[700],
+                      size: 20,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Auto-Create Enabled',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green[900],
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            _budget.autoCreateWithAi
+                                ? 'Next budget will be AI-optimized based on your spending'
+                                : 'Next budget will use the same category amounts',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.green[800],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+
               // Update the info banner section
               if (_budget.isUpcoming) ...[
                 SizedBox(height: 16),

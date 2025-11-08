@@ -55,6 +55,9 @@ class Budget {
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final bool autoCreateEnabled;  // NEW
+  final bool autoCreateWithAi;   // NEW
+  final String? parentBudgetId;  // NEW
 
   Budget({
     required this.id,
@@ -73,13 +76,18 @@ class Budget {
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
+    this.autoCreateEnabled = false,  // NEW
+    this.autoCreateWithAi = false,   // NEW
+    this.parentBudgetId,             // NEW
   });
 
-  // Add helper getter for upcoming status
   bool get isUpcoming {
     final now = DateTime.now().toUtc();
     return now.isBefore(startDate.toUtc());
   }
+  
+  // NEW: Check if this was auto-created
+  bool get isAutoCreated => parentBudgetId != null;
 
   factory Budget.fromJson(Map<String, dynamic> json) {
     return Budget(
@@ -101,6 +109,9 @@ class Budget {
       isActive: json['is_active'],
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
+      autoCreateEnabled: json['auto_create_enabled'] ?? false,  // NEW
+      autoCreateWithAi: json['auto_create_with_ai'] ?? false,   // NEW
+      parentBudgetId: json['parent_budget_id'],                 // NEW
     );
   }
 }

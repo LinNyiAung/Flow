@@ -359,89 +359,137 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
       }
     }
 
-    return GestureDetector(
-      onTap: () => _navigateToBudgetDetail(budget),
-      child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.08),
-              spreadRadius: 1,
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-          border: Border(
-            left: BorderSide(color: statusColor.withOpacity(0.3), width: 3),
+  return GestureDetector(
+    onTap: () => _navigateToBudgetDetail(budget),
+    child: Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.08),
+            spreadRadius: 1,
+            blurRadius: 8,
+            offset: Offset(0, 2),
           ),
+        ],
+        border: Border(
+          left: BorderSide(color: statusColor.withOpacity(0.3), width: 3),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(statusIcon, color: statusColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              budget.name,
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
+                child: Icon(statusIcon, color: statusColor),
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            budget.name,
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
                             ),
                           ),
+                        ),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Text(
+                          budget.period.name.toUpperCase(),
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        // NEW: Show auto-create indicator
+                        if (budget.autoCreateEnabled) ...[
+                          SizedBox(width: 8),
                           Container(
                             padding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
+                              horizontal: 6,
+                              vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
+                              color: Color(0xFF667eea).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
                             ),
-                            child: Text(
-                              statusLabel,
-                              style: GoogleFonts.poppins(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: statusColor,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  budget.autoCreateWithAi
+                                      ? Icons.auto_awesome
+                                      : Icons.autorenew,
+                                  size: 10,
+                                  color: Color(0xFF667eea),
+                                ),
+                                SizedBox(width: 2),
+                                Text(
+                                  'AUTO',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF667eea),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
-                      ),
-                      Text(
-                        budget.period.name.toUpperCase(),
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
+                        // NEW: Show if this was auto-created
+                        if (budget.isAutoCreated) ...[
+                          SizedBox(width: 8),
+                          Icon(
+                            Icons.autorenew,
+                            size: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            SizedBox(height: 16),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
 
             // Show "Starts in X days" for upcoming budgets
             if (budget.isUpcoming) ...[
