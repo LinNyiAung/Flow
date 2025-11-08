@@ -35,13 +35,15 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   void _calculateEndDate() {
   switch (_selectedPeriod) {
     case BudgetPeriod.weekly:
-      // Get the start of the week (Monday) in UTC
+      // Keep the selected start date, end is 6 days later
       final weekStart = DateTime.utc(
         _startDate.year,
         _startDate.month,
-        _startDate.day - _startDate.weekday + 1,
+        _startDate.day,
+        0,
+        0,
+        0,
       );
-      // End of week is Sunday at 23:59:59
       _endDate = DateTime.utc(
         weekStart.year,
         weekStart.month,
@@ -54,7 +56,17 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
       break;
       
     case BudgetPeriod.monthly:
-      // Get last day of the month
+      // Keep the selected start date, find last day of the month
+      final monthStart = DateTime.utc(
+        _startDate.year,
+        _startDate.month,
+        _startDate.day,
+        0,
+        0,
+        0,
+      );
+      
+      // Get last day of the current month
       final nextMonth = _startDate.month == 12
           ? DateTime.utc(_startDate.year + 1, 1, 1)
           : DateTime.utc(_startDate.year, _startDate.month + 1, 1);
@@ -73,7 +85,16 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
       break;
       
     case BudgetPeriod.yearly:
-      // End of year: December 31 at 23:59:59 UTC
+      // Keep the selected start date, end is Dec 31 of the same year
+      final yearStart = DateTime.utc(
+        _startDate.year,
+        _startDate.month,
+        _startDate.day,
+        0,
+        0,
+        0,
+      );
+      
       _endDate = DateTime.utc(
         _startDate.year,
         12,

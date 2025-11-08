@@ -109,27 +109,29 @@ class BudgetAnalyzer:
             start_date = start_date.replace(tzinfo=timezone.utc)
         
         if period == BudgetPeriod.WEEKLY:
-            # Start of week (Monday)
-            days_since_monday = start_date.weekday()
-            week_start = start_date - timedelta(days=days_since_monday)
-            week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Use the selected start date as-is (don't force to Monday)
+            week_start = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            # End is 6 days after start
             week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
             return week_start, week_end
         
         elif period == BudgetPeriod.MONTHLY:
-            # Start of month
-            month_start = start_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            # End of month
+            # Use the selected start date as-is (don't force to 1st of month)
+            month_start = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # End of month calculation
             if start_date.month == 12:
                 month_end = start_date.replace(month=12, day=31, hour=23, minute=59, second=59)
             else:
                 next_month = start_date.replace(month=start_date.month + 1, day=1)
                 month_end = (next_month - timedelta(days=1)).replace(hour=23, minute=59, second=59)
+            
             return month_start, month_end
         
         elif period == BudgetPeriod.YEARLY:
-            # Start of year
-            year_start = start_date.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            # Use the selected start date as-is (don't force to Jan 1)
+            year_start = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            # End of year: December 31 at 23:59:59
             year_end = start_date.replace(month=12, day=31, hour=23, minute=59, second=59)
             return year_start, year_end
     
@@ -207,12 +209,12 @@ class BudgetAnalyzer:
         )
     
     async def _generate_with_ai(
-        self,
-        analysis: Dict,
-        period: BudgetPeriod,
-        days_in_period: int,
-        include_categories: Optional[List[str]]
-    ) -> Dict:
+    self,
+    analysis: Dict,
+    period: BudgetPeriod,
+    days_in_period: int,
+    include_categories: Optional[List[str]]
+) -> Dict:
         """Use OpenAI to generate intelligent budget suggestions"""
         from openai import AsyncOpenAI
         
@@ -228,39 +230,41 @@ class BudgetAnalyzer:
             "active_goals": analysis.get("goals", {})
         }
         
-        system_prompt = """You are a financial budgeting expert. Analyze the user's spending patterns and suggest realistic budgets.
+        system_prompt = f"""You are a financial budgeting expert. Analyze the user's spending patterns and suggest realistic budgets.
 
-RULES:
-1. Suggest budgets based on historical spending patterns
-2. Consider income vs expenses ratio
-3. Account for active financial goals
-4. Add 10-15% buffer for categories with high variability
-5. Prioritize essential categories (housing, utilities, food, transportation)
-6. Suggest reasonable reductions for non-essential categories if overspending
-7. Ensure total budget doesn't exceed 80% of income (leave room for savings and goals)
+    IMPORTANT: The budget period spans {days_in_period} days.
 
-Return JSON format:
-{
-    "categories": [
-        {
-            "main_category": "category name",
-            "allocated_amount": 500.00,
-            "spent_amount": 0,
-            "percentage_used": 0,
-            "is_exceeded": false
-        }
-    ],
-    "reasoning": "Detailed explanation of budget suggestions"
-}"""
+    RULES:
+    1. Suggest budgets based on historical spending patterns, scaled to the {days_in_period}-day period
+    2. Consider income vs expenses ratio
+    3. Account for active financial goals
+    4. Add 10-15% buffer for categories with high variability
+    5. Prioritize essential categories (housing, utilities, food, transportation)
+    6. Suggest reasonable reductions for non-essential categories if overspending
+    7. Ensure total budget doesn't exceed 80% of income (leave room for savings and goals)
+
+    Return JSON format:
+    {{
+        "categories": [
+            {{
+                "main_category": "category name",
+                "allocated_amount": 500.00,
+                "spent_amount": 0,
+                "percentage_used": 0,
+                "is_exceeded": false
+            }}
+        ],
+        "reasoning": "Detailed explanation of budget suggestions"
+    }}"""
 
         user_prompt = f"""Based on this financial data, suggest a {period.value} budget:
 
-SPENDING ANALYSIS:
-{json.dumps(context, indent=2)}
+    SPENDING ANALYSIS:
+    {json.dumps(context, indent=2)}
 
-{f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for all spending categories."}
+    {f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for all spending categories."}
 
-Calculate budgets for {days_in_period} days period."""
+    Calculate budgets for {days_in_period} days period."""
 
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
