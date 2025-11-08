@@ -10,6 +10,7 @@ class BudgetPeriod(str, Enum):
     CUSTOM = "custom"
 
 class BudgetStatus(str, Enum):
+    UPCOMING = "upcoming"  # Added - budget hasn't started yet
     ACTIVE = "active"
     COMPLETED = "completed"
     EXCEEDED = "exceeded"
@@ -59,6 +60,7 @@ class BudgetSummary(BaseModel):
     active_budgets: int
     completed_budgets: int
     exceeded_budgets: int
+    upcoming_budgets: int  # Added
     total_allocated: float
     total_spent: float
     overall_remaining: float

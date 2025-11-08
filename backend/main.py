@@ -1900,12 +1900,13 @@ async def get_budgets_summary(current_user: dict = Depends(get_current_user)):
         budgets = list(budgets_collection.find({"user_id": current_user["_id"]}))
         
         total_budgets = len(budgets)
-        active_budgets = len([b for b in budgets if b["is_active"]])
+        active_budgets = len([b for b in budgets if b["is_active"] and b["status"] == "active"])
+        upcoming_budgets = len([b for b in budgets if b["status"] == "upcoming"])
         completed_budgets = len([b for b in budgets if b["status"] == "completed"])
         exceeded_budgets = len([b for b in budgets if b["status"] == "exceeded"])
         
-        # Only sum active budgets
-        active_budget_list = [b for b in budgets if b["is_active"]]
+        # Only sum active budgets (not upcoming)
+        active_budget_list = [b for b in budgets if b["is_active"] and b["status"] == "active"]
         total_allocated = sum(b["total_budget"] for b in active_budget_list)
         total_spent = sum(b["total_spent"] for b in active_budget_list)
         overall_remaining = total_allocated - total_spent
@@ -1915,6 +1916,7 @@ async def get_budgets_summary(current_user: dict = Depends(get_current_user)):
             active_budgets=active_budgets,
             completed_budgets=completed_budgets,
             exceeded_budgets=exceeded_budgets,
+            upcoming_budgets=upcoming_budgets,
             total_allocated=total_allocated,
             total_spent=total_spent,
             overall_remaining=overall_remaining

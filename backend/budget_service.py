@@ -380,6 +380,10 @@ def calculate_budget_status(budget: Dict, current_date: datetime) -> BudgetStatu
     if end_date.tzinfo is None:
         end_date = end_date.replace(tzinfo=timezone.utc)
     
+    # Check if budget hasn't started yet
+    if current_date < start_date:
+        return BudgetStatus.UPCOMING
+    
     # Check if budget period has ended
     if current_date > end_date:
         return BudgetStatus.COMPLETED

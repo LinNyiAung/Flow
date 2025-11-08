@@ -298,106 +298,142 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
   }
 
   Widget _buildBudgetCard(Budget budget) {
-    Color statusColor;
-    IconData statusIcon;
+  Color statusColor;
+  IconData statusIcon;
+  String statusLabel;
 
+  // Determine status based on upcoming, exceeded, completed, or active
+  if (budget.isUpcoming || budget.status == BudgetStatus.upcoming) {
+    statusColor = Color(0xFF2196F3); // Blue for upcoming
+    statusIcon = Icons.schedule;
+    statusLabel = 'UPCOMING';
+  } else {
     switch (budget.status) {
       case BudgetStatus.exceeded:
         statusColor = Color(0xFFFF5722);
         statusIcon = Icons.warning;
+        statusLabel = 'EXCEEDED';
         break;
       case BudgetStatus.completed:
         statusColor = Colors.grey;
         statusIcon = Icons.check_circle;
+        statusLabel = 'COMPLETED';
         break;
       default:
         statusColor = Color(0xFF4CAF50);
         statusIcon = Icons.trending_up;
+        statusLabel = 'ACTIVE';
     }
+  }
 
-    return GestureDetector(
-      onTap: () => _navigateToBudgetDetail(budget),
-      child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.08),
-              spreadRadius: 1,
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-          border: Border(
-            left: BorderSide(
-              color: statusColor.withOpacity(0.3),
-              width: 3,
-            ),
+  return GestureDetector(
+    onTap: () => _navigateToBudgetDetail(budget),
+    child: Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.08),
+            spreadRadius: 1,
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+        border: Border(
+          left: BorderSide(
+            color: statusColor.withOpacity(0.3),
+            width: 3,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(statusIcon, color: statusColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              budget.name,
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
+                child: Icon(statusIcon, color: statusColor),
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            budget.name,
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
                             ),
                           ),
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              budget.status.name.toUpperCase(),
-                              style: GoogleFonts.poppins(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: statusColor,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        budget.period.name.toUpperCase(),
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.grey[600],
                         ),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      budget.period.name.toUpperCase(),
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: Colors.grey[600],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          
+          // Show "Starts in X days" for upcoming budgets
+          if (budget.isUpcoming) ...[
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Color(0xFF2196F3).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.calendar_today, size: 14, color: Color(0xFF2196F3)),
+                  SizedBox(width: 6),
+                  Text(
+                    'Starts ${DateFormat('MMM dd, yyyy').format(budget.startDate)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Color(0xFF2196F3),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            SizedBox(height: 16),
+          ] else ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -446,10 +482,11 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
               ],
             ),
           ],
-        ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildEmptyState() {
     return Center(

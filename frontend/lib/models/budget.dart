@@ -1,6 +1,6 @@
 enum BudgetPeriod { weekly, monthly, yearly, custom }
 
-enum BudgetStatus { active, completed, exceeded }
+enum BudgetStatus { active, completed, exceeded, upcoming } // Added upcoming
 
 class CategoryBudget {
   final String mainCategory;
@@ -75,6 +75,12 @@ class Budget {
     required this.updatedAt,
   });
 
+  // Add helper getter for upcoming status
+  bool get isUpcoming {
+    final now = DateTime.now().toUtc();
+    return now.isBefore(startDate.toUtc());
+  }
+
   factory Budget.fromJson(Map<String, dynamic> json) {
     return Budget(
       id: json['id'],
@@ -104,6 +110,7 @@ class BudgetSummary {
   final int activeBudgets;
   final int completedBudgets;
   final int exceededBudgets;
+  final int upcomingBudgets; // Added
   final double totalAllocated;
   final double totalSpent;
   final double overallRemaining;
@@ -113,6 +120,7 @@ class BudgetSummary {
     required this.activeBudgets,
     required this.completedBudgets,
     required this.exceededBudgets,
+    required this.upcomingBudgets, // Added
     required this.totalAllocated,
     required this.totalSpent,
     required this.overallRemaining,
@@ -124,6 +132,7 @@ class BudgetSummary {
       activeBudgets: json['active_budgets'],
       completedBudgets: json['completed_budgets'],
       exceededBudgets: json['exceeded_budgets'],
+      upcomingBudgets: json['upcoming_budgets'] ?? 0, // Added with fallback
       totalAllocated: json['total_allocated'].toDouble(),
       totalSpent: json['total_spent'].toDouble(),
       overallRemaining: json['overall_remaining'].toDouble(),

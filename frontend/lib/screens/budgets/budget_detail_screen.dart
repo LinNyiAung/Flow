@@ -161,25 +161,45 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   }
 
   Color _getStatusColor() {
+    if (_budget.isUpcoming) {
+      return Color(0xFF2196F3); // Blue for upcoming
+    }
+
     switch (_budget.status) {
       case BudgetStatus.exceeded:
         return Color(0xFFFF5722);
       case BudgetStatus.completed:
         return Colors.grey;
+      case BudgetStatus.upcoming:
+        return Color(0xFF2196F3);
       default:
         return Color(0xFF4CAF50);
     }
   }
 
   IconData _getStatusIcon() {
+    if (_budget.isUpcoming) {
+      return Icons.schedule;
+    }
+
     switch (_budget.status) {
       case BudgetStatus.exceeded:
         return Icons.warning;
       case BudgetStatus.completed:
         return Icons.check_circle;
+      case BudgetStatus.upcoming:
+        return Icons.schedule;
       default:
         return Icons.trending_up;
     }
+  }
+
+  String _getStatusLabel() {
+    if (_budget.isUpcoming) {
+      return 'UPCOMING';
+    }
+
+    return _budget.status.name.toUpperCase();
   }
 
   @override
@@ -234,12 +254,14 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 padding: EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                    colors: _budget.isUpcoming
+                        ? [Color(0xFF2196F3), Color(0xFF1976D2)]
+                        : [Color(0xFF667eea), Color(0xFF764ba2)],
                   ),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Color(0xFF667eea).withOpacity(0.3),
+                      color: statusColor.withOpacity(0.3),
                       spreadRadius: 2,
                       blurRadius: 8,
                       offset: Offset(0, 4),
@@ -280,7 +302,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                               ),
                               SizedBox(width: 4),
                               Text(
-                                _budget.status.name.toUpperCase(),
+                                _getStatusLabel(),
                                 style: GoogleFonts.poppins(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
@@ -311,50 +333,51 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                       ),
                     ],
                     SizedBox(height: 20),
-                    Text(
-                      '\$${_budget.totalSpent.toStringAsFixed(2)} / \$${_budget.totalBudget.toStringAsFixed(2)}',
-                      style: GoogleFonts.poppins(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+
+                    
+                      Text(
+                        '\$${_budget.totalSpent.toStringAsFixed(2)} / \$${_budget.totalBudget.toStringAsFixed(2)}',
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 12),
-                    LinearProgressIndicator(
-                      value: _budget.percentageUsed / 100,
-                      backgroundColor: Colors.white.withOpacity(0.3),
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      minHeight: 8,
-                    ),
-                    SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '${_budget.percentageUsed.toStringAsFixed(1)}% Used',
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            color: Colors.white.withOpacity(0.8),
+                      SizedBox(height: 12),
+                      LinearProgressIndicator(
+                        value: _budget.percentageUsed / 100,
+                        backgroundColor: Colors.white.withOpacity(0.3),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        minHeight: 8,
+                      ),
+                      SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${_budget.percentageUsed.toStringAsFixed(1)}% Used',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              color: Colors.white.withOpacity(0.8),
+                            ),
                           ),
-                        ),
-                        Text(
-                          'Remaining: \$${_budget.remainingBudget.toStringAsFixed(2)}',
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                          Text(
+                            'Remaining: \$${_budget.remainingBudget.toStringAsFixed(2)}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  
                 ),
               ),
 
-              // Add this after the main budget overview card and before "Budget Period Info"
-              if (DateTime.now().toUtc().isBefore(
-                _budget.startDate.toUtc(),
-              )) ...[
+              // Update the info banner section
+              if (_budget.isUpcoming) ...[
                 SizedBox(height: 16),
                 Container(
                   padding: EdgeInsets.all(12),
@@ -365,11 +388,15 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.schedule, color: Colors.blue[700], size: 20),
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.blue[700],
+                        size: 20,
+                      ),
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'This budget will start on ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}',
+                          'This budget will start on ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}. No spending is tracked yet.',
                           style: GoogleFonts.poppins(
                             fontSize: 12,
                             color: Colors.blue[900],
@@ -411,6 +438,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 ),
               ],
 
+              // Rest of the UI remains the same...
               SizedBox(height: 24),
 
               // Budget Period Info
