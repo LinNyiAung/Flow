@@ -32,7 +32,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
   @override
   void initState() {
     super.initState();
-    _generateSuggestion();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _generateSuggestion();
+    });
   }
 
   Future<void> _generateSuggestion() async {
@@ -48,7 +50,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
       startDate: widget.startDate,
       endDate: widget.endDate,
       analysisMonths: _analysisMonths,
-      userContext: widget.userContext, // NEW
+      userContext: widget.userContext,
     );
 
     setState(() {
