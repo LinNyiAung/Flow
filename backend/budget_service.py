@@ -12,6 +12,8 @@ from budget_models import (
 )
 from config import settings
 
+_auto_create_locks = {}
+
 
 class BudgetAnalyzer:
     """Analyzes user's financial data for AI budget suggestions"""
@@ -570,17 +572,23 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
         }
     )
     
-        # NEW: Check if budget just completed and should auto-create next
+    # Check if budget just completed and should auto-create next
     if status == BudgetStatus.COMPLETED and budget.get("auto_create_enabled"):
-        # Run auto-create asynchronously
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(auto_create_next_budget(budget))
-            else:
-                asyncio.run(auto_create_next_budget(budget))
-        except Exception as e:
-            print(f"Error triggering auto-create: {e}")
+        # Check if the previous status was NOT completed to avoid repeated triggers
+        previous_status = budget.get("status")
+        if previous_status != BudgetStatus.COMPLETED.value:
+            print(f"Budget {budget_id} just completed, triggering auto-create...")
+            # Get the updated budget document to pass to auto_create
+            updated_budget = budgets_collection.find_one({"_id": budget_id})
+            # Run auto-create asynchronously
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(auto_create_next_budget(updated_budget))
+                else:
+                    asyncio.run(auto_create_next_budget(updated_budget))
+            except Exception as e:
+                print(f"Error triggering auto-create: {e}")
 
 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
@@ -623,6 +631,13 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     Automatically create next budget based on completed budget
     Returns new budget ID if successful
     """
+    budget_id = budget["_id"]
+    
+    # NEW: Check if this budget is already being processed
+    if _auto_create_locks.get(budget_id, False):
+        print(f"Auto-create already in progress for budget {budget_id}")
+        return None
+    
     if not budget.get("auto_create_enabled", False):
         return None
     
@@ -634,16 +649,19 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     end_date = budget["end_date"]
     next_start_date = end_date + timedelta(days=1)
     
-    # Check for existing budget starting on next_start_date
+    # Check if a budget already exists starting on this date with this parent
     existing = budgets_collection.find_one({
         "user_id": budget["user_id"],
-        "parent_budget_id": budget["_id"],
+        "parent_budget_id": budget_id,
         "start_date": next_start_date
     })
     
     if existing:
-        print(f"Next budget already exists for budget {budget['_id']}")
+        print(f"Next budget already exists for budget {budget_id}: {existing['_id']}")
         return None
+    
+    # NEW: Set lock before processing
+    _auto_create_locks[budget_id] = True
     
     try:
         # Calculate new dates based on period
@@ -657,7 +675,6 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         
         # Generate category budgets
         if budget.get("auto_create_with_ai", False):
-            # Use AI to generate new budgets based on historical data
             print(f"Generating AI-based budget for next period...")
             category_budgets = await _generate_ai_category_budgets(
                 budget["user_id"],
@@ -681,7 +698,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         new_budget = {
             "_id": new_budget_id,
             "user_id": budget["user_id"],
-            "name": f"{budget['name']} (Auto-created)",
+            "name": budget['name'],  # Keep same name, remove "(Auto-created)"
             "period": budget["period"],
             "start_date": new_start,
             "end_date": new_end,
@@ -693,15 +710,15 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
             "status": BudgetStatus.UPCOMING.value,
             "description": budget.get("description"),
             "is_active": False,
-            "auto_create_enabled": budget.get("auto_create_enabled", False),
-            "auto_create_with_ai": budget.get("auto_create_with_ai", False),
+            "auto_create_enabled": budget.get("auto_create_enabled", False),  # Carry forward
+            "auto_create_with_ai": budget.get("auto_create_with_ai", False),  # Carry forward
             "parent_budget_id": budget["_id"],
             "created_at": now,
             "updated_at": now
         }
         
         budgets_collection.insert_one(new_budget)
-        print(f"✅ Auto-created new budget: {new_budget_id}")
+        print(f"✅ Auto-created new budget: {new_budget_id} (from {budget_id})")
         
         return new_budget_id
         
@@ -710,6 +727,9 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         import traceback
         traceback.print_exc()
         return None
+    finally:
+        # Always release lock
+        _auto_create_locks.pop(budget_id, None)
 
 
 async def _generate_ai_category_budgets(

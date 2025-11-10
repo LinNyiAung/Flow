@@ -428,7 +428,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 child: Row(
                   children: [
                     Icon(
-                      Icons.check_circle,
+                      Icons.autorenew,
                       color: Colors.green[700],
                       size: 20,
                     ),

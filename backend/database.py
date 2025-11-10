@@ -20,36 +20,8 @@ budgets_collection = database.budgets
 def initialize_categories():
     if categories_collection.count_documents({}) == 0:
         default_categories = [
-            {
-                "_id": "inflow",
-                "categories": [
-                    {"main_category": "Salary & Wages", "sub_categories": ["Primary Job", "Part-time Job", "Freelance", "Overtime", "Bonus", "Commission"]},
-                    {"main_category": "Business Income", "sub_categories": ["Sales Revenue", "Service Income", "Consulting", "Rental Income", "Royalties"]},
-                    {"main_category": "Investment Returns", "sub_categories": ["Dividends", "Interest", "Capital Gains", "Crypto Gains", "Stock Returns"]},
-                    {"main_category": "Refunds & Returns", "sub_categories": ["Tax Refund", "Purchase Refund", "Insurance Claim", "Cashback", "Rebates"]},
-                    {"main_category": "Gifts & Transfers", "sub_categories": ["Family Gift", "Birthday Money", "Holiday Gift", "Inheritance", "Transfers In"]},
-                    {"main_category": "Other Inflows", "sub_categories": ["Contest Winnings", "Found Money", "Loan Received", "Government Benefits", "Other"]}
-                ]
-            },
-            {
-                "_id": "outflow",
-                "categories": [
-                    {"main_category": "Food & Dining", "sub_categories": ["Restaurants", "Groceries", "Fast Food", "Coffee & Tea", "Alcohol & Bars", "Delivery"]},
-                    {"main_category": "Transportation", "sub_categories": ["Gas & Fuel", "Parking", "Public Transport", "Taxi & Rideshare", "Car Maintenance", "Car Insurance"]},
-                    {"main_category": "Shopping", "sub_categories": ["Clothing", "Electronics", "Books", "Home & Garden", "Sports & Recreation", "Online Shopping"]},
-                    {"main_category": "Entertainment", "sub_categories": ["Movies & Theater", "Music", "Games", "Hobbies", "Sports Events", "Streaming Services"]},
-                    {"main_category": "Bills & Utilities", "sub_categories": ["Electricity", "Water", "Gas", "Internet", "Phone", "Cable TV", "Trash"]},
-                    {"main_category": "Housing", "sub_categories": ["Rent", "Mortgage", "Property Tax", "Home Insurance", "Maintenance", "HOA Fees"]},
-                    {"main_category": "Healthcare", "sub_categories": ["Doctor Visits", "Dentist", "Pharmacy", "Health Insurance", "Medical Procedures", "Therapy"]},
-                    {"main_category": "Travel", "sub_categories": ["Flights", "Hotels", "Car Rental", "Travel Insurance", "Activities", "Meals While Traveling"]},
-                    {"main_category": "Education", "sub_categories": ["Tuition", "Books", "Online Courses", "Training", "School Supplies", "Certification"]},
-                    {"main_category": "Personal Care", "sub_categories": ["Haircut", "Cosmetics", "Skincare", "Spa & Massage", "Gym Membership", "Personal Items"]},
-                    {"main_category": "Financial", "sub_categories": ["Bank Fees", "Investment Fees", "Insurance Premiums", "Taxes", "Interest Payments", "Loan Payments"]},
-                    {"main_category": "Gifts & Donations", "sub_categories": ["Family Gifts", "Friend Gifts", "Charity", "Religious Donations", "Tips"]},
-                    {"main_category": "Business Expenses", "sub_categories": ["Office Supplies", "Software", "Marketing", "Travel Expenses", "Professional Services"]},
-                    {"main_category": "Other Outflows", "sub_categories": ["Cash Withdrawal", "Fines & Penalties", "Emergency Expenses", "Miscellaneous", "Other"]}
-                ]
-            }
+            {"_id":"inflow","categories":[{"main_category":"Income","sub_categories":["Salary","Freelance","Business","Investment Returns","Bonus","Other"]},{"main_category":"Refunds","sub_categories":["Tax Refund","Purchase Refund","Insurance Claim","Other"]},{"main_category":"Gifts","sub_categories":["Birthday","Holiday","Wedding","Other"]}]},
+            {"_id":"outflow","categories":[{"main_category":"Food & Dining","sub_categories":["Restaurants","Groceries","Fast Food","Coffee & Tea","Alcohol & Bars"]},{"main_category":"Transportation","sub_categories":["Gas & Fuel","Parking","Public Transport","Taxi & Uber","Car Maintenance"]},{"main_category":"Shopping","sub_categories":["Clothing","Electronics","Books","Home & Garden","Sports & Recreation"]},{"main_category":"Entertainment","sub_categories":["Movies & Theater","Music","Games","Hobbies","Sports Events"]},{"main_category":"Bills & Utilities","sub_categories":["Phone","Internet","Electricity","Water","Gas","Cable TV"]},{"main_category":"Health & Fitness","sub_categories":["Doctor","Dentist","Pharmacy","Gym","Health Insurance"]},{"main_category":"Travel","sub_categories":["Flights","Hotels","Car Rental","Travel Insurance","Activities"]},{"main_category":"Education","sub_categories":["Tuition","Books","Courses","Training","School Supplies"]},{"main_category":"Personal Care","sub_categories":["Haircut","Cosmetics","Clothing","Spa & Massage"]},{"main_category":"Gifts & Donations","sub_categories":["Gifts","Charity","Religious Donations"]},{"main_category":"Financial","sub_categories":["Bank Fees","Interest","Insurance","Taxes","Investments"]},{"main_category":"Other","sub_categories":["Miscellaneous","Cash Withdrawal","Other"]}]}
         ]
         categories_collection.insert_many(default_categories)
 
