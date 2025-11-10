@@ -772,6 +772,54 @@ class ApiService {
     }
   }
 
+
+    static Future<MultipleExtractedTransactions> extractMultipleTransactionsFromText(
+    String text,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/transactions/extract-multiple-from-text'),
+        headers: await _getHeaders(),
+        body: jsonEncode({'text': text}),
+      );
+
+      if (response.statusCode == 200) {
+        return MultipleExtractedTransactions.fromJson(jsonDecode(response.body));
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['detail'] ?? 'Failed to extract transactions');
+      }
+    } catch (e) {
+      throw Exception('Transaction extraction failed: ${e.toString()}');
+    }
+  }
+
+  static Future<List<Transaction>> batchCreateTransactions({
+    required List<ExtractedTransactionData> transactions,
+  }) async {
+    try {
+      final List<Map<String, dynamic>> transactionsList = transactions
+          .map((tx) => tx.toJson())
+          .toList();
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/transactions/batch-create'),
+        headers: await _getHeaders(),
+        body: jsonEncode(transactionsList),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((json) => Transaction.fromJson(json)).toList();
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['detail'] ?? 'Failed to create transactions');
+      }
+    } catch (e) {
+      throw Exception('Batch transaction creation failed: ${e.toString()}');
+    }
+  }
+
   static Future<AIBudgetSuggestion> getAIBudgetSuggestions({
     required BudgetPeriod period,
     required DateTime startDate,

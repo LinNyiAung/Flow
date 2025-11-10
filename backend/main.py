@@ -18,7 +18,7 @@ from report_models import CategoryBreakdown, FinancialReport, GoalProgress, Repo
 from insight_models import InsightResponse
 from goal_models import GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary
 from models import (
-    TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
+    MultipleTransactionExtraction, TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
     TransactionCreate, TransactionResponse, CategoryResponse, TransactionType,
     TransactionUpdate
 )
@@ -1597,6 +1597,175 @@ Respond in JSON format:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to extract transaction: {str(e)}"
         )
+        
+        
+@app.post("/api/transactions/extract-multiple-from-text", response_model=MultipleTransactionExtraction)
+async def extract_multiple_transactions_from_text(
+    request: TextExtractionRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Extract multiple transaction details from text using GPT-4"""
+    try:
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI API key not configured"
+            )
+        
+        # Get user's categories
+        inflow_cats = categories_collection.find_one({"_id": "inflow"})
+        outflow_cats = categories_collection.find_one({"_id": "outflow"})
+        
+        categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
+        if inflow_cats:
+            for cat in inflow_cats["categories"]:
+                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+        
+        categories_text += "\nOUTFLOW:\n"
+        if outflow_cats:
+            for cat in outflow_cats["categories"]:
+                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+        
+        system_prompt = f"""You are a financial transaction extraction assistant. Extract ALL transaction details from user text, even if there are multiple transactions mentioned.
+
+{categories_text}
+
+RULES:
+1. Identify ALL transactions in the text (there may be one or many)
+2. For each transaction:
+   - Determine if it's 'inflow' (income) or 'outflow' (expense)
+   - Select the most appropriate main_category and sub_category from the list above
+   - Extract the amount as a positive number
+   - Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
+   - Extract any description/notes
+   - Provide a confidence score (0.0-1.0) based on clarity
+   - Provide brief reasoning for your categorization
+
+3. If multiple transactions are mentioned, extract each one separately
+4. Calculate an overall confidence score based on all transactions
+5. Provide a brief analysis of what you found
+
+Respond in JSON format:
+{{
+    "transactions": [
+        {{
+            "type": "inflow" or "outflow",
+            "main_category": "selected main category",
+            "sub_category": "selected sub category",
+            "date": "YYYY-MM-DD",
+            "description": "optional description",
+            "amount": 123.45,
+            "confidence": 0.95,
+            "reasoning": "why you chose these categories"
+        }},
+        // ... more transactions if found
+    ],
+    "total_count": 2,
+    "overall_confidence": 0.90,
+    "analysis": "Found 2 transactions: a grocery purchase and a salary payment"
+}}"""
+
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Extract all transactions from: {request.text}"}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        # Parse and validate transactions
+        transactions = []
+        for tx_data in result.get("transactions", []):
+            transactions.append(TransactionExtraction(
+                type=tx_data["type"],
+                main_category=tx_data["main_category"],
+                sub_category=tx_data["sub_category"],
+                date=datetime.fromisoformat(tx_data["date"]).replace(tzinfo=UTC),
+                description=tx_data.get("description"),
+                amount=float(tx_data["amount"]),
+                confidence=float(tx_data["confidence"]),
+                reasoning=tx_data.get("reasoning")
+            ))
+        
+        return MultipleTransactionExtraction(
+            transactions=transactions,
+            total_count=result.get("total_count", len(transactions)),
+            overall_confidence=float(result.get("overall_confidence", 0.0)),
+            analysis=result.get("analysis")
+        )
+        
+    except Exception as e:
+        print(f"Extraction error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to extract transactions: {str(e)}"
+        )
+
+
+@app.post("/api/transactions/batch-create", response_model=List[TransactionResponse])
+async def batch_create_transactions(
+    transactions_data: List[TransactionCreate],
+    current_user: dict = Depends(get_current_user)
+):
+    """Create multiple transactions at once"""
+    created_transactions = []
+    errors = []
+    
+    for idx, transaction_data in enumerate(transactions_data):
+        try:
+            transaction_id = str(uuid.uuid4())
+            now = datetime.now(UTC)
+            
+            new_transaction = {
+                "_id": transaction_id,
+                "user_id": current_user["_id"],
+                "type": transaction_data.type.value,
+                "main_category": transaction_data.main_category,
+                "sub_category": transaction_data.sub_category,
+                "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
+                "description": transaction_data.description,
+                "amount": transaction_data.amount,
+                "created_at": now,
+                "updated_at": now
+            }
+            
+            result = transactions_collection.insert_one(new_transaction)
+            
+            if result.inserted_id:
+                created_transactions.append(TransactionResponse(
+                    id=transaction_id,
+                    user_id=current_user["_id"],
+                    type=transaction_data.type,
+                    main_category=transaction_data.main_category,
+                    sub_category=transaction_data.sub_category,
+                    date=transaction_data.date,
+                    description=transaction_data.description,
+                    amount=transaction_data.amount,
+                    created_at=now,
+                    updated_at=now
+                ))
+        except Exception as e:
+            errors.append(f"Transaction {idx + 1}: {str(e)}")
+    
+    # Refresh AI data and budgets once after all transactions
+    if created_transactions:
+        refresh_ai_data_silent(current_user["_id"])
+        update_all_user_budgets(current_user["_id"])
+    
+    if errors and not created_transactions:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create transactions: {'; '.join(errors)}"
+        )
+    
+    return created_transactions
 
 
 @app.post("/api/transactions/extract-from-image", response_model=TransactionExtraction)

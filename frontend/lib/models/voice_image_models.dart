@@ -43,7 +43,9 @@ class ExtractedTransactionData {
 
   factory ExtractedTransactionData.fromJson(Map<String, dynamic> json) {
     return ExtractedTransactionData(
-      type: json['type'] == 'inflow' ? TransactionType.inflow : TransactionType.outflow,
+      type: json['type'] == 'inflow'
+          ? TransactionType.inflow
+          : TransactionType.outflow,
       mainCategory: json['main_category'],
       subCategory: json['sub_category'],
       date: DateTime.parse(json['date']),
@@ -51,6 +53,43 @@ class ExtractedTransactionData {
       amount: json['amount'].toDouble(),
       confidence: json['confidence'].toDouble(),
       reasoning: json['reasoning'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'type': type.name,
+      'main_category': mainCategory,
+      'sub_category': subCategory,
+      'date': date.toIso8601String(),
+      'description': description,
+      'amount': amount,
+    };
+  }
+}
+
+// NEW: Model for multiple transaction extractions
+class MultipleExtractedTransactions {
+  final List<ExtractedTransactionData> transactions;
+  final int totalCount;
+  final double overallConfidence;
+  final String? analysis;
+
+  MultipleExtractedTransactions({
+    required this.transactions,
+    required this.totalCount,
+    required this.overallConfidence,
+    this.analysis,
+  });
+
+  factory MultipleExtractedTransactions.fromJson(Map<String, dynamic> json) {
+    return MultipleExtractedTransactions(
+      transactions: (json['transactions'] as List)
+          .map((tx) => ExtractedTransactionData.fromJson(tx))
+          .toList(),
+      totalCount: json['total_count'],
+      overallConfidence: json['overall_confidence'].toDouble(),
+      analysis: json['analysis'],
     );
   }
 }

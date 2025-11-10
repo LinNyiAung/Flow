@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:frontend/models/transaction.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -20,9 +21,9 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isRecording = false;
   bool _isProcessing = false;
-  bool _isSaving = false; // Add this flag
+  bool _isSaving = false;
   String? _transcribedText;
-  ExtractedTransactionData? _extractedData;
+  MultipleExtractedTransactions? _extractedData;
   String? _audioPath;
   String? _error;
 
@@ -109,8 +110,8 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
         _transcribedText = transcription;
       });
 
-      // Step 2: Extract transaction data
-      final extractedData = await ApiService.extractTransactionFromText(transcription);
+      // Step 2: Extract multiple transaction data
+      final extractedData = await ApiService.extractMultipleTransactionsFromText(transcription);
       
       setState(() {
         _extractedData = extractedData;
@@ -124,32 +125,38 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     }
   }
 
-  Future<void> _saveTransaction() async {
-    if (_extractedData == null || _isSaving) return; // Prevent multiple calls
+  Future<void> _saveAllTransactions() async {
+    if (_extractedData == null || _isSaving) return;
 
     setState(() {
-      _isSaving = true; // Set saving flag
+      _isSaving = true;
       _error = null;
     });
 
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    
-    final success = await transactionProvider.createTransaction(
-      type: _extractedData!.type,
-      mainCategory: _extractedData!.mainCategory,
-      subCategory: _extractedData!.subCategory,
-      date: _extractedData!.date,
-      description: _extractedData!.description,
-      amount: _extractedData!.amount,
-      context: context,
-    );
+    try {
+      // Use batch create endpoint
+      await ApiService.batchCreateTransactions(
+        transactions: _extractedData!.transactions,
+      );
 
-    if (success) {
+      // Refresh transaction list and balance
+      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+      await transactionProvider.fetchTransactions();
+      await transactionProvider.fetchBalance();
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Successfully saved ${_extractedData!.totalCount} transaction(s)'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
       Navigator.pop(context, true);
-    } else {
+    } catch (e) {
       setState(() {
-        _isSaving = false; // Reset flag on error
-        _error = transactionProvider.error ?? 'Failed to save transaction';
+        _isSaving = false;
+        _error = e.toString().replaceAll('Exception: ', '');
       });
     }
   }
@@ -184,7 +191,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                 child: Row(
                   children: [
                     IconButton(
-                      onPressed: _isSaving ? null : () => Navigator.pop(context), // Disable back button while saving
+                      onPressed: _isSaving ? null : () => Navigator.pop(context),
                       icon: Container(
                         padding: EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -222,7 +229,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       // Recording Button
                       SizedBox(height: 40),
                       GestureDetector(
-                        onTap: _isSaving ? null : (_isRecording ? _stopRecording : _startRecording), // Disable while saving
+                        onTap: _isSaving ? null : (_isRecording ? _stopRecording : _startRecording),
                         child: AnimatedBuilder(
                           animation: _pulseAnimation,
                           builder: (context, child) {
@@ -261,7 +268,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       Text(
                         _isRecording
                             ? 'Recording... Tap to stop'
-                            : 'Tap to start recording',
+                            : 'Tap to start recording\nYou can describe multiple transactions',
                         style: GoogleFonts.poppins(
                           fontSize: 16,
                           color: Colors.grey[600],
@@ -331,7 +338,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               ),
                               SizedBox(height: 16),
                               Text(
-                                'Analyzing transaction...',
+                                'Analyzing transactions...',
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   color: Colors.grey[600],
@@ -343,6 +350,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
                       // Extracted Data Preview
                       if (_extractedData != null) ...[
+                        // Summary Card
                         Container(
                           width: double.infinity,
                           padding: EdgeInsets.all(20),
@@ -360,62 +368,183 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             ],
                           ),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Icon(Icons.check_circle, color: Colors.white, size: 48),
+                              SizedBox(height: 12),
                               Text(
-                                'Extracted Transaction',
+                                'Found ${_extractedData!.totalCount} Transaction${_extractedData!.totalCount > 1 ? 's' : ''}',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 18,
+                                  fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
                               ),
-                              SizedBox(height: 16),
-                              _buildDataRow('Type', _extractedData!.type.name.toUpperCase()),
-                              _buildDataRow('Amount', '\$${_extractedData!.amount.toStringAsFixed(2)}'),
-                              _buildDataRow('Category', '${_extractedData!.mainCategory} > ${_extractedData!.subCategory}'),
-                              _buildDataRow('Date', DateFormat('yyyy-MM-dd').format(_extractedData!.date)),
-                              if (_extractedData!.description != null)
-                                _buildDataRow('Description', _extractedData!.description!),
-                              SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Icon(Icons.psychology, color: Colors.white70, size: 16),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Confidence: ${(_extractedData!.confidence * 100).toStringAsFixed(0)}%',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 12,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                ],
+                              SizedBox(height: 8),
+                              Text(
+                                'Confidence: ${(_extractedData!.overallConfidence * 100).toStringAsFixed(0)}%',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  color: Colors.white70,
+                                ),
                               ),
+                              if (_extractedData!.analysis != null) ...[
+                                SizedBox(height: 12),
+                                Text(
+                                  _extractedData!.analysis!,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 13,
+                                    color: Colors.white70,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
                             ],
                           ),
                         ),
+                        SizedBox(height: 20),
+
+                        // Individual Transaction Cards
+                        ..._extractedData!.transactions.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final transaction = entry.value;
+                          return Container(
+                            width: double.infinity,
+                            margin: EdgeInsets.only(bottom: 16),
+                            padding: EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: transaction.type == TransactionType.inflow
+                                    ? Colors.green.withOpacity(0.3)
+                                    : Colors.red.withOpacity(0.3),
+                                width: 2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.1),
+                                  spreadRadius: 2,
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: transaction.type == TransactionType.inflow
+                                            ? Colors.green.withOpacity(0.1)
+                                            : Colors.red.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            transaction.type == TransactionType.inflow
+                                                ? Icons.arrow_upward
+                                                : Icons.arrow_downward,
+                                            size: 16,
+                                            color: transaction.type == TransactionType.inflow
+                                                ? Colors.green
+                                                : Colors.red,
+                                          ),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            transaction.type.name.toUpperCase(),
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: transaction.type == TransactionType.inflow
+                                                  ? Colors.green
+                                                  : Colors.red,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Spacer(),
+                                    Text(
+                                      'Transaction ${index + 1}',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 16),
+                                Text(
+                                  '\$${transaction.amount.toStringAsFixed(2)}',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: transaction.type == TransactionType.inflow
+                                        ? Colors.green
+                                        : Colors.red,
+                                  ),
+                                ),
+                                SizedBox(height: 12),
+                                _buildDetailRow(
+                                  Icons.category,
+                                  'Category',
+                                  '${transaction.mainCategory} > ${transaction.subCategory}',
+                                ),
+                                _buildDetailRow(
+                                  Icons.calendar_today,
+                                  'Date',
+                                  DateFormat('yyyy-MM-dd').format(transaction.date),
+                                ),
+                                if (transaction.description != null)
+                                  _buildDetailRow(
+                                    Icons.notes,
+                                    'Description',
+                                    transaction.description!,
+                                  ),
+                                SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Icon(Icons.psychology, color: Colors.grey[400], size: 14),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Confidence: ${(transaction.confidence * 100).toStringAsFixed(0)}%',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        color: Colors.grey[500],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+
                         SizedBox(height: 24),
                         SizedBox(
                           width: double.infinity,
                           height: 56,
                           child: ElevatedButton(
-                            onPressed: _isSaving ? null : _saveTransaction, // Disable when saving
+                            onPressed: _isSaving ? null : _saveAllTransactions,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Color(0xFF4CAF50),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
-                              disabledBackgroundColor: Colors.grey[400], // Style for disabled state
+                              disabledBackgroundColor: Colors.grey[400],
                             ),
                             child: _isSaving
-                                ? CircularProgressIndicator(color: Colors.white) // Show loading indicator
+                                ? CircularProgressIndicator(color: Colors.white)
                                 : Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Icon(Icons.check_circle, color: Colors.white),
                                       SizedBox(width: 8),
                                       Text(
-                                        'Save Transaction',
+                                        'Save ${_extractedData!.totalCount} Transaction${_extractedData!.totalCount > 1 ? 's' : ''}',
                                         style: GoogleFonts.poppins(
                                           fontSize: 16,
                                           fontWeight: FontWeight.w600,
@@ -464,31 +593,35 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     );
   }
 
-  Widget _buildDataRow(String label, String value) {
+  Widget _buildDetailRow(IconData icon, String label, String value) {
     return Padding(
       padding: EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: GoogleFonts.poppins(
-                fontSize: 13,
-                color: Colors.white70,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
+          Icon(icon, size: 16, color: Colors.grey[600]),
+          SizedBox(width: 8),
           Expanded(
-            child: Text(
-              value,
-              style: GoogleFonts.poppins(
-                fontSize: 13,
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: Colors.grey[500],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: Color(0xFF333333),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

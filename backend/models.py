@@ -73,3 +73,10 @@ class TransactionExtraction(BaseModel):
 
 class TextExtractionRequest(BaseModel):
     text: str
+
+# NEW: Model for multiple transaction extractions
+class MultipleTransactionExtraction(BaseModel):
+    transactions: List[TransactionExtraction]
+    total_count: int
+    overall_confidence: float
+    analysis: Optional[str] = None  # Overall analysis of the input
