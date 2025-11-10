@@ -224,22 +224,29 @@ class BudgetAnalyzer:
         include_categories: Optional[List[str]],
         user_context: Optional[str] = None
     ) -> Dict:
-        """Use OpenAI to generate intelligent budget suggestions - ONLY uses predefined categories"""
-        """Use OpenAI to generate intelligent budget suggestions"""
+        """Use OpenAI to generate intelligent budget suggestions with sub-categories"""
         from openai import AsyncOpenAI
         
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         
-        # NEW: Fetch available categories from database
+        # Fetch available categories with sub-categories from database
         outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
-        available_categories = []
+        categories_structure = []
         
         if outflow_categories_doc:
             for cat in outflow_categories_doc["categories"]:
-                available_categories.append(cat["main_category"])
+                categories_structure.append({
+                    "main_category": cat["main_category"],
+                    "sub_categories": cat["sub_categories"]
+                })
         
-        # Create categories list string for the prompt
-        categories_list = "\n".join([f"- {cat}" for cat in available_categories])
+        # Create detailed categories structure for the prompt
+        categories_info = []
+        for cat_struct in categories_structure:
+            sub_cats = ", ".join(cat_struct["sub_categories"])
+            categories_info.append(f"- {cat_struct['main_category']}: [{sub_cats}]")
+        
+        categories_list = "\n".join(categories_info)
         
         # Prepare analysis context
         context = {
@@ -251,43 +258,55 @@ class BudgetAnalyzer:
             "active_goals": analysis.get("goals", {})
         }
         
-        # NEW: Add user context if provided
+        # Add user context if provided
         context_instruction = ""
         if user_context:
-            context_instruction = f"\n\nUSER CONTEXT: {user_context}\nIMPORTANT: Adjust budget allocations based on this context. For example, if the user mentions travel, increase transportation and entertainment budgets accordingly."
+            context_instruction = f"\n\nUSER CONTEXT: {user_context}\nIMPORTANT: Adjust budget allocations based on this context."
         
         system_prompt = f"""You are a financial budgeting expert. Analyze the user's spending patterns and suggest realistic budgets.
 
     IMPORTANT: The budget period spans {days_in_period} days.
 
-    AVAILABLE CATEGORIES (YOU MUST ONLY USE THESE):
+    AVAILABLE CATEGORIES WITH SUB-CATEGORIES:
     {categories_list}
 
     CRITICAL RULES:
-    1. You MUST ONLY use categories from the "AVAILABLE CATEGORIES" list above
-    2. DO NOT create or suggest any new category names
-    3. If you see spending in a category not in the list, map it to the closest available category
-    4. Suggest budgets based on historical spending patterns, scaled to the {days_in_period}-day period
-    5. Consider income vs expenses ratio
-    6. Account for active financial goals
-    7. Add 10-15% buffer for categories with high variability
-    8. Prioritize essential categories (Housing, Bills & Utilities, Food & Dining, Transportation)
-    9. Suggest reasonable reductions for non-essential categories if overspending
-    10. Ensure total budget doesn't exceed 80% of income (leave room for savings and goals)
+    1. You MUST ONLY use categories and sub-categories from the "AVAILABLE CATEGORIES" list above
+    2. DO NOT create or suggest any new category or sub-category names
+    3. For each budget allocation, you can either:
+    - Budget for a MAIN CATEGORY (covers all sub-categories under it)
+    - Budget for a SPECIFIC SUB-CATEGORY (e.g., "Food & Dining - Restaurants")
+    4. If you see spending patterns that suggest specific sub-category budgeting would be helpful, include those
+    5. Budget for SPECIFIC SUB-CATEGORIES as much as possible rather than just a MAIN CATEGORY
+    6. Format for main category: "Main Category Name"
+    7. Format for sub-category: "Main Category Name - Sub Category Name"
+    8. You can budget for both main category AND its sub-categories
+    9. If you suggest budget for both main category AND its sub-categories, the budget for main category must be greater than its sub-categories combined
+    10. Base suggestions on historical spending patterns, scaled to the {days_in_period}-day period
+    11. Consider income vs expenses ratio
+    12. Account for active financial goals
+    13. Add 10-15% buffer for categories with high variability
+    14. Prioritize essential spending categories
+    15. Ensure total budget doesn't exceed 80% of income (leave room for savings and goals)
     {context_instruction}
+
+    EXAMPLES OF VALID BUDGET ENTRIES:
+    - {{"main_category": "Example Main", "allocated_amount": 500.00, ...}} (covers all Example Main)
+    - {{"main_category": "Example Main - Example Sub", "allocated_amount": 100.00, ...}} (only Example Sub)
+    - {{"main_category": "Example Main - Example Sub2", "allocated_amount": 300.00, ...}} (only Example Sub2)
 
     Return JSON format:
     {{
         "categories": [
             {{
-                "main_category": "category name from available list",
+                "main_category": "category name or category name - sub category name",
                 "allocated_amount": 500.00,
                 "spent_amount": 0,
                 "percentage_used": 0,
                 "is_exceeded": false
             }}
         ],
-        "reasoning": "Detailed explanation of budget suggestions"
+        "reasoning": "Detailed explanation of budget suggestions including why certain sub-categories were chosen"
     }}"""
 
         user_prompt = f"""Based on this financial data, suggest a {period.value} budget:
@@ -295,11 +314,15 @@ class BudgetAnalyzer:
     SPENDING ANALYSIS:
     {json.dumps(context, indent=2)}
 
-    {f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for relevant spending categories from the available list."}
+    {f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for relevant spending categories. Include specific sub-category budgets where spending patterns suggest it would be helpful."}
 
     Calculate budgets for {days_in_period} days period.
 
-    REMEMBER: Only use categories from the AVAILABLE CATEGORIES list provided."""
+    REMEMBER: 
+    - Only use categories/sub-categories from the AVAILABLE CATEGORIES list
+    - If you suggest budget for both main category AND its sub-categories, the budget for main category must be greater than its sub-categories combined
+    - Budget for SPECIFIC SUB-CATEGORIES as much as possible rather than just a MAIN CATEGORY
+    - Use sub-category budgets when spending patterns show clear distinctions"""
 
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -313,26 +336,50 @@ class BudgetAnalyzer:
         
         result = json.loads(response.choices[0].message.content)
         
-        # NEW: Validate that all categories exist in the system
+        # Validate that all categories exist in the system
         valid_categories = []
+        available_main_categories = [cat["main_category"] for cat in categories_structure]
+        
         for cat in result["categories"]:
             category_name = cat["main_category"]
             
-            # Check if category exists in available categories
-            if category_name in available_categories:
-                valid_categories.append(CategoryBudget(**cat))
-            else:
-                # Try to find closest match (case-insensitive)
-                matched = False
-                for available_cat in available_categories:
-                    if available_cat.lower() == category_name.lower():
-                        cat["main_category"] = available_cat  # Use correct casing
-                        valid_categories.append(CategoryBudget(**cat))
-                        matched = True
-                        break
+            # Check if it's a sub-category budget (contains " - ")
+            if " - " in category_name:
+                parts = category_name.split(" - ", 1)
+                main_cat = parts[0]
+                sub_cat = parts[1]
                 
-                if not matched:
-                    print(f"Warning: AI suggested invalid category '{category_name}', skipping...")
+                # Validate main category exists
+                if main_cat not in available_main_categories:
+                    print(f"Warning: AI suggested invalid main category '{main_cat}', skipping...")
+                    continue
+                
+                # Validate sub-category exists
+                category_struct = next(
+                    (c for c in categories_structure if c["main_category"] == main_cat),
+                    None
+                )
+                
+                if category_struct and sub_cat in category_struct["sub_categories"]:
+                    valid_categories.append(CategoryBudget(**cat))
+                else:
+                    print(f"Warning: AI suggested invalid sub-category '{sub_cat}' for '{main_cat}', skipping...")
+            else:
+                # It's a main category budget
+                if category_name in available_main_categories:
+                    valid_categories.append(CategoryBudget(**cat))
+                else:
+                    # Try case-insensitive match
+                    matched = False
+                    for available_cat in available_main_categories:
+                        if available_cat.lower() == category_name.lower():
+                            cat["main_category"] = available_cat
+                            valid_categories.append(CategoryBudget(**cat))
+                            matched = True
+                            break
+                    
+                    if not matched:
+                        print(f"Warning: AI suggested invalid category '{category_name}', skipping...")
         
         # Update result with validated categories
         result["categories"] = valid_categories
@@ -739,20 +786,29 @@ async def _generate_ai_category_budgets(
     end_date: datetime,
     parent_budget: Dict
 ) -> List[CategoryBudget]:
-    """Generate AI-based category budgets using parent budget and recent data"""
+    """Generate AI-based category budgets with sub-categories using parent budget and recent data"""
     
     analyzer = BudgetAnalyzer(user_id)
     days_in_period = (end_date - start_date).days + 1
     
-    # NEW: Fetch available categories from database
+    # Fetch available categories with sub-categories from database
     outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
-    available_categories = []
+    categories_structure = []
     
     if outflow_categories_doc:
         for cat in outflow_categories_doc["categories"]:
-            available_categories.append(cat["main_category"])
+            categories_structure.append({
+                "main_category": cat["main_category"],
+                "sub_categories": cat["sub_categories"]
+            })
     
-    categories_list = "\n".join([f"- {cat}" for cat in available_categories])
+    # Create detailed categories structure
+    categories_info = []
+    for cat_struct in categories_structure:
+        sub_cats = ", ".join(cat_struct["sub_categories"])
+        categories_info.append(f"- {cat_struct['main_category']}: [{sub_cats}]")
+    
+    categories_list = "\n".join(categories_info)
     
     # Analyze spending from the completed budget period
     parent_start = parent_budget["start_date"]
@@ -800,24 +856,29 @@ PREVIOUS BUDGET PERFORMANCE:
 - Total Spent: ${parent_budget['total_spent']:.2f}
 - Utilization: {parent_budget['percentage_used']:.1f}%
 
-AVAILABLE CATEGORIES (YOU MUST ONLY USE THESE):
+AVAILABLE CATEGORIES WITH SUB-CATEGORIES:
 {categories_list}
 
 CRITICAL RULES:
-1. You MUST ONLY use categories from the "AVAILABLE CATEGORIES" list above
-2. DO NOT create or suggest any new category names
-3. Adjust budgets based on actual spending patterns
-4. If a category was under-utilized (<80%), reduce allocation
-5. If a category was over-utilized (>100%), increase allocation
-6. If spending was 80-100%, keep similar allocation
-7. Consider seasonal variations
-8. Total budget should be reasonable based on past performance
+1. You MUST ONLY use categories and sub-categories from the "AVAILABLE CATEGORIES" list above
+2. DO NOT create or suggest any new category or sub-category names
+3. You can budget for both main categories and specific sub-categories
+4. If you suggest budget for both main category AND its sub-categories, the budget for main category must be greater than its sub-categories combined
+5. Format for main category: "Main Category Name"
+6. Format for sub-category: "Main Category Name - Sub Category Name"
+7. Adjust budgets based on actual spending patterns:
+   - If under-utilized (<80%), consider reducing allocation
+   - If over-utilized (>100%), increase allocation
+   - If well-utilized (80-100%), keep similar allocation
+8. Consider seasonal variations
+9. If parent budget used sub-categories effectively, maintain that structure
+10. Total budget should be reasonable based on past performance
 
 Return JSON format:
 {{
     "categories": [
         {{
-            "main_category": "category name from available list",
+            "main_category": "category name or category name - sub category name",
             "allocated_amount": 500.00,
             "spent_amount": 0,
             "percentage_used": 0,
@@ -833,7 +894,7 @@ Return JSON format:
 
 Provide realistic budget suggestions that learn from past spending patterns.
 
-REMEMBER: Only use categories from the AVAILABLE CATEGORIES list provided."""
+REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list provided."""
 
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -847,32 +908,42 @@ REMEMBER: Only use categories from the AVAILABLE CATEGORIES list provided."""
             
             result = json.loads(response.choices[0].message.content)
             
-            # NEW: Validate that all categories exist in the system
+            # Validate categories
             valid_categories = []
+            available_main_categories = [cat["main_category"] for cat in categories_structure]
+            
             for cat in result["categories"]:
                 category_name = cat["main_category"]
                 
-                # Check if category exists in available categories
-                if category_name in available_categories:
-                    valid_categories.append(CategoryBudget(**cat))
-                else:
-                    # Try to find closest match (case-insensitive)
-                    matched = False
-                    for available_cat in available_categories:
-                        if available_cat.lower() == category_name.lower():
-                            cat["main_category"] = available_cat
-                            valid_categories.append(CategoryBudget(**cat))
-                            matched = True
-                            break
+                if " - " in category_name:
+                    parts = category_name.split(" - ", 1)
+                    main_cat = parts[0]
+                    sub_cat = parts[1]
                     
-                    if not matched:
-                        print(f"Warning: AI suggested invalid category '{category_name}', skipping...")
+                    if main_cat not in available_main_categories:
+                        continue
+                    
+                    category_struct = next(
+                        (c for c in categories_structure if c["main_category"] == main_cat),
+                        None
+                    )
+                    
+                    if category_struct and sub_cat in category_struct["sub_categories"]:
+                        valid_categories.append(CategoryBudget(**cat))
+                else:
+                    if category_name in available_main_categories:
+                        valid_categories.append(CategoryBudget(**cat))
+                    else:
+                        for available_cat in available_main_categories:
+                            if available_cat.lower() == category_name.lower():
+                                cat["main_category"] = available_cat
+                                valid_categories.append(CategoryBudget(**cat))
+                                break
             
             return valid_categories if valid_categories else _generate_adjusted_budgets(parent_budget, days_in_period)
             
         except Exception as e:
             print(f"Error generating AI budgets: {e}")
-            # Fallback to adjusted budgets based on spending
             return _generate_adjusted_budgets(parent_budget, days_in_period)
     else:
         return _generate_adjusted_budgets(parent_budget, days_in_period)

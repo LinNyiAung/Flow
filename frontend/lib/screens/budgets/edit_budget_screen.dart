@@ -753,12 +753,12 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 // Reuse the same dialog from CreateBudgetScreen
 class _AddCategoryDialog extends StatefulWidget {
   final CategoryBudget? initialCategory;
-  final int? editingIndex; // Add this
+  final int? editingIndex; // For edit screen
   final Function(CategoryBudget) onAdd;
 
   _AddCategoryDialog({
     this.initialCategory,
-    this.editingIndex, // Add this
+    this.editingIndex,
     required this.onAdd,
   });
 
@@ -778,20 +778,13 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   @override
   void initState() {
     super.initState();
+    
+    // Set amount immediately
     if (widget.initialCategory != null) {
-      // Parse the category name if it contains " - "
-      final categoryName = widget.initialCategory!.mainCategory;
-      if (categoryName.contains(' - ')) {
-        final parts = categoryName.split(' - ');
-        _selectedMainCategory = parts[0];
-        _selectedSubCategory = parts[1];
-      } else {
-        _selectedMainCategory = categoryName;
-        _selectedSubCategory = null; // Explicitly set to null instead of 'All'
-      }
-      _amountController.text = widget.initialCategory!.allocatedAmount
-          .toString();
+      _amountController.text = widget.initialCategory!.allocatedAmount.toString();
     }
+    
+    // Load categories, then parse initial values
     _loadCategories();
   }
 
@@ -801,12 +794,40 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     });
 
     try {
-      final categories = await ApiService.getCategories(
-        TransactionType.outflow,
-      );
+      final categories = await ApiService.getCategories(TransactionType.outflow);
+      
       setState(() {
         _categories = categories;
         _isLoadingCategories = false;
+        
+        // NOW parse the initial category after categories are loaded
+        if (widget.initialCategory != null) {
+          final categoryName = widget.initialCategory!.mainCategory;
+          if (categoryName.contains(' - ')) {
+            final parts = categoryName.split(' - ');
+            final mainCat = parts[0];
+            final subCat = parts[1];
+            
+            // Validate that this main category exists
+            if (_categories.any((cat) => cat.mainCategory == mainCat)) {
+              _selectedMainCategory = mainCat;
+              
+              // Validate that this sub-category exists under this main category
+              final mainCategory = _categories.firstWhere(
+                (cat) => cat.mainCategory == mainCat,
+              );
+              if (mainCategory.subCategories.contains(subCat)) {
+                _selectedSubCategory = subCat;
+              }
+            }
+          } else {
+            // Just a main category
+            if (_categories.any((cat) => cat.mainCategory == categoryName)) {
+              _selectedMainCategory = categoryName;
+              _selectedSubCategory = null;
+            }
+          }
+        }
       });
     } catch (e) {
       setState(() {
@@ -838,6 +859,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Main Category Dropdown
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -883,7 +905,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         onChanged: (value) {
                           setState(() {
                             _selectedMainCategory = value;
-                            _selectedSubCategory = null;
+                            _selectedSubCategory = null; // Reset sub-category
                           });
                         },
                         validator: (value) {
@@ -895,40 +917,76 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       ),
               ),
 
-              if (_selectedMainCategory != null) ...[
-                SizedBox(height: 12),
+              // Sub Category Dropdown (Optional)
+              if (_selectedMainCategory != null && !_isLoadingCategories) ...[
+                SizedBox(height: 16),
                 Container(
-                  padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 16,
+                  child: DropdownButtonFormField<String?>(
+                    decoration: InputDecoration(
+                      hintText: 'Sub category (optional)',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.list_outlined,
                         color: Color(0xFF667eea),
                       ),
-                      SizedBox(width: 8),
-                      Expanded(
+                    ),
+                    isExpanded: true,
+                    value: _selectedSubCategory,
+                    items: [
+                      // Add "All" option for optional sub-category selection
+                      DropdownMenuItem<String?>(
+                        value: null,
                         child: Text(
-                          _selectedSubCategory ==
-                                  null // Changed from checking 'All'
-                              ? 'Budget will track all sub-categories in $_selectedMainCategory'
-                              : 'Budget will only track $_selectedSubCategory',
+                          'All (no filter)',
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
-                            color: Color(0xFF667eea),
+                            fontSize: 14,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.grey[600],
                           ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      // Add actual sub-categories for the selected main category
+                      ..._categories
+                          .firstWhere(
+                            (cat) => cat.mainCategory == _selectedMainCategory,
+                            orElse: () =>
+                                Category(mainCategory: '', subCategories: []),
+                          )
+                          .subCategories
+                          .map((subCategory) {
+                            return DropdownMenuItem<String?>(
+                              value: subCategory,
+                              child: Text(
+                                subCategory,
+                                style: GoogleFonts.poppins(fontSize: 14),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          })
+                          .toList(),
                     ],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedSubCategory = value;
+                      });
+                    },
                   ),
                 ),
               ],
 
               SizedBox(height: 16),
+
+              // Amount Field
               TextFormField(
                 controller: _amountController,
                 decoration: InputDecoration(
@@ -960,6 +1018,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                 },
               ),
 
+              // Info text about sub-categories
               if (_selectedMainCategory != null) ...[
                 SizedBox(height: 12),
                 Container(
@@ -978,8 +1037,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          _selectedSubCategory == null ||
-                                  _selectedSubCategory == 'All'
+                          _selectedSubCategory == null
                               ? 'Budget will track all sub-categories in $_selectedMainCategory'
                               : 'Budget will only track $_selectedSubCategory',
                           style: GoogleFonts.poppins(
@@ -1007,30 +1065,33 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
+              // Create display name based on selections
               String displayName = _selectedMainCategory!;
               if (_selectedSubCategory != null) {
-                // Removed check for 'All'
                 displayName += ' - $_selectedSubCategory';
               }
 
               // Validate for duplicates
-              final parent = context
+              final editParent = context
                   .findAncestorStateOfType<_EditBudgetScreenState>();
-              if (parent != null) {
-                final error = parent._validateDuplicateCategory(
+              
+              String? error;
+              if (editParent != null) {
+                error = editParent._validateDuplicateCategory(
                   _selectedMainCategory!,
                   _selectedSubCategory,
                   excludeIndex: widget.editingIndex,
                 );
-                if (error != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(error, style: GoogleFonts.poppins()),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
+              }
+              
+              if (error != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(error, style: GoogleFonts.poppins()),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
               }
 
               widget.onAdd(
