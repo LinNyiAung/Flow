@@ -9,11 +9,9 @@ import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
-import 'package:frontend/screens/onboarding/permission_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
 import 'providers/chat_provider.dart';
@@ -99,7 +97,6 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  bool _showPermissionScreen = false;
 
   @override
   void initState() {
@@ -107,32 +104,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
     WidgetsBinding.instance.addPostFrameCallback((_) async { // CHANGE TO async
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       await authProvider.checkAuthStatus(); // ADD await
-      
-      // ADD THIS BLOCK
-      // Check if we should show permission screen
-      if (authProvider.isAuthenticated) {
-        final prefs = await SharedPreferences.getInstance();
-        final hasAskedPermission = prefs.getBool('notification_permission_asked') ?? false;
-        
-        if (!hasAskedPermission) {
-          setState(() {
-            _showPermissionScreen = true;
-          });
-        }
-      }
     });
   }
 
 
-    // ADD THIS METHOD
-  Future<void> _onPermissionComplete() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('notification_permission_asked', true);
-    
-    setState(() {
-      _showPermissionScreen = false;
-    });
-  }
+
 
 @override
   Widget build(BuildContext context) {
@@ -141,10 +117,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
         if (authProvider.isLoading) {
           return Scaffold(body: Center(child: CircularProgressIndicator()));
         } else if (authProvider.isAuthenticated) {
-          // ADD THIS BLOCK
-          if (_showPermissionScreen) {
-            return PermissionScreen(onComplete: _onPermissionComplete);
-          }
           return HomeScreen();
         } else {
           return LoginScreen();
