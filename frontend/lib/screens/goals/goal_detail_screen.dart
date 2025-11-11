@@ -18,6 +18,7 @@ class GoalDetailScreen extends StatefulWidget {
 class _GoalDetailScreenState extends State<GoalDetailScreen> {
   final _contributionController = TextEditingController();
   bool _isLoading = false;
+  bool _isContributionLoading = false; // NEW: Separate loading state for contribution dialog
   late Goal _currentGoal;
 
   @override
@@ -67,7 +68,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     }
 
     setState(() {
-      _isLoading = true;
+      _isContributionLoading = true; // NEW: Set contribution loading state
     });
 
     final goalProvider = Provider.of<GoalProvider>(context, listen: false);
@@ -79,7 +80,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     );
 
     setState(() {
-      _isLoading = false;
+      _isContributionLoading = false; // NEW: Reset contribution loading state
     });
 
     if (success) {
@@ -116,55 +117,100 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
     final availableBalance = transactionProvider.balance?.availableBalance ?? 0.0;
 
+    // Reset loading state when opening dialog
+    _isContributionLoading = false;
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Manage Funds', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Available: \$${availableBalance.toStringAsFixed(2)}',
-              style: GoogleFonts.poppins(fontSize: 14, color: Color(0xFF667eea), fontWeight: FontWeight.w600),
-            ),
-            SizedBox(height: 16),
-            TextField(
-              controller: _contributionController,
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Amount',
-                prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      barrierDismissible: !_isContributionLoading, // NEW: Prevent dismissing while loading
+      builder: (context) => StatefulBuilder( // NEW: Use StatefulBuilder to update dialog state
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Manage Funds', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Available: \$${availableBalance.toStringAsFixed(2)}',
+                style: GoogleFonts.poppins(fontSize: 14, color: Color(0xFF667eea), fontWeight: FontWeight.w600),
               ),
+              SizedBox(height: 16),
+              TextField(
+                controller: _contributionController,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                enabled: !_isContributionLoading, // NEW: Disable input while loading
+                decoration: InputDecoration(
+                  labelText: 'Amount',
+                  prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: _isContributionLoading ? null : () => Navigator.pop(context), // NEW: Disable while loading
+              child: Text('Cancel', style: GoogleFonts.poppins(color: _isContributionLoading ? Colors.grey : Colors.grey[600])),
             ),
+            if (_currentGoal.currentAmount > 0)
+              ElevatedButton(
+                onPressed: _isContributionLoading ? null : () async { // NEW: Disable while loading
+                  setDialogState(() {
+                    _isContributionLoading = true;
+                  });
+                  await _contributeToGoal(false);
+                  if (mounted) {
+                    setDialogState(() {
+                      _isContributionLoading = false;
+                    });
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFFFF5722),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: _isContributionLoading
+                    ? SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text('Withdraw', style: GoogleFonts.poppins(color: Colors.white)),
+              ),
+            if (_currentGoal.status == GoalStatus.active)
+              ElevatedButton(
+                onPressed: _isContributionLoading ? null : () async { // NEW: Disable while loading
+                  setDialogState(() {
+                    _isContributionLoading = true;
+                  });
+                  await _contributeToGoal(true);
+                  if (mounted) {
+                    setDialogState(() {
+                      _isContributionLoading = false;
+                    });
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFF4CAF50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: _isContributionLoading
+                    ? SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text('Add', style: GoogleFonts.poppins(color: Colors.white)),
+              ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.grey[600])),
-          ),
-          if (_currentGoal.currentAmount > 0)
-            ElevatedButton(
-              onPressed: () => _contributeToGoal(false),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFFFF5722),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: Text('Withdraw', style: GoogleFonts.poppins(color: Colors.white)),
-            ),
-          if (_currentGoal.status == GoalStatus.active)
-            ElevatedButton(
-              onPressed: () => _contributeToGoal(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF4CAF50),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: Text('Add', style: GoogleFonts.poppins(color: Colors.white)),
-            ),
-        ],
       ),
     );
   }
@@ -470,11 +516,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.edit, color: Color(0xFF667eea)),
-            onPressed: _showEditDialog,
+            onPressed: _isLoading ? null : _showEditDialog, // NEW: Disable while loading
           ),
           IconButton(
             icon: Icon(Icons.delete_outline, color: Colors.red),
-            onPressed: _showDeleteDialog,
+            onPressed: _isLoading ? null : _showDeleteDialog, // NEW: Disable while loading
           ),
         ],
       ),
@@ -675,7 +721,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton.icon(
-                    onPressed: _showContributionDialog,
+                    onPressed: _isLoading ? null : _showContributionDialog, // NEW: Disable while loading
                     icon: Icon(Icons.account_balance_wallet, color: Colors.white),
                     label: Text(
                       'Manage Funds',
@@ -686,7 +732,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF667eea),
+                      backgroundColor: _isLoading ? Colors.grey : Color(0xFF667eea),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
