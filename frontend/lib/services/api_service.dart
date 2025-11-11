@@ -4,6 +4,7 @@ import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
+import 'package:frontend/models/notification.dart';
 import 'package:frontend/models/report.dart';
 import 'package:frontend/models/voice_image_models.dart';
 import 'package:http/http.dart' as http;
@@ -1019,4 +1020,74 @@ class ApiService {
       throw Exception(error['detail'] ?? 'Failed to refresh budget');
     }
   }
+
+
+  static Future<List<AppNotification>> getNotifications({
+  int limit = 50,
+  bool unreadOnly = false,
+}) async {
+  String url = '$baseUrl/api/notifications?limit=$limit&unread_only=$unreadOnly';
+
+  final response = await http.get(
+    Uri.parse(url),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    final List<dynamic> data = jsonDecode(response.body);
+    return data.map((json) => AppNotification.fromJson(json)).toList();
+  } else {
+    throw Exception('Failed to get notifications');
+  }
+}
+
+static Future<void> markNotificationRead(String notificationId) async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/notifications/$notificationId/mark-read'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to mark notification as read');
+  }
+}
+
+static Future<void> markAllNotificationsRead() async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/notifications/mark-all-read'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to mark all notifications as read');
+  }
+}
+
+static Future<void> deleteNotification(String notificationId) async {
+  final response = await http.delete(
+    Uri.parse('$baseUrl/api/notifications/$notificationId'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to delete notification');
+  }
+}
+
+static Future<int> getUnreadNotificationCount() async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/notifications/unread-count'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return data['unread_count'];
+  } else {
+    throw Exception('Failed to get unread count');
+  }
+}
 }

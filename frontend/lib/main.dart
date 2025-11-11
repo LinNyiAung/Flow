@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
+import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/budgets/budgets_screen.dart';
 import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
+import 'package:frontend/screens/notifications/notifications_screen.dart';
+import 'package:frontend/screens/onboarding/permission_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
+import 'package:frontend/services/notification_service.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
 import 'providers/chat_provider.dart';
@@ -16,7 +21,12 @@ import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/ai/ai_chat_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized(); // ADD THIS
+  
+  // Initialize notification service
+  await NotificationService().initialize(); // ADD THIS
+  
   runApp(MyApp());
 }
 
@@ -34,6 +44,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => GoalProvider()),
         ChangeNotifierProvider(create: (_) => InsightProvider()),
         ChangeNotifierProvider(create: (_) => BudgetProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
       child: MaterialApp(
         title: 'Flow Finance',
@@ -75,6 +86,7 @@ class MyApp extends StatelessWidget {
           '/insights': (context) => InsightsScreen(),
           '/reports': (context) => ReportsScreen(),
           '/budgets': (context) => BudgetsScreen(),
+          '/notifications': (context) => NotificationsScreen(),
         },
       ),
     );
@@ -87,21 +99,52 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
+  bool _showPermissionScreen = false;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<AuthProvider>(context, listen: false).checkAuthStatus();
+    WidgetsBinding.instance.addPostFrameCallback((_) async { // CHANGE TO async
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      await authProvider.checkAuthStatus(); // ADD await
+      
+      // ADD THIS BLOCK
+      // Check if we should show permission screen
+      if (authProvider.isAuthenticated) {
+        final prefs = await SharedPreferences.getInstance();
+        final hasAskedPermission = prefs.getBool('notification_permission_asked') ?? false;
+        
+        if (!hasAskedPermission) {
+          setState(() {
+            _showPermissionScreen = true;
+          });
+        }
+      }
     });
   }
 
-  @override
+
+    // ADD THIS METHOD
+  Future<void> _onPermissionComplete() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notification_permission_asked', true);
+    
+    setState(() {
+      _showPermissionScreen = false;
+    });
+  }
+
+@override
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
         if (authProvider.isLoading) {
           return Scaffold(body: Center(child: CircularProgressIndicator()));
         } else if (authProvider.isAuthenticated) {
+          // ADD THIS BLOCK
+          if (_showPermissionScreen) {
+            return PermissionScreen(onComplete: _onPermissionComplete);
+          }
           return HomeScreen();
         } else {
           return LoginScreen();

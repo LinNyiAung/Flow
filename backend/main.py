@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 
+from scheduler import start_scheduler
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget
 from budget_service import BudgetAnalyzer, is_budget_active, update_all_user_budgets, update_budget_spent_amounts
 from pdf_generator import generate_financial_report_pdf
@@ -25,15 +26,31 @@ from models import (
 from chat_models import (
     ChatRequest, ChatResponse, ChatMessage, MessageRole,
 )
+
+
+from notification_models import NotificationResponse, NotificationType
+from notification_service import (
+    create_notification,
+    check_goal_notifications,
+    check_milestone_amount,
+    check_approaching_target_dates
+)
+
 from database import (
     users_collection, transactions_collection, categories_collection,
-    chat_sessions_collection, goals_collection, insights_collection, budgets_collection
+    chat_sessions_collection, goals_collection, insights_collection, budgets_collection, notifications_collection
 )
 from auth import get_password_hash, verify_password, create_access_token, verify_token
 from ai_chatbot import financial_chatbot
 from config import settings
 
 app = FastAPI(title="Flow Finance API", version="1.0.0")
+
+try:
+    scheduler = start_scheduler()
+    print("✅ Notification scheduler started successfully")
+except Exception as e:
+    print(f"⚠️ Failed to start notification scheduler: {e}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -869,6 +886,10 @@ async def contribute_to_goal(
             detail="Cannot add funds to an achieved goal"
         )
     
+    # Store old values for notification checks
+    old_amount = goal["current_amount"]
+    old_progress = (old_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+    
     # Calculate what the new amount would be
     new_amount = goal["current_amount"] + contribution.amount
     
@@ -921,6 +942,9 @@ async def contribute_to_goal(
         new_status = GoalStatus.ACTIVE.value
         achieved_at = None
     
+    # Calculate new progress
+    new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+    
     goals_collection.update_one(
         {"_id": goal_id},
         {
@@ -932,6 +956,24 @@ async def contribute_to_goal(
             }
         }
     )
+    
+    # Check and create notifications (only for additions)
+    if contribution.amount > 0:
+        check_goal_notifications(
+            user_id=current_user["_id"],
+            goal_id=goal_id,
+            old_progress=old_progress,
+            new_progress=new_progress,
+            goal_name=goal["name"]
+        )
+        
+        check_milestone_amount(
+            user_id=current_user["_id"],
+            goal_id=goal_id,
+            old_amount=old_amount,
+            new_amount=new_amount,
+            goal_name=goal["name"]
+        )
     
     updated_goal = goals_collection.find_one({"_id": goal_id})
     refresh_ai_data_silent(current_user["_id"])
@@ -2322,6 +2364,148 @@ async def refresh_budget(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to refresh budget"
+        )
+        
+        
+        
+# ==================== NOTIFICATIONS ====================
+
+@app.get("/api/notifications", response_model=List[NotificationResponse])
+async def get_notifications(
+    current_user: dict = Depends(get_current_user),
+    limit: int = Query(default=50, le=100),
+    unread_only: bool = Query(default=False)
+):
+    """Get user notifications"""
+    try:
+        query = {"user_id": current_user["_id"]}
+        
+        if unread_only:
+            query["is_read"] = False
+        
+        notifications = list(
+            notifications_collection
+            .find(query)
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        
+        return [
+            NotificationResponse(
+                id=n["_id"],
+                user_id=n["user_id"],
+                type=NotificationType(n["type"]),
+                title=n["title"],
+                message=n["message"],
+                goal_id=n.get("goal_id"),
+                goal_name=n.get("goal_name"),
+                created_at=n["created_at"],
+                is_read=n["is_read"]
+            )
+            for n in notifications
+        ]
+    except Exception as e:
+        print(f"Error fetching notifications: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch notifications"
+        )
+
+
+@app.post("/api/notifications/{notification_id}/mark-read")
+async def mark_notification_read(
+    notification_id: str = Path(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark a notification as read"""
+    try:
+        result = notifications_collection.update_one(
+            {"_id": notification_id, "user_id": current_user["_id"]},
+            {"$set": {"is_read": True}}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found"
+            )
+        
+        return {"message": "Notification marked as read"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error marking notification read: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to mark notification as read"
+        )
+
+
+@app.post("/api/notifications/mark-all-read")
+async def mark_all_notifications_read(current_user: dict = Depends(get_current_user)):
+    """Mark all notifications as read"""
+    try:
+        result = notifications_collection.update_many(
+            {"user_id": current_user["_id"], "is_read": False},
+            {"$set": {"is_read": True}}
+        )
+        
+        return {
+            "message": f"Marked {result.modified_count} notifications as read",
+            "count": result.modified_count
+        }
+    except Exception as e:
+        print(f"Error marking all notifications read: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to mark notifications as read"
+        )
+
+
+@app.delete("/api/notifications/{notification_id}")
+async def delete_notification(
+    notification_id: str = Path(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a notification"""
+    try:
+        result = notifications_collection.delete_one({
+            "_id": notification_id,
+            "user_id": current_user["_id"]
+        })
+        
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found"
+            )
+        
+        return {"message": "Notification deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting notification: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete notification"
+        )
+
+
+@app.get("/api/notifications/unread-count")
+async def get_unread_count(current_user: dict = Depends(get_current_user)):
+    """Get count of unread notifications"""
+    try:
+        count = notifications_collection.count_documents({
+            "user_id": current_user["_id"],
+            "is_read": False
+        })
+        
+        return {"unread_count": count}
+    except Exception as e:
+        print(f"Error getting unread count: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get unread count"
         )
 
 

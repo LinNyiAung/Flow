@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/goal_provider.dart';
+import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
@@ -20,23 +24,50 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // Key for the Scaffold to open the drawer
-
+  Timer? _notificationTimer;
+  
   @override
   void initState() {
     super.initState();
     // Fetch initial data when the screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshData(); // Fetch transactions and balance
+      _startNotificationPolling();
     });
+  }
+
+
+    // ADD THIS METHOD
+  void _startNotificationPolling() {
+    final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
+    
+    // Initial fetch
+    notificationProvider.fetchUnreadCount();
+    
+    // Poll every 30 seconds
+    _notificationTimer = Timer.periodic(Duration(seconds: 30), (timer) {
+      notificationProvider.fetchNotifications();
+    });
+  }
+
+  // ADD THIS METHOD
+  @override
+  void dispose() {
+    _notificationTimer?.cancel();
+    super.dispose();
   }
 
   // Function to refresh data (pull-to-refresh and initial load)
   Future<void> _refreshData() async {
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    // Fetch transactions (to update list view if present) and balance
+    final goalProvider = Provider.of<GoalProvider>(context, listen: false); // ADD THIS
+    final notificationProvider = Provider.of<NotificationProvider>(context, listen: false); // ADD THIS
+    
     await Future.wait([
-      transactionProvider.fetchTransactions(limit: 3), // Fetch first 3 for "Recent Transactions"
-      transactionProvider.fetchBalance(),     // Fetch balance details
+      transactionProvider.fetchTransactions(limit: 3),
+      transactionProvider.fetchBalance(),
+      goalProvider.fetchSummary(), // ADD THIS
+      notificationProvider.fetchUnreadCount(), // ADD THIS
     ]);
   }
 
@@ -74,10 +105,14 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(), // Use the key to open the drawer
         ),
         actions: [
-          // Notification Icon - styled consistently with other action icons
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: Container(
+  // Notification Icon with Badge
+  Padding(
+    padding: const EdgeInsets.only(right: 16.0),
+    child: Consumer<NotificationProvider>(
+      builder: (context, notificationProvider, child) {
+        return Stack(
+          children: [
+            Container(
               padding: EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -90,13 +125,50 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
-              child: Icon(
-                Icons.notifications_outlined,
-                color: Color(0xFF667eea), // Use primary purple color
+              child: IconButton(
+                icon: Icon(
+                  Icons.notifications_outlined,
+                  color: Color(0xFF667eea),
+                ),
+                onPressed: () {
+                  Navigator.pushNamed(context, '/notifications').then((_) {
+                    // Refresh data when returning from notifications
+                    notificationProvider.fetchUnreadCount();
+                  });
+                },
               ),
             ),
-          ),
-        ],
+            if (notificationProvider.unreadCount > 0)
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  padding: EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: BoxConstraints(
+                    minWidth: 20,
+                    minHeight: 20,
+                  ),
+                  child: Text(
+                    '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
+                    style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    ),
+  ),
+],
         // AppBar theme from main.dart makes background transparent and removes elevation by default.
         // If you want a specific background color for Home and Transaction AppBar:
         // backgroundColor: Colors.white, // Or any color you prefer
