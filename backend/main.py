@@ -30,6 +30,8 @@ from chat_models import (
 
 from notification_models import NotificationResponse, NotificationType
 from notification_service import (
+    analyze_unusual_spending,
+    check_large_transaction,
     create_notification,
     check_goal_notifications,
     check_milestone_amount,
@@ -172,7 +174,7 @@ async def create_transaction(
         "type": transaction_data.type.value,
         "main_category": transaction_data.main_category,
         "sub_category": transaction_data.sub_category,
-        "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,  # Ensure UTC
+        "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
         "description": transaction_data.description,
         "amount": transaction_data.amount,
         "created_at": now,
@@ -182,6 +184,28 @@ async def create_transaction(
     result = transactions_collection.insert_one(new_transaction)
     if not result.inserted_id:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create transaction")
+    
+    # NEW: Check for large transaction
+    try:
+        # Get user's spending profile
+        user_transactions = list(transactions_collection.find({
+            "user_id": current_user["_id"],
+            "type": "outflow"
+        }).limit(50))
+        
+        if user_transactions:
+            avg_amount = sum(t["amount"] for t in user_transactions) / len(user_transactions)
+            user_profile = {"avg_transaction": avg_amount}
+        else:
+            user_profile = None
+        
+        check_large_transaction(
+            user_id=current_user["_id"],
+            transaction=new_transaction,
+            user_spending_profile=user_profile
+        )
+    except Exception as e:
+        print(f"Error checking large transaction: {e}")
     
     refresh_ai_data_silent(current_user["_id"])
     update_all_user_budgets(current_user["_id"])
@@ -2518,6 +2542,21 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get unread count"
+        )
+        
+        
+        
+@app.post("/api/notifications/analyze-spending")
+async def analyze_spending_patterns(current_user: dict = Depends(get_current_user)):
+    """Manually trigger unusual spending analysis"""
+    try:
+        analyze_unusual_spending(current_user["_id"])
+        return {"message": "Spending analysis completed"}
+    except Exception as e:
+        print(f"Error analyzing spending: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to analyze spending"
         )
 
 

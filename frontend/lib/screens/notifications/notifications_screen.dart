@@ -39,18 +39,24 @@ IconData _getNotificationIcon(NotificationType type) {
       return Icons.star;
     case NotificationType.goal_approaching_date:
       return Icons.event;
-    case NotificationType.budget_started:           // ADD THIS
+    case NotificationType.budget_started:
       return Icons.play_circle_filled;
-    case NotificationType.budget_ending_soon:       // ADD THIS
+    case NotificationType.budget_ending_soon:
       return Icons.access_time;
-    case NotificationType.budget_threshold:         // ADD THIS
+    case NotificationType.budget_threshold:
       return Icons.warning_amber_rounded;
-    case NotificationType.budget_exceeded:          // ADD THIS
+    case NotificationType.budget_exceeded:
       return Icons.error;
-    case NotificationType.budget_auto_created:      // ADD THIS
+    case NotificationType.budget_auto_created:
       return Icons.autorenew;
-    case NotificationType.budget_now_active:        // ADD THIS
+    case NotificationType.budget_now_active:
       return Icons.check_circle;
+    case NotificationType.large_transaction:      // ADD THIS
+      return Icons.payments;
+    case NotificationType.unusual_spending:       // ADD THIS
+      return Icons.trending_up;
+    case NotificationType.payment_reminder:       // ADD THIS
+      return Icons.notifications_active;
   }
 }
 
@@ -64,18 +70,24 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFFFF9800);
     case NotificationType.goal_approaching_date:
       return Color(0xFF2196F3);
-    case NotificationType.budget_started:           // ADD THIS
+    case NotificationType.budget_started:
       return Color(0xFF4CAF50);
-    case NotificationType.budget_ending_soon:       // ADD THIS
+    case NotificationType.budget_ending_soon:
       return Color(0xFFFF9800);
-    case NotificationType.budget_threshold:         // ADD THIS
+    case NotificationType.budget_threshold:
       return Color(0xFFFF9800);
-    case NotificationType.budget_exceeded:          // ADD THIS
+    case NotificationType.budget_exceeded:
       return Color(0xFFFF5722);
-    case NotificationType.budget_auto_created:      // ADD THIS
+    case NotificationType.budget_auto_created:
       return Color(0xFF667eea);
-    case NotificationType.budget_now_active:        // ADD THIS
+    case NotificationType.budget_now_active:
       return Color(0xFF4CAF50);
+    case NotificationType.large_transaction:      // ADD THIS
+      return Color(0xFFFF9800);
+    case NotificationType.unusual_spending:       // ADD THIS
+      return Color(0xFFFF5722);
+    case NotificationType.payment_reminder:       // ADD THIS
+      return Color(0xFF2196F3);
   }
 }
 
@@ -88,9 +100,9 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
     await notificationProvider.markAsRead(notification.id);
   }
 
-  // Navigate to goal or budget based on notification type
+  // Navigate based on notification type
   if (notification.type.name.startsWith('budget_') && notification.goalId != null) {
-    // It's a budget notification (goalId is actually budgetId for budget notifications)
+    // Budget notification
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
     final budget = await budgetProvider.getBudget(notification.goalId!);
     
@@ -102,8 +114,8 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
         ),
       ).then((_) => _refreshNotifications());
     }
-  } else if (notification.goalId != null) {
-    // It's a goal notification
+  } else if (notification.type.name.startsWith('goal_') && notification.goalId != null) {
+    // Goal notification
     final goalProvider = Provider.of<GoalProvider>(context, listen: false);
     final goal = await goalProvider.getGoal(notification.goalId!);
     
@@ -115,6 +127,11 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
         ),
       ).then((_) => _refreshNotifications());
     }
+  } else if (notification.type == NotificationType.large_transaction ||
+             notification.type == NotificationType.unusual_spending ||
+             notification.type == NotificationType.payment_reminder) {
+    // Transaction notifications - navigate to transactions list
+    Navigator.pushNamed(context, '/transactions').then((_) => _refreshNotifications());
   }
 }
 

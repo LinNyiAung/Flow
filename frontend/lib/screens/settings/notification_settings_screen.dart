@@ -290,6 +290,41 @@ class _NotificationSettingsScreenState
                       title: 'Auto-Created Budget',
                       description: 'New budget created automatically',
                     ),
+
+                    SizedBox(height: 16),
+                    Divider(),
+                    SizedBox(height: 8),
+
+                    // Transaction Notifications Header
+                    Text(
+                      'Transactions',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF667eea),
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    _buildNotificationTypeItem(
+                      icon: Icons.payments,
+                      color: Color(0xFFFF9800),
+                      title: 'Large Transaction',
+                      description: 'Unusually large expenses',
+                    ),
+                    SizedBox(height: 8),
+                    _buildNotificationTypeItem(
+                      icon: Icons.trending_up,
+                      color: Color(0xFFFF5722),
+                      title: 'Unusual Spending',
+                      description: 'Spending spikes detected',
+                    ),
+                    SizedBox(height: 8),
+                    _buildNotificationTypeItem(
+                      icon: Icons.notifications_active,
+                      color: Color(0xFF2196F3),
+                      title: 'Payment Reminders',
+                      description: 'Recurring payment alerts',
+                    ),
                   ],
                 ],
               ),

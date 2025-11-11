@@ -1,9 +1,9 @@
 from datetime import datetime, UTC, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 import uuid
 from database import goals_collection, database
 
-from database import (notifications_collection, budgets_collection)
+from database import (notifications_collection, budgets_collection, transactions_collection, users_collection)
 
 
 def create_notification(
@@ -258,3 +258,214 @@ def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, w
         goal_id=budget_id,
         goal_name=budget_name
     )
+    
+    
+def check_large_transaction(user_id: str, transaction: Dict, user_spending_profile: Dict = None):
+    """Check if a transaction is unusually large and notify"""
+    from datetime import datetime, UTC, timedelta
+    
+    amount = transaction["amount"]
+    transaction_type = transaction["type"]
+    category = transaction["main_category"]
+    description = transaction.get("description", "")
+    
+    # Skip inflow transactions
+    if transaction_type != "outflow":
+        return
+    
+    # Define threshold - either use user profile or default
+    if user_spending_profile and "avg_transaction" in user_spending_profile:
+        # Large if 3x the user's average transaction
+        threshold = user_spending_profile["avg_transaction"] * 3
+        # Minimum threshold of $100
+        threshold = max(threshold, 100)
+    else:
+        # Default threshold for new users
+        threshold = 150
+    
+    if amount >= threshold:
+        # Check if we already sent a notification for this transaction recently
+        existing = notifications_collection.find_one({
+            "user_id": user_id,
+            "type": "large_transaction",
+            "created_at": {"$gte": datetime.now(UTC) - timedelta(minutes=5)}
+        })
+        
+        if not existing:
+            merchant_info = f" at {description}" if description else ""
+            
+            create_notification(
+                user_id=user_id,
+                notification_type="large_transaction",
+                title="Large Transaction Alert 💰",
+                message=f"You had a large expense of ${amount:.2f}{merchant_info} for {category}.",
+                goal_id=transaction["_id"],
+                goal_name=f"Large {category} expense"
+            )
+
+
+def analyze_unusual_spending(user_id: str):
+    """Analyze spending patterns and notify about unusual activity"""
+    from datetime import datetime, UTC, timedelta
+    from collections import defaultdict
+    import statistics
+    
+    now = datetime.now(UTC)
+    
+    # Get transactions from last 7 days
+    this_week_start = now - timedelta(days=7)
+    this_week_transactions = list(transactions_collection.find({
+        "user_id": user_id,
+        "type": "outflow",
+        "date": {"$gte": this_week_start}
+    }))
+    
+    # Get transactions from previous 4 weeks for comparison
+    last_month_start = now - timedelta(days=35)
+    last_month_end = this_week_start
+    last_month_transactions = list(transactions_collection.find({
+        "user_id": user_id,
+        "type": "outflow",
+        "date": {"$gte": last_month_start, "$lt": last_month_end}
+    }))
+    
+    # Need at least some historical data
+    if len(last_month_transactions) < 5:
+        return
+    
+    # Group by category
+    this_week_by_category = defaultdict(float)
+    last_month_by_category = defaultdict(float)
+    
+    for t in this_week_transactions:
+        this_week_by_category[t["main_category"]] += t["amount"]
+    
+    for t in last_month_transactions:
+        last_month_by_category[t["main_category"]] += t["amount"]
+    
+    # Calculate weekly average for each category from last month
+    weeks_in_last_month = 4
+    
+    for category, this_week_amount in this_week_by_category.items():
+        if category not in last_month_by_category:
+            continue
+        
+        weekly_avg = last_month_by_category[category] / weeks_in_last_month
+        
+        # Check if this week is significantly higher (>150% of average)
+        if this_week_amount > weekly_avg * 1.5 and this_week_amount - weekly_avg > 50:
+            # Check if we already sent this notification this week
+            existing = notifications_collection.find_one({
+                "user_id": user_id,
+                "type": "unusual_spending",
+                "goal_name": category,
+                "created_at": {"$gte": this_week_start}
+            })
+            
+            if not existing:
+                create_notification(
+                    user_id=user_id,
+                    notification_type="unusual_spending",
+                    title="Unusual Spending Detected 📊",
+                    message=f"Your spending on '{category}' is higher than usual this week (${this_week_amount:.2f} vs usual ${weekly_avg:.2f}). Would you like to review these transactions?",
+                    goal_id=None,
+                    goal_name=category
+                )
+
+
+def detect_and_notify_recurring_payments():
+    """Detect recurring payments and send reminders"""
+    from datetime import datetime, UTC, timedelta
+    from collections import defaultdict
+    
+    now = datetime.now(UTC)
+    three_days_from_now = now + timedelta(days=3)
+    
+    # Get all users
+    users = users_collection.find({})
+    
+    for user in users:
+        user_id = user["_id"]
+        
+        # Get transactions from last 90 days
+        ninety_days_ago = now - timedelta(days=90)
+        transactions = list(transactions_collection.find({
+            "user_id": user_id,
+            "type": "outflow",
+            "date": {"$gte": ninety_days_ago}
+        }))
+        
+        if len(transactions) < 10:
+            continue
+        
+        # Group by description and category to find recurring patterns
+        recurring_patterns = defaultdict(list)
+        
+        for t in transactions:
+            # Create a key from description or sub-category
+            key = t.get("description", "").lower().strip()
+            if not key:
+                key = t["sub_category"].lower()
+            
+            # Skip very generic descriptions
+            if len(key) < 3 or key in ["payment", "purchase", "expense"]:
+                continue
+            
+            recurring_patterns[key].append({
+                "date": t["date"],
+                "amount": t["amount"],
+                "category": t["main_category"],
+                "sub_category": t["sub_category"],
+                "description": t.get("description", t["sub_category"])
+            })
+        
+        # Analyze patterns
+        for key, occurrences in recurring_patterns.items():
+            # Need at least 2 occurrences
+            if len(occurrences) < 2:
+                continue
+            
+            # Sort by date
+            occurrences.sort(key=lambda x: x["date"])
+            
+            # Calculate intervals between occurrences
+            intervals = []
+            for i in range(1, len(occurrences)):
+                interval = (occurrences[i]["date"] - occurrences[i-1]["date"]).days
+                intervals.append(interval)
+            
+            # Check if intervals are roughly consistent (monthly: 28-32 days)
+            if not intervals:
+                continue
+            
+            avg_interval = sum(intervals) / len(intervals)
+            
+            # Monthly pattern (28-32 days)
+            if 28 <= avg_interval <= 32:
+                last_occurrence = occurrences[-1]["date"]
+                next_expected = last_occurrence + timedelta(days=int(avg_interval))
+                
+                # Check if payment is due in ~3 days
+                days_until = (next_expected - now).days
+                
+                if 2 <= days_until <= 4:
+                    # Check if we already sent this notification
+                    existing = notifications_collection.find_one({
+                        "user_id": user_id,
+                        "type": "payment_reminder",
+                        "goal_name": key,
+                        "created_at": {"$gte": now - timedelta(days=7)}
+                    })
+                    
+                    if not existing:
+                        last_amount = occurrences[-1]["amount"]
+                        description = occurrences[-1]["description"]
+                        
+                        create_notification(
+                            user_id=user_id,
+                            notification_type="payment_reminder",
+                            title="Upcoming Payment Reminder 🔔",
+                            message=f"Your '{description}' payment of ${last_amount:.2f} is due in {days_until} days.",
+                            goal_id=None,
+                            goal_name=key
+                        )

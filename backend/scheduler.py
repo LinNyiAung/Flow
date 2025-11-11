@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-from notification_service import check_approaching_target_dates, check_budget_period_notifications
+from notification_service import analyze_unusual_spending, check_approaching_target_dates, check_budget_period_notifications, detect_and_notify_recurring_payments
 import logging
+from database import users_collection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -9,7 +10,7 @@ def start_scheduler():
     """Start the background scheduler for notifications"""
     scheduler = BackgroundScheduler()
     
-    # Check for approaching target dates daily at 9 AM
+    # Check for approaching goal target dates daily at 9 AM
     scheduler.add_job(
         func=check_approaching_target_dates,
         trigger="cron",
@@ -20,8 +21,7 @@ def start_scheduler():
         replace_existing=True
     )
     
-    
-    # NEW: Check for budget period notifications daily at 9 AM
+    # Check for budget period notifications daily at 9 AM
     scheduler.add_job(
         func=check_budget_period_notifications,
         trigger="cron",
@@ -29,6 +29,37 @@ def start_scheduler():
         minute=0,
         id="check_budget_periods",
         name="Check budget periods for notifications",
+        replace_existing=True
+    )
+    
+    # NEW: Check for unusual spending patterns daily at 8 AM
+    def analyze_all_users_spending():
+        """Analyze spending for all users"""
+        users = users_collection.find({})
+        for user in users:
+            try:
+                analyze_unusual_spending(user["_id"])
+            except Exception as e:
+                print(f"Error analyzing spending for user {user['_id']}: {e}")
+    
+    scheduler.add_job(
+        func=analyze_all_users_spending,
+        trigger="cron",
+        hour=8,
+        minute=0,
+        id="analyze_unusual_spending",
+        name="Analyze unusual spending patterns",
+        replace_existing=True
+    )
+    
+    # NEW: Check for recurring payment reminders daily at 9 AM
+    scheduler.add_job(
+        func=detect_and_notify_recurring_payments,
+        trigger="cron",
+        hour=9,
+        minute=0,
+        id="payment_reminders",
+        name="Check for upcoming recurring payments",
         replace_existing=True
     )
     
