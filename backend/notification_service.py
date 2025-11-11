@@ -3,7 +3,7 @@ from typing import List, Optional
 import uuid
 from database import goals_collection, database
 
-from database import notifications_collection
+from database import (notifications_collection, budgets_collection)
 
 
 def create_notification(
@@ -128,3 +128,133 @@ def check_approaching_target_dates():
                     goal_id=goal_id,
                     goal_name=goal_name
                 )
+                
+                
+def check_budget_notifications(user_id: str, budget_id: str, old_percentage: float, new_percentage: float, budget_name: str, category_name: str = None):
+    """Check and create budget threshold/exceeded notifications"""
+    
+    # Category-specific or overall budget
+    budget_label = f"'{category_name}'" if category_name else "overall"
+    
+    # Check for 80% threshold
+    if old_percentage < 80 <= new_percentage < 100:
+        create_notification(
+            user_id=user_id,
+            notification_type="budget_threshold",
+            title=f"Budget Alert: 80% Spent 🔔",
+            message=f"You've spent 80% of your {budget_label} budget in '{budget_name}'. Consider adjusting your spending.",
+            goal_id=budget_id,
+            goal_name=budget_name
+        )
+    
+    # Check for exceeded (>100%)
+    if old_percentage < 100 <= new_percentage:
+        exceeded_amount = ((new_percentage - 100) / 100) * 100  # Rough calculation
+        create_notification(
+            user_id=user_id,
+            notification_type="budget_exceeded",
+            title=f"Budget Exceeded! ⚠️",
+            message=f"You've exceeded your {budget_label} budget in '{budget_name}'. Review your recent expenses.",
+            goal_id=budget_id,
+            goal_name=budget_name
+        )
+
+
+def check_budget_period_notifications():
+    """Check all budgets for period start/end notifications (run daily)"""
+    from datetime import datetime, UTC, timedelta
+    
+    now = datetime.now(UTC)
+    three_days_from_now = now + timedelta(days=3)
+    
+    # Check for budgets ending in 3 days
+    budgets_ending = budgets_collection.find({
+        "status": "active",
+        "end_date": {
+            "$gte": now,
+            "$lte": three_days_from_now
+        }
+    })
+    
+    for budget in budgets_ending:
+        user_id = budget["user_id"]
+        budget_id = budget["_id"]
+        budget_name = budget["name"]
+        end_date = budget["end_date"]
+        
+        days_until_end = (end_date - now).days
+        
+        # Only send notification once per milestone
+        if days_until_end == 3:
+            # Check if we already sent this notification
+            existing = notifications_collection.find_one({
+                "user_id": user_id,
+                "goal_id": budget_id,
+                "type": "budget_ending_soon",
+                "created_at": {"$gte": now - timedelta(hours=24)}
+            })
+            
+            if not existing:
+                create_notification(
+                    user_id=user_id,
+                    notification_type="budget_ending_soon",
+                    title="Budget Ending Soon 📅",
+                    message=f"Your '{budget_name}' budget period ends in 3 days. Review your spending to see how you did!",
+                    goal_id=budget_id,
+                    goal_name=budget_name
+                )
+    
+    # Check for budgets that just became active (upcoming -> active)
+    budgets_now_active = budgets_collection.find({
+        "status": "upcoming",
+        "start_date": {"$lte": now}
+    })
+    
+    for budget in budgets_now_active:
+        user_id = budget["user_id"]
+        budget_id = budget["_id"]
+        budget_name = budget["name"]
+        total_budget = budget["total_budget"]
+        
+        # Check if we already sent this notification
+        existing = notifications_collection.find_one({
+            "user_id": user_id,
+            "goal_id": budget_id,
+            "type": "budget_now_active"
+        })
+        
+        if not existing:
+            create_notification(
+                user_id=user_id,
+                notification_type="budget_now_active",
+                title="Budget Now Active! 🚀",
+                message=f"Your '{budget_name}' budget is now active! Total budget: ${total_budget:.2f}",
+                goal_id=budget_id,
+                goal_name=budget_name
+            )
+
+
+def notify_budget_started(user_id: str, budget_id: str, budget_name: str, total_budget: float, period: str):
+    """Notify when a new budget is created and started"""
+    create_notification(
+        user_id=user_id,
+        notification_type="budget_started",
+        title="New Budget Started 🚀",
+        message=f"Your '{budget_name}' budget for {period} has started. Total budget: ${total_budget:.2f}",
+        goal_id=budget_id,
+        goal_name=budget_name
+    )
+
+
+def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, was_ai: bool):
+    """Notify when a budget is auto-created"""
+    ai_text = "with AI optimization" if was_ai else "based on your previous budget"
+    
+    create_notification(
+        user_id=user_id,
+        notification_type="budget_auto_created",
+        title="Budget Auto-Created 🔄",
+        message=f"Your '{budget_name}' budget has ended. A new budget for the next period has been created {ai_text}.",
+        goal_id=budget_id,
+        goal_name=budget_name
+    )

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -362,23 +363,66 @@ Widget _buildAddOption({
           // Notification icon (keeping as is, similar to HomeScreen's actions)
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
-            child: Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.notifications_outlined,
-                color: Color(0xFF667eea),
-              ),
+            child: Consumer<NotificationProvider>(
+              builder: (context, notificationProvider, child) {
+                return Stack(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.1),
+                            spreadRadius: 1,
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.notifications_outlined,
+                          color: Color(0xFF667eea),
+                        ),
+                        onPressed: () {
+                          Navigator.pushNamed(context, '/notifications').then((
+                            _,
+                          ) {
+                            // Refresh data when returning from notifications
+                            notificationProvider.fetchUnreadCount();
+                          });
+                        },
+                      ),
+                    ),
+                    if (notificationProvider.unreadCount > 0)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: BoxConstraints(
+                            minWidth: 20,
+                            minHeight: 20,
+                          ),
+                          child: Text(
+                            '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
         ],

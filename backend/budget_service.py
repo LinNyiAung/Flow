@@ -6,6 +6,7 @@ from collections import defaultdict
 import statistics
 import uuid
 
+from notification_service import check_budget_notifications, notify_budget_auto_created
 from database import transactions_collection, budgets_collection, goals_collection, categories_collection
 from budget_models import (
     BudgetPeriod, CategoryBudget, AIBudgetSuggestion, BudgetStatus
@@ -539,6 +540,12 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
     if not budget:
         return
     
+    # Store old values for notification checks
+    old_total_percentage = budget.get("percentage_used", 0)
+    old_category_percentages = {}
+    for cat_budget in budget["category_budgets"]:
+        old_category_percentages[cat_budget["main_category"]] = cat_budget.get("percentage_used", 0)
+    
     # Get all transactions in budget period
     transactions = list(transactions_collection.find({
         "user_id": user_id,
@@ -585,9 +592,23 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
         spent = category_spent.get(budget_category, 0)
         allocated = cat_budget["allocated_amount"]
         
+        old_cat_percentage = old_category_percentages.get(budget_category, 0)
+        new_cat_percentage = (spent / allocated * 100) if allocated > 0 else 0
+        
         cat_budget["spent_amount"] = spent
-        cat_budget["percentage_used"] = (spent / allocated * 100) if allocated > 0 else 0
+        cat_budget["percentage_used"] = new_cat_percentage
         cat_budget["is_exceeded"] = spent > allocated
+        
+        # NEW: Check for category-specific notifications
+        if new_cat_percentage != old_cat_percentage:
+            check_budget_notifications(
+                user_id=user_id,
+                budget_id=budget_id,
+                old_percentage=old_cat_percentage,
+                new_percentage=new_cat_percentage,
+                budget_name=budget["name"],
+                category_name=budget_category
+            )
     
     # Calculate total_spent by summing only unique transactions
     total_spent = sum(t["amount"] for t in transactions if t["_id"] in counted_transaction_ids)
@@ -597,7 +618,18 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
     
     # Update budget totals
     remaining = total_budget - total_spent
-    percentage_used = (total_spent / total_budget * 100) if total_budget > 0 else 0
+    new_total_percentage = (total_spent / total_budget * 100) if total_budget > 0 else 0
+    
+    # NEW: Check for overall budget notifications
+    if new_total_percentage != old_total_percentage:
+        check_budget_notifications(
+            user_id=user_id,
+            budget_id=budget_id,
+            old_percentage=old_total_percentage,
+            new_percentage=new_total_percentage,
+            budget_name=budget["name"],
+            category_name=None  # None means overall budget
+        )
     
     # Update status
     status = calculate_budget_status(budget, datetime.now(timezone.utc))
@@ -611,7 +643,7 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
                 "total_budget": total_budget,
                 "total_spent": total_spent,
                 "remaining_budget": remaining,
-                "percentage_used": percentage_used,
+                "percentage_used": new_total_percentage,
                 "status": status.value,
                 "is_active": is_active,
                 "updated_at": datetime.now(timezone.utc)
@@ -766,6 +798,15 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         
         budgets_collection.insert_one(new_budget)
         print(f"✅ Auto-created new budget: {new_budget_id} (from {budget_id})")
+        
+        
+        # NEW: Send notification
+        notify_budget_auto_created(
+            user_id=budget["user_id"],
+            budget_id=new_budget_id,
+            budget_name=budget["name"],
+            was_ai=budget.get("auto_create_with_ai", False)
+        )
         
         return new_budget_id
         

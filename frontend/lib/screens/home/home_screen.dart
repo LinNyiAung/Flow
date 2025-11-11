@@ -23,9 +23,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // Key for the Scaffold to open the drawer
+  final GlobalKey<ScaffoldState> _scaffoldKey =
+      GlobalKey<ScaffoldState>(); // Key for the Scaffold to open the drawer
   Timer? _notificationTimer;
-  
+
   @override
   void initState() {
     super.initState();
@@ -36,14 +37,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-
-    // ADD THIS METHOD
+  // ADD THIS METHOD
   void _startNotificationPolling() {
-    final notificationProvider = Provider.of<NotificationProvider>(context, listen: false);
-    
+    final notificationProvider = Provider.of<NotificationProvider>(
+      context,
+      listen: false,
+    );
+
     // Initial fetch
     notificationProvider.fetchUnreadCount();
-    
+
     // Poll every 30 seconds
     _notificationTimer = Timer.periodic(Duration(seconds: 30), (timer) {
       notificationProvider.fetchNotifications();
@@ -59,10 +62,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Function to refresh data (pull-to-refresh and initial load)
   Future<void> _refreshData() async {
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    final goalProvider = Provider.of<GoalProvider>(context, listen: false); // ADD THIS
-    final notificationProvider = Provider.of<NotificationProvider>(context, listen: false); // ADD THIS
-    
+    final transactionProvider = Provider.of<TransactionProvider>(
+      context,
+      listen: false,
+    );
+    final goalProvider = Provider.of<GoalProvider>(
+      context,
+      listen: false,
+    ); // ADD THIS
+    final notificationProvider = Provider.of<NotificationProvider>(
+      context,
+      listen: false,
+    ); // ADD THIS
+
     await Future.wait([
       transactionProvider.fetchTransactions(limit: 3),
       transactionProvider.fetchBalance(),
@@ -102,73 +114,76 @@ class _HomeScreenState extends State<HomeScreen> {
         leading: IconButton(
           icon: Icon(Icons.menu), // Menu icon
           color: Color(0xFF333333),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(), // Use the key to open the drawer
+          onPressed: () => _scaffoldKey.currentState
+              ?.openDrawer(), // Use the key to open the drawer
         ),
         actions: [
-  // Notification Icon with Badge
-  Padding(
-    padding: const EdgeInsets.only(right: 16.0),
-    child: Consumer<NotificationProvider>(
-      builder: (context, notificationProvider, child) {
-        return Stack(
-          children: [
-            Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
-              child: IconButton(
-                icon: Icon(
-                  Icons.notifications_outlined,
-                  color: Color(0xFF667eea),
-                ),
-                onPressed: () {
-                  Navigator.pushNamed(context, '/notifications').then((_) {
-                    // Refresh data when returning from notifications
-                    notificationProvider.fetchUnreadCount();
-                  });
-                },
-              ),
-            ),
-            if (notificationProvider.unreadCount > 0)
-              Positioned(
-                right: 0,
-                top: 0,
-                child: Container(
-                  padding: EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                  constraints: BoxConstraints(
-                    minWidth: 20,
-                    minHeight: 20,
-                  ),
-                  child: Text(
-                    '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
-                    style: GoogleFonts.poppins(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+          // Notification Icon with Badge
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Consumer<NotificationProvider>(
+              builder: (context, notificationProvider, child) {
+                return Stack(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.1),
+                            spreadRadius: 1,
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.notifications_outlined,
+                          color: Color(0xFF667eea),
+                        ),
+                        onPressed: () {
+                          Navigator.pushNamed(context, '/notifications').then((
+                            _,
+                          ) {
+                            // Refresh data when returning from notifications
+                            notificationProvider.fetchUnreadCount();
+                          });
+                        },
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    ),
-  ),
-],
+                    if (notificationProvider.unreadCount > 0)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: BoxConstraints(
+                            minWidth: 20,
+                            minHeight: 20,
+                          ),
+                          child: Text(
+                            '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
         // AppBar theme from main.dart makes background transparent and removes elevation by default.
         // If you want a specific background color for Home and Transaction AppBar:
         // backgroundColor: Colors.white, // Or any color you prefer
@@ -180,7 +195,9 @@ class _HomeScreenState extends State<HomeScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF667eea).withOpacity(0.1), // Subtle gradient matching theme
+              Color(
+                0xFF667eea,
+              ).withOpacity(0.1), // Subtle gradient matching theme
               Colors.white,
             ],
           ),
@@ -190,7 +207,8 @@ class _HomeScreenState extends State<HomeScreen> {
           child: RefreshIndicator(
             onRefresh: _refreshData,
             color: Color(0xFF667eea), // Purple refresh indicator
-            child: CustomScrollView( // Use CustomScrollView for flexible layouts with slivers
+            child: CustomScrollView(
+              // Use CustomScrollView for flexible layouts with slivers
               slivers: [
                 // Header Section (Welcome message)
                 SliverToBoxAdapter(
@@ -210,7 +228,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             Text(
-                              authProvider.user?.name ?? 'User', // Display user name or 'User' if null
+                              authProvider.user?.name ??
+                                  'User', // Display user name or 'User' if null
                               style: GoogleFonts.poppins(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
@@ -229,7 +248,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20),
                     child: Card(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                       elevation: 8,
                       child: Container(
                         width: double.infinity,
@@ -277,8 +298,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            if (transactionProvider.balance?.allocatedToGoals != null && 
-                                transactionProvider.balance!.allocatedToGoals > 0) ...[
+                            if (transactionProvider.balance?.allocatedToGoals !=
+                                    null &&
+                                transactionProvider.balance!.allocatedToGoals >
+                                    0) ...[
                               SizedBox(height: 2),
                               Text(
                                 'Allocated to Goals: \$${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
@@ -295,14 +318,26 @@ class _HomeScreenState extends State<HomeScreen> {
                                 _buildBalanceInfo(
                                   icon: Icons.arrow_upward,
                                   label: 'Inflow',
-                                  amount: transactionProvider.balance?.totalInflow ?? 0.0,
+                                  amount:
+                                      transactionProvider
+                                          .balance
+                                          ?.totalInflow ??
+                                      0.0,
                                   color: Colors.green,
                                 ),
-                                Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
+                                Container(
+                                  height: 40,
+                                  width: 1,
+                                  color: Colors.white.withOpacity(0.3),
+                                ),
                                 _buildBalanceInfo(
                                   icon: Icons.arrow_downward,
                                   label: 'Outflow',
-                                  amount: transactionProvider.balance?.totalOutflow ?? 0.0,
+                                  amount:
+                                      transactionProvider
+                                          .balance
+                                          ?.totalOutflow ??
+                                      0.0,
                                   color: Colors.red,
                                 ),
                               ],
@@ -315,7 +350,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 SliverToBoxAdapter(child: SizedBox(height: 30)), // Spacer
-
                 // AI Assistant Card (Styled consistently)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -343,7 +377,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               height: 50,
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
-                                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                                  colors: [
+                                    Color(0xFF667eea),
+                                    Color(0xFF764ba2),
+                                  ],
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -389,7 +426,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 SliverToBoxAdapter(child: SizedBox(height: 16)), // Spacer
-
                 // AI Insights Card
                 SliverToBoxAdapter(
                   child: Padding(
@@ -417,7 +453,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               height: 50,
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
-                                  colors: [Color(0xFFFFB74D), Color(0xFFFF9800)],
+                                  colors: [
+                                    Color(0xFFFFB74D),
+                                    Color(0xFFFF9800),
+                                  ],
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -463,7 +502,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 SliverToBoxAdapter(child: SizedBox(height: 30)), // Spacer
-
                 // Recent Transactions Header with "See More" action
                 SliverToBoxAdapter(
                   child: Padding(
@@ -481,13 +519,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         // "See More" Text Button
                         GestureDetector(
-                          onTap: _navigateToTransactionsList, // Navigate to the full list
+                          onTap:
+                              _navigateToTransactionsList, // Navigate to the full list
                           child: Text(
                             'See More',
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF667eea), // Use primary purple color
+                              color: Color(
+                                0xFF667eea,
+                              ), // Use primary purple color
                             ),
                           ),
                         ),
@@ -503,12 +544,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   SliverToBoxAdapter(
                     child: Container(
                       height: 200, // Placeholder height
-                      child: Center(child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-                      )),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Color(0xFF667eea),
+                          ),
+                        ),
+                      ),
                     ),
                   )
-                else if (transactionProvider.transactions.isEmpty) // Show empty state
+                else if (transactionProvider
+                    .transactions
+                    .isEmpty) // Show empty state
                   SliverToBoxAdapter(
                     child: Container(
                       height: 200, // Placeholder height
@@ -545,20 +592,31 @@ class _HomeScreenState extends State<HomeScreen> {
                 else // Display the list of recent transactions
                   SliverList(
                     delegate: SliverChildBuilderDelegate(
-                          (context, index) {
+                      (context, index) {
                         // Limit to showing only the first 3 recent transactions here
-                        if (index >= 3) return null; // Stop building items after the 3rd one
-                        final transaction = transactionProvider.transactions[index];
+                        if (index >= 3)
+                          return null; // Stop building items after the 3rd one
+                        final transaction =
+                            transactionProvider.transactions[index];
                         return Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                          child: _buildTransactionCard(transaction), // Build card for each transaction
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 4,
+                          ),
+                          child: _buildTransactionCard(
+                            transaction,
+                          ), // Build card for each transaction
                         );
                       },
-                      childCount: transactionProvider.transactions.length, // Total items available
+                      childCount: transactionProvider
+                          .transactions
+                          .length, // Total items available
                     ),
                   ),
 
-                SliverToBoxAdapter(child: SizedBox(height: 100)), // Space at bottom for FAB
+                SliverToBoxAdapter(
+                  child: SizedBox(height: 100),
+                ), // Space at bottom for FAB
               ],
             ),
           ),
@@ -612,7 +670,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // Widget to build a card for each transaction (consistent with TransactionsListScreen)
   Widget _buildTransactionCard(Transaction transaction) {
     return GestureDetector(
-      onTap: () => _navigateToEditTransaction(transaction), // Navigate to edit screen on tap
+      onTap: () => _navigateToEditTransaction(
+        transaction,
+      ), // Navigate to edit screen on tap
       child: Container(
         margin: EdgeInsets.only(bottom: 8),
         padding: EdgeInsets.all(16),
@@ -670,7 +730,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   // Display description if available and not empty
-                  if (transaction.description != null && transaction.description!.isNotEmpty) ...[
+                  if (transaction.description != null &&
+                      transaction.description!.isNotEmpty) ...[
                     SizedBox(height: 2),
                     Text(
                       transaction.description!,
@@ -679,7 +740,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.grey[500],
                       ),
                       maxLines: 1, // Limit description to one line
-                      overflow: TextOverflow.ellipsis, // Add ellipsis if text is truncated
+                      overflow: TextOverflow
+                          .ellipsis, // Add ellipsis if text is truncated
                     ),
                   ],
                 ],
@@ -711,7 +773,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             SizedBox(width: 8),
-            Icon( // Arrow icon to indicate tappable card
+            Icon(
+              // Arrow icon to indicate tappable card
               Icons.arrow_forward_ios,
               size: 16,
               color: Colors.grey[400],
@@ -724,211 +787,202 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Navigate to the AddTransactionScreen and handle results
   void _navigateToAddTransaction() {
-  _showAddTransactionOptions();
-}
+    _showAddTransactionOptions();
+  }
 
-void _showAddTransactionOptions() {
-  showModalBottomSheet(
-    context: context,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (BuildContext context) {
-      return Container(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+  void _showAddTransactionOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return Container(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    child: Icon(Icons.add, color: Colors.white, size: 20),
                   ),
-                  child: Icon(Icons.add, color: Colors.white, size: 20),
-                ),
-                SizedBox(width: 12),
-                Text(
-                  'Add Transaction',
-                  style: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
+                  SizedBox(width: 12),
+                  Text(
+                    'Add Transaction',
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF333333),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            SizedBox(height: 24),
+                ],
+              ),
+              SizedBox(height: 24),
 
-            // Manual Entry Option
-            _buildAddOption(
-              icon: Icons.edit_outlined,
-              title: 'Manual Entry',
-              subtitle: 'Type transaction details',
-              gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
-              onTap: () async {
-                Navigator.pop(context);
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => AddTransactionScreen()),
-                );
-                if (result == true) {
-                  _refreshData();
-                  _showSuccessSnackBar('Transaction added successfully!');
-                }
-              },
-            ),
-            SizedBox(height: 12),
+              // Manual Entry Option
+              _buildAddOption(
+                icon: Icons.edit_outlined,
+                title: 'Manual Entry',
+                subtitle: 'Type transaction details',
+                gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                onTap: () async {
+                  Navigator.pop(context);
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AddTransactionScreen()),
+                  );
+                  if (result == true) {
+                    _refreshData();
+                    _showSuccessSnackBar('Transaction added successfully!');
+                  }
+                },
+              ),
+              SizedBox(height: 12),
 
-            // Voice Input Option
-            _buildAddOption(
-              icon: Icons.mic,
-              title: 'Voice Input',
-              subtitle: 'Speak your transaction',
-              gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
-              onTap: () async {
-                Navigator.pop(context);
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => VoiceInputScreen()),
-                );
-                if (result == true) {
-                  _refreshData();
-                  _showSuccessSnackBar('Transaction added successfully!');
-                }
-              },
-            ),
-            SizedBox(height: 12),
+              // Voice Input Option
+              _buildAddOption(
+                icon: Icons.mic,
+                title: 'Voice Input',
+                subtitle: 'Speak your transaction',
+                gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
+                onTap: () async {
+                  Navigator.pop(context);
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => VoiceInputScreen()),
+                  );
+                  if (result == true) {
+                    _refreshData();
+                    _showSuccessSnackBar('Transaction added successfully!');
+                  }
+                },
+              ),
+              SizedBox(height: 12),
 
-            // Image Input Option
-            _buildAddOption(
-              icon: Icons.camera_alt,
-              title: 'Scan Receipt',
-              subtitle: 'Take or upload receipt photo',
-              gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
-              onTap: () async {
-                Navigator.pop(context);
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => ImageInputScreen()),
-                );
-                if (result == true) {
-                  _refreshData();
-                  _showSuccessSnackBar('Transaction added successfully!');
-                }
-              },
+              // Image Input Option
+              _buildAddOption(
+                icon: Icons.camera_alt,
+                title: 'Scan Receipt',
+                subtitle: 'Take or upload receipt photo',
+                gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
+                onTap: () async {
+                  Navigator.pop(context);
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => ImageInputScreen()),
+                  );
+                  if (result == true) {
+                    _refreshData();
+                    _showSuccessSnackBar('Transaction added successfully!');
+                  }
+                },
+              ),
+              SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAddOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required List<Color> gradientColors,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 4,
             ),
-            SizedBox(height: 16),
           ],
         ),
-      );
-    },
-  );
-}
-
-Widget _buildAddOption({
-  required IconData icon,
-  required String title,
-  required String subtitle,
-  required List<Color> gradientColors,
-  required VoidCallback onTap,
-}) {
-  return InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(16),
-    child: Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.grey.withOpacity(0.2),
-          width: 1,
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: gradientColors),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: Colors.white, size: 24),
+            ),
+            SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF333333),
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: gradientColors),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: Colors.white, size: 24),
-          ),
-          SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            Icons.arrow_forward_ios,
-            size: 16,
-            color: Colors.grey[400],
-          ),
-        ],
-      ),
-    ),
-  );
-}
+    );
+  }
 
-void _showSuccessSnackBar(String message) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        message,
-        style: GoogleFonts.poppins(color: Colors.white),
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.poppins(color: Colors.white)),
+        backgroundColor: Color(0xFF4CAF50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        behavior: SnackBarBehavior.floating,
       ),
-      backgroundColor: Color(0xFF4CAF50),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-      ),
-      behavior: SnackBarBehavior.floating,
-    ),
-  );
-}
+    );
+  }
 
   // Navigate to the EditTransactionScreen and handle results
   void _navigateToEditTransaction(Transaction transaction) async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => EditTransactionScreen(transaction: transaction), // Pass transaction data
+        builder: (_) => EditTransactionScreen(
+          transaction: transaction,
+        ), // Pass transaction data
       ),
     );
 
-    if (result == true) { // Transaction updated
+    if (result == true) {
+      // Transaction updated
       _refreshData(); // Refresh data
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -937,13 +991,12 @@ void _showSuccessSnackBar(String message) {
             style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Color(0xFF4CAF50), // Success green
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           behavior: SnackBarBehavior.floating,
         ),
       );
-    } else if (result == 'deleted') { // Transaction deleted
+    } else if (result == 'deleted') {
+      // Transaction deleted
       _refreshData(); // Refresh data
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -952,9 +1005,7 @@ void _showSuccessSnackBar(String message) {
             style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Colors.red, // Error red
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -989,7 +1040,10 @@ void _showSuccessSnackBar(String message) {
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(context); // Close dialog
-                Provider.of<AuthProvider>(context, listen: false).logout(); // Perform logout
+                Provider.of<AuthProvider>(
+                  context,
+                  listen: false,
+                ).logout(); // Perform logout
                 // Navigate back to login screen and replace current route
                 Navigator.pushReplacement(
                   context,

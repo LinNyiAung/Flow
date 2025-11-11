@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/budget_provider.dart';
+import 'package:frontend/screens/budgets/budget_detail_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -27,56 +29,94 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     await notificationProvider.fetchNotifications();
   }
 
-  IconData _getNotificationIcon(NotificationType type) {
-    switch (type) {
-      case NotificationType.goal_achieved:
-        return Icons.emoji_events;
-      case NotificationType.goal_progress:
-        return Icons.trending_up;
-      case NotificationType.goal_milestone:
-        return Icons.star;
-      case NotificationType.goal_approaching_date:
-        return Icons.event;
-    }
+IconData _getNotificationIcon(NotificationType type) {
+  switch (type) {
+    case NotificationType.goal_achieved:
+      return Icons.emoji_events;
+    case NotificationType.goal_progress:
+      return Icons.trending_up;
+    case NotificationType.goal_milestone:
+      return Icons.star;
+    case NotificationType.goal_approaching_date:
+      return Icons.event;
+    case NotificationType.budget_started:           // ADD THIS
+      return Icons.play_circle_filled;
+    case NotificationType.budget_ending_soon:       // ADD THIS
+      return Icons.access_time;
+    case NotificationType.budget_threshold:         // ADD THIS
+      return Icons.warning_amber_rounded;
+    case NotificationType.budget_exceeded:          // ADD THIS
+      return Icons.error;
+    case NotificationType.budget_auto_created:      // ADD THIS
+      return Icons.autorenew;
+    case NotificationType.budget_now_active:        // ADD THIS
+      return Icons.check_circle;
+  }
+}
+
+Color _getNotificationColor(NotificationType type) {
+  switch (type) {
+    case NotificationType.goal_achieved:
+      return Color(0xFFFFD700);
+    case NotificationType.goal_progress:
+      return Color(0xFF4CAF50);
+    case NotificationType.goal_milestone:
+      return Color(0xFFFF9800);
+    case NotificationType.goal_approaching_date:
+      return Color(0xFF2196F3);
+    case NotificationType.budget_started:           // ADD THIS
+      return Color(0xFF4CAF50);
+    case NotificationType.budget_ending_soon:       // ADD THIS
+      return Color(0xFFFF9800);
+    case NotificationType.budget_threshold:         // ADD THIS
+      return Color(0xFFFF9800);
+    case NotificationType.budget_exceeded:          // ADD THIS
+      return Color(0xFFFF5722);
+    case NotificationType.budget_auto_created:      // ADD THIS
+      return Color(0xFF667eea);
+    case NotificationType.budget_now_active:        // ADD THIS
+      return Color(0xFF4CAF50);
+  }
+}
+
+Future<void> _handleNotificationTap(AppNotification notification) async {
+  final notificationProvider =
+      Provider.of<NotificationProvider>(context, listen: false);
+
+  // Mark as read
+  if (!notification.isRead) {
+    await notificationProvider.markAsRead(notification.id);
   }
 
-  Color _getNotificationColor(NotificationType type) {
-    switch (type) {
-      case NotificationType.goal_achieved:
-        return Color(0xFFFFD700); // Gold
-      case NotificationType.goal_progress:
-        return Color(0xFF4CAF50);
-      case NotificationType.goal_milestone:
-        return Color(0xFFFF9800);
-      case NotificationType.goal_approaching_date:
-        return Color(0xFF2196F3);
+  // Navigate to goal or budget based on notification type
+  if (notification.type.name.startsWith('budget_') && notification.goalId != null) {
+    // It's a budget notification (goalId is actually budgetId for budget notifications)
+    final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
+    final budget = await budgetProvider.getBudget(notification.goalId!);
+    
+    if (budget != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BudgetDetailScreen(budget: budget),
+        ),
+      ).then((_) => _refreshNotifications());
+    }
+  } else if (notification.goalId != null) {
+    // It's a goal notification
+    final goalProvider = Provider.of<GoalProvider>(context, listen: false);
+    final goal = await goalProvider.getGoal(notification.goalId!);
+    
+    if (goal != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GoalDetailScreen(goal: goal),
+        ),
+      ).then((_) => _refreshNotifications());
     }
   }
-
-  Future<void> _handleNotificationTap(AppNotification notification) async {
-    final notificationProvider =
-        Provider.of<NotificationProvider>(context, listen: false);
-
-    // Mark as read
-    if (!notification.isRead) {
-      await notificationProvider.markAsRead(notification.id);
-    }
-
-    // Navigate to goal if goalId exists
-    if (notification.goalId != null) {
-      final goalProvider = Provider.of<GoalProvider>(context, listen: false);
-      final goal = await goalProvider.getGoal(notification.goalId!);
-      
-      if (goal != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GoalDetailScreen(goal: goal),
-          ),
-        ).then((_) => _refreshNotifications());
-      }
-    }
-  }
+}
 
   @override
   Widget build(BuildContext context) {

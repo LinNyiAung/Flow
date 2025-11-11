@@ -123,16 +123,28 @@ class NotificationService {
     await _notifications.cancelAll();
   }
 
-  Color _getNotificationColor(NotificationType type) {
-    switch (type) {
-      case NotificationType.goal_achieved:
-        return Color(0xFFFFD700); // Gold
-      case NotificationType.goal_progress:
-        return Color(0xFF4CAF50); // Green
-      case NotificationType.goal_milestone:
-        return Color(0xFFFF9800); // Orange
-      case NotificationType.goal_approaching_date:
-        return Color(0xFF2196F3); // Blue
-    }
+Color _getNotificationColor(NotificationType type) {
+  switch (type) {
+    case NotificationType.goal_achieved:
+      return Color(0xFFFFD700); // Gold
+    case NotificationType.goal_progress:
+      return Color(0xFF4CAF50); // Green
+    case NotificationType.goal_milestone:
+      return Color(0xFFFF9800); // Orange
+    case NotificationType.goal_approaching_date:
+      return Color(0xFF2196F3); // Blue
+    case NotificationType.budget_started:           // ADD THIS
+      return Color(0xFF4CAF50); // Green
+    case NotificationType.budget_ending_soon:       // ADD THIS
+      return Color(0xFFFF9800); // Orange
+    case NotificationType.budget_threshold:         // ADD THIS
+      return Color(0xFFFF9800); // Orange
+    case NotificationType.budget_exceeded:          // ADD THIS
+      return Color(0xFFFF5722); // Red
+    case NotificationType.budget_auto_created:      // ADD THIS
+      return Color(0xFF667eea); // Purple
+    case NotificationType.budget_now_active:        // ADD THIS
+      return Color(0xFF4CAF50); // Green
   }
+}
 }

@@ -33,7 +33,8 @@ from notification_service import (
     create_notification,
     check_goal_notifications,
     check_milestone_amount,
-    check_approaching_target_dates
+    check_approaching_target_dates,
+    notify_budget_started
 )
 
 from database import (
@@ -2010,6 +2011,17 @@ async def create_budget(
         
         # Calculate actual spent amounts
         update_budget_spent_amounts(current_user["_id"], budget_id)
+        
+        
+        # NEW: Send notification if budget is starting now
+        if is_active:
+            notify_budget_started(
+                user_id=current_user["_id"],
+                budget_id=budget_id,
+                budget_name=budget_data.name,
+                total_budget=budget_data.total_budget,
+                period=budget_data.period.value
+            )
         
         # Refresh AI data
         refresh_ai_data_silent(current_user["_id"])

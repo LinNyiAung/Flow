@@ -3,6 +3,12 @@ enum NotificationType {
   goal_milestone,
   goal_approaching_date,
   goal_achieved,
+  budget_started,          // ADD THIS
+  budget_ending_soon,      // ADD THIS
+  budget_threshold,        // ADD THIS
+  budget_exceeded,         // ADD THIS
+  budget_auto_created,     // ADD THIS
+  budget_now_active,       // ADD THIS
 }
 
 class AppNotification {
