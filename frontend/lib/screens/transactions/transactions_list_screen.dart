@@ -19,6 +19,7 @@ class TransactionsListScreen extends StatefulWidget {
 
 class _TransactionsListScreenState extends State<TransactionsListScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final ScrollController _scrollController = ScrollController(); // ADD THIS
 
   // State variables for filters
   TransactionType? _selectedFilterType;
@@ -28,20 +29,86 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   // State for filter section visibility
   bool _isFiltersExpanded = true;
 
+
+  // ADD THESE PAGINATION VARIABLES
+  int _currentLimit = 50;
+  bool _isLoadingMore = false;
+  bool _hasMoreData = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchTransactionsWithFilter();
     });
+    
+    // ADD SCROLL LISTENER
+    _scrollController.addListener(_onScroll);
   }
 
+
+  // ADD THIS METHOD
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoadingMore && _hasMoreData) {
+        _loadMoreTransactions();
+      }
+    }
+  }
+
+
+
+// REPLACE _loadMoreTransactions in transactions_list_screen.dart
+Future<void> _loadMoreTransactions() async {
+  if (_isLoadingMore) return;
+
+  setState(() {
+    _isLoadingMore = true;
+  });
+
+  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+  final currentCount = transactionProvider.transactions.length;
+
+  // Increase limit to load more
+  _currentLimit += 50;
+
+  // Use the new method that doesn't trigger full loading state
+  await transactionProvider.loadMoreTransactions(
+    type: _selectedFilterType,
+    startDate: _selectedStartDate,
+    endDate: _selectedEndDate,
+    limit: _currentLimit,
+    currentCount: currentCount,
+  );
+
+  final newCount = transactionProvider.transactions.length;
+
+  setState(() {
+    _isLoadingMore = false;
+    _hasMoreData = newCount > currentCount;
+  });
+}
+
   Future<void> _fetchTransactionsWithFilter() async {
+    // RESET PAGINATION STATE
+    setState(() {
+      _currentLimit = 50;
+      _hasMoreData = true;
+    });
+
     await Provider.of<TransactionProvider>(context, listen: false).fetchTransactions(
       type: _selectedFilterType,
       startDate: _selectedStartDate,
       endDate: _selectedEndDate,
+      limit: _currentLimit, // ADD THIS
     );
+  }
+
+
+  @override
+  void dispose() {
+    _scrollController.dispose(); // ADD THIS
+    super.dispose();
   }
 
   Future<void> _refreshData() async {
@@ -662,9 +729,40 @@ Widget _buildAddOption({
                     : transactionProvider.transactions.isEmpty
                         ? _buildEmptyState()
                         : ListView.builder(
+                            controller: _scrollController, // ADD THIS
                             padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                            itemCount: transactionProvider.transactions.length,
+                            itemCount: transactionProvider.transactions.length + (_hasMoreData ? 1 : 0), // MODIFIED
                             itemBuilder: (context, index) {
+                              // ADD LOADING INDICATOR AT THE END
+                              if (index == transactionProvider.transactions.length) {
+                                return Container(
+                                  padding: EdgeInsets.symmetric(vertical: 24),
+                                  child: Center(
+                                    child: Column(
+                                      children: [
+                                        SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                                          ),
+                                        ),
+                                        SizedBox(height: 12),
+                                        Text(
+                                          'Loading more...',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 12,
+                                            color: Colors.grey[500],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
+
                               final transaction = transactionProvider.transactions[index];
                               return _buildTransactionCard(transaction);
                             },

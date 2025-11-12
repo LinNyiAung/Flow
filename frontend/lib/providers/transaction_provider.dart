@@ -38,6 +38,35 @@ class TransactionProvider with ChangeNotifier {
     }
   }
 
+
+  // ADD THIS NEW METHOD to transaction_provider.dart
+Future<void> loadMoreTransactions({
+  TransactionType? type,
+  DateTime? startDate,
+  DateTime? endDate,
+  required int limit,
+  required int currentCount,
+}) async {
+  // Don't set loading state to avoid full rebuild
+  try {
+    final newTransactions = await ApiService.getTransactions(
+      type: type,
+      startDate: startDate,
+      endDate: endDate,
+      limit: limit,
+      skip: 0,
+    );
+    
+    // Only update if we got more transactions than we already have
+    if (newTransactions.length > currentCount) {
+      _transactions = newTransactions;
+      notifyListeners();
+    }
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+  }
+}
+
   // Create a new transaction - UPDATED with context parameter
   Future<bool> createTransaction({
     required TransactionType type,
