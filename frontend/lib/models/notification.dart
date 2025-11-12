@@ -37,21 +37,21 @@ class AppNotification {
     required this.isRead,
   });
 
-  factory AppNotification.fromJson(Map<String, dynamic> json) {
-    return AppNotification(
-      id: json['id'],
-      userId: json['user_id'],
-      type: NotificationType.values.firstWhere(
-        (e) => e.name == json['type'],
-      ),
-      title: json['title'],
-      message: json['message'],
-      goalId: json['goal_id'],
-      goalName: json['goal_name'],
-      createdAt: DateTime.parse(json['created_at']),
-      isRead: json['is_read'],
-    );
-  }
+factory AppNotification.fromJson(Map<String, dynamic> json) {
+  return AppNotification(
+    id: json['id'],
+    userId: json['user_id'],
+    type: NotificationType.values.firstWhere(
+      (e) => e.name == json['type'],
+    ),
+    title: json['title'],
+    message: json['message'],
+    goalId: json['goal_id'],
+    goalName: json['goal_name'],
+    createdAt: DateTime.parse(json['created_at'] + 'Z').toLocal(), // Add 'Z' to mark as UTC
+    isRead: json['is_read'],
+  );
+}
 
   Map<String, dynamic> toJson() {
     return {
