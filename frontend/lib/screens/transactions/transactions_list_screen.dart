@@ -27,7 +27,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   DateTime? _selectedEndDate;
 
   // State for filter section visibility
-  bool _isFiltersExpanded = true;
+  bool _isFiltersExpanded = false;
 
 
   // ADD THESE PAGINATION VARIABLES
@@ -89,20 +89,26 @@ Future<void> _loadMoreTransactions() async {
   });
 }
 
-  Future<void> _fetchTransactionsWithFilter() async {
-    // RESET PAGINATION STATE
-    setState(() {
-      _currentLimit = 50;
-      _hasMoreData = true;
-    });
+Future<void> _fetchTransactionsWithFilter() async {
+  // RESET PAGINATION STATE
+  setState(() {
+    _currentLimit = 50;
+    _hasMoreData = true;
+  });
 
-    await Provider.of<TransactionProvider>(context, listen: false).fetchTransactions(
-      type: _selectedFilterType,
-      startDate: _selectedStartDate,
-      endDate: _selectedEndDate,
-      limit: _currentLimit, // ADD THIS
-    );
-  }
+  await Provider.of<TransactionProvider>(context, listen: false).fetchTransactions(
+    type: _selectedFilterType,
+    startDate: _selectedStartDate,
+    endDate: _selectedEndDate,
+    limit: _currentLimit,
+  );
+
+  // ADD THIS: Check if we have less than the limit, meaning no more data
+  final loadedCount = Provider.of<TransactionProvider>(context, listen: false).transactions.length;
+  setState(() {
+    _hasMoreData = loadedCount >= _currentLimit;
+  });
+}
 
 
   @override
