@@ -11,6 +11,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 
+from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
+from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
 from scheduler import start_scheduler
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget
 from budget_service import BudgetAnalyzer, is_budget_active, update_all_user_budgets, update_budget_spent_amounts
@@ -157,6 +159,26 @@ def refresh_ai_data_silent(user_id: str):
         update_all_user_budgets(user_id)
     except Exception as e:
         print(f"Error refreshing AI data: {e}")
+        
+        
+@app.post("/api/transactions/test-auto-create")
+async def test_auto_create_transactions(current_user: dict = Depends(get_current_user)):
+    """Test endpoint to manually trigger recurring transaction creation"""
+    from recurring_transaction_service import check_and_create_recurring_transactions
+    
+    try:
+        created_count = check_and_create_recurring_transactions()
+        return {
+            "message": f"Successfully checked and created {created_count} recurring transactions",
+            "created_count": created_count
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create recurring transactions: {str(e)}"
+        )
 
 
 @app.post("/api/transactions", response_model=TransactionResponse)
@@ -178,16 +200,29 @@ async def create_transaction(
         "description": transaction_data.description,
         "amount": transaction_data.amount,
         "created_at": now,
-        "updated_at": now
+        "updated_at": now,
     }
+    
+    # Add recurrence if provided
+    if transaction_data.recurrence:
+        new_transaction["recurrence"] = transaction_data.recurrence.dict()
+        # Initialize last_created_date to transaction date
+        if transaction_data.recurrence.enabled:
+            new_transaction["recurrence"]["last_created_date"] = new_transaction["date"]
+    else:
+        new_transaction["recurrence"] = {
+            "enabled": False,
+            "config": None,
+            "last_created_date": None,
+            "parent_transaction_id": None
+        }
 
     result = transactions_collection.insert_one(new_transaction)
     if not result.inserted_id:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create transaction")
     
-    # NEW: Check for large transaction
+    # Check for large transaction
     try:
-        # Get user's spending profile
         user_transactions = list(transactions_collection.find({
             "user_id": current_user["_id"],
             "type": "outflow"
@@ -210,6 +245,11 @@ async def create_transaction(
     refresh_ai_data_silent(current_user["_id"])
     update_all_user_budgets(current_user["_id"])
 
+    # Prepare response
+    recurrence_obj = None
+    if new_transaction.get("recurrence"):
+        recurrence_obj = TransactionRecurrence(**new_transaction["recurrence"])
+
     return TransactionResponse(
         id=transaction_id,
         user_id=current_user["_id"],
@@ -220,7 +260,9 @@ async def create_transaction(
         description=transaction_data.description,
         amount=transaction_data.amount,
         created_at=now,
-        updated_at=now
+        updated_at=now,
+        recurrence=recurrence_obj,
+        parent_transaction_id=new_transaction["recurrence"].get("parent_transaction_id")
     )
 
 
@@ -247,30 +289,125 @@ async def get_transactions(
             date_filter["$lte"] = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
         query["date"] = date_filter
 
-    # FIX: Add secondary sort by created_at to show latest added first when dates match
     transactions = list(
         transactions_collection
         .find(query)
-        .sort([("date", -1), ("created_at", -1)])  # Sort by date DESC, then created_at DESC
+        .sort([("date", -1), ("created_at", -1)])
         .skip(skip)
         .limit(limit)
     )
 
-    return [
-        TransactionResponse(
+    result = []
+    for t in transactions:
+        recurrence_obj = None
+        if t.get("recurrence"):
+            recurrence_obj = TransactionRecurrence(**t["recurrence"])
+        
+        result.append(TransactionResponse(
             id=t["_id"],
             user_id=t["user_id"],
             type=TransactionType(t["type"]),
             main_category=t["main_category"],
             sub_category=t["sub_category"],
             date=t["date"],
-            description=t["description"],
+            description=t.get("description"),
             amount=t["amount"],
             created_at=t["created_at"],
-            updated_at=t.get("updated_at", t["created_at"])
+            updated_at=t.get("updated_at", t["created_at"]),
+            recurrence=recurrence_obj,
+            parent_transaction_id=t.get("recurrence", {}).get("parent_transaction_id")
+        ))
+    
+    return result
+
+
+@app.post("/api/transactions/{transaction_id}/disable-recurrence")
+async def disable_transaction_recurrence(
+    transaction_id: str = Path(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Disable recurrence for a transaction"""
+    success = disable_recurrence_for_transaction(transaction_id, current_user["_id"])
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found or recurrence not enabled"
         )
-        for t in transactions
-    ]
+    
+    refresh_ai_data_silent(current_user["_id"])
+    update_all_user_budgets(current_user["_id"])
+    
+    return {"message": "Recurrence disabled successfully"}
+
+
+@app.post("/api/transactions/{transaction_id}/disable-parent-recurrence")
+async def disable_parent_transaction_recurrence(
+    transaction_id: str = Path(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
+    # Get the transaction to find its parent
+    transaction = transactions_collection.find_one({
+        "_id": transaction_id,
+        "user_id": current_user["_id"]
+    })
+    
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+    
+    parent_id = transaction.get("recurrence", {}).get("parent_transaction_id")
+    
+    if not parent_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This transaction is not auto-created from a recurring transaction"
+        )
+    
+    success = disable_recurrence_for_parent(parent_id, current_user["_id"])
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Parent transaction not found"
+        )
+    
+    refresh_ai_data_silent(current_user["_id"])
+    update_all_user_budgets(current_user["_id"])
+    
+    return {"message": "Parent transaction recurrence disabled successfully"}
+
+
+@app.post("/api/transactions/preview-recurrence")
+async def preview_transaction_recurrence(
+    request: RecurrencePreviewRequest,
+    count: int = Query(default=5, le=10),
+    current_user: dict = Depends(get_current_user)
+):
+    """Preview upcoming occurrences of a recurring transaction"""
+    
+    config = RecurrenceConfig(
+        frequency=request.frequency,
+        day_of_week=request.day_of_week,
+        day_of_month=request.day_of_month,
+        month=request.month,
+        day_of_year=request.day_of_year,
+        end_date=request.end_date
+    )
+    
+    occurrences = get_recurring_transaction_preview(
+        last_date=request.start_date,
+        config=config,
+        count=count
+    )
+    
+    return {
+        "occurrences": [date.isoformat() for date in occurrences],
+        "count": len(occurrences)
+    }
 
 
 @app.get("/api/transactions/{transaction_id}", response_model=TransactionResponse)
@@ -287,6 +424,10 @@ async def get_transaction(
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
+    recurrence_obj = None
+    if transaction.get("recurrence"):
+        recurrence_obj = TransactionRecurrence(**transaction["recurrence"])
+
     return TransactionResponse(
         id=transaction["_id"],
         user_id=transaction["user_id"],
@@ -294,10 +435,12 @@ async def get_transaction(
         main_category=transaction["main_category"],
         sub_category=transaction["sub_category"],
         date=transaction["date"],
-        description=transaction["description"],
+        description=transaction.get("description"),
         amount=transaction["amount"],
         created_at=transaction["created_at"],
-        updated_at=transaction.get("updated_at", transaction["created_at"])
+        updated_at=transaction.get("updated_at", transaction["created_at"]),
+        recurrence=recurrence_obj,
+        parent_transaction_id=transaction.get("recurrence", {}).get("parent_transaction_id")
     )
 
 
@@ -308,7 +451,12 @@ async def update_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Update transaction"""
-    if not transactions_collection.find_one({"_id": transaction_id, "user_id": current_user["_id"]}):
+    transaction = transactions_collection.find_one({
+        "_id": transaction_id,
+        "user_id": current_user["_id"]
+    })
+    
+    if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
     update_data = {"updated_at": datetime.now(UTC)}
@@ -318,6 +466,13 @@ async def update_transaction(
         if value is not None:
             update_data[field] = value.value if field == "type" else value
 
+    # ADD THIS SECTION TO HANDLE RECURRENCE UPDATES
+    if transaction_data.recurrence is not None:
+        update_data["recurrence"] = transaction_data.recurrence.dict()
+        # Initialize last_created_date if recurrence is being enabled
+        if transaction_data.recurrence.enabled and not transaction.get("recurrence", {}).get("enabled"):
+            update_data["recurrence"]["last_created_date"] = update_data.get("date", transaction["date"])
+
     transactions_collection.update_one(
         {"_id": transaction_id},
         {"$set": update_data}
@@ -326,6 +481,11 @@ async def update_transaction(
     updated_transaction = transactions_collection.find_one({"_id": transaction_id})
     refresh_ai_data_silent(current_user["_id"])
     update_all_user_budgets(current_user["_id"])
+
+    # UPDATE THE RESPONSE TO INCLUDE RECURRENCE
+    recurrence_obj = None
+    if updated_transaction.get("recurrence"):
+        recurrence_obj = TransactionRecurrence(**updated_transaction["recurrence"])
 
     return TransactionResponse(
         id=updated_transaction["_id"],
@@ -337,7 +497,9 @@ async def update_transaction(
         description=updated_transaction["description"],
         amount=updated_transaction["amount"],
         created_at=updated_transaction["created_at"],
-        updated_at=updated_transaction["updated_at"]
+        updated_at=updated_transaction["updated_at"],
+        recurrence=recurrence_obj,  # ADD THIS
+        parent_transaction_id=updated_transaction.get("recurrence", {}).get("parent_transaction_id")  # ADD THIS
     )
 
 

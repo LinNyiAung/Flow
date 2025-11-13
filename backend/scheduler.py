@@ -1,4 +1,5 @@
 from apscheduler.schedulers.background import BackgroundScheduler
+from recurring_transaction_service import check_and_create_recurring_transactions
 from notification_service import analyze_unusual_spending, check_approaching_target_dates, check_budget_period_notifications, detect_and_notify_recurring_payments
 import logging
 from database import users_collection
@@ -60,6 +61,17 @@ def start_scheduler():
         minute=0,
         id="payment_reminders",
         name="Check for upcoming recurring payments",
+        replace_existing=True
+    )
+    
+    
+    scheduler.add_job(
+        func=check_and_create_recurring_transactions,
+        trigger="cron",
+        hour=6,
+        minute=0,
+        id="check_recurring_transactions",
+        name="Check and create recurring transactions",
         replace_existing=True
     )
     

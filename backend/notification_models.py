@@ -14,9 +14,12 @@ class NotificationType(str, Enum):
     BUDGET_EXCEEDED = "budget_exceeded"
     BUDGET_AUTO_CREATED = "budget_auto_created"
     BUDGET_NOW_ACTIVE = "budget_now_active"
-    LARGE_TRANSACTION = "large_transaction"          # ADD THIS
-    UNUSUAL_SPENDING = "unusual_spending"            # ADD THIS
-    PAYMENT_REMINDER = "payment_reminder"            # ADD THIS
+    LARGE_TRANSACTION = "large_transaction"
+    UNUSUAL_SPENDING = "unusual_spending"
+    PAYMENT_REMINDER = "payment_reminder"
+    RECURRING_TRANSACTION_CREATED = "recurring_transaction_created"  # ADD
+    RECURRING_TRANSACTION_ENDED = "recurring_transaction_ended"      # ADD
+    RECURRING_TRANSACTION_DISABLED = "recurring_transaction_disabled" # ADD
 
 class NotificationResponse(BaseModel):
     id: str

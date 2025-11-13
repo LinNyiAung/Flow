@@ -5,6 +5,7 @@ import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/notification.dart';
+import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/report.dart';
 import 'package:frontend/models/voice_image_models.dart';
 import 'package:http/http.dart' as http;
@@ -103,18 +104,26 @@ class ApiService {
     required DateTime date,
     String? description,
     required double amount,
+    TransactionRecurrence? recurrence,  // ADD THIS
   }) async {
+    final body = {
+      'type': type.name,
+      'main_category': mainCategory,
+      'sub_category': subCategory,
+      'date': date.toIso8601String(),
+      'description': description,
+      'amount': amount,
+    };
+
+    // ADD THIS
+    if (recurrence != null) {
+      body['recurrence'] = recurrence.toJson();
+    }
+
     final response = await http.post(
       Uri.parse('$baseUrl/api/transactions'),
       headers: await _getHeaders(),
-      body: jsonEncode({
-        'type': type.name,
-        'main_category': mainCategory,
-        'sub_category': subCategory,
-        'date': date.toIso8601String(),
-        'description': description,
-        'amount': amount,
-      }),
+      body: jsonEncode(body),
     );
 
     if (response.statusCode == 200) {
@@ -122,6 +131,73 @@ class ApiService {
     } else {
       final error = jsonDecode(response.body);
       throw Exception(error['detail'] ?? 'Failed to create transaction');
+    }
+  }
+
+
+
+  static Future<void> disableTransactionRecurrence(String transactionId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/transactions/$transactionId/disable-recurrence'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to disable recurrence');
+    }
+  }
+
+  static Future<void> disableParentTransactionRecurrence(String transactionId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/transactions/$transactionId/disable-parent-recurrence'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to disable parent recurrence');
+    }
+  }
+
+static Future<List<DateTime>> previewRecurrence({
+    required TransactionRecurrence recurrence,
+    required DateTime startDate,
+    int count = 5,
+  }) async {
+    if (recurrence.config == null) {
+      throw Exception('Recurrence config is required');
+    }
+
+    // Build the request body with all config fields
+    final requestBody = {
+      'start_date': startDate.toUtc().toIso8601String(),
+      'frequency': recurrence.config!.frequency.name,
+      if (recurrence.config!.dayOfWeek != null)
+        'day_of_week': recurrence.config!.dayOfWeek,
+      if (recurrence.config!.dayOfMonth != null)
+        'day_of_month': recurrence.config!.dayOfMonth,
+      if (recurrence.config!.month != null)
+        'month': recurrence.config!.month,
+      if (recurrence.config!.dayOfYear != null)
+        'day_of_year': recurrence.config!.dayOfYear,
+      if (recurrence.config!.endDate != null)
+        'end_date': recurrence.config!.endDate!.toUtc().toIso8601String(),
+    };
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/transactions/preview-recurrence?count=$count'),
+      headers: await _getHeaders(),
+      body: jsonEncode(requestBody),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final List<dynamic> occurrences = data['occurrences'];
+      return occurrences.map((date) => DateTime.parse(date)).toList();
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to preview recurrence');
     }
   }
 
@@ -186,41 +262,47 @@ class ApiService {
     }
   }
 
-  static Future<Transaction> updateTransaction({
-    required String transactionId,
-    TransactionType? type,
-    String? mainCategory,
-    String? subCategory,
-    DateTime? date,
-    String? description,
-    double? amount,
-  }) async {
-    final Map<String, dynamic> updateData = {};
+static Future<Transaction> updateTransaction({
+  required String transactionId,
+  TransactionType? type,
+  String? mainCategory,
+  String? subCategory,
+  DateTime? date,
+  String? description,
+  double? amount,
+  TransactionRecurrence? recurrence,
+}) async {
+  final Map<String, dynamic> updateData = {};
 
-    if (type != null) updateData['type'] = type.name;
-    if (mainCategory != null) updateData['main_category'] = mainCategory;
-    if (subCategory != null) updateData['sub_category'] = subCategory;
-    if (date != null) updateData['date'] = date.toIso8601String();
-    if (description != null) updateData['description'] = description;
-    if (amount != null) updateData['amount'] = amount;
-
-    if (updateData.isEmpty) {
-      throw Exception('No fields provided for update');
-    }
-
-    final response = await http.put(
-      Uri.parse('$baseUrl/api/transactions/$transactionId'),
-      headers: await _getHeaders(),
-      body: jsonEncode(updateData),
-    );
-
-    if (response.statusCode == 200) {
-      return Transaction.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to update transaction');
-    }
+  if (type != null) updateData['type'] = type.name;
+  if (mainCategory != null) updateData['main_category'] = mainCategory;
+  if (subCategory != null) updateData['sub_category'] = subCategory;
+  if (date != null) updateData['date'] = date.toIso8601String();
+  if (description != null) updateData['description'] = description;
+  if (amount != null) updateData['amount'] = amount;
+  
+  // ALWAYS INCLUDE RECURRENCE (EVEN IF NULL/DISABLED)
+  if (recurrence != null) {
+    updateData['recurrence'] = recurrence.toJson();
   }
+
+  if (updateData.isEmpty) {
+    throw Exception('No fields provided for update');
+  }
+
+  final response = await http.put(
+    Uri.parse('$baseUrl/api/transactions/$transactionId'),
+    headers: await _getHeaders(),
+    body: jsonEncode(updateData),
+  );
+
+  if (response.statusCode == 200) {
+    return Transaction.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to update transaction');
+  }
+}
 
   static Future<void> deleteTransaction(String transactionId) async {
     final response = await http.delete(

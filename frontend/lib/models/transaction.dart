@@ -1,3 +1,5 @@
+import 'package:frontend/models/recurring_transaction.dart';
+
 enum TransactionType { inflow, outflow }
 
 class Transaction {
@@ -11,6 +13,8 @@ class Transaction {
   final double amount;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final TransactionRecurrence? recurrence;
+  final String? parentTransactionId;
 
   Transaction({
     required this.id,
@@ -18,11 +22,13 @@ class Transaction {
     required this.type,
     required this.mainCategory,
     required this.subCategory,
-    required this.date, // Added date field
+    required this.date,
     this.description,
     required this.amount,
     required this.createdAt,
     required this.updatedAt,
+    this.recurrence,  // ADD THIS
+    this.parentTransactionId,  // ADD THIS
   });
 
   factory Transaction.fromJson(Map<String, dynamic> json) {
@@ -32,26 +38,30 @@ class Transaction {
       type: json['type'] == 'inflow' ? TransactionType.inflow : TransactionType.outflow,
       mainCategory: json['main_category'],
       subCategory: json['sub_category'],
-      date: DateTime.parse(json['date']), // Parse the date
+      date: DateTime.parse(json['date']),
       description: json['description'],
       amount: json['amount'].toDouble(),
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
+      recurrence: json['recurrence'] != null  // ADD THIS
+          ? TransactionRecurrence.fromJson(json['recurrence'])
+          : null,
+      parentTransactionId: json['parent_transaction_id'],  // ADD THIS
     );
   }
 
   Map<String, dynamic> toJson({bool forUpdate = false}) {
-    // For update, we don't need id, user_id, created_at, updated_at
     Map<String, dynamic> data = {
       'type': type.name,
       'main_category': mainCategory,
       'sub_category': subCategory,
-      'date': date.toIso8601String(), // Format date for JSON
+      'date': date.toIso8601String(),
       'description': description,
       'amount': amount,
+      if (recurrence != null) 'recurrence': recurrence!.toJson(),  // ADD THIS
     };
     if (forUpdate) {
-      data.remove('created_at'); // Remove fields not typically updated directly
+      data.remove('created_at');
       data.remove('updated_at');
       data.remove('user_id');
       data.remove('id');

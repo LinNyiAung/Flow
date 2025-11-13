@@ -9,9 +9,12 @@ enum NotificationType {
   budget_exceeded,
   budget_auto_created,
   budget_now_active,
-  large_transaction,        // ADD THIS
-  unusual_spending,         // ADD THIS
-  payment_reminder,         // ADD THIS
+  large_transaction,
+  unusual_spending,
+  payment_reminder,
+  recurring_transaction_created,   // ADD
+  recurring_transaction_ended,     // ADD
+  recurring_transaction_disabled,  // ADD
 }
 
 class AppNotification {

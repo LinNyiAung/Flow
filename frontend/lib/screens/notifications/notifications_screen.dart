@@ -51,12 +51,18 @@ IconData _getNotificationIcon(NotificationType type) {
       return Icons.autorenew;
     case NotificationType.budget_now_active:
       return Icons.check_circle;
-    case NotificationType.large_transaction:      // ADD THIS
+    case NotificationType.large_transaction:
       return Icons.payments;
-    case NotificationType.unusual_spending:       // ADD THIS
+    case NotificationType.unusual_spending:
       return Icons.trending_up;
-    case NotificationType.payment_reminder:       // ADD THIS
+    case NotificationType.payment_reminder:
       return Icons.notifications_active;
+    case NotificationType.recurring_transaction_created:   // ADD
+      return Icons.repeat;
+    case NotificationType.recurring_transaction_ended:     // ADD
+      return Icons.repeat_one;
+    case NotificationType.recurring_transaction_disabled:  // ADD
+      return Icons.repeat_on_rounded;
   }
 }
 
@@ -82,12 +88,18 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFF667eea);
     case NotificationType.budget_now_active:
       return Color(0xFF4CAF50);
-    case NotificationType.large_transaction:      // ADD THIS
+    case NotificationType.large_transaction:
       return Color(0xFFFF9800);
-    case NotificationType.unusual_spending:       // ADD THIS
+    case NotificationType.unusual_spending:
       return Color(0xFFFF5722);
-    case NotificationType.payment_reminder:       // ADD THIS
+    case NotificationType.payment_reminder:
       return Color(0xFF2196F3);
+    case NotificationType.recurring_transaction_created:   // ADD
+      return Color(0xFF4CAF50);
+    case NotificationType.recurring_transaction_ended:     // ADD
+      return Color(0xFF9E9E9E);
+    case NotificationType.recurring_transaction_disabled:  // ADD
+      return Color(0xFFFF9800);
   }
 }
 
@@ -129,7 +141,10 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
     }
   } else if (notification.type == NotificationType.large_transaction ||
              notification.type == NotificationType.unusual_spending ||
-             notification.type == NotificationType.payment_reminder) {
+             notification.type == NotificationType.payment_reminder ||
+             notification.type == NotificationType.recurring_transaction_created ||   // ADD
+             notification.type == NotificationType.recurring_transaction_ended ||     // ADD
+             notification.type == NotificationType.recurring_transaction_disabled) {  // ADD
     // Transaction notifications - navigate to transactions list
     Navigator.pushNamed(context, '/transactions').then((_) => _refreshNotifications());
   }

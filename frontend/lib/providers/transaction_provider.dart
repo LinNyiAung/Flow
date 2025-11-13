@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/recurring_transaction.dart';
 import 'package:provider/provider.dart';
 import '../models/transaction.dart';
 import '../services/api_service.dart';
@@ -75,7 +76,8 @@ Future<void> loadMoreTransactions({
     required DateTime date,
     String? description,
     required double amount,
-    BuildContext? context, // Add context parameter for AI integration
+    BuildContext? context,
+    TransactionRecurrence? recurrence,  // ADD THIS
   }) async {
     _setLoading(true);
     _setError(null);
@@ -88,12 +90,12 @@ Future<void> loadMoreTransactions({
         date: date,
         description: description,
         amount: amount,
+        recurrence: recurrence,  // ADD THIS
       );
 
       _transactions.insert(0, transaction);
       await fetchBalance();
       
-      // Refresh AI data after creating transaction
       _refreshAiData(context);
       
       _setLoading(false);
@@ -106,7 +108,7 @@ Future<void> loadMoreTransactions({
   }
 
   // Update an existing transaction - UPDATED with context parameter
-  Future<bool> updateTransaction({
+Future<bool> updateTransaction({
     required String transactionId,
     TransactionType? type,
     String? mainCategory,
@@ -114,7 +116,8 @@ Future<void> loadMoreTransactions({
     DateTime? date,
     String? description,
     double? amount,
-    BuildContext? context, // Add context parameter for AI integration
+    BuildContext? context,
+    TransactionRecurrence? recurrence,  // ADD THIS
   }) async {
     _setLoading(true);
     _setError(null);
@@ -128,6 +131,7 @@ Future<void> loadMoreTransactions({
         date: date,
         description: description,
         amount: amount,
+        recurrence: recurrence,  // ADD THIS
       );
 
       final index = _transactions.indexWhere((t) => t.id == transactionId);
@@ -137,7 +141,6 @@ Future<void> loadMoreTransactions({
 
       await fetchBalance();
       
-      // Refresh AI data after updating transaction
       _refreshAiData(context);
       
       _setLoading(false);

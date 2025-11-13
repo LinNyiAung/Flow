@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/recurring_transaction.dart';
+import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
@@ -40,6 +42,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
   bool _isLoadingCategories = false;
   late DateTime _selectedDate; // Will be initialized with the transaction's date
 
+  TransactionRecurrence? _recurrence;
+
   // Animation controllers for screen transition
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -56,6 +60,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
     _selectedMainCategory = widget.transaction.mainCategory;
     _selectedSubCategory = widget.transaction.subCategory;
     _selectedDate = widget.transaction.date; // Initialize with the transaction's date
+    _recurrence = widget.transaction.recurrence;
 
     // Setup animations
     _animationController = AnimationController(
@@ -620,6 +625,207 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                 style: GoogleFonts.poppins(),
                               ),
                             ),
+                            SizedBox(height: 24),
+
+                            
+                            // Show warning if this is an auto-created transaction
+                            if (widget.transaction.parentTransactionId != null)
+                              FutureBuilder<Transaction?>(
+                                future: ApiService.getTransaction(widget.transaction.parentTransactionId!),
+                                builder: (context, snapshot) {
+                                  // Check if parent transaction has recurrence enabled
+                                  final parentRecurrenceEnabled = snapshot.hasData && 
+                                      snapshot.data?.recurrence?.enabled == true;
+
+                                  return Container(
+                                    padding: EdgeInsets.all(16),
+                                    margin: EdgeInsets.only(bottom: 16),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Color(0xFFFFF3CD).withOpacity(0.8),
+                                          Color(0xFFFFE8A3).withOpacity(0.8),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: Color(0xFFFFC107), width: 2),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Color(0xFFFFC107).withOpacity(0.2),
+                                          spreadRadius: 1,
+                                          blurRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: Color(0xFFFF9800),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+                                            ),
+                                            SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Auto-Created Transaction',
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 15,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Color(0xFF333333),
+                                                    ),
+                                                  ),
+                                                  SizedBox(height: 4),
+                                                  Text(
+                                                    parentRecurrenceEnabled
+                                                        ? 'This was automatically created from a recurring transaction.'
+                                                        : 'This was automatically created from a recurring transaction (now disabled).',
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 12,
+                                                      color: Colors.grey[700],
+                                                      height: 1.3,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        SizedBox(height: 16),
+                                        
+                                        // ONLY SHOW BUTTON IF PARENT RECURRENCE IS ENABLED
+                                        if (parentRecurrenceEnabled)
+                                          Container(
+                                            width: double.infinity,
+                                            child: ElevatedButton.icon(
+                                              onPressed: () => _showDisableRecurrenceDialog(),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Color(0xFFFF9800),
+                                                padding: EdgeInsets.symmetric(vertical: 12),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                elevation: 2,
+                                              ),
+                                              icon: Icon(Icons.stop_circle_outlined, color: Colors.white, size: 20),
+                                              label: Text(
+                                                'Stop Future Auto-Creation',
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        
+                                        // ALWAYS SHOW VIEW PARENT BUTTON
+                                        SizedBox(height: 8),
+                                        Container(
+                                          width: double.infinity,
+                                          child: OutlinedButton.icon(
+                                            onPressed: () => _viewParentTransaction(),
+                                            style: OutlinedButton.styleFrom(
+                                              padding: EdgeInsets.symmetric(vertical: 12),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                              side: BorderSide(color: Color(0xFF667eea), width: 2),
+                                            ),
+                                            icon: Icon(Icons.repeat, color: Color(0xFF667eea), size: 20),
+                                            label: Text(
+                                              'View Parent Transaction',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF667eea),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        
+                                        // SHOW INFO MESSAGE IF PARENT RECURRENCE IS DISABLED
+                                        if (!parentRecurrenceEnabled && snapshot.hasData)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 12),
+                                            child: Container(
+                                              padding: EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey[100],
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: Colors.grey[300]!),
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.info_outline, color: Colors.grey[600], size: 16),
+                                                  SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'The recurring schedule for this transaction has been stopped.',
+                                                      style: GoogleFonts.poppins(
+                                                        fontSize: 11,
+                                                        color: Colors.grey[700],
+                                                        height: 1.3,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+
+                            // Recurrence Settings (only show if NOT auto-created)
+                            if (widget.transaction.parentTransactionId == null)
+                              RecurrenceSettings(
+                                initialRecurrence: _recurrence,
+                                transactionDate: _selectedDate,
+                                onRecurrenceChanged: (recurrence) {
+                                  setState(() {
+                                    _recurrence = recurrence;
+                                  });
+                                },
+                              ),
+                            
+                            // Show message if auto-created
+                            if (widget.transaction.parentTransactionId != null)
+                              Container(
+                                padding: EdgeInsets.all(16),
+                                margin: EdgeInsets.only(bottom: 16),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.info_outline, color: Colors.grey[600], size: 20),
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Recurring settings are managed by the parent transaction. Use the button above to stop future auto-creation.',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          color: Colors.grey[700],
+                                          height: 1.3,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             SizedBox(height: 32),
 
                             // Display Error Message from TransactionProvider
@@ -702,31 +908,405 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
     );
   }
 
-  // Function to handle the update transaction logic
-  void _updateTransaction() async {
-    if (_formKey.currentState!.validate()) { // Ensure form is valid
-      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-      
-      // Call the updateTransaction method from the provider with context for AI integration
-      final success = await transactionProvider.updateTransaction(
-        transactionId: widget.transaction.id, // Pass the ID of the transaction to update
-        type: _selectedType,
-        mainCategory: _selectedMainCategory!,
-        subCategory: _selectedSubCategory!,
-        date: _selectedDate, // Pass the selected date for update
-        description: _descriptionController.text.trim().isEmpty
-            ? null // Set to null if description is empty
-            : _descriptionController.text.trim(),
-        amount: double.parse(_amountController.text), // Parse amount string to double
-        context: context, // Add this line for AI data refresh
+
+void _showDisableRecurrenceDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.stop_circle, color: Color(0xFFFF9800)),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Stop Recurring Transaction?',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This will stop automatic creation of future transactions.',
+                style: GoogleFonts.poppins(fontSize: 14),
+              ),
+              SizedBox(height: 12),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Color(0xFFFFF3CD),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Color(0xFFFFC107)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Color(0xFFFF9800), size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Existing transactions will not be affected.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.poppins(
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _disableParentRecurrence();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Color(0xFFFF9800),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              icon: Icon(Icons.stop, color: Colors.white, size: 18),
+              label: Text(
+                'Stop Recurring',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+void _disableParentRecurrence() async {
+    try {
+      // Show loading with better styling
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: Colors.black54,
+        builder: (context) => Center(
+          child: Container(
+            margin: EdgeInsets.symmetric(horizontal: 40),
+            padding: EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  spreadRadius: 2,
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      strokeWidth: 3,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 24),
+                Text(
+                  'Stopping Recurrence',
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Please wait...',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
 
-      if (success) {
-        Navigator.pop(context, true); // Pop screen and return true to indicate success
+      await ApiService.disableParentTransactionRecurrence(widget.transaction.id);
+      
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+      
+      // Show success message with better styling
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Container(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.check_circle,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Success!',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          'Future auto-creation has been stopped',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            backgroundColor: Color(0xFF4CAF50),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 3),
+            margin: EdgeInsets.all(16),
+            elevation: 6,
+          ),
+        );
       }
-      // If not successful, the error message will be displayed in the UI
+      
+      // Refresh AI data
+      if (mounted) {
+        final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+        transactionProvider.fetchTransactions();
+      }
+      
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+      
+      // Show error with better styling
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Container(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.error_outline,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Error',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          e.toString().replaceAll('Exception: ', ''),
+                          style: GoogleFonts.poppins(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 13,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            backgroundColor: Color(0xFFFF5722),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
+            margin: EdgeInsets.all(16),
+            elevation: 6,
+            action: SnackBarAction(
+              label: 'DISMISS',
+              textColor: Colors.white,
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              },
+            ),
+          ),
+        );
+      }
     }
   }
+
+
+void _viewParentTransaction() async {
+    if (widget.transaction.parentTransactionId == null) return;
+    
+    try {
+      // Show loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+          ),
+        ),
+      );
+      
+      final parentTransaction = await ApiService.getTransaction(
+        widget.transaction.parentTransactionId!,
+      );
+      
+      // Close loading
+      Navigator.pop(context);
+      
+      // Navigate to parent transaction edit screen
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EditTransactionScreen(transaction: parentTransaction),
+        ),
+      );
+      
+      // If parent was modified, refresh this screen
+      if (result == true || result == 'deleted') {
+        Navigator.pop(context, result);
+      }
+    } catch (e) {
+      // Close loading
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Failed to load parent transaction: ${e.toString().replaceAll('Exception: ', '')}',
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Colors.red,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // Function to handle the update transaction logic
+void _updateTransaction() async {
+  if (_formKey.currentState!.validate()) {
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+    
+    // CREATE A PROPER RECURRENCE OBJECT EVEN WHEN DISABLED
+    TransactionRecurrence? recurrenceToSend;
+    if (_recurrence != null && _recurrence!.enabled) {
+      recurrenceToSend = _recurrence;
+    } else {
+      // Explicitly pass disabled recurrence to update the backend
+      recurrenceToSend = TransactionRecurrence(
+        enabled: false,
+        config: null,
+        lastCreatedDate: null,
+        parentTransactionId: null,
+      );
+    }
+    
+    final success = await transactionProvider.updateTransaction(
+      transactionId: widget.transaction.id,
+      type: _selectedType,
+      mainCategory: _selectedMainCategory!,
+      subCategory: _selectedSubCategory!,
+      date: _selectedDate,
+      description: _descriptionController.text.trim().isEmpty
+          ? null
+          : _descriptionController.text.trim(),
+      amount: double.parse(_amountController.text),
+      context: context,
+      recurrence: recurrenceToSend,  // UPDATED THIS
+    );
+
+    if (success) {
+      Navigator.pop(context, true);
+    }
+  }
+}
 
   // Function to show the delete confirmation dialog
   void _showDeleteDialog() {

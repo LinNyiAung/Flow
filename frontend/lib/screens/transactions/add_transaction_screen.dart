@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/recurring_transaction.dart';
+import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
@@ -35,6 +37,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   List<Category> _categories = []; // List to hold fetched categories
   bool _isLoadingCategories = false;
   DateTime _selectedDate = DateTime.now(); // Default date is today
+
+
+  TransactionRecurrence? _recurrence;
 
   // Animation controllers for screen transition
   late AnimationController _animationController;
@@ -573,6 +578,18 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                 style: GoogleFonts.poppins(),
                               ),
                             ),
+
+                            SizedBox(height: 24),
+
+                            // Recurrence Settings
+                            RecurrenceSettings(
+                              transactionDate: _selectedDate,
+                              onRecurrenceChanged: (recurrence) {
+                                setState(() {
+                                  _recurrence = recurrence;
+                                });
+                              },
+                            ),
                             SizedBox(height: 32),
 
                             // Display Error Message from TransactionProvider
@@ -658,27 +675,26 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   }
 
   // Function to handle adding the transaction
-  void _addTransaction() async {
-    if (_formKey.currentState!.validate()) { // Ensure form is valid
+void _addTransaction() async {
+    if (_formKey.currentState!.validate()) {
       final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
       
-      // Call the createTransaction method from the provider with context for AI integration
       final success = await transactionProvider.createTransaction(
         type: _selectedType,
         mainCategory: _selectedMainCategory!,
         subCategory: _selectedSubCategory!,
-        date: _selectedDate, // Pass the selected date
+        date: _selectedDate,
         description: _descriptionController.text.trim().isEmpty
-            ? null // Set to null if description is empty
+            ? null
             : _descriptionController.text.trim(),
-        amount: double.parse(_amountController.text), // Parse amount string to double
-        context: context, // Add this line for AI data refresh
+        amount: double.parse(_amountController.text),
+        context: context,
+        recurrence: _recurrence,  // ADD THIS
       );
 
       if (success) {
-        Navigator.pop(context, true); // Pop screen and return true to indicate success
+        Navigator.pop(context, true);
       }
-      // If not successful, the error message will be displayed in the UI
     }
   }
 

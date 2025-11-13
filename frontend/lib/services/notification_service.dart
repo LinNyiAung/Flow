@@ -145,12 +145,18 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFF667eea);
     case NotificationType.budget_now_active:
       return Color(0xFF4CAF50);
-    case NotificationType.large_transaction:      // ADD THIS
-      return Color(0xFFFF9800); // Orange
-    case NotificationType.unusual_spending:       // ADD THIS
-      return Color(0xFFFF5722); // Red
-    case NotificationType.payment_reminder:       // ADD THIS
-      return Color(0xFF2196F3); // Blue
+    case NotificationType.large_transaction:
+      return Color(0xFFFF9800);
+    case NotificationType.unusual_spending:
+      return Color(0xFFFF5722);
+    case NotificationType.payment_reminder:
+      return Color(0xFF2196F3);
+    case NotificationType.recurring_transaction_created:   // ADD
+      return Color(0xFF4CAF50);  // Green
+    case NotificationType.recurring_transaction_ended:     // ADD
+      return Color(0xFF9E9E9E);  // Grey
+    case NotificationType.recurring_transaction_disabled:  // ADD
+      return Color(0xFFFF9800);  // Orange
   }
 }
 }

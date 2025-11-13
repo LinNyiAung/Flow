@@ -3,6 +3,8 @@ from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
+from recurrence_models import TransactionRecurrence
+
 class TransactionType(str, Enum):
     INFLOW = "inflow"
     OUTFLOW = "outflow"
@@ -33,6 +35,7 @@ class TransactionCreate(BaseModel):
     sub_category: str
     date: datetime # Add this field
     description: Optional[str] = None
+    recurrence: Optional[TransactionRecurrence] = None
     amount: float
 
 class TransactionUpdate(BaseModel):
@@ -41,6 +44,7 @@ class TransactionUpdate(BaseModel):
     sub_category: Optional[str] = None
     date: Optional[datetime] = None # Add this field
     description: Optional[str] = None
+    recurrence: Optional[TransactionRecurrence] = None
     amount: Optional[float] = None
 
 class TransactionResponse(BaseModel):
@@ -51,6 +55,8 @@ class TransactionResponse(BaseModel):
     sub_category: str
     date: datetime # Add this field
     description: Optional[str]
+    recurrence: Optional[TransactionRecurrence] = None
+    parent_transaction_id: Optional[str] = None
     amount: float
     created_at: datetime
     updated_at: datetime

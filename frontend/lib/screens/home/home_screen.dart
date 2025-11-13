@@ -722,6 +722,49 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Color(0xFF333333),
                     ),
                   ),
+                                      if (transaction.recurrence?.enabled ?? false) ...[
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.repeat,
+                          size: 14,
+                          color: Color(0xFF667eea),
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          transaction.recurrence!.config!.getDisplayText(),
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: Color(0xFF667eea),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  // Also show if it's auto-created
+                  if (transaction.parentTransactionId != null) ...[
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.auto_awesome,
+                          size: 14,
+                          color: Color(0xFFFF9800),
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'Auto-created',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: Color(0xFFFF9800),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   Text(
                     transaction.mainCategory, // Display main category
                     style: GoogleFonts.poppins(
