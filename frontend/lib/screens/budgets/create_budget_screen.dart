@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +19,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _contextController = TextEditingController(); // NEW
+
+  
 
   BudgetPeriod _selectedPeriod = BudgetPeriod.monthly;
   DateTime _startDate = DateTime.now().toUtc();
@@ -375,6 +378,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     _calculateEndDate();
 
     final totalBudget = _calculateTotalBudget();
+    final authProvider = Provider.of<AuthProvider>(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -455,13 +459,38 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'AI Features',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF333333),
-                                    ),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'AI Features',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF333333),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      if (!authProvider.isPremium)
+                                        Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                                        SizedBox(width: 8),
+                                      if (!authProvider.isPremium)
+                                      Container(
+                                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Color(0xFFFFD700).withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Color(0xFFFFD700), width: 1),
+                                        ),
+                                        child: Text(
+                                          'PREMIUM',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFFFFD700),
+                                          ),
+                                        ),
+                                      )
+                                    ],
                                   ),
                                   Text(
                                     _showAiFeatures

@@ -1,6 +1,7 @@
 // screens/ai/ai_chat_screen.dart - Updated with streaming UI and drawer
 
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -93,6 +94,8 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
+    
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(), 
@@ -142,6 +145,27 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 ),
               ],
             ),
+            SizedBox(width: 8),
+            if (!authProvider.isPremium)
+              Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+              SizedBox(width: 8),
+            if (!authProvider.isPremium)
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Color(0xFFFFD700).withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Color(0xFFFFD700), width: 1),
+                ),
+                child: Text(
+                  'PREMIUM',
+                  style: GoogleFonts.poppins(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFFFD700),
+                  ),
+                ),
+              )
           ],
         ),
         actions: [

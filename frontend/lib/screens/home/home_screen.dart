@@ -395,13 +395,38 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'AI Financial Assistant',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF333333),
-                                    ),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'AI Assistant',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF333333),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      if (!authProvider.isPremium)
+                                        Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                                        SizedBox(width: 8),
+                                      if (!authProvider.isPremium)
+                                        Container(
+                                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Color(0xFFFFD700).withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Color(0xFFFFD700), width: 1),
+                                          ),
+                                          child: Text(
+                                            'PREMIUM',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFFFFD700),
+                                            ),
+                                          ),
+                                        )
+                                    ],
                                   ),
                                   Text(
                                     'Get personalized insights',
@@ -471,13 +496,38 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'AI Insights',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF333333),
-                                    ),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'AI Insights',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF333333),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      if (!authProvider.isPremium)
+                                        Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                                        SizedBox(width: 8),
+                                      if (!authProvider.isPremium)
+                                        Container(
+                                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Color(0xFFFFD700).withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Color(0xFFFFD700), width: 1),
+                                          ),
+                                          child: Text(
+                                            'PREMIUM',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFFFFD700),
+                                            ),
+                                          ),
+                                        )
+                                    ],
                                   ),
                                   Text(
                                     'View comprehensive financial analysis',
@@ -833,174 +883,246 @@ class _HomeScreenState extends State<HomeScreen> {
     _showAddTransactionOptions();
   }
 
-  void _showAddTransactionOptions() {
-    showModalBottomSheet(
-      context: context,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+void _showAddTransactionOptions() {
+  showModalBottomSheet(
+    context: context,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (BuildContext context) {
+      return Container(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header (keep as is)
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.add, color: Colors.white, size: 20),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'Add Transaction',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 24),
+
+            // Manual Entry Option (NO CHANGES - not premium)
+            _buildAddOption(
+              icon: Icons.edit_outlined,
+              title: 'Manual Entry',
+              subtitle: 'Type transaction details',
+              gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
+              isPremiumFeature: false, // ADD THIS
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => AddTransactionScreen()),
+                );
+                if (result == true) {
+                  _refreshData();
+                  _showSuccessSnackBar('Transaction added successfully!');
+                }
+              },
+            ),
+            SizedBox(height: 12),
+
+            // Voice Input Option - MARK AS PREMIUM
+            _buildAddOption(
+              icon: Icons.mic,
+              title: 'Voice Input',
+              subtitle: 'Speak your transaction',
+              gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
+              isPremiumFeature: true, // ADD THIS - marks as premium
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => VoiceInputScreen()),
+                );
+                if (result == true) {
+                  _refreshData();
+                  _showSuccessSnackBar('Transaction added successfully!');// Show success message...
+                }
+              },
+            ),
+            SizedBox(height: 12),
+
+            // Image Input Option - MARK AS PREMIUM
+            _buildAddOption(
+              icon: Icons.camera_alt,
+              title: 'Scan Receipt',
+              subtitle: 'Take or upload receipt photo',
+              gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
+              isPremiumFeature: true, // ADD THIS - marks as premium
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => ImageInputScreen()),
+                );
+                if (result == true) {
+                  _refreshData();
+                  _showSuccessSnackBar('Transaction added successfully!');
+                }
+              },
+            ),
+            SizedBox(height: 16),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Widget _buildAddOption({
+  required IconData icon,
+  required String title,
+  required String subtitle,
+  required List<Color> gradientColors,
+  required VoidCallback onTap,
+  bool isPremiumFeature = false, // NEW parameter
+}) {
+  // Get auth provider to check premium status
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  final isLocked = isPremiumFeature && !authProvider.isPremium;
+
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isLocked 
+              ? Color(0xFFFFD700).withOpacity(0.3)
+              : Colors.grey.withOpacity(0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 4,
+          ),
+        ],
       ),
-      builder: (BuildContext context) {
-        return Container(
-          padding: EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+      child: Row(
+        children: [
+          Stack(
             children: [
-              // Header
-              Row(
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(8),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: gradientColors),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: Colors.white, size: 24),
+              ),
+              if (isLocked)
+                Positioned(
+                  right: -4,
+                  top: -4,
+                  child: Container(
+                    padding: EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
+                      color: Color(0xFFFFD700),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0xFFFFD700).withOpacity(0.3),
+                          spreadRadius: 1,
+                          blurRadius: 4,
+                        ),
+                      ],
                     ),
-                    child: Icon(Icons.add, color: Colors.white, size: 20),
-                  ),
-                  SizedBox(width: 12),
-                  Text(
-                    'Add Transaction',
-                    style: GoogleFonts.poppins(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF333333),
+                    child: Icon(
+                      Icons.lock,
+                      size: 12,
+                      color: Colors.white,
                     ),
                   ),
-                ],
-              ),
-              SizedBox(height: 24),
-
-              // Manual Entry Option
-              _buildAddOption(
-                icon: Icons.edit_outlined,
-                title: 'Manual Entry',
-                subtitle: 'Type transaction details',
-                gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                onTap: () async {
-                  Navigator.pop(context);
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => AddTransactionScreen()),
-                  );
-                  if (result == true) {
-                    _refreshData();
-                    _showSuccessSnackBar('Transaction added successfully!');
-                  }
-                },
-              ),
-              SizedBox(height: 12),
-
-              // Voice Input Option
-              _buildAddOption(
-                icon: Icons.mic,
-                title: 'Voice Input',
-                subtitle: 'Speak your transaction',
-                gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
-                onTap: () async {
-                  Navigator.pop(context);
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => VoiceInputScreen()),
-                  );
-                  if (result == true) {
-                    _refreshData();
-                    _showSuccessSnackBar('Transaction added successfully!');
-                  }
-                },
-              ),
-              SizedBox(height: 12),
-
-              // Image Input Option
-              _buildAddOption(
-                icon: Icons.camera_alt,
-                title: 'Scan Receipt',
-                subtitle: 'Take or upload receipt photo',
-                gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
-                onTap: () async {
-                  Navigator.pop(context);
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => ImageInputScreen()),
-                  );
-                  if (result == true) {
-                    _refreshData();
-                    _showSuccessSnackBar('Transaction added successfully!');
-                  }
-                },
-              ),
-              SizedBox(height: 16),
+                ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildAddOption({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required List<Color> gradientColors,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.withOpacity(0.2), width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 4,
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: gradientColors),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: Colors.white, size: 24),
-            ),
-            SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF333333),
+          SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF333333),
+                      ),
                     ),
+                    if (isLocked) ...[
+                      SizedBox(width: 8),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Color(0xFFFFD700).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Color(0xFFFFD700),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          'PREMIUM',
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFFFD700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    color: Colors.grey[600],
                   ),
-                  SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-          ],
-        ),
+          ),
+          Icon(
+            Icons.arrow_forward_ios,
+            size: 16,
+            color: Colors.grey[400],
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   void _showSuccessSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(

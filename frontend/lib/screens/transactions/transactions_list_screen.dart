@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
@@ -185,7 +186,7 @@ void _showAddTransactionOptions() {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
+            // Header (keep as is)
             Row(
               children: [
                 Container(
@@ -211,12 +212,13 @@ void _showAddTransactionOptions() {
             ),
             SizedBox(height: 24),
 
-            // Manual Entry Option
+            // Manual Entry Option (NO CHANGES - not premium)
             _buildAddOption(
               icon: Icons.edit_outlined,
               title: 'Manual Entry',
               subtitle: 'Type transaction details',
               gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
+              isPremiumFeature: false, // ADD THIS
               onTap: () async {
                 Navigator.pop(context);
                 final result = await Navigator.push(
@@ -243,12 +245,13 @@ void _showAddTransactionOptions() {
             ),
             SizedBox(height: 12),
 
-            // Voice Input Option
+            // Voice Input Option - MARK AS PREMIUM
             _buildAddOption(
               icon: Icons.mic,
               title: 'Voice Input',
               subtitle: 'Speak your transaction',
               gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
+              isPremiumFeature: true, // ADD THIS - marks as premium
               onTap: () async {
                 Navigator.pop(context);
                 final result = await Navigator.push(
@@ -275,12 +278,13 @@ void _showAddTransactionOptions() {
             ),
             SizedBox(height: 12),
 
-            // Image Input Option
+            // Image Input Option - MARK AS PREMIUM
             _buildAddOption(
               icon: Icons.camera_alt,
               title: 'Scan Receipt',
               subtitle: 'Take or upload receipt photo',
               gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
+              isPremiumFeature: true, // ADD THIS - marks as premium
               onTap: () async {
                 Navigator.pop(context);
                 final result = await Navigator.push(
@@ -319,7 +323,12 @@ Widget _buildAddOption({
   required String subtitle,
   required List<Color> gradientColors,
   required VoidCallback onTap,
+  bool isPremiumFeature = false, // NEW parameter
 }) {
+  // Get auth provider to check premium status
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  final isLocked = isPremiumFeature && !authProvider.isPremium;
+
   return InkWell(
     onTap: onTap,
     borderRadius: BorderRadius.circular(16),
@@ -329,7 +338,9 @@ Widget _buildAddOption({
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Colors.grey.withOpacity(0.2),
+          color: isLocked 
+              ? Color(0xFFFFD700).withOpacity(0.3)
+              : Colors.grey.withOpacity(0.2),
           width: 1,
         ),
         boxShadow: [
@@ -342,26 +353,80 @@ Widget _buildAddOption({
       ),
       child: Row(
         children: [
-          Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: gradientColors),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: Colors.white, size: 24),
+          Stack(
+            children: [
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: gradientColors),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: Colors.white, size: 24),
+              ),
+              if (isLocked)
+                Positioned(
+                  right: -4,
+                  top: -4,
+                  child: Container(
+                    padding: EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Color(0xFFFFD700),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0xFFFFD700).withOpacity(0.3),
+                          spreadRadius: 1,
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.lock,
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
           ),
           SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF333333),
+                      ),
+                    ),
+                    if (isLocked) ...[
+                      SizedBox(width: 8),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Color(0xFFFFD700).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Color(0xFFFFD700),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          'PREMIUM',
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFFFD700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 SizedBox(height: 2),
                 Text(
@@ -384,6 +449,7 @@ Widget _buildAddOption({
     ),
   );
 }
+
 
   @override
   Widget build(BuildContext context) {

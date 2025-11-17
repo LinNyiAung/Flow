@@ -21,7 +21,7 @@ from report_models import CategoryBreakdown, FinancialReport, GoalProgress, Repo
 from insight_models import InsightResponse
 from goal_models import GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary
 from models import (
-    MultipleTransactionExtraction, TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
+    MultipleTransactionExtraction, SubscriptionType, SubscriptionUpdate, TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
     TransactionCreate, TransactionResponse, CategoryResponse, TransactionType,
     TransactionUpdate
 )
@@ -77,6 +77,24 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     return user
 
 
+def require_premium(current_user: dict = Depends(get_current_user)):
+    """Middleware to check if user has premium subscription"""
+    subscription_type = current_user.get("subscription_type", "free")
+    
+    if subscription_type == "premium":
+        # Check if subscription hasn't expired
+        expires_at = current_user.get("subscription_expires_at")
+        if expires_at and expires_at > datetime.now(UTC):
+            return current_user
+        elif not expires_at:  # Lifetime premium
+            return current_user
+    
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="This feature requires a premium subscription"
+    )
+
+
 # ==================== AUTHENTICATION ====================
 
 @app.post("/api/auth/register", response_model=Token)
@@ -91,6 +109,8 @@ async def register(user_data: UserCreate):
         "name": user_data.name,
         "email": user_data.email,
         "password": get_password_hash(user_data.password),
+        "subscription_type": "free",  # NEW
+        "subscription_expires_at": None,  # NEW
         "created_at": datetime.now(UTC)
     }
     users_collection.insert_one(new_user)
@@ -107,7 +127,9 @@ async def register(user_data: UserCreate):
             id=user_id,
             name=user_data.name,
             email=user_data.email,
-            created_at=new_user["created_at"]
+            created_at=new_user["created_at"],
+            subscription_type=SubscriptionType.FREE,  # NEW
+            subscription_expires_at=None  # NEW
         )
     )
 
@@ -131,7 +153,9 @@ async def login(user_credentials: UserLogin):
             id=user["_id"],
             name=user["name"],
             email=user["email"],
-            created_at=user["created_at"]
+            created_at=user["created_at"],
+            subscription_type=SubscriptionType(user.get("subscription_type", "free")),  # NEW
+            subscription_expires_at=user.get("subscription_expires_at")  # NEW
         )
     )
 
@@ -143,8 +167,60 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         id=current_user["_id"],
         name=current_user["name"],
         email=current_user["email"],
-        created_at=current_user["created_at"]
+        created_at=current_user["created_at"],
+        subscription_type=SubscriptionType(current_user.get("subscription_type", "free")),  # NEW
+        subscription_expires_at=current_user.get("subscription_expires_at")  # NEW
     )
+    
+    
+@app.put("/api/auth/subscription", response_model=UserResponse)
+async def update_subscription(
+    subscription_data: SubscriptionUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user subscription (admin use or after payment)"""
+    update_data = {
+        "subscription_type": subscription_data.subscription_type.value,
+        "subscription_expires_at": subscription_data.subscription_expires_at
+    }
+    
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": update_data}
+    )
+    
+    updated_user = users_collection.find_one({"_id": current_user["_id"]})
+    
+    return UserResponse(
+        id=updated_user["_id"],
+        name=updated_user["name"],
+        email=updated_user["email"],
+        created_at=updated_user["created_at"],
+        subscription_type=SubscriptionType(updated_user["subscription_type"]),
+        subscription_expires_at=updated_user.get("subscription_expires_at")
+    )
+    
+    
+    
+@app.get("/api/auth/subscription-status")
+async def get_subscription_status(current_user: dict = Depends(get_current_user)):
+    """Check if user has active premium subscription"""
+    subscription_type = current_user.get("subscription_type", "free")
+    expires_at = current_user.get("subscription_expires_at")
+    
+    is_premium = subscription_type == "premium"
+    is_expired = False
+    
+    if is_premium and expires_at:
+        is_expired = expires_at < datetime.now(UTC)
+        is_premium = not is_expired
+    
+    return {
+        "subscription_type": subscription_type,
+        "is_premium": is_premium,
+        "expires_at": expires_at,
+        "is_expired": is_expired
+    }
 
 
 # ==================== TRANSACTIONS ====================
@@ -630,7 +706,7 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str, c
 @app.post("/api/chat/stream")
 async def stream_chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Stream chat response from AI"""
     if financial_chatbot is None:
@@ -697,7 +773,7 @@ async def stream_chat_with_ai(
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Chat with AI about financial data (deprecated - use /stream)"""
     raise HTTPException(
@@ -1247,7 +1323,7 @@ def calculate_data_hash(user_id: str) -> str:
 
 
 @app.get("/api/insights", response_model=InsightResponse)
-async def get_insights(current_user: dict = Depends(get_current_user)):
+async def get_insights(current_user: dict = Depends(require_premium)):
     """Get AI-generated financial insights (cached if data unchanged)"""
     try:
         # Calculate current data hash
@@ -1339,7 +1415,7 @@ async def delete_insights(current_user: dict = Depends(get_current_user)):
         
         
 @app.post("/api/insights/regenerate", response_model=InsightResponse)
-async def regenerate_insights(current_user: dict = Depends(get_current_user)):
+async def regenerate_insights(current_user: dict = Depends(require_premium)):
     """Force regenerate insights regardless of data changes"""
     try:
         insights_collection.delete_many({"user_id": current_user["_id"]})
@@ -1559,7 +1635,7 @@ async def generate_report(
 @app.post("/api/reports/download")
 async def download_report_pdf(
     report_request: ReportRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Generate and download a financial report as PDF"""
     try:
@@ -1697,7 +1773,7 @@ async def download_report_pdf(
 @app.post("/api/transactions/transcribe-audio")
 async def transcribe_audio(
     audio: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Transcribe audio to text using OpenAI Whisper"""
     try:
@@ -1744,7 +1820,7 @@ async def transcribe_audio(
 @app.post("/api/transactions/extract-from-text", response_model=TransactionExtraction)
 async def extract_transaction_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Extract transaction details from text using GPT-4"""
     try:
@@ -1831,7 +1907,7 @@ Respond in JSON format:
 @app.post("/api/transactions/extract-multiple-from-text", response_model=MultipleTransactionExtraction)
 async def extract_multiple_transactions_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Extract multiple transaction details from text using GPT-4"""
     try:
@@ -1941,7 +2017,7 @@ Respond in JSON format:
 @app.post("/api/transactions/batch-create", response_model=List[TransactionResponse])
 async def batch_create_transactions(
     transactions_data: List[TransactionCreate],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Create multiple transactions at once"""
     created_transactions = []
@@ -2000,7 +2076,7 @@ async def batch_create_transactions(
 @app.post("/api/transactions/extract-from-image", response_model=TransactionExtraction)
 async def extract_transaction_from_image(
     image: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)
 ):
     """Extract transaction details from receipt image using GPT-4 Vision"""
     try:
@@ -2110,9 +2186,9 @@ Respond in JSON format:
 @app.post("/api/budgets/ai-suggest", response_model=AIBudgetSuggestion)
 async def get_ai_budget_suggestions(
     request: AIBudgetRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_premium)  # CHANGED: Added premium requirement
 ):
-    """Get AI-generated budget suggestions"""
+    """Get AI-generated budget suggestions (Premium Feature)"""
     try:
         analyzer = BudgetAnalyzer(current_user["_id"])
         
@@ -2122,7 +2198,7 @@ async def get_ai_budget_suggestions(
             end_date=request.end_date,
             analysis_months=request.analysis_months,
             include_categories=request.include_categories,
-            user_context=request.user_context  # NEW
+            user_context=request.user_context
         )
         
         return suggestions

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/transactions/transactions_list_screen.dart';
+import '../widgets/premium_badge.dart';  // NEW
 
 class AppDrawer extends StatelessWidget {
   @override
@@ -39,19 +40,28 @@ class AppDrawer extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 30,
-                      backgroundColor: Colors.white.withOpacity(0.8),
-                      child: Text(
-                        user?.name != null && user!.name.isNotEmpty
-                            ? user.name[0].toUpperCase()
-                            : 'U',
-                        style: GoogleFonts.poppins(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF667eea),
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 30,
+                          backgroundColor: Colors.white.withOpacity(0.8),
+                          child: Text(
+                            user?.name != null && user!.name.isNotEmpty
+                                ? user.name[0].toUpperCase()
+                                : 'U',
+                            style: GoogleFonts.poppins(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF667eea),
+                            ),
+                          ),
                         ),
-                      ),
+                        // NEW: Show premium badge if user is premium
+                        if (authProvider.isPremium) ...[
+                          SizedBox(width: 8),
+                          PremiumBadge(small: true),
+                        ],
+                      ],
                     ),
                     SizedBox(height: 12),
                     Text(
@@ -69,6 +79,18 @@ class AppDrawer extends StatelessWidget {
                         color: Colors.white.withOpacity(0.8),
                       ),
                     ),
+                    // NEW: Show expiry date if premium
+                    if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Expires: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            color: Colors.white.withOpacity(0.7),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -233,10 +255,35 @@ class AppDrawer extends StatelessWidget {
                       ),
                       child: Icon(Icons.lightbulb, color: Colors.white, size: 16),
                     ),
-                    title: Text(
-                      'AI Insights',
-                      style: GoogleFonts.poppins(fontSize: 16),
+                    title: Row(
+                      children: [
+                        Text(
+                          'AI Insights',
+                          style: GoogleFonts.poppins(fontSize: 16),
+                        ),
+                        SizedBox(width: 8),
+                        if (!authProvider.isPremium)
+                          Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                      ],
                     ),
+                        trailing: !authProvider.isPremium 
+                        ? Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Color(0xFFFFD700).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Color(0xFFFFD700), width: 1),
+                            ),
+                            child: Text(
+                              'PREMIUM',
+                              style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFFD700),
+                              ),
+                            ),
+                          )
+                        : null,
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.pushNamed(context, '/insights');
@@ -255,13 +302,61 @@ class AppDrawer extends StatelessWidget {
                       ),
                       child: Icon(Icons.smart_toy, color: Colors.white, size: 16),
                     ),
+                    title: Row(
+                      children: [
+                        Text(
+                          'AI Assistant',
+                          style: GoogleFonts.poppins(fontSize: 16),
+                        ),
+                        SizedBox(width: 8),
+                        if (!authProvider.isPremium)
+                          Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                      ],
+                    ),
+                        trailing: !authProvider.isPremium 
+                        ? Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Color(0xFFFFD700).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Color(0xFFFFD700), width: 1),
+                            ),
+                            child: Text(
+                              'PREMIUM',
+                              style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFFD700),
+                              ),
+                            ),
+                          )
+                        : null,
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/ai-chat');
+                    },
+                  ),
+                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+                  // NEW: Subscription/Upgrade option
+                  ListTile(
+                    leading: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(Icons.star, color: Colors.white, size: 16),
+                    ),
                     title: Text(
-                      'AI Assistant',
+                      authProvider.isPremium ? 'Manage Subscription' : 'Upgrade to Premium',
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
-                      Navigator.pushNamed(context, '/ai-chat');
+                      Navigator.pushNamed(context, '/subscription');
                     },
                   ),
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
@@ -301,6 +396,10 @@ class AppDrawer extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   void _showLogoutDialog(BuildContext context) {

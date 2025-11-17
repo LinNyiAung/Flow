@@ -96,6 +96,53 @@ class ApiService {
     }
   }
 
+
+  // Subscription Management
+static Future<User> updateSubscription({
+  required SubscriptionType subscriptionType,
+  DateTime? subscriptionExpiresAt,
+}) async {
+  final response = await http.put(
+    Uri.parse('$baseUrl/api/auth/subscription'),
+    headers: await _getHeaders(),
+    body: jsonEncode({
+      'subscription_type': subscriptionType.name,
+      if (subscriptionExpiresAt != null)
+        'subscription_expires_at': subscriptionExpiresAt.toIso8601String(),
+    }),
+  );
+
+  if (response.statusCode == 200) {
+    return User.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to update subscription');
+  }
+}
+
+static Future<SubscriptionStatus> getSubscriptionStatus() async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/auth/subscription-status'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return SubscriptionStatus.fromJson(jsonDecode(response.body));
+  } else {
+    throw Exception('Failed to get subscription status');
+  }
+}
+
+// Helper method to check if a feature requires premium
+static Future<bool> canAccessPremiumFeature() async {
+  try {
+    final status = await getSubscriptionStatus();
+    return status.isPremium;
+  } catch (e) {
+    return false;
+  }
+}
+
   // Transaction CRUD methods
   static Future<Transaction> createTransaction({
     required TransactionType type,

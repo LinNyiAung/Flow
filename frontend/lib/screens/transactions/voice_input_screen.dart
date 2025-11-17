@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -170,6 +171,8 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -209,13 +212,38 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       ),
                     ),
                     SizedBox(width: 16),
-                    Text(
-                      'Voice Input',
-                      style: GoogleFonts.poppins(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF333333),
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          'Voice Input',
+                          style: GoogleFonts.poppins(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF333333),
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        if (!authProvider.isPremium)
+                          Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                          SizedBox(width: 8),
+                        if (!authProvider.isPremium)
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Color(0xFFFFD700).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Color(0xFFFFD700), width: 1),
+                            ),
+                            child: Text(
+                              'PREMIUM',
+                              style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFFD700),
+                              ),
+                            ),
+                          )
+                      ],
                     ),
                   ],
                 ),
