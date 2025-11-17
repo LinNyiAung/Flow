@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/screens/settings/change_password_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -278,18 +279,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'Change Password',
               subtitle: 'Update your password',
               gradientColors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
-              onTap: () {
-                // Navigate to change password screen
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Change password feature coming soon!',
-                      style: GoogleFonts.poppins(color: Colors.white),
-                    ),
-                    backgroundColor: Color(0xFF667eea),
-                    behavior: SnackBarBehavior.floating,
-                  ),
+              onTap: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => ChangePasswordScreen()),
                 );
+                if (result == true) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Password changed successfully!',
+                        style: GoogleFonts.poppins(color: Colors.white),
+                      ),
+                      backgroundColor: Color(0xFF4CAF50),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  );
+                }
               },
             ),
 

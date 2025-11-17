@@ -21,7 +21,7 @@ from report_models import CategoryBreakdown, FinancialReport, GoalProgress, Repo
 from insight_models import InsightResponse
 from goal_models import GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary
 from models import (
-    MultipleTransactionExtraction, ProfileUpdate, SubscriptionType, SubscriptionUpdate, TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
+    MultipleTransactionExtraction, PasswordChange, ProfileUpdate, SubscriptionType, SubscriptionUpdate, TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
     TransactionCreate, TransactionResponse, CategoryResponse, TransactionType,
     TransactionUpdate
 )
@@ -208,6 +208,42 @@ async def update_profile(
         subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
         subscription_expires_at=updated_user.get("subscription_expires_at")
     )
+    
+    
+@app.put("/api/auth/change-password")
+async def change_password(
+    password_data: PasswordChange,
+    current_user: dict = Depends(get_current_user)
+):
+    """Change user password"""
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user["password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect"
+        )
+    
+    # Validate new password
+    if len(password_data.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters"
+        )
+    
+    if password_data.new_password != password_data.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New passwords do not match"
+        )
+    
+    # Update password
+    hashed_password = get_password_hash(password_data.new_password)
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"password": hashed_password}}
+    )
+    
+    return {"message": "Password changed successfully"}
     
     
 @app.put("/api/auth/subscription", response_model=UserResponse)

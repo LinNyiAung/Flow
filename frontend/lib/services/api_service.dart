@@ -113,6 +113,31 @@ class ApiService {
   }
 
 
+
+  static Future<void> changePassword({
+  required String currentPassword,
+  required String newPassword,
+  required String confirmPassword,
+}) async {
+  final response = await http.put(
+    Uri.parse('$baseUrl/api/auth/change-password'),
+    headers: await _getHeaders(),
+    body: jsonEncode({
+      'current_password': currentPassword,
+      'new_password': newPassword,
+      'confirm_password': confirmPassword,
+    }),
+  );
+
+  if (response.statusCode == 200) {
+    return;
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to change password');
+  }
+}
+
+
   // Subscription Management
 static Future<User> updateSubscription({
   required SubscriptionType subscriptionType,

@@ -156,6 +156,30 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+
+  Future<bool> changePassword({
+  required String currentPassword,
+  required String newPassword,
+  required String confirmPassword,
+}) async {
+  _setLoading(true);
+  _setError(null);
+
+  try {
+    await ApiService.changePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+      confirmPassword: confirmPassword,
+    );
+    _setLoading(false);
+    return true;
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
+    return false;
+  }
+}
+
   Future<void> _showUpgradeDialog(BuildContext context) async {
     showDialog(
       context: context,

@@ -41,6 +41,12 @@ class SubscriptionUpdate(BaseModel):
 # NEW: Profile update model
 class ProfileUpdate(BaseModel):
     name: str
+    
+    
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
 
 class Token(BaseModel):
     access_token: str
