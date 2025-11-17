@@ -30,6 +30,17 @@ class UserResponse(BaseModel):
     created_at: datetime
     subscription_type: SubscriptionType  # NEW
     subscription_expires_at: Optional[datetime] = None  # NEW
+    
+    
+
+# NEW: Subscription update model
+class SubscriptionUpdate(BaseModel):
+    subscription_type: SubscriptionType
+    subscription_expires_at: Optional[datetime] = None
+
+# NEW: Profile update model
+class ProfileUpdate(BaseModel):
+    name: str
 
 class Token(BaseModel):
     access_token: str

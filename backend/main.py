@@ -21,7 +21,7 @@ from report_models import CategoryBreakdown, FinancialReport, GoalProgress, Repo
 from insight_models import InsightResponse
 from goal_models import GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary
 from models import (
-    MultipleTransactionExtraction, SubscriptionType, SubscriptionUpdate, TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
+    MultipleTransactionExtraction, ProfileUpdate, SubscriptionType, SubscriptionUpdate, TextExtractionRequest, TransactionExtraction, UserCreate, UserLogin, UserResponse, Token,
     TransactionCreate, TransactionResponse, CategoryResponse, TransactionType,
     TransactionUpdate
 )
@@ -170,6 +170,43 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         created_at=current_user["created_at"],
         subscription_type=SubscriptionType(current_user.get("subscription_type", "free")),  # NEW
         subscription_expires_at=current_user.get("subscription_expires_at")  # NEW
+    )
+    
+    
+@app.put("/api/auth/profile", response_model=UserResponse)
+async def update_profile(
+    profile_data: ProfileUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user profile (name only)"""
+    if not profile_data.name or profile_data.name.strip() == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name is required"
+        )
+    
+    if len(profile_data.name.strip()) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name must be at least 2 characters"
+        )
+    
+    # Update user in database
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"name": profile_data.name.strip()}}
+    )
+    
+    # Get updated user
+    updated_user = users_collection.find_one({"_id": current_user["_id"]})
+    
+    return UserResponse(
+        id=updated_user["_id"],
+        name=updated_user["name"],
+        email=updated_user["email"],
+        created_at=updated_user["created_at"],
+        subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
+        subscription_expires_at=updated_user.get("subscription_expires_at")
     )
     
     

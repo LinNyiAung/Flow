@@ -97,6 +97,22 @@ class ApiService {
   }
 
 
+    static Future<User> updateProfile({required String name}) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/auth/profile'),
+      headers: await _getHeaders(),
+      body: jsonEncode({'name': name}),
+    );
+
+    if (response.statusCode == 200) {
+      return User.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to update profile');
+    }
+  }
+
+
   // Subscription Management
 static Future<User> updateSubscription({
   required SubscriptionType subscriptionType,

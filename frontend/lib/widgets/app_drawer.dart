@@ -337,6 +337,29 @@ class AppDrawer extends StatelessWidget {
                     },
                   ),
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+                  ListTile(
+                    leading: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF607D8B), Color(0xFF455A64)],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(Icons.settings, color: Colors.white, size: 18),
+                    ),
+                    title: Text(
+                      'Settings',
+                      style: GoogleFonts.poppins(fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/settings');
+                    },
+                  ),
+                  
+                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   // NEW: Subscription/Upgrade option
                   ListTile(
                     leading: Container(

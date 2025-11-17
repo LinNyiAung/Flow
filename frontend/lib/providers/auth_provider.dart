@@ -73,6 +73,31 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+
+  Future<bool> canAccessPremiumFeature(BuildContext context) async {
+    if (isPremium) return true;
+    
+    // Show upgrade dialog
+    await _showUpgradeDialog(context);
+    return false;
+  }
+
+  // NEW: Update profile method
+  Future<bool> updateProfile({required String name}) async {
+    _setLoading(true);
+    _setError(null);
+
+    try {
+      _user = await ApiService.updateProfile(name: name);
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setLoading(false);
+      return false;
+    }
+  }
+
   Future<void> logout() async {
     await ApiService.removeToken();
     _user = null;
@@ -129,15 +154,6 @@ class AuthProvider with ChangeNotifier {
     } catch (e) {
       print('Error refreshing subscription status: $e');
     }
-  }
-
-  // NEW: Helper method to check premium access
-  Future<bool> canAccessPremiumFeature(BuildContext context) async {
-    if (isPremium) return true;
-    
-    // Show upgrade dialog
-    await _showUpgradeDialog(context);
-    return false;
   }
 
   Future<void> _showUpgradeDialog(BuildContext context) async {
