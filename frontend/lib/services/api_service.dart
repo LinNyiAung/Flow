@@ -5,6 +5,7 @@ import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/notification.dart';
+import 'package:frontend/models/notification_preferences.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/report.dart';
 import 'package:frontend/models/voice_image_models.dart';
@@ -181,6 +182,51 @@ static Future<bool> canAccessPremiumFeature() async {
     return status.isPremium;
   } catch (e) {
     return false;
+  }
+}
+
+
+// Notification Preferences
+static Future<NotificationPreferencesResponse> getNotificationPreferences() async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/notifications/preferences'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return NotificationPreferencesResponse.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to get notification preferences');
+  }
+}
+
+static Future<NotificationPreferencesResponse> updateNotificationPreferences({
+  required Map<String, bool> preferences,
+}) async {
+  final response = await http.put(
+    Uri.parse('$baseUrl/api/notifications/preferences'),
+    headers: await _getHeaders(),
+    body: jsonEncode({'preferences': preferences}),
+  );
+
+  if (response.statusCode == 200) {
+    return NotificationPreferencesResponse.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to update notification preferences');
+  }
+}
+
+static Future<void> resetNotificationPreferences() async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/notifications/preferences/reset'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to reset notification preferences');
   }
 }
 

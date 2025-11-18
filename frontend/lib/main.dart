@@ -10,6 +10,7 @@ import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
+import 'package:frontend/screens/settings/notification_settings_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
 import 'package:frontend/services/notification_service.dart';
@@ -89,6 +90,7 @@ class MyApp extends StatelessWidget {
           '/notifications': (context) => NotificationsScreen(),
           '/subscription': (context) => SubscriptionScreen(),
           '/settings': (context) => SettingsScreen(),
+          '/notification-settings': (context) => NotificationSettingsScreen(),
         },
       ),
     );

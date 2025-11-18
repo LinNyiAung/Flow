@@ -16,6 +16,7 @@ goals_collection = database.goals
 insights_collection = database.insights
 budgets_collection = database.budgets
 notifications_collection = database.notifications
+notification_preferences_collection = database.notification_preferences
 
 # Initialize default categories if they don't exist
 def initialize_categories():
@@ -25,6 +26,14 @@ def initialize_categories():
             {"_id":"outflow","categories":[{"main_category":"Food & Dining","sub_categories":["Restaurants","Groceries","Fast Food","Coffee & Tea","Alcohol & Bars"]},{"main_category":"Transportation","sub_categories":["Gas & Fuel","Parking","Public Transport","Taxi & Uber","Car Maintenance"]},{"main_category":"Shopping","sub_categories":["Clothing","Electronics","Books","Home & Garden","Sports & Recreation"]},{"main_category":"Entertainment","sub_categories":["Movies & Theater","Music","Games","Hobbies","Sports Events"]},{"main_category":"Bills & Utilities","sub_categories":["Phone","Internet","Electricity","Water","Gas","Cable TV"]},{"main_category":"Health & Fitness","sub_categories":["Doctor","Dentist","Pharmacy","Gym","Health Insurance"]},{"main_category":"Travel","sub_categories":["Flights","Hotels","Car Rental","Travel Insurance","Activities"]},{"main_category":"Education","sub_categories":["Tuition","Books","Courses","Training","School Supplies"]},{"main_category":"Personal Care","sub_categories":["Haircut","Cosmetics","Clothing","Spa & Massage"]},{"main_category":"Gifts & Donations","sub_categories":["Gifts","Charity","Religious Donations"]},{"main_category":"Financial","sub_categories":["Bank Fees","Interest","Insurance","Taxes","Investments"]},{"main_category":"Other","sub_categories":["Miscellaneous","Cash Withdrawal","Other"]}]}
         ]
         categories_collection.insert_many(default_categories)
+        
+        
+        
+def initialize_notification_preferences():
+    """Initialize default notification preferences for users who don't have them"""
+    # This will be called when a user first accesses notification settings
+    pass
 
 # Call this when the app starts
 initialize_categories()
+initialize_notification_preferences()

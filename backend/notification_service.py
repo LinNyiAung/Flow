@@ -1,9 +1,44 @@
 from datetime import datetime, UTC, timedelta
 from typing import Dict, List, Optional
 import uuid
-from database import goals_collection, database
+from database import goals_collection, notification_preferences_collection
 
 from database import (notifications_collection, budgets_collection, transactions_collection, users_collection)
+
+def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
+    """Get user's notification preferences, return defaults if not set"""
+    prefs = notification_preferences_collection.find_one({"user_id": user_id})
+    
+    if not prefs:
+        # Return default preferences (all enabled)
+        default_prefs = {
+            "goal_progress": True,
+            "goal_milestone": True,
+            "goal_approaching_date": True,
+            "goal_achieved": True,
+            "budget_started": True,
+            "budget_ending_soon": True,
+            "budget_threshold": True,
+            "budget_exceeded": True,
+            "budget_auto_created": True,
+            "budget_now_active": True,
+            "large_transaction": True,
+            "unusual_spending": True,
+            "payment_reminder": True,
+            "recurring_transaction_created": True,
+            "recurring_transaction_ended": True,
+            "recurring_transaction_disabled": True,
+        }
+        return default_prefs
+    
+    return prefs.get("preferences", {})
+
+
+
+def should_send_notification(user_id: str, notification_type: str) -> bool:
+    """Check if user wants to receive this type of notification"""
+    preferences = get_user_notification_preferences(user_id)
+    return preferences.get(notification_type, True)  # Default to True if not set
 
 
 def create_notification(
@@ -13,8 +48,14 @@ def create_notification(
     message: str,
     goal_id: Optional[str] = None,
     goal_name: Optional[str] = None
-) -> dict:
-    """Create a new notification"""
+) -> Optional[dict]:
+    """Create a new notification (only if user has it enabled)"""
+    
+    # Check if user wants this notification type
+    if not should_send_notification(user_id, notification_type):
+        print(f"Skipping notification {notification_type} for user {user_id} (disabled in preferences)")
+        return None
+    
     notification_id = str(uuid.uuid4())
     notification = {
         "_id": notification_id,
@@ -28,6 +69,7 @@ def create_notification(
         "is_read": False
     }
     notifications_collection.insert_one(notification)
+    print(f"✅ Created notification {notification_type} for user {user_id}")
     return notification
 
 def check_goal_notifications(user_id: str, goal_id: str, old_progress: float, new_progress: float, goal_name: str):

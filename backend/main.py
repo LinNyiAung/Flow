@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 
+from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
 from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
 from scheduler import start_scheduler
@@ -43,7 +44,7 @@ from notification_service import (
 
 from database import (
     users_collection, transactions_collection, categories_collection,
-    chat_sessions_collection, goals_collection, insights_collection, budgets_collection, notifications_collection
+    chat_sessions_collection, goals_collection, insights_collection, budgets_collection, notifications_collection, notification_preferences_collection
 )
 from auth import get_password_hash, verify_password, create_access_token, verify_token
 from ai_chatbot import financial_chatbot
@@ -2716,6 +2717,134 @@ async def refresh_budget(
         
         
 # ==================== NOTIFICATIONS ====================
+
+
+@app.get("/api/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def get_notification_preferences(current_user: dict = Depends(get_current_user)):
+    """Get user's notification preferences"""
+    try:
+        prefs_doc = notification_preferences_collection.find_one({
+            "user_id": current_user["_id"]
+        })
+        
+        if not prefs_doc:
+            # Create default preferences
+            default_prefs = NotificationPreferences()
+            now = datetime.now(UTC)
+            
+            prefs_doc = {
+                "user_id": current_user["_id"],
+                "preferences": default_prefs.dict(),
+                "created_at": now,
+                "updated_at": now
+            }
+            
+            notification_preferences_collection.insert_one(prefs_doc)
+        
+        return NotificationPreferencesResponse(
+            user_id=prefs_doc["user_id"],
+            preferences=NotificationPreferences(**prefs_doc["preferences"]),
+            updated_at=prefs_doc["updated_at"]
+        )
+        
+    except Exception as e:
+        print(f"Error getting notification preferences: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get notification preferences"
+        )
+
+
+@app.put("/api/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def update_notification_preferences(
+    update_data: NotificationPreferencesUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user's notification preferences"""
+    try:
+        now = datetime.now(UTC)
+        
+        # Get existing preferences or create new
+        prefs_doc = notification_preferences_collection.find_one({
+            "user_id": current_user["_id"]
+        })
+        
+        if prefs_doc:
+            # Update existing preferences
+            current_prefs = prefs_doc.get("preferences", {})
+            current_prefs.update(update_data.preferences)
+            
+            notification_preferences_collection.update_one(
+                {"user_id": current_user["_id"]},
+                {
+                    "$set": {
+                        "preferences": current_prefs,
+                        "updated_at": now
+                    }
+                }
+            )
+        else:
+            # Create new preferences
+            default_prefs = NotificationPreferences().dict()
+            default_prefs.update(update_data.preferences)
+            
+            prefs_doc = {
+                "user_id": current_user["_id"],
+                "preferences": default_prefs,
+                "created_at": now,
+                "updated_at": now
+            }
+            
+            notification_preferences_collection.insert_one(prefs_doc)
+        
+        # Get updated document
+        updated_doc = notification_preferences_collection.find_one({
+            "user_id": current_user["_id"]
+        })
+        
+        return NotificationPreferencesResponse(
+            user_id=updated_doc["user_id"],
+            preferences=NotificationPreferences(**updated_doc["preferences"]),
+            updated_at=updated_doc["updated_at"]
+        )
+        
+    except Exception as e:
+        print(f"Error updating notification preferences: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update notification preferences"
+        )
+
+
+@app.post("/api/notifications/preferences/reset")
+async def reset_notification_preferences(current_user: dict = Depends(get_current_user)):
+    """Reset notification preferences to default (all enabled)"""
+    try:
+        now = datetime.now(UTC)
+        default_prefs = NotificationPreferences()
+        
+        notification_preferences_collection.update_one(
+            {"user_id": current_user["_id"]},
+            {
+                "$set": {
+                    "preferences": default_prefs.dict(),
+                    "updated_at": now
+                }
+            },
+            upsert=True
+        )
+        
+        return {
+            "message": "Notification preferences reset to default",
+            "preferences": default_prefs.dict()
+        }
+        
+    except Exception as e:
+        print(f"Error resetting notification preferences: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset notification preferences"
+        )
 
 @app.get("/api/notifications", response_model=List[NotificationResponse])
 async def get_notifications(

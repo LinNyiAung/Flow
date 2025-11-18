@@ -302,6 +302,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             SizedBox(height: 24),
 
+            _buildSectionHeader('Notifications'),
+            SizedBox(height: 12),
+
+            _buildSettingCard(
+              icon: Icons.notifications_outlined,
+              title: 'Notification Settings',
+              subtitle: 'Manage notification preferences',
+              gradientColors: [Color(0xFFFF6B6B), Color(0xFFEE5A6F)],
+              onTap: () {
+                Navigator.pushNamed(context, '/notification-settings');
+              },
+            ),
+
+
+            SizedBox(height: 24),
+
             // Subscription Section
             _buildSectionHeader('Subscription'),
             SizedBox(height: 12),
