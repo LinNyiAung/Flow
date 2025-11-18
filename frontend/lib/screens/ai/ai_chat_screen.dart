@@ -210,6 +210,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     );
   }
 
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -336,33 +337,100 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
         ],
       ),
       body: Consumer<ChatProvider>(
-        builder: (context, chatProvider, child) {
-          if (chatProvider.isStreaming) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _autoScrollDuringStreaming();
-            });
-          }
-          
-          if (chatProvider.isLoading) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Loading chat history...',
-                    style: GoogleFonts.poppins(color: Colors.grey[600]),
+    builder: (context, chatProvider, child) {
+      if (chatProvider.isStreaming) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _autoScrollDuringStreaming();
+        });
+      }
+      
+      if (chatProvider.isLoading) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Loading chat history...',
+                style: GoogleFonts.poppins(color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        );
+      }
+
+      return Column(
+        children: [
+          // ADD THIS: Premium upgrade banner for free users
+          if (!authProvider.isPremium)
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(16),
+              margin: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0xFFFFD700).withOpacity(0.3),
+                    spreadRadius: 2,
+                    blurRadius: 8,
                   ),
                 ],
               ),
-            );
-          }
-
-          return Column(
-            children: [
+              child: Row(
+                children: [
+                  Icon(Icons.star, color: Colors.white, size: 32),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Upgrade to Premium',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          'Unlock full AI chat capabilities',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.white.withOpacity(0.9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pushNamed(context, '/subscription'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Color(0xFFFFD700),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    ),
+                    child: Text(
+                      'Upgrade',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+              
               if (chatProvider.error != null)
                 Container(
                   width: double.infinity,
@@ -648,73 +716,134 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     );
   }
 
-  Widget _buildMessageInput(ChatProvider chatProvider) {
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey[200]!)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              child: TextField(
-                controller: _messageController,
-                enabled: !chatProvider.isStreaming,
-                decoration: InputDecoration(
-                  hintText: chatProvider.isStreaming 
-                      ? 'AI is responding...' 
-                      : 'Ask me about your finances...',
-                  hintStyle: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: Colors.grey[500],
-                  ),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
-                style: GoogleFonts.poppins(fontSize: 14),
-                maxLines: null,
-                textCapitalization: TextCapitalization.sentences,
-                onSubmitted: (_) => chatProvider.isStreaming ? null : _sendMessage(),
+Widget _buildMessageInput(ChatProvider chatProvider) {
+  final authProvider = Provider.of<AuthProvider>(context);
+  final isLocked = !authProvider.isPremium;
+  
+  return Container(
+    padding: EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border(top: BorderSide(color: Colors.grey[200]!)),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: isLocked ? Colors.grey[100] : Colors.grey[50],
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isLocked ? Colors.grey[300]! : Colors.grey[300]!,
               ),
             ),
-          ),
-          SizedBox(width: 8),
-          GestureDetector(
-            onTap: (chatProvider.isSendingMessage || chatProvider.isStreaming) ? null : _sendMessage,
-            child: Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: chatProvider.isStreaming 
-                      ? [Colors.grey, Colors.grey]
-                      : [Color(0xFF667eea), Color(0xFF764ba2)],
+            child: TextField(
+              controller: _messageController,
+              enabled: !chatProvider.isStreaming && !isLocked,
+              decoration: InputDecoration(
+                hintText: isLocked
+                    ? 'Upgrade to Premium to chat'
+                    : (chatProvider.isStreaming 
+                        ? 'AI is responding...' 
+                        : 'Ask me about your finances...'),
+                hintStyle: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: isLocked ? Colors.grey[400] : Colors.grey[500],
                 ),
-                borderRadius: BorderRadius.circular(24),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                suffixIcon: isLocked
+                    ? Padding(
+                        padding: EdgeInsets.only(right: 8),
+                        child: Icon(
+                          Icons.lock,
+                          color: Color(0xFFFFD700),
+                          size: 20,
+                        ),
+                      )
+                    : null,
               ),
-              child: (chatProvider.isSendingMessage || chatProvider.isStreaming)
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
+              style: GoogleFonts.poppins(fontSize: 14),
+              maxLines: null,
+              textCapitalization: TextCapitalization.sentences,
+              onSubmitted: (_) => (chatProvider.isStreaming || isLocked) ? null : _sendMessage(),
+            ),
+          ),
+        ),
+        SizedBox(width: 8),
+        GestureDetector(
+          onTap: isLocked
+              ? () => Navigator.pushNamed(context, '/subscription')
+              : ((chatProvider.isSendingMessage || chatProvider.isStreaming) ? null : _sendMessage),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: isLocked
+                  ? LinearGradient(
+                      colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                     )
-                  : Icon(Icons.send, color: Colors.white, size: 20),
+                  : (chatProvider.isStreaming 
+                      ? LinearGradient(colors: [Colors.grey, Colors.grey])
+                      : LinearGradient(
+                          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                        )),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: isLocked
+                  ? [
+                      BoxShadow(
+                        color: Color(0xFFFFD700).withOpacity(0.3),
+                        spreadRadius: 1,
+                        blurRadius: 4,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (chatProvider.isSendingMessage || chatProvider.isStreaming)
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                else if (isLocked)
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(Icons.send, color: Colors.white, size: 20),
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.lock,
+                            color: Color(0xFFFFD700),
+                            size: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Icon(Icons.send, color: Colors.white, size: 20),
+              ],
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   void _showClearHistoryDialog() {
     showDialog(

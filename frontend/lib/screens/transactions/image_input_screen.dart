@@ -319,7 +319,76 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                       padding: EdgeInsets.all(20),
                       child: Column(
                         children: [
+                        if (!authProvider.isPremium)
+                          Container(
+                            width: double.infinity,
+                            padding: EdgeInsets.all(20),
+                            margin: EdgeInsets.only(bottom: 24),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Color(0xFFFFD700).withOpacity(0.3),
+                                  spreadRadius: 2,
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.star, color: Colors.white, size: 48),
+                                SizedBox(height: 12),
+                                Text(
+                                  'Premium Feature',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Upgrade to use voice input for adding transactions',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    color: Colors.white.withOpacity(0.9),
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: () => Navigator.pushNamed(context, '/subscription'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Color(0xFFFFD700),
+                                    padding: EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.upgrade),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Upgrade Now',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           // Image Selection Area
+                          if (authProvider.isPremium)
                           if (_selectedImage == null) ...[
                             SizedBox(height: 40),
                             GestureDetector(

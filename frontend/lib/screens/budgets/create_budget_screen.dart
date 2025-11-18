@@ -280,16 +280,24 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     });
   }
 
-  void _navigateToAISuggestion() async {
-    if (_selectedPeriod == BudgetPeriod.custom && _endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please select end date for custom period'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+void _navigateToAISuggestion() async {
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  
+  // Check if user is premium
+  if (!authProvider.isPremium) {
+    Navigator.pushNamed(context, '/subscription');
+    return;
+  }
+
+  if (_selectedPeriod == BudgetPeriod.custom && _endDate == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Please select end date for custom period'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    return;
+  }
 
     // Get context from the text field
     final userContext = _contextController.text.trim().isEmpty
