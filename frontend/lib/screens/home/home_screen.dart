@@ -6,6 +6,7 @@ import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -96,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Listen to AuthProvider for user details and TransactionProvider for data
     final authProvider = Provider.of<AuthProvider>(context);
     final transactionProvider = Provider.of<TransactionProvider>(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       key: _scaffoldKey, // Assign the scaffold key to the Scaffold
@@ -104,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
-          'Dashboard', // Title for the Home Screen AppBar
+          localizations.dashboard, // Title for the Home Screen AppBar
           style: GoogleFonts.poppins(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -221,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Welcome back,',
+                              localizations.welcomeBack,
                               style: GoogleFonts.poppins(
                                 fontSize: 16,
                                 color: Colors.grey[600],
@@ -268,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'Total Balance',
+                                  localizations.totalBalance,
                                   style: GoogleFonts.poppins(
                                     color: Colors.white.withOpacity(0.8),
                                     fontSize: 16,
@@ -291,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             SizedBox(height: 4),
                             Text(
-                              'Available: \$${transactionProvider.balance?.availableBalance.toStringAsFixed(2) ?? '0.00'}',
+                              '${localizations.available}: \$${transactionProvider.balance?.availableBalance.toStringAsFixed(2) ?? '0.00'}',
                               style: GoogleFonts.poppins(
                                 color: Colors.white.withOpacity(0.9),
                                 fontSize: 14,
@@ -304,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     0) ...[
                               SizedBox(height: 2),
                               Text(
-                                'Allocated to Goals: \$${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
+                                '${localizations.allocatedToGoals}: \$${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
                                 style: GoogleFonts.poppins(
                                   color: Colors.white.withOpacity(0.7),
                                   fontSize: 12,
@@ -317,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               children: [
                                 _buildBalanceInfo(
                                   icon: Icons.arrow_upward,
-                                  label: 'Inflow',
+                                  label: localizations.inflow,
                                   amount:
                                       transactionProvider
                                           .balance
@@ -332,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 _buildBalanceInfo(
                                   icon: Icons.arrow_downward,
-                                  label: 'Outflow',
+                                  label: localizations.outflow,
                                   amount:
                                       transactionProvider
                                           .balance
@@ -398,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Row(
                                     children: [
                                       Text(
-                                        'AI Assistant',
+                                        localizations.aiAssistant,
                                         style: GoogleFonts.poppins(
                                           fontSize: 16,
                                           fontWeight: FontWeight.w600,
@@ -418,7 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             border: Border.all(color: Color(0xFFFFD700), width: 1),
                                           ),
                                           child: Text(
-                                            'PREMIUM',
+                                            localizations.premium,
                                             style: GoogleFonts.poppins(
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold,
@@ -429,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ],
                                   ),
                                   Text(
-                                    'Get personalized insights',
+                                    localizations.getPersonalizedInsights,
                                     style: GoogleFonts.poppins(
                                       fontSize: 12,
                                       color: Colors.grey[600],
@@ -499,7 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Row(
                                     children: [
                                       Text(
-                                        'AI Insights',
+                                        localizations.aiInsights,
                                         style: GoogleFonts.poppins(
                                           fontSize: 16,
                                           fontWeight: FontWeight.w600,
@@ -519,7 +521,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             border: Border.all(color: Color(0xFFFFD700), width: 1),
                                           ),
                                           child: Text(
-                                            'PREMIUM',
+                                            localizations.premium,
                                             style: GoogleFonts.poppins(
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold,
@@ -530,7 +532,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ],
                                   ),
                                   Text(
-                                    'View comprehensive financial analysis',
+                                    localizations.viewComprehensiveAnalysis,
                                     style: GoogleFonts.poppins(
                                       fontSize: 12,
                                       color: Colors.grey[600],
@@ -560,7 +562,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Recent Transactions',
+                          localizations.recentTransactions,
                           style: GoogleFonts.poppins(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -572,7 +574,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onTap:
                               _navigateToTransactionsList, // Navigate to the full list
                           child: Text(
-                            'See More',
+                            localizations.seeMore,
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -620,7 +622,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             SizedBox(height: 16),
                             Text(
-                              'No transactions yet',
+                              localizations.noTransactions,
                               style: GoogleFonts.poppins(
                                 fontSize: 18,
                                 color: Colors.grey[500],
@@ -628,7 +630,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             Text(
-                              'Tap the + button to add your first transaction',
+                              localizations.tapToAddFirst,
                               style: GoogleFonts.poppins(
                                 fontSize: 14,
                                 color: Colors.grey[400],
@@ -719,6 +721,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Widget to build a card for each transaction (consistent with TransactionsListScreen)
   Widget _buildTransactionCard(Transaction transaction) {
+    final localizations = AppLocalizations.of(context);
+
     return GestureDetector(
       onTap: () => _navigateToEditTransaction(
         transaction,
@@ -805,7 +809,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         SizedBox(width: 4),
                         Text(
-                          'Auto-created',
+                          localizations.autoCreated,
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             color: Color(0xFFFF9800),
@@ -884,6 +888,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 void _showAddTransactionOptions() {
+  final localizations = AppLocalizations.of(context);
+
   showModalBottomSheet(
     context: context,
     shape: RoundedRectangleBorder(
@@ -910,7 +916,7 @@ void _showAddTransactionOptions() {
                 ),
                 SizedBox(width: 12),
                 Text(
-                  'Add Transaction',
+                  localizations.addTransaction,
                   style: GoogleFonts.poppins(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -924,8 +930,8 @@ void _showAddTransactionOptions() {
             // Manual Entry Option (NO CHANGES - not premium)
             _buildAddOption(
               icon: Icons.edit_outlined,
-              title: 'Manual Entry',
-              subtitle: 'Type transaction details',
+              title: localizations.manualEntry,
+              subtitle: localizations.typeTransactionDetails,
               gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
               isPremiumFeature: false, // ADD THIS
               onTap: () async {
@@ -945,8 +951,8 @@ void _showAddTransactionOptions() {
             // Voice Input Option - MARK AS PREMIUM
             _buildAddOption(
               icon: Icons.mic,
-              title: 'Voice Input',
-              subtitle: 'Speak your transaction',
+              title: localizations.voiceInput,
+              subtitle: localizations.speakYourTransaction,
               gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
               isPremiumFeature: true, // ADD THIS - marks as premium
               onTap: () async {
@@ -966,8 +972,8 @@ void _showAddTransactionOptions() {
             // Image Input Option - MARK AS PREMIUM
             _buildAddOption(
               icon: Icons.camera_alt,
-              title: 'Scan Receipt',
-              subtitle: 'Take or upload receipt photo',
+              title: localizations.scanReceipt,
+              subtitle: localizations.takeUploadPhoto,
               gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
               isPremiumFeature: true, // ADD THIS - marks as premium
               onTap: () async {
@@ -1001,6 +1007,7 @@ Widget _buildAddOption({
   // Get auth provider to check premium status
   final authProvider = Provider.of<AuthProvider>(context, listen: false);
   final isLocked = isPremiumFeature && !authProvider.isPremium;
+  final localizations = AppLocalizations.of(context);
 
   return InkWell(
     onTap: onTap,
@@ -1090,7 +1097,7 @@ Widget _buildAddOption({
                           ),
                         ),
                         child: Text(
-                          'PREMIUM',
+                          localizations.premium,
                           style: GoogleFonts.poppins(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -1124,19 +1131,21 @@ Widget _buildAddOption({
 }
 
 
-  void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: GoogleFonts.poppins(color: Colors.white)),
-        backgroundColor: Color(0xFF4CAF50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
+void _showSuccessSnackBar(String message) {
+  final localizations = AppLocalizations.of(context);
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message, style: GoogleFonts.poppins(color: Colors.white)),
+      backgroundColor: Color(0xFF4CAF50),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
 
   // Navigate to the EditTransactionScreen and handle results
   void _navigateToEditTransaction(Transaction transaction) async {
+    final localizations = AppLocalizations.of(context);
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -1152,10 +1161,10 @@ Widget _buildAddOption({
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Transaction updated successfully!',
+            localizations.transactionUpdated,
             style: GoogleFonts.poppins(color: Colors.white),
           ),
-          backgroundColor: Color(0xFF4CAF50), // Success green
+          backgroundColor: Color(0xFF4CAF50),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           behavior: SnackBarBehavior.floating,
         ),
@@ -1166,10 +1175,10 @@ Widget _buildAddOption({
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Transaction deleted successfully!',
+            localizations.transactionDeleted,
             style: GoogleFonts.poppins(color: Colors.white),
           ),
-          backgroundColor: Colors.red, // Error red
+          backgroundColor: Colors.red,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           behavior: SnackBarBehavior.floating,
         ),

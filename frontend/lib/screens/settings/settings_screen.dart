@@ -300,6 +300,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
+
+            SizedBox(height: 8),
+
+            _buildSettingCard(
+              icon: Icons.language,
+              title: 'Language',
+              subtitle: 'Change app language',
+              gradientColors: [Color(0xFF00BCD4), Color(0xFF0097A7)],
+              onTap: () {
+                Navigator.pushNamed(context, '/language-settings');
+              },
+            ),
+
             SizedBox(height: 24),
 
             _buildSectionHeader('Notifications'),

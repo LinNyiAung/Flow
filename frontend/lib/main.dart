@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
@@ -10,9 +11,11 @@ import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
+import 'package:frontend/screens/settings/language_settings_screen.dart';
 import 'package:frontend/screens/settings/notification_settings_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
@@ -31,16 +34,39 @@ void main() async {
   runApp(MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  Locale _locale = Locale('en');
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocale();
+  }
+
+  Future<void> _loadLocale() async {
+    final languageCode = await LocalizationService.getSelectedLanguage();
+    setState(() {
+      _locale = Locale(languageCode);
+    });
+  }
+
+  void _changeLanguage(Locale locale) {
+    setState(() {
+      _locale = locale;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // Provide AuthProvider to manage authentication state
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        // Provide TransactionProvider to manage transaction data
         ChangeNotifierProvider(create: (_) => TransactionProvider()),
-        // Provide ChatProvider to manage AI chat functionality
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => GoalProvider()),
         ChangeNotifierProvider(create: (_) => InsightProvider()),
@@ -50,6 +76,17 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Flow Finance',
         debugShowCheckedModeBanner: false,
+        locale: _locale,
+        supportedLocales: [
+          Locale('en', ''),
+          Locale('my', ''),
+        ],
+        localizationsDelegates: [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         theme: ThemeData(
           primarySwatch: Colors.blue,
           visualDensity: VisualDensity.adaptivePlatformDensity,
@@ -82,7 +119,7 @@ class MyApp extends StatelessWidget {
           '/': (context) => AuthWrapper(),
           '/ai-chat': (context) => AiChatScreen(),
           '/goals': (context) => GoalsScreen(),
-          '/outflow-analytics': (context) => OutflowAnalyticsScreen(), 
+          '/outflow-analytics': (context) => OutflowAnalyticsScreen(),
           '/inflow-analytics': (context) => InflowAnalyticsScreen(),
           '/insights': (context) => InsightsScreen(),
           '/reports': (context) => ReportsScreen(),
@@ -91,6 +128,16 @@ class MyApp extends StatelessWidget {
           '/subscription': (context) => SubscriptionScreen(),
           '/settings': (context) => SettingsScreen(),
           '/notification-settings': (context) => NotificationSettingsScreen(),
+        },
+        onGenerateRoute: (settings) {
+          if (settings.name == '/language-settings') {
+            return MaterialPageRoute(
+              builder: (context) => LanguageSettingsScreen(
+                onLanguageChanged: _changeLanguage,
+              ),
+            );
+          }
+          return null;
         },
       ),
     );
