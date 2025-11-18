@@ -1,6 +1,48 @@
 // models/chat.dart
 
+import 'package:flutter/material.dart';
+
 enum MessageRole { user, assistant }
+
+// NEW: Response style enum
+enum ResponseStyle { 
+  normal, 
+  concise, 
+  explanatory;
+  
+  String get displayName {
+    switch (this) {
+      case ResponseStyle.normal:
+        return 'Normal';
+      case ResponseStyle.concise:
+        return 'Concise';
+      case ResponseStyle.explanatory:
+        return 'Detailed';
+    }
+  }
+  
+  String get description {
+    switch (this) {
+      case ResponseStyle.normal:
+        return 'Balanced responses';
+      case ResponseStyle.concise:
+        return 'Brief & direct';
+      case ResponseStyle.explanatory:
+        return 'Thorough explanations';
+    }
+  }
+  
+  IconData get icon {
+    switch (this) {
+      case ResponseStyle.normal:
+        return Icons.chat_bubble_outline;
+      case ResponseStyle.concise:
+        return Icons.speed;
+      case ResponseStyle.explanatory:
+        return Icons.article_outlined;
+    }
+  }
+}
 
 class ChatMessage {
   final MessageRole role;
@@ -33,16 +75,19 @@ class ChatMessage {
 class ChatRequest {
   final String message;
   final List<ChatMessage>? chatHistory;
+  final ResponseStyle? responseStyle;  // NEW
 
   ChatRequest({
     required this.message,
     this.chatHistory,
+    this.responseStyle,  // NEW
   });
 
   Map<String, dynamic> toJson() {
     return {
       'message': message,
       'chat_history': chatHistory?.map((msg) => msg.toJson()).toList(),
+      if (responseStyle != null) 'response_style': responseStyle!.name,  // NEW
     };
   }
 }

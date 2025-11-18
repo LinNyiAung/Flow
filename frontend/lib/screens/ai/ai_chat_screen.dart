@@ -1,5 +1,3 @@
-// screens/ai/ai_chat_screen.dart - Updated with streaming UI and drawer
-
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -21,7 +19,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late AnimationController _typingAnimationController;
 
-  // Predefined quick suggestions
   final List<String> quickSuggestions = [
     "What's my current balance?",
     "How much did I spend this month?",
@@ -35,13 +32,11 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   void initState() {
     super.initState();
     
-    // Initialize animation controller for typing indicator
     _typingAnimationController = AnimationController(
       duration: Duration(milliseconds: 1500),
       vsync: this,
     )..repeat();
     
-    // Load chat history when screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<ChatProvider>(context, listen: false).loadChatHistory();
     });
@@ -76,12 +71,10 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     });
   }
 
-  // Auto-scroll during streaming
   void _autoScrollDuringStreaming() {
     if (_scrollController.hasClients) {
       final maxScroll = _scrollController.position.maxScrollExtent;
       final currentScroll = _scrollController.position.pixels;
-      // Only auto-scroll if user is near the bottom
       if (maxScroll - currentScroll < 100) {
         _scrollController.animateTo(
           maxScroll,
@@ -90,6 +83,131 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
         );
       }
     }
+  }
+
+  // NEW: Show response style selector
+  void _showStyleSelector(ChatProvider chatProvider) {
+    showModalBottomSheet(
+      context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.tune, color: Color(0xFF667eea)),
+                SizedBox(width: 12),
+                Text(
+                  'Response Style',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Choose how detailed you want the AI responses',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 24),
+            ...ResponseStyle.values.map((style) {
+              final isSelected = chatProvider.responseStyle == style;
+              return Container(
+                margin: EdgeInsets.only(bottom: 12),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      chatProvider.setResponseStyle(style);
+                      Navigator.pop(context);
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: isSelected 
+                            ? Color(0xFF667eea).withOpacity(0.1)
+                            : Colors.grey[50],
+                        border: Border.all(
+                          color: isSelected 
+                              ? Color(0xFF667eea)
+                              : Colors.grey[300]!,
+                          width: 2,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? Color(0xFF667eea)
+                                  : Colors.grey[300],
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: Icon(
+                              style.icon,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  style.displayName,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: isSelected
+                                        ? Color(0xFF667eea)
+                                        : Color(0xFF333333),
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  style.description,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isSelected)
+                            Icon(
+                              Icons.check_circle,
+                              color: Color(0xFF667eea),
+                              size: 24,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+            SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -121,35 +239,38 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               child: Icon(Icons.smart_toy, color: Colors.white, size: 20),
             ),
             SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'AI Assistant',
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'AI Assistant',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF333333),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Consumer<ChatProvider>(
-                  builder: (context, chatProvider, child) {
-                    return Text(
-                      chatProvider.isStreaming ? 'Thinking...' : 'Financial advisor',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: chatProvider.isStreaming ? Colors.green[600] : Colors.grey[600],
-                      ),
-                    );
-                  },
-                ),
-              ],
+                  Consumer<ChatProvider>(
+                    builder: (context, chatProvider, child) {
+                      return Text(
+                        chatProvider.isStreaming ? 'Thinking...' : 'Financial advisor',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: chatProvider.isStreaming ? Colors.green[600] : Colors.grey[600],
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
-            SizedBox(width: 8),
-            if (!authProvider.isPremium)
+            if (!authProvider.isPremium) ...[
+              SizedBox(width: 4),
               Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
-              SizedBox(width: 8),
-            if (!authProvider.isPremium)
+              SizedBox(width: 4),
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
@@ -165,11 +286,11 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                     color: Color(0xFFFFD700),
                   ),
                 ),
-              )
+              ),
+            ]
           ],
         ),
         actions: [
-          // Add stop button during streaming
           Consumer<ChatProvider>(
             builder: (context, chatProvider, child) {
               if (chatProvider.isStreaming) {
@@ -180,6 +301,17 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 );
               }
               return Container();
+            },
+          ),
+          // NEW: Response style button
+          Consumer<ChatProvider>(
+            builder: (context, chatProvider, child) {
+              return IconButton(
+                onPressed: () => _showStyleSelector(chatProvider),
+                icon: Icon(chatProvider.responseStyle.icon),
+                tooltip: 'Change response style',
+                color: Color(0xFF667eea),
+              );
             },
           ),
           PopupMenuButton<String>(
@@ -205,7 +337,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
       ),
       body: Consumer<ChatProvider>(
         builder: (context, chatProvider, child) {
-          // Auto-scroll during streaming
           if (chatProvider.isStreaming) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _autoScrollDuringStreaming();
@@ -232,7 +363,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 
           return Column(
             children: [
-              // Error message
               if (chatProvider.error != null)
                 Container(
                   width: double.infinity,
@@ -264,7 +394,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   ),
                 ),
 
-              // Chat messages
               Expanded(
                 child: chatProvider.messages.isEmpty
                     ? _buildEmptyState()
@@ -287,7 +416,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                       ),
               ),
 
-              // Quick suggestions (show only when chat is empty)
               if (chatProvider.messages.isEmpty)
                 Container(
                   height: 120,
@@ -301,7 +429,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   ),
                 ),
 
-              // Message input
               _buildMessageInput(chatProvider),
             ],
           );
@@ -445,7 +572,6 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                           height: 1.4,
                         ),
                       ),
-                      // Add typing indicator for streaming messages
                       if (isStreamingMessage) ...[
                         SizedBox(height: 8),
                         Row(
@@ -540,7 +666,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               ),
               child: TextField(
                 controller: _messageController,
-                enabled: !chatProvider.isStreaming, // Disable input during streaming
+                enabled: !chatProvider.isStreaming,
                 decoration: InputDecoration(
                   hintText: chatProvider.isStreaming 
                       ? 'AI is responding...' 
@@ -629,6 +755,4 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
       ),
     );
   }
-
-  
 }

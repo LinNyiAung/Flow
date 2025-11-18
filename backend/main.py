@@ -782,7 +782,7 @@ async def stream_chat_with_ai(
     chat_request: ChatRequest,
     current_user: dict = Depends(require_premium)
 ):
-    """Stream chat response from AI"""
+    """Stream chat response from AI with response style support"""
     if financial_chatbot is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -800,12 +800,16 @@ async def stream_chat_with_ai(
             for msg in chat_request.chat_history
         ]
     
+    # Get response style from request (default to "normal")
+    response_style = chat_request.response_style.value if chat_request.response_style else "normal"
+    
     async def generate_stream():
         try:
             stream = financial_chatbot.stream_chat(
                 user_id=current_user["_id"],
                 message=chat_request.message,
-                chat_history=chat_history
+                chat_history=chat_history,
+                response_style=response_style  # NEW: Pass response style
             )
             
             full_response = ""

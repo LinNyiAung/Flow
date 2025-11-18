@@ -12,6 +12,9 @@ class ChatProvider with ChangeNotifier {
   bool _isStreaming = false;
   String _currentStreamingMessage = '';
   StreamSubscription? _streamSubscription;
+  
+  // NEW: Response style state
+  ResponseStyle _responseStyle = ResponseStyle.normal;
 
   List<ChatMessage> get messages => _messages;
   bool get isLoading => _isLoading;
@@ -19,6 +22,7 @@ class ChatProvider with ChangeNotifier {
   String? get error => _error;
   bool get isStreaming => _isStreaming;
   String get currentStreamingMessage => _currentStreamingMessage;
+  ResponseStyle get responseStyle => _responseStyle;  // NEW
 
   void _setLoading(bool loading) {
     _isLoading = loading;
@@ -49,8 +53,13 @@ class ChatProvider with ChangeNotifier {
     _currentStreamingMessage = '';
     notifyListeners();
   }
+  
+  // NEW: Set response style
+  void setResponseStyle(ResponseStyle style) {
+    _responseStyle = style;
+    notifyListeners();
+  }
 
-  // FIXED: Send chat history BEFORE adding the new user message
   Future<bool> sendMessage(String message) async {
     if (message.trim().isEmpty) return false;
 
@@ -63,12 +72,10 @@ class ChatProvider with ChangeNotifier {
     try {
       _setStreaming(true);
       
-      // IMPORTANT: Get chat history BEFORE adding the new user message
       final chatHistoryToSend = _messages.length > 10 
           ? _messages.sublist(_messages.length - 10)
           : List<ChatMessage>.from(_messages);
       
-      // NOW add user message to UI
       final userMessage = ChatMessage(
         role: MessageRole.user,
         content: message,
@@ -77,7 +84,6 @@ class ChatProvider with ChangeNotifier {
       _messages.add(userMessage);
       notifyListeners();
       
-      // Create placeholder AI message
       final aiMessageIndex = _messages.length;
       final aiMessage = ChatMessage(
         role: MessageRole.assistant,
@@ -87,10 +93,11 @@ class ChatProvider with ChangeNotifier {
       _messages.add(aiMessage);
       notifyListeners();
 
-      // Start streaming with the OLD chat history (before we added the new message)
+      // NEW: Pass response style to API
       final stream = ApiService.streamChatMessage(
         message: message,
-        chatHistory: chatHistoryToSend, // Use the history from before we added the message
+        chatHistory: chatHistoryToSend,
+        responseStyle: _responseStyle,  // NEW
       );
 
       String fullResponse = '';

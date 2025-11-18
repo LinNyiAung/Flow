@@ -478,68 +478,70 @@ static Future<Transaction> updateTransaction({
   }
 
   static Stream<String> streamChatMessage({
-    required String message,
-    List<ChatMessage>? chatHistory,
-  }) async* {
-    try {
-      final chatRequest = ChatRequest(
-        message: message,
-        chatHistory: chatHistory,
-      );
+  required String message,
+  List<ChatMessage>? chatHistory,
+  ResponseStyle? responseStyle,  // NEW parameter
+}) async* {
+  try {
+    final chatRequest = ChatRequest(
+      message: message,
+      chatHistory: chatHistory,
+      responseStyle: responseStyle ?? ResponseStyle.normal,  // NEW: Include response style
+    );
 
-      final request = http.Request(
-        'POST',
-        Uri.parse('$baseUrl/api/chat/stream'),
-      );
+    final request = http.Request(
+      'POST',
+      Uri.parse('$baseUrl/api/chat/stream'),
+    );
 
-      final headers = await _getHeaders();
-      request.headers.addAll(headers);
-      request.body = jsonEncode(chatRequest.toJson());
+    final headers = await _getHeaders();
+    request.headers.addAll(headers);
+    request.body = jsonEncode(chatRequest.toJson());
 
-      final streamedResponse = await http.Client().send(request);
+    final streamedResponse = await http.Client().send(request);
 
-      if (streamedResponse.statusCode != 200) {
-        throw Exception('Failed to start streaming chat');
-      }
+    if (streamedResponse.statusCode != 200) {
+      throw Exception('Failed to start streaming chat');
+    }
 
-      await for (final chunk in streamedResponse.stream.transform(
-        utf8.decoder,
-      )) {
-        final lines = chunk.split('\n');
+    await for (final chunk in streamedResponse.stream.transform(
+      utf8.decoder,
+    )) {
+      final lines = chunk.split('\n');
 
-        for (final line in lines) {
-          if (line.startsWith('data: ')) {
-            final jsonData = line.substring(6); // Remove 'data: ' prefix
+      for (final line in lines) {
+        if (line.startsWith('data: ')) {
+          final jsonData = line.substring(6); // Remove 'data: ' prefix
 
-            try {
-              final data = jsonDecode(jsonData);
+          try {
+            final data = jsonDecode(jsonData);
 
-              // Check for error
-              if (data['error'] != null) {
-                throw Exception(data['error']);
-              }
-
-              // Check if streaming is done
-              if (data['done'] == true) {
-                return; // End the stream
-              }
-
-              // Yield the text chunk
-              final chunk = data['chunk'] as String?;
-              if (chunk != null && chunk.isNotEmpty) {
-                yield chunk;
-              }
-            } catch (jsonError) {
-              // Skip malformed JSON lines
-              continue;
+            // Check for error
+            if (data['error'] != null) {
+              throw Exception(data['error']);
             }
+
+            // Check if streaming is done
+            if (data['done'] == true) {
+              return; // End the stream
+            }
+
+            // Yield the text chunk
+            final chunk = data['chunk'] as String?;
+            if (chunk != null && chunk.isNotEmpty) {
+              yield chunk;
+            }
+          } catch (jsonError) {
+            // Skip malformed JSON lines
+            continue;
           }
         }
       }
-    } catch (e) {
-      throw Exception('Streaming chat failed: ${e.toString()}');
     }
+  } catch (e) {
+    throw Exception('Streaming chat failed: ${e.toString()}');
   }
+}
 
   // Goals CRUD methods
   static Future<Goal> createGoal({

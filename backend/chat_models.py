@@ -9,6 +9,11 @@ class MessageRole(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
 
+class ResponseStyle(str, Enum):
+    NORMAL = "normal"
+    CONCISE = "concise"
+    EXPLANATORY = "explanatory"
+
 class ChatMessage(BaseModel):
     role: MessageRole
     content: str
@@ -17,6 +22,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     chat_history: Optional[List[ChatMessage]] = None
+    response_style: Optional[ResponseStyle] = ResponseStyle.NORMAL  # NEW
 
 class ChatResponse(BaseModel):
     response: str

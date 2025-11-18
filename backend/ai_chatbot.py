@@ -458,13 +458,43 @@ class FinancialChatbot:
         self._get_or_create_vector_store(user_id)
         print(f"✅ Refreshed data for user {user_id}")
     
-    def _build_system_prompt(self, today: str) -> str:
-        """Build enhanced system prompt for GPT-4 with Myanmar language support"""
+    def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
+        """Build enhanced system prompt for GPT-4 with Myanmar language support and response style"""
+        
+        # Define style-specific instructions
+        style_instructions = {
+            "normal": """
+    - Answer directly and clearly
+    - Include relevant details
+    - Use 2-4 sentences for simple questions, more for complex ones
+    - Balance between brevity and completeness
+    """,
+            "concise": """
+    - Be extremely brief and direct
+    - Use 1-2 sentences maximum
+    - Focus only on the core answer
+    - Eliminate all unnecessary words
+    - Use bullet points for lists
+    - Example: "Balance: $1,234.56" instead of "Your current balance is $1,234.56"
+    """,
+            "explanatory": """
+    - Provide detailed, thorough explanations
+    - Include context, reasoning, and background information
+    - Break down complex topics into steps
+    - Add relevant examples and scenarios
+    - Explain the "why" behind numbers and patterns
+    - Use 5-10 sentences or more as needed
+    - Help users understand not just "what" but "why" and "how"
+    """
+        }
+        
+        style_instruction = style_instructions.get(response_style, style_instructions["normal"])
+        
         return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history and financial goals.
 
     📅 Today's date: {today}
 
-    🌏 LANGUAGE CAPABILITY:
+    🌐 LANGUAGE CAPABILITY:
     - You are FLUENT in both Myanmar (Burmese) and English language
     - Detect the user's language automatically from their message
     - If the user writes in Myanmar, respond ENTIRELY in Myanmar
@@ -484,7 +514,7 @@ class FinancialChatbot:
 
     🎯 CRITICAL RULES FOR ACCURACY:
 
-    1. TEMPORAL QUERIES ("latest", "recent", "last", "newest" or Myanmar: "နောက်ဆုံး", "မကြာသေးခင်က", "လတ်တလော"):
+    1. TEMPORAL QUERIES ("latest", "recent", "last", "newest" or Myanmar: "နောက်ဆုံး", "မကြာသေးမီက", "လတ်တလော"):
     - The data includes a CHRONOLOGICAL INDEX sorted NEWEST → OLDEST
     - Transaction #1 in that index is ALWAYS the most recent
     - Look for visual indicators like "🔴 TODAY" or "days ago"
@@ -502,33 +532,28 @@ class FinancialChatbot:
     - Verify dates carefully before answering
     - Use the "days ago" information as a guide
 
-    4. RESPONSE STYLE:
-    - Answer the Question Directly
-    - Get straight to what they asked
-    - Don't add extra information unless it's truly relevant
-    - Only mention related information if it directly impacts their question
-    - Be Friendly, Not Chatty - Warm tone, but professional and to-the-point
-    - Simple questions deserve simple answers (1-3 sentences)
-    - Complex questions get thorough but focused answers
-    - No filler, no unnecessary elaboration
+    4. RESPONSE STYLE - {response_style.upper()}:
+    {style_instruction}
+
+    5. FORMATTING:
     - Format money as $X.XX (or if in Myanmar: $X.XX ကျပ်)
     - Include specific dates when relevant
     - If unsure about something, say so honestly
     - Never fabricate transaction or goal details
 
-    5. MYANMAR LANGUAGE SPECIFICS:
+    6. MYANMAR LANGUAGE SPECIFICS:
     - Use respectful Myanmar expressions naturally 
     - Keep financial advice clear and easy to understand
     - Use bullet points (•) for lists in Myanmar responses too
     - When translating amounts, keep the $ symbol but you can add context in Myanmar
     - Be warm and encouraging in Myanmar - financial discussions can be sensitive
 
-    6. PRIORITIZATION:
+    7. PRIORITIZATION:
     - For "latest/recent" queries, ALWAYS check the chronological index FIRST
     - For goal-related queries, check the goals overview and individual goal details
     - Consider the interplay between spending, saving, and goal progress
 
-    Remember: Accuracy is more important than speed. Double-check dates and amounts! Respect their time. Answer what they asked, be friendly, and move on. 
+    Remember: Accuracy is more important than speed. Double-check dates and amounts! Respect their time and adapt your verbosity to their preference.
 
     ဘာသာစကားကို သဘာဝကျကျ သုံးစွဲပါ။ (Use language naturally.)"""
     
@@ -570,8 +595,8 @@ Please provide an accurate, helpful answer based on the financial data above."""
         
         return prompt
     
-    async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None):
-        """Stream chat response using GPT-4 with enhanced RAG"""
+    async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None, response_style: str = "normal"):
+        """Stream chat response using GPT-4 with enhanced RAG and response style"""
         try:
             user = users_collection.find_one({"_id": user_id})
             if not user:
@@ -648,8 +673,8 @@ Please provide an accurate, helpful answer based on the financial data above."""
             # Get today's date
             today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
             
-            # Build prompts
-            system_prompt = self._build_system_prompt(today)
+            # Build prompts with response style
+            system_prompt = self._build_system_prompt(today, response_style)
             user_prompt = self._build_user_prompt(user, summary, goals_summary, context, history_text, message, today)
             
             # Stream response
@@ -660,13 +685,20 @@ Please provide an accurate, helpful answer based on the financial data above."""
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=self.openai_api_key)
             
+            # Adjust temperature based on style
+            temperature_map = {
+                "normal": 0.3,
+                "concise": 0.2,  # More deterministic for brevity
+                "explanatory": 0.4  # Slightly more creative for explanations
+            }
+            
             stream = await client.chat.completions.create(
                 model=self.gpt_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,
+                temperature=temperature_map.get(response_style, 0.3),
                 max_tokens=1000,
                 stream=True
             )
