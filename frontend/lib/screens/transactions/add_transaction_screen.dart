@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/recurring_transaction.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -133,7 +134,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   Widget build(BuildContext context) {
     // Access the TransactionProvider for state management
     final transactionProvider = Provider.of<TransactionProvider>(context);
-
+    final localizations = AppLocalizations.of(context);
+    
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -178,12 +180,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                     ),
                     SizedBox(width: 16),
                     // Screen Title
-                    Text(
-                      'Add Transaction',
-                      style: GoogleFonts.poppins(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF333333),
+                    Expanded(
+                      child: Text(
+                        localizations.addTransactionTitle,
+                        style: GoogleFonts.poppins(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF333333),
+                        ),
                       ),
                     ),
                   ],
@@ -250,7 +254,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                             ),
                                             SizedBox(width: 8),
                                             Text(
-                                              'Outflow', // Label changed from Expense
+                                              localizations.outflow, // Label changed from Expense
                                               style: GoogleFonts.poppins(
                                                 color: _selectedType == TransactionType.outflow
                                                     ? Colors.white
@@ -295,7 +299,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                             ),
                                             SizedBox(width: 8),
                                             Text(
-                                              'Inflow', // Label changed from Income
+                                              localizations.inflow, // Label changed from Income
                                               style: GoogleFonts.poppins(
                                                 color: _selectedType == TransactionType.inflow
                                                     ? Colors.white
@@ -315,7 +319,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
 
                             // Amount Field
                             Text(
-                              'Amount',
+                              localizations.amountLabel,
                               style: GoogleFonts.poppins(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -359,15 +363,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                 // Validation for the amount field
                                 validator: (value) {
                                   if (value == null || value.isEmpty) {
-                                    return 'Please enter an amount';
+                                    return localizations.validationAmountRequired;
                                   }
                                   // Check if it's a valid number
                                   if (double.tryParse(value) == null) {
-                                    return 'Please enter a valid amount';
+                                    return localizations.validationAmountInvalid;
                                   }
                                   // Check if amount is positive
                                   if (double.parse(value) <= 0) {
-                                    return 'Amount must be greater than 0';
+                                    return localizations.validationAmountPositive;
                                   }
                                   return null; // Return null if validation passes
                                 },
@@ -377,7 +381,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
 
                             // Date Field
                             Text(
-                              'Date',
+                              localizations.dateLabel,
                               style: GoogleFonts.poppins(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -424,7 +428,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
 
                             // Main Category Field
                             Text(
-                              'Category',
+                              localizations.categoryLabel,
                               style: GoogleFonts.poppins(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -452,7 +456,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                     )
                                   : DropdownButtonFormField<String>(
                                       decoration: InputDecoration(
-                                        hintText: 'Select main category',
+                                        hintText: localizations.selectMainCategoryHint,
                                         border: InputBorder.none,
                                         contentPadding: EdgeInsets.all(20),
                                         prefixIcon: Icon(Icons.category_outlined),
@@ -477,7 +481,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                       // Validation for main category
                                       validator: (value) {
                                         if (value == null || value.isEmpty) {
-                                          return 'Please select a main category';
+                                          return localizations.validationMainCategoryRequired;
                                         }
                                         return null;
                                       },
@@ -501,7 +505,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                 ),
                                 child: DropdownButtonFormField<String>(
                                   decoration: InputDecoration(
-                                    hintText: 'Select sub category',
+                                    hintText: localizations.selectSubCategoryHint,
                                     border: InputBorder.none,
                                     contentPadding: EdgeInsets.all(20),
                                     prefixIcon: Icon(Icons.list_outlined),
@@ -532,7 +536,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                   // Validation for sub category
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
-                                      return 'Please select a sub category';
+                                      return localizations.validationSubCategoryRequired;
                                     }
                                     return null;
                                   },
@@ -543,7 +547,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
 
                             // Description Field (Optional)
                             Text(
-                              'Description (Optional)',
+                              localizations.descriptionLabel,
                               style: GoogleFonts.poppins(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -567,7 +571,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                 controller: _descriptionController,
                                 maxLines: 3, // Allow multiple lines for description
                                 decoration: InputDecoration(
-                                  hintText: 'Add a note about this transaction...',
+                                  hintText: localizations.descriptionHint,
                                   border: InputBorder.none,
                                   contentPadding: EdgeInsets.all(20),
                                   prefixIcon: Padding( // Icon padding for alignment

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/recurring_transaction.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -164,7 +165,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
   Widget build(BuildContext context) {
     // Access the TransactionProvider for state management
     final transactionProvider = Provider.of<TransactionProvider>(context);
-
+    final localizations = AppLocalizations.of(context);
+    
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -211,7 +213,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                     // Screen Title
                     Expanded(
                       child: Text(
-                        'Edit Transaction',
+                        localizations.editTransactionTitle,
                         style: GoogleFonts.poppins(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -676,7 +678,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                 crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
-                                                    'Auto-Created Transaction',
+                                                    localizations.autoCreatedTransactionTitle,
                                                     style: GoogleFonts.poppins(
                                                       fontSize: 15,
                                                       fontWeight: FontWeight.bold,
@@ -686,8 +688,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                   SizedBox(height: 4),
                                                   Text(
                                                     parentRecurrenceEnabled
-                                                        ? 'This was automatically created from a recurring transaction.'
-                                                        : 'This was automatically created from a recurring transaction (now disabled).',
+                                                        ? localizations.autoCreatedDescriptionRecurring
+                                                        : localizations.autoCreatedDescriptionDisabled,
                                                     style: GoogleFonts.poppins(
                                                       fontSize: 12,
                                                       color: Colors.grey[700],
@@ -717,7 +719,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                               ),
                                               icon: Icon(Icons.stop_circle_outlined, color: Colors.white, size: 20),
                                               label: Text(
-                                                'Stop Future Auto-Creation',
+                                                localizations.stopFutureAutoCreation,
                                                 style: GoogleFonts.poppins(
                                                   fontSize: 14,
                                                   fontWeight: FontWeight.w600,
@@ -742,7 +744,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                             ),
                                             icon: Icon(Icons.repeat, color: Color(0xFF667eea), size: 20),
                                             label: Text(
-                                              'View Parent Transaction',
+                                              localizations.viewParentTransaction,
                                               style: GoogleFonts.poppins(
                                                 fontSize: 14,
                                                 fontWeight: FontWeight.w600,
@@ -881,7 +883,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                               ),
                                               SizedBox(width: 8),
                                               Text(
-                                                'Update Transaction',
+                                                localizations.updateTransactionButton,
                                                 style: GoogleFonts.poppins(
                                                   fontSize: 16,
                                                   fontWeight: FontWeight.w600,
@@ -910,6 +912,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
 
 
 void _showDisableRecurrenceDialog() {
+  final localizations = AppLocalizations.of(context);
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -923,7 +927,7 @@ void _showDisableRecurrenceDialog() {
               SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Stop Recurring Transaction?',
+                  localizations.stopRecurringDialogTitle,
                   style: GoogleFonts.poppins(
                     fontWeight: FontWeight.bold,
                     fontSize: 18,
@@ -937,7 +941,7 @@ void _showDisableRecurrenceDialog() {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'This will stop automatic creation of future transactions.',
+                localizations.stopRecurringDialogContent,
                 style: GoogleFonts.poppins(fontSize: 14),
               ),
               SizedBox(height: 12),
@@ -954,7 +958,7 @@ void _showDisableRecurrenceDialog() {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Existing transactions will not be affected.',
+                        localizations.stopRecurringDialogInfo,
                         style: GoogleFonts.poppins(
                           fontSize: 12,
                           color: Colors.grey[800],
@@ -991,7 +995,7 @@ void _showDisableRecurrenceDialog() {
               ),
               icon: Icon(Icons.stop, color: Colors.white, size: 18),
               label: Text(
-                'Stop Recurring',
+                localizations.stopRecurringButton,
                 style: GoogleFonts.poppins(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -1005,6 +1009,8 @@ void _showDisableRecurrenceDialog() {
   }
 
 void _disableParentRecurrence() async {
+  final localizations = AppLocalizations.of(context);
+
     try {
       // Show loading with better styling
       showDialog(
@@ -1049,7 +1055,7 @@ void _disableParentRecurrence() async {
                 ),
                 SizedBox(height: 24),
                 Text(
-                  'Stopping Recurrence',
+                  localizations.stoppingRecurrence,
                   style: GoogleFonts.poppins(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -1058,7 +1064,7 @@ void _disableParentRecurrence() async {
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Please wait...',
+                  localizations.pleaseWait,
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     color: Colors.grey[600],
@@ -1102,7 +1108,7 @@ void _disableParentRecurrence() async {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Success!',
+                          localizations.successTitle,
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -1110,7 +1116,7 @@ void _disableParentRecurrence() async {
                           ),
                         ),
                         Text(
-                          'Future auto-creation has been stopped',
+                          localizations.successAutoCreationStopped,
                           style: GoogleFonts.poppins(
                             color: Colors.white.withOpacity(0.9),
                             fontSize: 13,
@@ -1171,7 +1177,7 @@ void _disableParentRecurrence() async {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Error',
+                          localizations.errorTitle,
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -1216,6 +1222,7 @@ void _disableParentRecurrence() async {
 
 
 void _viewParentTransaction() async {
+  final localizations = AppLocalizations.of(context);
     if (widget.transaction.parentTransactionId == null) return;
     
     try {
@@ -1256,7 +1263,7 @@ void _viewParentTransaction() async {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Failed to load parent transaction: ${e.toString().replaceAll('Exception: ', '')}',
+            '${localizations.errorLoadParentFailed} ${e.toString().replaceAll('Exception: ', '')}',
             style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Colors.red,
@@ -1310,6 +1317,8 @@ void _updateTransaction() async {
 
   // Function to show the delete confirmation dialog
   void _showDeleteDialog() {
+    final localizations = AppLocalizations.of(context);
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1318,14 +1327,14 @@ void _updateTransaction() async {
             borderRadius: BorderRadius.circular(16),
           ),
           title: Text(
-            'Delete Transaction',
+            localizations.deleteTransactionTitle,
             style: GoogleFonts.poppins(
               fontWeight: FontWeight.bold,
               color: Colors.red, // Red color for delete title
             ),
           ),
           content: Text(
-            'Are you sure you want to delete this transaction? This action cannot be undone.',
+            localizations.deleteConfirmMessage,
             style: GoogleFonts.poppins(),
           ),
           actions: [

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -53,6 +54,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   }
 
   Future<void> _pickImageFromCamera() async {
+    final localizations = AppLocalizations.of(context);
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.camera,
@@ -69,12 +71,13 @@ class _ImageInputScreenState extends State<ImageInputScreen>
       }
     } catch (e) {
       setState(() {
-        _error = 'Failed to capture image: ${e.toString()}';
+        _error = '${localizations.errorCaptureImage} ${e.toString()}';
       });
     }
   }
 
   Future<void> _pickImageFromGallery() async {
+    final localizations = AppLocalizations.of(context);
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
@@ -91,7 +94,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
       }
     } catch (e) {
       setState(() {
-        _error = 'Failed to pick image: ${e.toString()}';
+        _error = '${localizations.errorPickImage} ${e.toString()}';
       });
     }
   }
@@ -150,6 +153,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   }
 
   void _showImageSourceDialog() {
+    final localizations = AppLocalizations.of(context);
     if (_isSaving) return; // Don't show dialog while saving
     
     showModalBottomSheet(
@@ -164,7 +168,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Choose Image Source',
+                localizations.chooseImageSourceModalTitle,
                 style: GoogleFonts.poppins(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -182,11 +186,11 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                   child: Icon(Icons.camera_alt, color: Color(0xFF667eea)),
                 ),
                 title: Text(
-                  'Camera',
+                  localizations.cameraListTileTitle,
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
                 ),
                 subtitle: Text(
-                  'Take a photo of receipt',
+                  localizations.cameraListTileSubtitle,
                   style: GoogleFonts.poppins(fontSize: 12),
                 ),
                 onTap: () {
@@ -204,11 +208,11 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                   child: Icon(Icons.photo_library, color: Color(0xFF667eea)),
                 ),
                 title: Text(
-                  'Gallery',
+                  localizations.galleryListTileTitle,
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
                 ),
                 subtitle: Text(
-                  'Choose from gallery',
+                  localizations.galleryListTileSubtitle,
                   style: GoogleFonts.poppins(fontSize: 12),
                 ),
                 onTap: () {
@@ -233,6 +237,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
+    final localizations = AppLocalizations.of(context);
     
     return Scaffold(
       body: Container(
@@ -276,7 +281,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                     Row(
                       children: [
                         Text(
-                          'Image Input',
+                          localizations.imageInputTitle,
                           style: GoogleFonts.poppins(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -296,7 +301,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                               border: Border.all(color: Color(0xFFFFD700), width: 1),
                             ),
                             child: Text(
-                              'PREMIUM',
+                              localizations.premium,
                               style: GoogleFonts.poppins(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
@@ -342,7 +347,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                 Icon(Icons.star, color: Colors.white, size: 48),
                                 SizedBox(height: 12),
                                 Text(
-                                  'Premium Feature',
+                                  localizations.premiumFeatureTitle,
                                   style: GoogleFonts.poppins(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
@@ -351,7 +356,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                 ),
                                 SizedBox(height: 8),
                                 Text(
-                                  'Upgrade to use voice input for adding transactions',
+                                  localizations.premiumFeatureUpgradeDescImg,
                                   style: GoogleFonts.poppins(
                                     fontSize: 14,
                                     color: Colors.white.withOpacity(0.9),
@@ -375,7 +380,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                       Icon(Icons.upgrade),
                                       SizedBox(width: 8),
                                       Text(
-                                        'Upgrade Now',
+                                        localizations.upgradeNowButton,
                                         style: GoogleFonts.poppins(
                                           fontSize: 16,
                                           fontWeight: FontWeight.bold,
@@ -419,7 +424,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                     ),
                                     SizedBox(height: 16),
                                     Text(
-                                      'Tap to add receipt image',
+                                      localizations.tapToAddImagePlaceholder,
                                       style: GoogleFonts.poppins(
                                         fontSize: 16,
                                         color: Colors.white,
@@ -428,7 +433,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                     ),
                                     SizedBox(height: 8),
                                     Text(
-                                      'Camera or Gallery',
+                                      localizations.cameraOrGalleryPlaceholder,
                                       style: GoogleFonts.poppins(
                                         fontSize: 14,
                                         color: Colors.white70,
@@ -466,7 +471,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                               onPressed: _isSaving ? null : _showImageSourceDialog, // Disable while saving
                               icon: Icon(Icons.refresh, color: Colors.white),
                               label: Text(
-                                'Choose Different Image',
+                                localizations.chooseDifferentImageButton,
                                 style: GoogleFonts.poppins(color: Colors.white),
                               ),
                               style: ElevatedButton.styleFrom(
@@ -498,7 +503,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   ),
                                   SizedBox(height: 16),
                                   Text(
-                                    'Analyzing receipt...',
+                                    localizations.analyzingReceipt,
                                     style: GoogleFonts.poppins(
                                       fontSize: 14,
                                       color: Colors.grey[600],
@@ -530,7 +535,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Extracted Transaction',
+                                    localizations.extractedTransactionTitle,
                                     style: GoogleFonts.poppins(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -538,12 +543,12 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                     ),
                                   ),
                                   SizedBox(height: 16),
-                                  _buildDataRow('Type', _extractedData!.type.name.toUpperCase()),
-                                  _buildDataRow('Amount', '\$${_extractedData!.amount.toStringAsFixed(2)}'),
-                                  _buildDataRow('Category', '${_extractedData!.mainCategory} > ${_extractedData!.subCategory}'),
-                                  _buildDataRow('Date', DateFormat('yyyy-MM-dd').format(_extractedData!.date)),
+                                  _buildDataRow(localizations.dataLabelType, _extractedData!.type.name.toUpperCase()),
+                                  _buildDataRow(localizations.dataLabelAmount, '\$${_extractedData!.amount.toStringAsFixed(2)}'),
+                                  _buildDataRow(localizations.dataLabelCategory, '${_extractedData!.mainCategory} > ${_extractedData!.subCategory}'),
+                                  _buildDataRow(localizations.dataLabelDate, DateFormat('yyyy-MM-dd').format(_extractedData!.date)),
                                   if (_extractedData!.description != null)
-                                    _buildDataRow('Description', _extractedData!.description!),
+                                    _buildDataRow(localizations.dataLabelDescription, _extractedData!.description!),
                                   if (_extractedData!.reasoning != null) ...[
                                     SizedBox(height: 12),
                                     Container(
@@ -561,7 +566,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                                 color: Colors.white70, size: 16),
                                               SizedBox(width: 8),
                                               Text(
-                                                'AI Reasoning:',
+                                                localizations.aiReasoningLabel,
                                                 style: GoogleFonts.poppins(
                                                   fontSize: 12,
                                                   color: Colors.white70,
@@ -588,7 +593,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                       Icon(Icons.psychology, color: Colors.white70, size: 16),
                                       SizedBox(width: 8),
                                       Text(
-                                        'Confidence: ${(_extractedData!.confidence * 100).toStringAsFixed(0)}%',
+                                        '${localizations.confidenceLabel} ${(_extractedData!.confidence * 100).toStringAsFixed(0)}%',
                                         style: GoogleFonts.poppins(
                                           fontSize: 12,
                                           color: Colors.white70,
@@ -620,7 +625,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                           Icon(Icons.check_circle, color: Colors.white),
                                           SizedBox(width: 8),
                                           Text(
-                                            'Save Transaction',
+                                            localizations.saveTransactionButton,
                                             style: GoogleFonts.poppins(
                                               fontSize: 16,
                                               fontWeight: FontWeight.w600,

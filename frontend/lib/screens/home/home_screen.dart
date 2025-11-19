@@ -942,7 +942,7 @@ void _showAddTransactionOptions() {
                 );
                 if (result == true) {
                   _refreshData();
-                  _showSuccessSnackBar('Transaction added successfully!');
+                  _showSuccessSnackBar(localizations.transactionAdded);
                 }
               },
             ),
@@ -963,7 +963,7 @@ void _showAddTransactionOptions() {
                 );
                 if (result == true) {
                   _refreshData();
-                  _showSuccessSnackBar('Transaction added successfully!');// Show success message...
+                  _showSuccessSnackBar(localizations.transactionAdded);// Show success message...
                 }
               },
             ),
@@ -984,7 +984,7 @@ void _showAddTransactionOptions() {
                 );
                 if (result == true) {
                   _refreshData();
-                  _showSuccessSnackBar('Transaction added successfully!');
+                  _showSuccessSnackBar(localizations.transactionAdded);
                 }
               },
             ),

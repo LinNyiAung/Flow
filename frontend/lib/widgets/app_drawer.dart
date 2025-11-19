@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/screens/auth/login_screen.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -12,6 +13,7 @@ class AppDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
+    final localizations = AppLocalizations.of(context);
 
     return Drawer(
       child: Container(
@@ -65,7 +67,7 @@ class AppDrawer extends StatelessWidget {
                     ),
                     SizedBox(height: 12),
                     Text(
-                      user?.name ?? 'Welcome',
+                      user?.name ?? localizations.takeUploadPhoto,
                       style: GoogleFonts.poppins(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -84,7 +86,7 @@ class AppDrawer extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          'Expires: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
+                          '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
                           style: GoogleFonts.poppins(
                             fontSize: 10,
                             color: Colors.white.withOpacity(0.7),
@@ -104,7 +106,7 @@ class AppDrawer extends StatelessWidget {
                   ListTile(
                     leading: Icon(Icons.dashboard, color: Color(0xFF667eea)),
                     title: Text(
-                      'Dashboard',
+                      localizations.dashboard,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -121,7 +123,7 @@ class AppDrawer extends StatelessWidget {
                   ListTile(
                     leading: Icon(Icons.list_alt, color: Color(0xFF764ba2)),
                     title: Text(
-                      'Transactions',
+                      localizations.transactions,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -146,7 +148,7 @@ class AppDrawer extends StatelessWidget {
                       child: Icon(Icons.flag, color: Colors.white, size: 20),
                     ),
                     title: Text(
-                      'Goals',
+                      localizations.goals,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -168,7 +170,7 @@ class AppDrawer extends StatelessWidget {
                       child: Icon(Icons.account_balance_wallet, color: Colors.white, size: 18),
                     ),
                     title: Text(
-                      'Budgets',
+                      localizations.budgets,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -190,7 +192,7 @@ class AppDrawer extends StatelessWidget {
                       child: Icon(Icons.trending_up, color: Colors.white, size: 18),
                     ),
                     title: Text(
-                      'Inflow Analytics',
+                      localizations.inflowAnalytics,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -212,7 +214,7 @@ class AppDrawer extends StatelessWidget {
                       child: Icon(Icons.analytics, color: Colors.white, size: 18),
                     ),
                     title: Text(
-                      'Outflow Analytics',
+                      localizations.outflowAnalytics,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -234,7 +236,7 @@ class AppDrawer extends StatelessWidget {
                       child: Icon(Icons.assessment, color: Colors.white, size: 16),
                     ),
                     title: Text(
-                      'Financial Reports',
+                      localizations.financialReports,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -257,13 +259,17 @@ class AppDrawer extends StatelessWidget {
                     ),
                     title: Row(
                       children: [
-                        Text(
-                          'AI Insights',
-                          style: GoogleFonts.poppins(fontSize: 16),
+                        Expanded(
+                          child: Text(
+                            localizations.aiInsights,
+                            style: GoogleFonts.poppins(fontSize: 16),
+                            
+                          ),
                         ),
-                        SizedBox(width: 8),
-                        if (!authProvider.isPremium)
+                        if (!authProvider.isPremium) ...[
+                          SizedBox(width: 8),
                           Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                        ],
                       ],
                     ),
                         trailing: !authProvider.isPremium 
@@ -275,7 +281,7 @@ class AppDrawer extends StatelessWidget {
                               border: Border.all(color: Color(0xFFFFD700), width: 1),
                             ),
                             child: Text(
-                              'PREMIUM',
+                              localizations.premium,
                               style: GoogleFonts.poppins(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
@@ -305,11 +311,12 @@ class AppDrawer extends StatelessWidget {
                     title: Row(
                       children: [
                         Text(
-                          'AI Assistant',
+                          localizations.aiAssistant,
                           style: GoogleFonts.poppins(fontSize: 16),
                         ),
-                        SizedBox(width: 8),
+                        
                         if (!authProvider.isPremium)
+                          SizedBox(width: 8),
                           Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
                       ],
                     ),
@@ -322,7 +329,7 @@ class AppDrawer extends StatelessWidget {
                               border: Border.all(color: Color(0xFFFFD700), width: 1),
                             ),
                             child: Text(
-                              'PREMIUM',
+                              localizations.premium,
                               style: GoogleFonts.poppins(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
@@ -350,7 +357,7 @@ class AppDrawer extends StatelessWidget {
                       child: Icon(Icons.settings, color: Colors.white, size: 18),
                     ),
                     title: Text(
-                      'Settings',
+                      localizations.settings,
                       style: GoogleFonts.poppins(fontSize: 16),
                     ),
                     onTap: () {
@@ -399,7 +406,7 @@ class AppDrawer extends StatelessWidget {
                   },
                   icon: Icon(Icons.logout, color: Colors.white),
                   label: Text(
-                    'Logout',
+                    localizations.drawerLogout,
                     style: GoogleFonts.poppins(
                       color: Colors.white, 
                       fontWeight: FontWeight.w500
@@ -426,6 +433,8 @@ class AppDrawer extends StatelessWidget {
   }
 
   void _showLogoutDialog(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -434,14 +443,14 @@ class AppDrawer extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           title: Text(
-            'Logout',
+            localizations.drawerLogout,
             style: GoogleFonts.poppins(
               fontWeight: FontWeight.bold,
               color: Colors.red,
             ),
           ),
           content: Text(
-            'Are you sure you want to logout?',
+            localizations.dialogLogoutConfirm,
             style: GoogleFonts.poppins(),
           ),
           actions: [

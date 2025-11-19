@@ -29,63 +29,276 @@ class AppLocalizations {
   static final Map<String, Map<String, String>> _localizedValues = {
     'en': {
       // Home Screen
-      'welcome_back': 'Welcome back,',
-      'total_balance': 'Total Balance',
+      'welcomeBack': 'Welcome back,',
+      'totalBalance': 'Total Balance',
       'available': 'Available',
-      'allocated_to_goals': 'Allocated to Goals',
+      'allocatedToGoals': 'Allocated to Goals',
       'inflow': 'Inflow',
       'outflow': 'Outflow',
-      'ai_assistant': 'AI Assistant',
-      'get_personalized_insights': 'Get personalized insights',
-      'ai_insights': 'AI Insights',
-      'view_comprehensive_analysis': 'View comprehensive financial analysis',
-      'recent_transactions': 'Recent Transactions',
-      'see_more': 'See More',
-      'no_transactions': 'No transactions yet',
-      'tap_to_add_first': 'Tap the + button to add your first transaction',
-      'add_transaction': 'Add Transaction',
-      'manual_entry': 'Manual Entry',
-      'type_transaction_details': 'Type transaction details',
-      'voice_input': 'Voice Input',
-      'speak_your_transaction': 'Speak your transaction',
-      'scan_receipt': 'Scan Receipt',
-      'take_upload_photo': 'Take or upload receipt photo',
+      'aiAssistant': 'AI Assistant',
+      'getPersonalizedInsights': 'Get personalized insights',
+      'aiInsights': 'AI Insights',
+      'viewComprehensiveAnalysis': 'View comprehensive financial analysis',
+      'recentTransactions': 'Recent Transactions',
+      'seeMore': 'See More',
+      'noTransactions': 'No transactions yet',
+      'tapToAddFirst': 'Tap the + button to add your first transaction',
+      'addTransaction': 'Add Transaction',
+      'manualEntry': 'Manual Entry',
+      'typeTransactionDetails': 'Type transaction details',
+      'voiceInput': 'Voice Input',
+      'speakYourTransaction': 'Speak your transaction',
+      'scanReceipt': 'Scan Receipt',
+      'takeUploadPhoto': 'Take or upload receipt photo',
       'premium': 'PREMIUM',
-      'transaction_added': 'Transaction added successfully!',
-      'transaction_updated': 'Transaction updated successfully!',
-      'transaction_deleted': 'Transaction deleted successfully!',
+      'transactionAdded': 'Transaction added successfully!',
+      'transactionUpdated': 'Transaction updated successfully!',
+      'transactionDeleted': 'Transaction deleted successfully!',
       'dashboard': 'Dashboard',
-      'auto_created': 'Auto-created',
+      'autoCreated': 'Auto-created',
+
+      // Additions for Drawer Navigation
+      'drawerWelcome': 'Welcome',
+      'drawerLogout': 'Logout',
+      'dialogCancel': 'Cancel',
+      'dialogLogoutConfirm': 'Are you sure you want to logout?',
+      'transactions': 'Transactions',
+      'goals': 'Goals',
+      'budgets': 'Budgets',
+      'inflowAnalytics': 'Inflow Analytics',
+      'outflowAnalytics': 'Outflow Analytics',
+      'financialReports': 'Financial Reports',
+      'settings': 'Settings',
+      'expiresOn': 'Expires:',
+
+      // Additions for Add Transaction Screen
+      'addTransactionTitle': 'Add Transaction',
+      'amountLabel': 'Amount',
+      'dateLabel': 'Date',
+      'categoryLabel': 'Category',
+      'selectMainCategoryHint': 'Select main category',
+      'selectSubCategoryHint': 'Select sub category',
+      'descriptionLabel': 'Description (Optional)',
+      'descriptionHint': 'Add a note about this transaction...',
+      'addOutflowButton': 'Add Outflow',
+      'addInflowButton': 'Add Inflow',
+      'validationAmountRequired': 'Please enter an amount',
+      'validationAmountInvalid': 'Please enter a valid amount',
+      'validationAmountPositive': 'Amount must be greater than 0',
+      'validationMainCategoryRequired': 'Please select a main category',
+      'validationSubCategoryRequired': 'Please select a sub category',
+
+      // Additions for Edit Transaction Screen
+      'editTransactionTitle': 'Edit Transaction',
+      'deleteTransactionTitle': 'Delete Transaction',
+      'deleteConfirmMessage': 'Are you sure you want to delete this transaction? This action cannot be undone.',
+      'autoCreatedTransactionTitle': 'Auto-Created Transaction',
+      'autoCreatedDescriptionRecurring': 'This was automatically created from a recurring transaction.',
+      'autoCreatedDescriptionDisabled': 'This was automatically created from a recurring transaction (now disabled).',
+      'stopFutureAutoCreation': 'Stop Future Auto-Creation',
+      'viewParentTransaction': 'View Parent Transaction',
+      'stopRecurringDialogTitle': 'Stop Recurring Transaction?',
+      'stopRecurringDialogContent': 'This will stop automatic creation of future transactions.',
+      'stopRecurringDialogInfo': 'Existing transactions will not be affected.',
+      'stopRecurringButton': 'Stop Recurring',
+      'stoppingRecurrence': 'Stopping Recurrence',
+      'pleaseWait': 'Please wait...',
+      'successTitle': 'Success!',
+      'successAutoCreationStopped': 'Future auto-creation has been stopped',
+      'errorTitle': 'Error',
+      'errorLoadParentFailed': 'Failed to load parent transaction:',
+      'updateTransactionButton': 'Update Transaction',
+
+      // Additions for Image Input Screen
+      'imageInputTitle': 'Image Input',
+      'premiumFeatureTitle': 'Premium Feature',
+      'premiumFeatureUpgradeDescImg': 'Upgrade to use image input for transactions',
+      'upgradeNowButton': 'Upgrade Now',
+      'tapToAddImagePlaceholder': 'Tap to add receipt image',
+      'cameraOrGalleryPlaceholder': 'Camera or Gallery',
+      'chooseDifferentImageButton': 'Choose Different Image',
+      'analyzingReceipt': 'Analyzing receipt...',
+      'extractedTransactionTitle': 'Extracted Transaction',
+      'dataLabelType': 'Type',
+      'dataLabelAmount': 'Amount',
+      'dataLabelCategory': 'Category',
+      'dataLabelDate': 'Date',
+      'dataLabelDescription': 'Description',
+      'aiReasoningLabel': 'AI Reasoning:',
+      'confidenceLabel': 'Confidence:',
+      'saveTransactionButton': 'Save Transaction',
+      'errorCaptureImage': 'Failed to capture image:',
+      'errorPickImage': 'Failed to pick image:',
+      'chooseImageSourceModalTitle': 'Choose Image Source',
+      'cameraListTileTitle': 'Camera',
+      'cameraListTileSubtitle': 'Take a photo of receipt',
+      'galleryListTileTitle': 'Gallery',
+      'galleryListTileSubtitle': 'Choose from gallery',
+
+      // Additions for Voice Input Screen
+      'voiceInputTitle': 'Voice Input',
+      'premiumFeatureUpgradeDescVoice': 'Upgrade to use voice input for transactions',
+      'recordingStatus': 'Recording... Tap to stop',
+      'tapToRecordStatus': 'Tap to start recording\nYou can describe multiple transactions',
+      'transcriptionTitle': 'Transcription',
+      'found_x_transactions': 'Found %d Transactions', // Placeholder for count
+      'transaction_x_card_title': 'Transaction %d', // Placeholder for index
+      'save_x_transactions_button': 'Save %d Transactions', // Placeholder for count
+      'errorStartRecording': 'Failed to start recording:',
+      'errorStopRecording': 'Failed to stop recording:',
+      'analyzingTransactions': 'Analyzing transactions...',
+      'success_save_transactions': 'Successfully saved %d transaction(s)', // Placeholder for count
+
+      // Additions for Transactions List Screen
+      'allTransactionsTitle': 'All Transactions',
+      'filtersSectionTitle': 'Filters',
+      'transactionTypeFilterLabel': 'Transaction Type:',
+      'filterChipAll': 'All',
+      'dateRangeFilterLabel': 'Date Range:',
+      'selectDateRangeButton': 'Select Date Range',
+      'loadingMoreIndicator': 'Loading more...',
+      'emptyStateTitle': 'No transactions found',
+      'emptyStateSubtitle': 'Try adjusting your filters or adding a transaction.',
+      'clearAllFiltersButton': 'Clear All Filters',
+      'clearDateFilterTooltip': 'Clear Date Filter',
+      'addTransactionFabTooltip': 'Add New Transaction',
     },
     'my': {
       // Home Screen
-      'welcome_back': 'ပြန်လည်ကြိုဆိုပါတယ်၊',
-      'total_balance': 'စုစုပေါင်းလက်ကျန်ငွေ',
+      'welcomeBack': 'ပြန်လည်ကြိုဆိုပါတယ်၊',
+      'totalBalance': 'စုစုပေါင်းလက်ကျန်ငွေ',
       'available': 'အသုံးပြုနိုင်သော',
-      'allocated_to_goals': 'ရည်မှန်းချက်များအတွက် ခွဲဝေထားသည်',
+      'allocatedToGoals': 'ရည်မှန်းချက်များအတွက် ခွဲဝေထားသည်',
       'inflow': 'ဝင်ငွေ',
       'outflow': 'ထွက်ငွေ',
-      'ai_assistant': 'AI လက်ထောက်',
-      'get_personalized_insights': 'ကိုယ်ပိုင်ထိုးထွင်းသိမြင်မှုများရယူပါ',
-      'ai_insights': 'AI ထိုးထွင်းသိမြင်မှု',
-      'view_comprehensive_analysis': 'ပြည့်စုံသောဘဏ္ဍာရေးခွဲခြမ်းစိတ်ဖြာမှုကြည့်ရှုပါ',
-      'recent_transactions': 'ငွေသွင်းထုတ်မှတ်တမ်းများ',
-      'see_more': 'နောက်ထပ်ကြည့်ရန်',
-      'no_transactions': 'ငွေသွင်းထုတ်မှတ်တမ်းမရှိသေးပါ',
-      'tap_to_add_first': 'သင့်ရဲ့ပထမဆုံးငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန် + ခလုတ်ကိုနှိပ်ပါ',
-      'add_transaction': 'ငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန်',
-      'manual_entry': 'လက်ဖြင့်ထည့်ခြင်း',
-      'type_transaction_details': 'ငွေသွင်းထုတ်မှတ်တမ်းအသေးစိတ်ရိုက်ထည့်ပါ',
-      'voice_input': 'အသံဖြင့်ထည့်ခြင်း',
-      'speak_your_transaction': 'သင့်ငွေသွင်းထုတ်မှတ်တမ်းကိုပြောပါ',
-      'scan_receipt': 'စကန်ဖတ်ခြင်း',
-      'take_upload_photo': 'ငွေလက်ခံဖြတ်ပိုင်းဓာတ်ပုံရိုက်ခြင်း သို့မဟုတ် တင်ခြင်း',
+      'aiAssistant': 'AI လက်ထောက်',
+      'getPersonalizedInsights': 'ကိုယ်ပိုင်ထိုးထွင်းသိမြင်မှုများရယူပါ',
+      'aiInsights': 'AI ထိုးထွင်းသိမြင်မှု',
+      'viewComprehensiveAnalysis': 'ပြည့်စုံသောဘဏ္ဍာရေးခွဲခြမ်းစိတ်ဖြာမှုကြည့်ရှုပါ',
+      'recentTransactions': 'ငွေသွင်းထုတ်မှတ်တမ်းများ',
+      'seeMore': 'နောက်ထပ်ကြည့်ရန်',
+      'noTransactions': 'ငွေသွင်းထုတ်မှတ်တမ်းမရှိသေးပါ',
+      'tapToAddFirst': 'သင့်ရဲ့ပထမဆုံးငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန် + ခလုတ်ကိုနှိပ်ပါ',
+      'addTransaction': 'ငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန်',
+      'manualEntry': 'လက်ဖြင့်ထည့်ခြင်း',
+      'typeTransactionDetails': 'ငွေသွင်းထုတ်မှတ်တမ်းအသေးစိတ်ရိုက်ထည့်ပါ',
+      'voiceInput': 'အသံဖြင့်ထည့်ခြင်း',
+      'speakYourTransaction': 'သင့်ငွေသွင်းထုတ်မှတ်တမ်းကိုပြောပါ',
+      'scanReceipt': 'စကန်ဖတ်ခြင်း',
+      'takeUploadPhoto': 'ငွေလက်ခံဖြတ်ပိုင်းဓာတ်ပုံရိုက်ခြင်း သို့မဟုတ် တင်ခြင်း',
       'premium': 'ပရီမီယံ',
-      'transaction_added': 'ငွေသွင်းထုတ်မှတ်တမ်းအောင်မြင်စွာထည့်သွင်းပြီးပါပြီ!',
-      'transaction_updated': 'ငွေသွင်းထုတ်မှတ်တမ်းအောင်မြင်စွာပြင်ဆင်ပြီးပါပြီ!',
-      'transaction_deleted': 'ငွေသွင်းထုတ်မှတ်တမ်းအောင်မြင်စွာဖျက်ပြီးပါပြီ!',
+      'transactionAdded': 'ငွေသွင်းထုတ်မှတ်တမ်းအောင်မြင်စွာထည့်သွင်းပြီးပါပြီ!',
+      'transactionUpdated': 'ငွေသွင်းထုတ်မှတ်တမ်းအောင်မြင်စွာပြင်ဆင်ပြီးပါပြီ!',
+      'transactionDeleted': 'ငွေသွင်းထုတ်မှတ်တမ်းအောင်မြင်စွာဖျက်ပြီးပါပြီ!',
       'dashboard': 'ဒက်ရှ်ဘုတ်',
-      'auto_created': 'အလိုအလျောက်ဖန်တီးထားသည်',
+      'autoCreated': 'အလိုအလျောက်ဖန်တီးထားသည်',
+
+
+      // Drawer Navigation
+      'drawerWelcome': 'ကြိုဆိုပါသည်',
+      'drawerLogout': 'ထွက်ရန်',
+      'dialogCancel': 'ပယ်ဖျက်ပါ',
+      'dialogLogoutConfirm': 'သင်ထွက်ရန်သေချာပါသလား?',
+      'transactions': 'ငွေသွင်းထုတ်မှတ်တမ်းများ',
+      'goals': 'ရည်မှန်းချက်များ',
+      'budgets': 'ဘတ်ဂျက်များ',
+      'inflowAnalytics': 'ဝင်ငွေခွဲခြမ်းစိတ်ဖြာမှု',
+      'outflowAnalytics': 'ထွက်ငွေခွဲခြမ်းစိတ်ဖြာမှု',
+      'financialReports': 'ဘဏ္ဍာရေးအစီရင်ခံစာများ',
+      'settings': 'ဆက်တင်များ',
+      'expiresOn': 'ကုန်ဆုံးမည့်ရက်:',
+
+      // Add Transaction Screen
+      'addTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန်',
+      'amountLabel': 'ပမာဏ',
+      'dateLabel': 'ရက်စွဲ',
+      'categoryLabel': 'အမျိုးအစား',
+      'selectMainCategoryHint': 'အဓိကအမျိုးအစားရွေးပါ',
+      'selectSubCategoryHint': 'အသေးစားအမျိုးအစားရွေးပါ',
+      'descriptionLabel': 'ဖော်ပြချက် (အလကား)',
+      'descriptionHint': 'ဤငွေလွှဲပြောင်းမှုအတွက် မှတ်ချက်ထည့်ပါ...',
+      'addOutflowButton': 'ထွက်ငွေထည့်ပါ',
+      'addInflowButton': 'ဝင်ငွေထည့်ပါ',
+      'validationAmountRequired': 'ပမာဏကို ကျေးဇူးပြု၍ ထည့်ပါ',
+      'validationAmountInvalid': 'မှန်ကန်သော ပမာဏကို ကျေးဇူးပြု၍ ထည့်ပါ',
+      'validationAmountPositive': 'ပမာဏသည် ၀ ထက်ပိုရမည်',
+      'validationMainCategoryRequired': 'အဓိကအမျိုးအစားကို ကျေးဇူးပြု၍ ရွေးချယ်ပါ',
+      'validationSubCategoryRequired': 'အသေးစားအမျိုးအစားကို ကျေးဇူးပြု၍ ရွေးချယ်ပါ',
+      
+      // Edit Transaction Screen
+      'editTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းကို ပြင်ဆင်ပါ',
+      'deleteTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းကို ဖျက်ပါ',
+      'deleteConfirmMessage': 'ဤငွေသွင်းထုတ်မှတ်တမ်းကို ဖျက်လိုကြောင်း သေချာပါသလား? ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြုပြင်၍မရပါ။',
+      'autoCreatedTransactionTitle': 'အလိုအလျောက်ဖန်တီးထားသော ငွေသွင်းထုတ်မှတ်တမ်း',
+      'autoCreatedDescriptionRecurring': 'ဤသည်မှာ ပုံမှန်ငွေသွင်းထုတ်မှုမှ အလိုအလျောက်ဖန်တီးထားခြင်းဖြစ်ပါသည်။',
+      'autoCreatedDescriptionDisabled': 'ဤသည်မှာ ပုံမှန်ငွေသွင်းထုတ်မှုမှ အလိုအလျောက်ဖန်တီးထားခြင်းဖြစ်ပါသည်။ (ယခုပိတ်ထားပါသည်။)',
+      'stopFutureAutoCreation': 'အနာဂတ် အလိုအလျောက်ဖန်တီးခြင်းကို ရပ်တန့်ပါ',
+      'viewParentTransaction': 'မိဘငွေသွင်းထုတ်မှတ်တမ်းကို ကြည့်ပါ',
+      'stopRecurringDialogTitle': 'ပုံမှန်ငွေသွင်းထုတ်မှုကို ရပ်တန့်မည်လား?',
+      'stopRecurringDialogContent': 'ဤသည်မှာ အနာဂတ် ငွေသွင်းထုတ်မှုများကို အလိုအလျောက် ဖန်တီးခြင်းကို ရပ်တန့်ပါမည်။',
+      'stopRecurringDialogInfo': 'ယခင်ငွေသွင်းထုတ်မှုများမှာ ထိခိုက်မည်မဟုတ်ပါ။',
+      'stopRecurringButton': 'ပုံမှန်ရပ်တန့်ပါ',
+      'stoppingRecurrence': 'ပုံမှန်ရပ်တန့်နေသည်',
+      'pleaseWait': 'ကျေးဇူးပြု၍ စောင့်ဆိုင်းပါ...',
+      'successTitle': 'အောင်မြင်ပါပြီ!',
+      'successAutoCreationStopped': 'အနာဂတ် အလိုအလျောက်ဖန်တီးခြင်းကို ရပ်တန့်လိုက်ပါပြီ',
+      'errorTitle': 'အမှား',
+      'errorLoadParentFailed': 'မိဘငွေသွင်းထုတ်မှတ်တမ်းကို တင်ဆောင်ရန် ပျက်ကွက်သည်:',
+      'updateTransactionButton': 'ငွေသွင်းထုတ်မှတ်တမ်းကို အပ်ဒိတ်လုပ်ပါ',
+      
+      // Image Input Screen
+      'imageInputTitle': 'ပုံထည့်သွင်းခြင်း',
+      'premiumFeatureTitle': 'ပရီမီယံ အင်္ဂါရပ်',
+      'premiumFeatureUpgradeDescImg': 'ပုံမှ ငွေသွင်းထုတ်မှုများရယူရန် အဆင့်မြှင့်တင်ပါ',
+      'upgradeNowButton': 'ယခု အဆင့်မြှင့်တင်ပါ',
+      'tapToAddImagePlaceholder': 'လက်ခံပုံကိုထည့်ရန် တို့ပါ',
+      'cameraOrGalleryPlaceholder': 'ကင်မရာ သို့မဟုတ် ပြခန်း',
+      'chooseDifferentImageButton': 'အခြားပုံကို ရွေးပါ',
+      'analyzingReceipt': 'လက်ခံကို ခွဲခြမ်းစိတ်ဖြာနေသည်...',
+      'extractedTransactionTitle': 'ခွဲခြမ်းစိတ်ဖြာထားသော ငွေသွင်းထုတ်မှတ်တမ်း',
+      'dataLabelType': 'အမျိုးအစား',
+      'dataLabelAmount': 'ပမာဏ',
+      'dataLabelCategory': 'အမျိုးအစား', // Note: 'Category' can be translated the same for both labels
+      'dataLabelDate': 'ရက်စွဲ',
+      'dataLabelDescription': 'ဖော်ပြချက်',
+      'aiReasoningLabel': 'AI တွက်ချက်မှု:',
+      'confidenceLabel': 'ယုံကြည်မှု:',
+      'saveTransactionButton': 'ငွေသွင်းထုတ်မှတ်တမ်းကို သိမ်းဆည်းပါ',
+      'errorCaptureImage': 'ပုံရိုက်ကူးရန် ပျက်ကွက်သည်:',
+      'errorPickImage': 'ပုံရွေးချယ်ရန် ပျက်ကွက်သည်:',
+      'chooseImageSourceModalTitle': 'ပုံရင်းမြစ်ကို ရွေးချယ်ပါ',
+      'cameraListTileTitle': 'ကင်မရာ',
+      'cameraListTileSubtitle': 'လက်ခံပုံ၏ ဓာတ်ပုံရိုက်ပါ',
+      'galleryListTileTitle': 'ပြခန်း',
+      'galleryListTileSubtitle': 'ပြခန်းမှ ရွေးချယ်ပါ',
+      
+      // Voice Input Screen
+      'voiceInputTitle': 'အသံထည့်သွင်းခြင်း', // Adjusted from 'Voice Input' in the code snippet to match title
+      'premiumFeatureUpgradeDescVoice': 'အသံမှ ငွေသွင်းထုတ်မှုများရယူရန် အဆင့်မြှင့်တင်ပါ',
+      'recordingStatus': 'အသံဖမ်းနေသည်... ရပ်ရန် တို့ပါ',
+      'tapToRecordStatus': 'အသံဖမ်းရန် တို့ပါ\nသင် ငွေသွင်းထုတ်မှုများစွာကို ဖော်ပြနိုင်သည်',
+      'transcriptionTitle': 'အသံစာရင်း',
+      'found_x_transactions': '%d ငွေသွင်းထုတ်မှတ်တမ်းများ တွေ့ရှိ', // Placeholder for count
+      'transaction_x_card_title': 'ငွေသွင်းထုတ်မှတ်တမ်း %d', // Placeholder for index
+      'save_x_transactions_button': '%d ငွေသွင်းထုတ်မှတ်တမ်းများ သိမ်းဆည်းပါ', // Placeholder for count
+      'errorStartRecording': 'အသံဖမ်းရန် ပျက်ကွက်သည်:',
+      'errorStopRecording': 'အသံဖမ်းရပ်တန့်ရန် ပျက်ကွက်သည်:',
+      'analyzingTransactions': 'ငွေသွင်းထုတ်မှုများကို ခွဲခြမ်းစိတ်ဖြာနေသည်...',
+      'success_save_transactions': '%d ငွေသွင်းထုတ်မှတ်တမ်း(များ)ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ', // Placeholder for count
+      
+      // Transactions List Screen
+      'allTransactionsTitle': 'အားလုံးသော ငွေသွင်းထုတ်မှတ်တမ်းများ',
+      'filtersSectionTitle': 'စစ်ထုတ်မှုများ',
+      'transactionTypeFilterLabel': 'ငွေသွင်းထုတ်မှတ်တမ်း အမျိုးအစား:',
+      'filterChipAll': 'အားလုံး',
+      'dateRangeFilterLabel': 'ရက်စွဲ ကန့်သတ်ချက်:',
+      'selectDateRangeButton': 'ရက်စွဲ ကန့်သတ်ချက်ကို ရွေးပါ',
+      'loadingMoreIndicator': 'နောက်ထပ် တင်နေသည်...',
+      'emptyStateTitle': 'ငွေသွင်းထုတ်မှတ်တမ်း မတွေ့ရှိပါ',
+      'emptyStateSubtitle': 'သင့်စစ်ထုတ်မှုများကို ချိန်ညှိပါ သို့မဟုတ် ငွေသွင်းထုတ်မှတ်တမ်းထည့်ပါ',
+      'clearAllFiltersButton': 'စစ်ထုတ်မှုများအားလုံးကို ရှင်းလင်းပါ',
+      'clearDateFilterTooltip': 'ရက်စွဲ စစ်ထုတ်မှုကို ရှင်းလင်းပါ',
+      'addTransactionFabTooltip': 'ငွေသွင်းထုတ်မှတ်တမ်းအသစ်ထည့်ရန်',
     },
   };
   
@@ -93,33 +306,137 @@ class AppLocalizations {
     return _localizedValues[locale.languageCode]?[key] ?? key;
   }
   
-  String get welcomeBack => translate('welcome_back');
-  String get totalBalance => translate('total_balance');
+  String get welcomeBack => translate('welcomeBack');
+  String get totalBalance => translate('totalBalance');
   String get available => translate('available');
-  String get allocatedToGoals => translate('allocated_to_goals');
+  String get allocatedToGoals => translate('allocatedToGoals');
   String get inflow => translate('inflow');
   String get outflow => translate('outflow');
-  String get aiAssistant => translate('ai_assistant');
-  String get getPersonalizedInsights => translate('get_personalized_insights');
-  String get aiInsights => translate('ai_insights');
-  String get viewComprehensiveAnalysis => translate('view_comprehensive_analysis');
-  String get recentTransactions => translate('recent_transactions');
-  String get seeMore => translate('see_more');
-  String get noTransactions => translate('no_transactions');
-  String get tapToAddFirst => translate('tap_to_add_first');
-  String get addTransaction => translate('add_transaction');
-  String get manualEntry => translate('manual_entry');
-  String get typeTransactionDetails => translate('type_transaction_details');
-  String get voiceInput => translate('voice_input');
-  String get speakYourTransaction => translate('speak_your_transaction');
-  String get scanReceipt => translate('scan_receipt');
-  String get takeUploadPhoto => translate('take_upload_photo');
+  String get aiAssistant => translate('aiAssistant');
+  String get getPersonalizedInsights => translate('getPersonalizedInsights');
+  String get aiInsights => translate('aiInsights');
+  String get viewComprehensiveAnalysis => translate('viewComprehensiveAnalysis');
+  String get recentTransactions => translate('recentTransactions');
+  String get seeMore => translate('seeMore');
+  String get noTransactions => translate('noTransactions');
+  String get tapToAddFirst => translate('tapToAddFirst');
+  String get addTransaction => translate('addTransaction');
+  String get manualEntry => translate('manualEntry');
+  String get typeTransactionDetails => translate('typeTransactionDetails');
+  String get voiceInput => translate('voiceInput');
+  String get speakYourTransaction => translate('speakYourTransaction');
+  String get scanReceipt => translate('scanReceipt');
+  String get takeUploadPhoto => translate('takeUploadPhoto');
   String get premium => translate('premium');
-  String get transactionAdded => translate('transaction_added');
-  String get transactionUpdated => translate('transaction_updated');
-  String get transactionDeleted => translate('transaction_deleted');
+  String get transactionAdded => translate('transactionAdded');
+  String get transactionUpdated => translate('transactionUpdated');
+  String get transactionDeleted => translate('transactionDeleted');
   String get dashboard => translate('dashboard');
-  String get autoCreated => translate('auto_created');
+  String get autoCreated => translate('autoCreated');
+
+
+  // Drawer Navigation Getters
+  String get drawerWelcome => translate('drawerWelcome');
+  String get drawerLogout => translate('drawerLogout');
+  String get dialogCancel => translate('dialogCancel');
+  String get dialogLogoutConfirm => translate('dialogLogoutConfirm');
+  String get transactions => translate('transactions');
+  String get goals => translate('goals');
+  String get budgets => translate('budgets');
+  String get inflowAnalytics => translate('inflowAnalytics');
+  String get outflowAnalytics => translate('outflowAnalytics');
+  String get financialReports => translate('financialReports');
+  String get settings => translate('settings');
+  String get expiresOn => translate('expiresOn');
+
+  // Add Transaction Screen Getters
+  String get addTransactionTitle => translate('addTransactionTitle');
+  String get amountLabel => translate('amountLabel');
+  String get dateLabel => translate('dateLabel');
+  String get categoryLabel => translate('categoryLabel');
+  String get selectMainCategoryHint => translate('selectMainCategoryHint');
+  String get selectSubCategoryHint => translate('selectSubCategoryHint');
+  String get descriptionLabel => translate('descriptionLabel');
+  String get descriptionHint => translate('descriptionHint');
+  String get addOutflowButton => translate('addOutflowButton');
+  String get addInflowButton => translate('addInflowButton');
+  String get validationAmountRequired => translate('validationAmountRequired');
+  String get validationAmountInvalid => translate('validationAmountInvalid');
+  String get validationAmountPositive => translate('validationAmountPositive');
+  String get validationMainCategoryRequired => translate('validationMainCategoryRequired');
+  String get validationSubCategoryRequired => translate('validationSubCategoryRequired');
+
+  // Edit Transaction Screen Getters
+  String get editTransactionTitle => translate('editTransactionTitle');
+  String get deleteTransactionTitle => translate('deleteTransactionTitle');
+  String get deleteConfirmMessage => translate('deleteConfirmMessage');
+  String get autoCreatedTransactionTitle => translate('autoCreatedTransactionTitle');
+  String get autoCreatedDescriptionRecurring => translate('autoCreatedDescriptionRecurring');
+  String get autoCreatedDescriptionDisabled => translate('autoCreatedDescriptionDisabled');
+  String get stopFutureAutoCreation => translate('stopFutureAutoCreation');
+  String get viewParentTransaction => translate('viewParentTransaction');
+  String get stopRecurringDialogTitle => translate('stopRecurringDialogTitle');
+  String get stopRecurringDialogContent => translate('stopRecurringDialogContent');
+  String get stopRecurringDialogInfo => translate('stopRecurringDialogInfo');
+  String get stopRecurringButton => translate('stopRecurringButton');
+  String get stoppingRecurrence => translate('stoppingRecurrence');
+  String get pleaseWait => translate('pleaseWait');
+  String get successTitle => translate('successTitle');
+  String get successAutoCreationStopped => translate('successAutoCreationStopped');
+  String get errorTitle => translate('errorTitle');
+  String get errorLoadParentFailed => translate('errorLoadParentFailed');
+  String get updateTransactionButton => translate('updateTransactionButton');
+
+  // Image Input Screen Getters
+  String get imageInputTitle => translate('imageInputTitle');
+  String get premiumFeatureTitle => translate('premiumFeatureTitle');
+  String get premiumFeatureUpgradeDescImg => translate('premiumFeatureUpgradeDescImg');
+  String get upgradeNowButton => translate('upgradeNowButton');
+  String get tapToAddImagePlaceholder => translate('tapToAddImagePlaceholder');
+  String get cameraOrGalleryPlaceholder => translate('cameraOrGalleryPlaceholder');
+  String get chooseDifferentImageButton => translate('chooseDifferentImageButton');
+  String get analyzingReceipt => translate('analyzingReceipt');
+  String get extractedTransactionTitle => translate('extractedTransactionTitle');
+  String get dataLabelType => translate('dataLabelType');
+  String get dataLabelAmount => translate('dataLabelAmount');
+  String get dataLabelCategory => translate('dataLabelCategory');
+  String get dataLabelDate => translate('dataLabelDate');
+  String get dataLabelDescription => translate('dataLabelDescription');
+  String get aiReasoningLabel => translate('aiReasoningLabel');
+  String get confidenceLabel => translate('confidenceLabel');
+  String get saveTransactionButton => translate('saveTransactionButton');
+  String get errorCaptureImage => translate('errorCaptureImage');
+  String get errorPickImage => translate('errorPickImage');
+  String get chooseImageSourceModalTitle => translate('chooseImageSourceModalTitle');
+  String get cameraListTileTitle => translate('cameraListTileTitle');
+  String get cameraListTileSubtitle => translate('cameraListTileSubtitle');
+  String get galleryListTileTitle => translate('galleryListTileTitle');
+  String get galleryListTileSubtitle => translate('galleryListTileSubtitle');
+
+  // Voice Input Screen Getters
+  String get voiceInputTitle => translate('voiceInputTitle'); // Used for the screen title
+  String get premiumFeatureUpgradeDescVoice => translate('premiumFeatureUpgradeDescVoice');
+  String get recordingStatus => translate('recordingStatus');
+  String get tapToRecordStatus => translate('tapToRecordStatus');
+  String get transcriptionTitle => translate('transcriptionTitle');
+  String get errorStartRecording => translate('errorStartRecording');
+  String get errorStopRecording => translate('errorStopRecording');
+  String get analyzingTransactions => translate('analyzingTransactions');
+
+
+  // Transactions List Screen Getters
+  String get allTransactionsTitle => translate('allTransactionsTitle');
+  String get filtersSectionTitle => translate('filtersSectionTitle');
+  String get transactionTypeFilterLabel => translate('transactionTypeFilterLabel');
+  String get filterChipAll => translate('filterChipAll');
+  String get dateRangeFilterLabel => translate('dateRangeFilterLabel');
+  String get selectDateRangeButton => translate('selectDateRangeButton');
+  String get loadingMoreIndicator => translate('loadingMoreIndicator');
+  String get emptyStateTitle => translate('emptyStateTitle');
+  String get emptyStateSubtitle => translate('emptyStateSubtitle');
+  String get clearAllFiltersButton => translate('clearAllFiltersButton');
+  String get clearDateFilterTooltip => translate('clearDateFilterTooltip');
+  String get addTransactionFabTooltip => translate('addTransactionFabTooltip');
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

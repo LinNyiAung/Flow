@@ -3,6 +3,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -175,6 +176,7 @@ Future<void> _fetchTransactionsWithFilter() async {
 }
 
 void _showAddTransactionOptions() {
+  final localizations = AppLocalizations.of(context);
   showModalBottomSheet(
     context: context,
     shape: RoundedRectangleBorder(
@@ -215,8 +217,8 @@ void _showAddTransactionOptions() {
             // Manual Entry Option (NO CHANGES - not premium)
             _buildAddOption(
               icon: Icons.edit_outlined,
-              title: 'Manual Entry',
-              subtitle: 'Type transaction details',
+              title: localizations.manualEntry,
+              subtitle: localizations.typeTransactionDetails,
               gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
               isPremiumFeature: false, // ADD THIS
               onTap: () async {
@@ -248,8 +250,8 @@ void _showAddTransactionOptions() {
             // Voice Input Option - MARK AS PREMIUM
             _buildAddOption(
               icon: Icons.mic,
-              title: 'Voice Input',
-              subtitle: 'Speak your transaction',
+              title: localizations.voiceInput,
+              subtitle: localizations.speakYourTransaction,
               gradientColors: [Color(0xFF4CAF50), Color(0xFF45a049)],
               isPremiumFeature: true, // ADD THIS - marks as premium
               onTap: () async {
@@ -281,8 +283,8 @@ void _showAddTransactionOptions() {
             // Image Input Option - MARK AS PREMIUM
             _buildAddOption(
               icon: Icons.camera_alt,
-              title: 'Scan Receipt',
-              subtitle: 'Take or upload receipt photo',
+              title: localizations.scanReceipt,
+              subtitle: localizations.takeUploadPhoto,
               gradientColors: [Color(0xFFFF9800), Color(0xFFF57C00)],
               isPremiumFeature: true, // ADD THIS - marks as premium
               onTap: () async {
@@ -328,6 +330,7 @@ Widget _buildAddOption({
   // Get auth provider to check premium status
   final authProvider = Provider.of<AuthProvider>(context, listen: false);
   final isLocked = isPremiumFeature && !authProvider.isPremium;
+  final localizations = AppLocalizations.of(context);
 
   return InkWell(
     onTap: onTap,
@@ -417,7 +420,7 @@ Widget _buildAddOption({
                           ),
                         ),
                         child: Text(
-                          'PREMIUM',
+                          localizations.premium,
                           style: GoogleFonts.poppins(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -454,7 +457,8 @@ Widget _buildAddOption({
   @override
   Widget build(BuildContext context) {
     final transactionProvider = Provider.of<TransactionProvider>(context);
-
+    final localizations = AppLocalizations.of(context);
+    
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
@@ -462,7 +466,7 @@ Widget _buildAddOption({
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
-          'All Transactions',
+          localizations.allTransactionsTitle,
           style: GoogleFonts.poppins(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -496,7 +500,7 @@ Widget _buildAddOption({
                   color: Color(0xFF667eea), // Use primary purple color
                 ),
               ),
-              tooltip: 'Clear All Filters',
+              tooltip: localizations.clearAllFiltersButton,
               onPressed: _clearAllFilters, // Use the dedicated clear function
             ),
           // Notification icon (keeping as is, similar to HomeScreen's actions)
@@ -612,7 +616,7 @@ Widget _buildAddOption({
                       ),
                       SizedBox(width: 8),
                       Text(
-                        'Filters',
+                        localizations.filtersSectionTitle,
                         style: GoogleFonts.poppins(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -645,7 +649,7 @@ Widget _buildAddOption({
                             children: [
                               // Transaction Type Filter
                               Text(
-                                'Transaction Type:',
+                                localizations.transactionTypeFilterLabel,
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
@@ -657,7 +661,7 @@ Widget _buildAddOption({
                                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                                 children: [
                                   _buildFilterChip(
-                                    label: 'All',
+                                    label: localizations.filterChipAll,
                                     type: null,
                                     isSelected: _selectedFilterType == null,
                                     onSelected: (selected) {
@@ -666,7 +670,7 @@ Widget _buildAddOption({
                                     },
                                   ),
                                   _buildFilterChip(
-                                    label: 'Inflow',
+                                    label: localizations.inflow,
                                     type: TransactionType.inflow,
                                     isSelected: _selectedFilterType == TransactionType.inflow,
                                     onSelected: (selected) {
@@ -675,7 +679,7 @@ Widget _buildAddOption({
                                     },
                                   ),
                                   _buildFilterChip(
-                                    label: 'Outflow',
+                                    label: localizations.outflow,
                                     type: TransactionType.outflow,
                                     isSelected: _selectedFilterType == TransactionType.outflow,
                                     onSelected: (selected) {
@@ -689,7 +693,7 @@ Widget _buildAddOption({
 
                               // Date Range Filter
                               Text(
-                                'Date Range:',
+                                localizations.dateRangeFilterLabel,
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
@@ -718,7 +722,7 @@ Widget _buildAddOption({
                                         ),
                                         label: Text(
                                           _selectedStartDate == null
-                                              ? 'Select Date Range'
+                                              ? localizations.selectDateRangeButton
                                               : '${DateFormat('MMM dd').format(_selectedStartDate!)} - ${DateFormat('MMM dd, yyyy').format(_selectedEndDate!)}',
                                           overflow: TextOverflow.ellipsis,
                                           maxLines: 1,
@@ -751,7 +755,7 @@ Widget _buildAddOption({
                                         ),
                                         child: IconButton(
                                           icon: Icon(Icons.clear, color: Colors.red.shade400, size: 20),
-                                          tooltip: 'Clear Date Filter',
+                                          tooltip: localizations.clearDateFilterTooltip,
                                           onPressed: _clearDateFilter,
                                           splashRadius: 20,
                                         ),
@@ -822,7 +826,7 @@ Widget _buildAddOption({
                                         ),
                                         SizedBox(height: 12),
                                         Text(
-                                          'Loading more...',
+                                          localizations.loadingMoreIndicator,
                                           style: GoogleFonts.poppins(
                                             fontSize: 12,
                                             color: Colors.grey[500],
@@ -850,12 +854,14 @@ Widget _buildAddOption({
         backgroundColor: Color(0xFF667eea), // Primary color for FAB
         child: Icon(Icons.add, color: Colors.white, size: 28),
         elevation: 8,
-        tooltip: 'Add New Transaction',
+        tooltip: localizations.addTransactionFabTooltip,
       ),
     );
   }
 
   Widget _buildEmptyState() {
+    final localizations = AppLocalizations.of(context);
+
     return Center(
       child: Container(
         padding: EdgeInsets.all(32),
@@ -878,7 +884,7 @@ Widget _buildAddOption({
             ),
             SizedBox(height: 24),
             Text(
-              'No transactions found',
+              localizations.emptyStateTitle,
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 color: Color(0xFF333333),
@@ -887,7 +893,7 @@ Widget _buildAddOption({
             ),
             SizedBox(height: 8),
             Text(
-              'Try adjusting your filters or adding a transaction.',
+              localizations.emptyStateSubtitle,
               style: GoogleFonts.poppins(
                 fontSize: 14,
                 color: Colors.grey[500],

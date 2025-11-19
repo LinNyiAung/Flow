@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -49,6 +50,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   }
 
   Future<void> _startRecording() async {
+    final localizations = AppLocalizations.of(context);
     try {
       if (await _audioRecorder.hasPermission()) {
         final directory = await getTemporaryDirectory();
@@ -72,12 +74,13 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
       }
     } catch (e) {
       setState(() {
-        _error = 'Failed to start recording: ${e.toString()}';
+        _error = '${localizations.errorStartRecording} ${e.toString()}';
       });
     }
   }
 
   Future<void> _stopRecording() async {
+    final localizations = AppLocalizations.of(context);
     try {
       final path = await _audioRecorder.stop();
       
@@ -91,7 +94,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
       }
     } catch (e) {
       setState(() {
-        _error = 'Failed to stop recording: ${e.toString()}';
+        _error = '${localizations.errorStopRecording} ${e.toString()}';
         _isRecording = false;
       });
     }
@@ -172,7 +175,8 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
-
+    final localizations = AppLocalizations.of(context);
+    
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -215,7 +219,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                     Row(
                       children: [
                         Text(
-                          'Voice Input',
+                          localizations.voiceInputTitle,
                           style: GoogleFonts.poppins(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -235,7 +239,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               border: Border.all(color: Color(0xFFFFD700), width: 1),
                             ),
                             child: Text(
-                              'PREMIUM',
+                              localizations.premium,
                               style: GoogleFonts.poppins(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
@@ -277,7 +281,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             Icon(Icons.star, color: Colors.white, size: 48),
                             SizedBox(height: 12),
                             Text(
-                              'Premium Feature',
+                              localizations.premiumFeatureTitle,
                               style: GoogleFonts.poppins(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
@@ -286,7 +290,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             ),
                             SizedBox(height: 8),
                             Text(
-                              'Upgrade to use voice input for adding transactions',
+                              localizations.premiumFeatureUpgradeDescVoice,
                               style: GoogleFonts.poppins(
                                 fontSize: 14,
                                 color: Colors.white.withOpacity(0.9),
@@ -310,7 +314,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                   Icon(Icons.upgrade),
                                   SizedBox(width: 8),
                                   Text(
-                                    'Upgrade Now',
+                                    localizations.upgradeNowButton,
                                     style: GoogleFonts.poppins(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
@@ -365,8 +369,8 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       if (authProvider.isPremium)
                       Text(
                         _isRecording
-                            ? 'Recording... Tap to stop'
-                            : 'Tap to start recording\nYou can describe multiple transactions',
+                            ? localizations.recordingStatus
+                            : localizations.tapToRecordStatus,
                         style: GoogleFonts.poppins(
                           fontSize: 16,
                           color: Colors.grey[600],
@@ -400,7 +404,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                   Icon(Icons.transcribe, color: Color(0xFF667eea)),
                                   SizedBox(width: 8),
                                   Text(
-                                    'Transcription',
+                                    localizations.transcriptionTitle,
                                     style: GoogleFonts.poppins(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
@@ -436,7 +440,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               ),
                               SizedBox(height: 16),
                               Text(
-                                'Analyzing transactions...',
+                                localizations.analyzingTransactions,
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   color: Colors.grey[600],
