@@ -315,9 +315,10 @@ class AppDrawer extends StatelessWidget {
                           style: GoogleFonts.poppins(fontSize: 16),
                         ),
                         
-                        if (!authProvider.isPremium)
+                        if (!authProvider.isPremium) ...[
                           SizedBox(width: 8),
                           Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                        ]
                       ],
                     ),
                         trailing: !authProvider.isPremium 
