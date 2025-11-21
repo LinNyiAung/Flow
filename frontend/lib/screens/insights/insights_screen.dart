@@ -24,76 +24,84 @@ class _InsightsScreenState extends State<InsightsScreen> {
     });
   }
 
+
   Future<void> _fetchInsights() async {
-    await Provider.of<InsightProvider>(context, listen: false).fetchInsights();
-  }
+  final locale = Localizations.localeOf(context);
+  final language = locale.languageCode == 'my' ? 'mm' : 'en';
+  
+  await Provider.of<InsightProvider>(context, listen: false)
+      .fetchInsights(language: language);
+}
+
 
   Future<void> _regenerateInsights() async {
-    final insightProvider = Provider.of<InsightProvider>(context, listen: false);
-    
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return Center(
-          child: Container(
-            padding: EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Generating insights...',
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+  final insightProvider = Provider.of<InsightProvider>(context, listen: false);
+  final locale = Localizations.localeOf(context);
+  final language = locale.languageCode == 'my' ? 'mm' : 'en';
+  
+  // Show loading dialog
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return Center(
+        child: Container(
+          padding: EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
           ),
-        );
-      },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Generating insights...',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  final success = await insightProvider.regenerateInsights(language: language);
+  
+  Navigator.pop(context); // Close loading dialog
+
+  if (success) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Insights regenerated successfully!',
+          style: GoogleFonts.poppins(color: Colors.white),
+        ),
+        backgroundColor: Color(0xFF4CAF50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
-
-    final success = await insightProvider.regenerateInsights();
-    
-    Navigator.pop(context); // Close loading dialog
-
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Insights regenerated successfully!',
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Color(0xFF4CAF50),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          behavior: SnackBarBehavior.floating,
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          insightProvider.error ?? 'Failed to regenerate insights',
+          style: GoogleFonts.poppins(color: Colors.white),
         ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            insightProvider.error ?? 'Failed to regenerate insights',
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Colors.red,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+        backgroundColor: Colors.red,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -376,7 +384,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       ),
     );
   }
-    if (insightProvider.isLoading && insightProvider.insight == null) {
+    if (insightProvider.isLoading || insightProvider.insight == null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -548,30 +556,51 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
               SizedBox(width: 16),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'AI-Generated Insights',
-                      style: GoogleFonts.poppins(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    Text(
-                      'Generated ${DateFormat('MMM dd, yyyy • hh:mm a').format(insightProvider.insight!.generatedAt)}',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.8),
-                      ),
-                    ),
-                  ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'AI-Generated Insights',
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
+                SizedBox(width: 8),
+                // Language badge
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    insightProvider.currentLanguage == 'mm' ? 'မြန်မာ' : 'English',
+                    style: GoogleFonts.poppins(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              'Generated ${DateFormat('MMM dd, yyyy â€¢ hh:mm a').format(insightProvider.insight!.generatedAt)}',
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.8),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    ],
+  ),
+),
 
         SizedBox(height: 20),
 
@@ -590,7 +619,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ],
           ),
           child: MarkdownBody(
-            data: insightProvider.insight!.content,
+            // Use the provider method to get content in current language
+            data: insightProvider.getContentForLanguage() ?? insightProvider.insight!.content,
             styleSheet: MarkdownStyleSheet(
               h1: GoogleFonts.poppins(
                 fontSize: 24,
@@ -623,6 +653,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ),
           ),
         ),
+        
 
         SizedBox(height: 20),
 

@@ -731,45 +731,58 @@ static Future<Transaction> updateTransaction({
     }
   }
 
-  static Future<Insight> getInsights() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/insights'),
-      headers: await _getHeaders(),
-    );
+  static Future<Insight> getInsights({String language = 'en'}) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/insights?language=$language'),
+    headers: await _getHeaders(),
+  );
 
-    if (response.statusCode == 200) {
-      return Insight.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to get insights');
-    }
+  if (response.statusCode == 200) {
+    return Insight.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to get insights');
   }
+}
 
-  static Future<void> deleteInsights() async {
-    final response = await http.delete(
-      Uri.parse('$baseUrl/api/insights'),
-      headers: await _getHeaders(),
-    );
+static Future<void> deleteInsights() async {
+  final response = await http.delete(
+    Uri.parse('$baseUrl/api/insights'),
+    headers: await _getHeaders(),
+  );
 
-    if (response.statusCode != 200) {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to delete insights');
-    }
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to delete insights');
   }
+}
 
-  static Future<Insight> regenerateInsights() async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/insights/regenerate'),
-      headers: await _getHeaders(),
-    );
+static Future<Insight> regenerateInsights({String language = 'en'}) async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/insights/regenerate?language=$language'),
+    headers: await _getHeaders(),
+  );
 
-    if (response.statusCode == 200) {
-      return Insight.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to regenerate insights');
-    }
+  if (response.statusCode == 200) {
+    return Insight.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to regenerate insights');
   }
+}
+
+// NEW: Method to translate existing insights
+static Future<void> translateInsightsToMyanmar() async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/insights/translate-myanmar'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode != 200) {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to translate insights');
+  }
+}
 
   static Future<void> refreshAiData() async {
     final response = await http.post(

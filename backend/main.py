@@ -1401,7 +1401,10 @@ def calculate_data_hash(user_id: str) -> str:
 
 
 @app.get("/api/insights", response_model=InsightResponse)
-async def get_insights(current_user: dict = Depends(require_premium)):
+async def get_insights(
+    language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
+    current_user: dict = Depends(require_premium)
+):
     """Get AI-generated financial insights (cached if data unchanged)"""
     try:
         # Calculate current data hash
@@ -1415,10 +1418,34 @@ async def get_insights(current_user: dict = Depends(require_premium)):
         
         if cached_insight:
             print(f"✅ Returning cached insights for user {current_user['_id']}")
+            
+            # If Myanmar requested but not cached, generate translation
+            if language == "mm" and not cached_insight.get("content_mm"):
+                print(f"🔄 Generating Myanmar translation...")
+                
+                if financial_chatbot is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="AI service is currently unavailable"
+                    )
+                
+                myanmar_content = await financial_chatbot.translate_insights_to_myanmar(
+                    cached_insight["content"]
+                )
+                
+                # Update cache with Myanmar translation
+                insights_collection.update_one(
+                    {"_id": cached_insight["_id"]},
+                    {"$set": {"content_mm": myanmar_content}}
+                )
+                
+                cached_insight["content_mm"] = myanmar_content
+            
             return InsightResponse(
                 id=cached_insight["_id"],
                 user_id=cached_insight["user_id"],
                 content=cached_insight["content"],
+                content_mm=cached_insight.get("content_mm"),
                 generated_at=cached_insight["generated_at"],
                 data_hash=cached_insight["data_hash"],
                 expires_at=cached_insight.get("expires_at")
@@ -1435,6 +1462,12 @@ async def get_insights(current_user: dict = Depends(require_premium)):
         
         insights_content = await financial_chatbot.generate_insights(current_user["_id"])
         
+        # Generate Myanmar translation if requested
+        myanmar_content = None
+        if language == "mm":
+            print(f"🔄 Generating Myanmar translation...")
+            myanmar_content = await financial_chatbot.translate_insights_to_myanmar(insights_content)
+        
         # Save to database
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -1443,9 +1476,10 @@ async def get_insights(current_user: dict = Depends(require_premium)):
             "_id": insight_id,
             "user_id": current_user["_id"],
             "content": insights_content,
+            "content_mm": myanmar_content,
             "generated_at": now,
             "data_hash": current_hash,
-            "expires_at": None  # Never expires, only regenerates on data change
+            "expires_at": None
         }
         
         # Delete old insights for this user
@@ -1460,6 +1494,7 @@ async def get_insights(current_user: dict = Depends(require_premium)):
             id=insight_id,
             user_id=current_user["_id"],
             content=insights_content,
+            content_mm=myanmar_content,
             generated_at=now,
             data_hash=current_hash,
             expires_at=None
@@ -1490,10 +1525,13 @@ async def delete_insights(current_user: dict = Depends(get_current_user)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete insights"
         )
-        
-        
+
+
 @app.post("/api/insights/regenerate", response_model=InsightResponse)
-async def regenerate_insights(current_user: dict = Depends(require_premium)):
+async def regenerate_insights(
+    language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
+    current_user: dict = Depends(require_premium)
+):
     """Force regenerate insights regardless of data changes"""
     try:
         insights_collection.delete_many({"user_id": current_user["_id"]})
@@ -1510,6 +1548,12 @@ async def regenerate_insights(current_user: dict = Depends(require_premium)):
         
         insights_content = await financial_chatbot.generate_insights(current_user["_id"])
         
+        # Generate Myanmar translation if requested
+        myanmar_content = None
+        if language == "mm":
+            print(f"🔄 Generating Myanmar translation...")
+            myanmar_content = await financial_chatbot.translate_insights_to_myanmar(insights_content)
+        
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
         
@@ -1517,6 +1561,7 @@ async def regenerate_insights(current_user: dict = Depends(require_premium)):
             "_id": insight_id,
             "user_id": current_user["_id"],
             "content": insights_content,
+            "content_mm": myanmar_content,
             "generated_at": now,
             "data_hash": current_hash,
             "expires_at": None
@@ -1530,6 +1575,7 @@ async def regenerate_insights(current_user: dict = Depends(require_premium)):
             id=insight_id,
             user_id=current_user["_id"],
             content=insights_content,
+            content_mm=myanmar_content,
             generated_at=now,
             data_hash=current_hash,
             expires_at=None
@@ -1542,6 +1588,63 @@ async def regenerate_insights(current_user: dict = Depends(require_premium)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to regenerate insights: {str(e)}"
+        )
+
+
+@app.post("/api/insights/translate-myanmar")
+async def translate_insights_to_myanmar(current_user: dict = Depends(require_premium)):
+    """Translate existing English insights to Myanmar"""
+    try:
+        # Get existing insights
+        insight = insights_collection.find_one({"user_id": current_user["_id"]})
+        
+        if not insight:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No insights found to translate"
+            )
+        
+        # Check if already translated
+        if insight.get("content_mm"):
+            return {
+                "message": "Myanmar translation already exists",
+                "already_translated": True
+            }
+        
+        if financial_chatbot is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI service is currently unavailable"
+            )
+        
+        print(f"🔄 Translating insights to Myanmar for user {current_user['_id']}")
+        
+        myanmar_content = await financial_chatbot.translate_insights_to_myanmar(
+            insight["content"]
+        )
+        
+        # Update with Myanmar translation
+        insights_collection.update_one(
+            {"_id": insight["_id"]},
+            {"$set": {"content_mm": myanmar_content}}
+        )
+        
+        print(f"✅ Myanmar translation completed")
+        
+        return {
+            "message": "Translation completed successfully",
+            "already_translated": False
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Translation error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to translate insights: {str(e)}"
         )
         
         

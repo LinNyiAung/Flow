@@ -715,8 +715,57 @@ Please provide an accurate, helpful answer based on the financial data above."""
             
             
             
-    # Add these methods to the FinancialChatbot class in ai_chatbot.py
-# Place them after the stream_chat method and before the closing of the class
+
+    async def translate_insights_to_myanmar(self, english_content: str) -> str:
+        """Translate English insights to Myanmar language"""
+        try:
+            from openai import AsyncOpenAI
+            
+            if not self.openai_api_key:
+                raise Exception("OpenAI API key not configured")
+            
+            system_prompt = """You are a professional translator specializing in financial content. 
+    Translate the following financial insights from English to Myanmar (Burmese) language.
+
+    CRITICAL RULES:
+    1. Maintain ALL formatting including markdown (##, **, bullets, emojis)
+    2. Keep financial terms clear and understandable in Myanmar
+    3. Preserve all numbers, percentages, and dollar amounts exactly
+    4. Use natural, conversational Myanmar that feels native
+    5. Keep emojis exactly as they are
+    6. Maintain the same structure and sections
+
+    For financial terms:
+    - Money: ငွေ
+    - Balance: လက်ကျန်ငွေ
+    - Income: ဝင်ငွေ
+    - Expenses: ကုန်ကျစရိတ်
+    - Savings: စုဆောင်းငွေ
+    - Budget: ဘတ်ဂျက်
+    - Goals: ရည်မှန်းချက်များ
+    - Transaction: ငွေသွင်းထုတ်
+
+    Translate naturally while keeping the professional yet friendly tone."""
+
+            client = AsyncOpenAI(api_key=self.openai_api_key)
+            
+            response = await client.chat.completions.create(
+                model=self.gpt_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Translate this to Myanmar:\n\n{english_content}"}
+                ],
+                temperature=0.3,  # Lower temperature for more consistent translation
+                max_tokens=3000
+            )
+            
+            myanmar_content = response.choices[0].message.content
+            return myanmar_content
+            
+        except Exception as e:
+            print(f"Translation error: {e}")
+            raise Exception(f"Failed to translate insights: {str(e)}")
+        
 
     async def generate_insights(self, user_id: str) -> str:
         """Generate comprehensive financial insights using GPT-4"""
