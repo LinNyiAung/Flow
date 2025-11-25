@@ -1,0 +1,134 @@
+from datetime import UTC, datetime, timedelta
+from typing import Optional
+from fastapi import Depends, HTTPException , status
+from fastapi import security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from ai_chatbot import financial_chatbot
+from database import users_collection, transactions_collection, goals_collection
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+
+from config import settings
+
+
+security = HTTPBearer()
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash"""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password"""
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create JWT access token"""
+    to_encode = data.copy()
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_token(token: str) -> str:
+    """Verify JWT token and return email"""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials: Subject not found"
+            )
+        return email
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials: Token invalid or expired"
+        )
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Get current authenticated user"""
+    email = verify_token(credentials.credentials)
+    user = users_collection.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
+
+
+async def get_user_balance(user_id: str) -> dict:
+    """
+    Calculate user's financial balance including goal allocations
+    
+    Returns:
+        dict with keys: balance, available_balance, allocated_to_goals, total_inflow, total_outflow
+    """
+    pipeline_inflow = [
+        {"$match": {"user_id": user_id, "type": "inflow"}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]
+    pipeline_outflow = [
+        {"$match": {"user_id": user_id, "type": "outflow"}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]
+
+    inflow_result = list(transactions_collection.aggregate(pipeline_inflow))
+    outflow_result = list(transactions_collection.aggregate(pipeline_outflow))
+
+    total_inflow = inflow_result[0]["total"] if inflow_result else 0
+    total_outflow = outflow_result[0]["total"] if outflow_result else 0
+    
+    # Calculate total allocated to ALL goals (both active and achieved)
+    goals_pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {"_id": None, "total": {"$sum": "$current_amount"}}}
+    ]
+    goals_result = list(goals_collection.aggregate(goals_pipeline))
+    total_allocated_to_goals = goals_result[0]["total"] if goals_result else 0
+
+    total_balance = total_inflow - total_outflow
+    available_balance = total_balance - total_allocated_to_goals
+
+    return {
+        "balance": total_balance,
+        "available_balance": available_balance,
+        "allocated_to_goals": total_allocated_to_goals,
+        "total_inflow": total_inflow,
+        "total_outflow": total_outflow
+    }
+
+
+def require_premium(current_user: dict = Depends(get_current_user)):
+    """Middleware to check if user has premium subscription"""
+    subscription_type = current_user.get("subscription_type", "free")
+    
+    if subscription_type == "premium":
+        # Check if subscription hasn't expired
+        expires_at = current_user.get("subscription_expires_at")
+        if expires_at and expires_at > datetime.now(UTC):
+            return current_user
+        elif not expires_at:  # Lifetime premium
+            return current_user
+    
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="This feature requires a premium subscription"
+    )
+    
+    
+def refresh_ai_data_silent(user_id: str):
+    """Silently refresh AI data and budgets without failing on error"""
+    try:
+        if financial_chatbot:
+            financial_chatbot.refresh_user_data(user_id)
+        # Update budgets
+        from budget_service import update_all_user_budgets
+        update_all_user_budgets(user_id)
+    except Exception as e:
+        print(f"Error refreshing AI data: {e}")
