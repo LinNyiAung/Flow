@@ -11,34 +11,64 @@ enum SubscriptionType {
   }
 }
 
+enum Currency {
+  usd,
+  mmk;
+
+  static Currency fromString(String value) {
+    return Currency.values.firstWhere(
+      (e) => e.name == value.toLowerCase(),
+      orElse: () => Currency.usd,
+    );
+  }
+  
+  String get symbol {
+    switch (this) {
+      case Currency.usd:
+        return '\$';
+      case Currency.mmk:
+        return 'K';
+    }
+  }
+  
+  String get displayName {
+    switch (this) {
+      case Currency.usd:
+        return 'US Dollar (USD)';
+      case Currency.mmk:
+        return 'Myanmar Kyat (MMK)';
+    }
+  }
+}
+
 class User {
   final String id;
   final String name;
   final String email;
   final DateTime createdAt;
-  final SubscriptionType subscriptionType;  // NEW
-  final DateTime? subscriptionExpiresAt;  // NEW
+  final SubscriptionType subscriptionType;
+  final DateTime? subscriptionExpiresAt;
+  final Currency defaultCurrency;  // NEW
 
   User({
     required this.id,
     required this.name,
     required this.email,
     required this.createdAt,
-    this.subscriptionType = SubscriptionType.free,  // NEW
-    this.subscriptionExpiresAt,  // NEW
+    this.subscriptionType = SubscriptionType.free,
+    this.subscriptionExpiresAt,
+    this.defaultCurrency = Currency.usd,  // NEW
   });
 
-  // NEW: Helper method to check if premium is active
   bool get isPremium {
     if (subscriptionType != SubscriptionType.premium) return false;
-    if (subscriptionExpiresAt == null) return true; // Lifetime premium
+    if (subscriptionExpiresAt == null) return true;
     return subscriptionExpiresAt!.isAfter(DateTime.now());
   }
 
-  // NEW: Helper method to check if subscription is expired
   bool get isExpired {
     if (subscriptionType != SubscriptionType.premium) return false;
-    if (subscriptionExpiresAt == null) return false; // Lifetime premium
+    if (subscriptionExpiresAt == null) return false;
     return subscriptionExpiresAt!.isBefore(DateTime.now());
   }
 
@@ -50,10 +80,13 @@ class User {
       createdAt: DateTime.parse(json['created_at']),
       subscriptionType: SubscriptionType.fromString(
         json['subscription_type'] ?? 'free',
-      ),  // NEW
+      ),
       subscriptionExpiresAt: json['subscription_expires_at'] != null
           ? DateTime.parse(json['subscription_expires_at'])
-          : null,  // NEW
+          : null,
+      defaultCurrency: Currency.fromString(  // NEW
+        json['default_currency'] ?? 'usd',
+      ),
     );
   }
 
@@ -65,6 +98,7 @@ class User {
       'created_at': createdAt.toIso8601String(),
       'subscription_type': subscriptionType.name,
       'subscription_expires_at': subscriptionExpiresAt?.toIso8601String(),
+      'default_currency': defaultCurrency.name,  // NEW
     };
   }
 }

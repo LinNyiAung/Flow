@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/recurring_transaction.dart';
+import 'package:frontend/models/user.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -47,6 +49,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+
+  Currency _selectedCurrency = Currency.usd;
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +67,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
       begin: Offset(0, 0.1), // Start slightly above
       end: Offset.zero, // End at original position
     ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      setState(() {
+        _selectedCurrency = authProvider.defaultCurrency;
+      });
+    });
 
     _loadCategories(); // Load categories when the screen initializes
     _animationController.forward(); // Start the animation
@@ -317,6 +329,60 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             ),
                             SizedBox(height: 24),
 
+                          // ADD CURRENCY SELECTOR HERE
+                          Text(
+                            'Currency',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.1),
+                                  spreadRadius: 2,
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: DropdownButtonFormField<Currency>(
+                              decoration: InputDecoration(
+                                hintText: 'Select currency',
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.all(20),
+                                
+                              ),
+                              value: _selectedCurrency,
+                              items: Currency.values.map((currency) {
+                                return DropdownMenuItem(
+                                  value: currency,
+                                  child: Text(
+                                    '${currency.symbol} - ${currency.displayName}',
+                                    style: GoogleFonts.poppins(),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() {
+                                  _selectedCurrency = value!;
+                                });
+                              },
+                              validator: (value) {
+                                if (value == null) {
+                                  return 'Please select a currency';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          SizedBox(height: 24),
+
                             // Amount Field
                             Text(
                               localizations.amountLabel,
@@ -344,7 +410,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                 keyboardType: TextInputType.numberWithOptions(decimal: true), // Allow decimal input
                                 decoration: InputDecoration(
                                   hintText: '0.00',
-                                  prefixText: '\$ ', // Currency symbol
+                                  prefixText: '${_selectedCurrency.symbol} ', // Currency symbol
                                   prefixStyle: GoogleFonts.poppins(
                                     fontSize: 24,
                                     fontWeight: FontWeight.bold,
@@ -679,7 +745,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   }
 
   // Function to handle adding the transaction
-void _addTransaction() async {
+  void _addTransaction() async {
     if (_formKey.currentState!.validate()) {
       final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
       
@@ -692,8 +758,9 @@ void _addTransaction() async {
             ? null
             : _descriptionController.text.trim(),
         amount: double.parse(_amountController.text),
+        currency: _selectedCurrency,  // ADD THIS LINE
         context: context,
-        recurrence: _recurrence,  // ADD THIS
+        recurrence: _recurrence,
       );
 
       if (success) {

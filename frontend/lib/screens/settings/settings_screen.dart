@@ -313,6 +313,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
+
+            SizedBox(height: 8),
+
+            _buildSettingCard(
+              icon: Icons.attach_money,
+              title: 'Currency',
+              subtitle: 'Change default currency',
+              gradientColors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
+              onTap: () {
+                Navigator.pushNamed(context, '/currency-settings');
+              },
+            ),
+
             SizedBox(height: 24),
 
             _buildSectionHeader('Notifications'),

@@ -62,46 +62,72 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     return user
 
 
-async def get_user_balance(user_id: str) -> dict:
+async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict:
     """
     Calculate user's financial balance including goal allocations
+    If currency is specified, calculate balance for that currency only
+    Otherwise, return balances for all currencies
     
     Returns:
-        dict with keys: balance, available_balance, allocated_to_goals, total_inflow, total_outflow
+        dict with currency-specific balances or all balances
     """
-    pipeline_inflow = [
-        {"$match": {"user_id": user_id, "type": "inflow"}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-    ]
-    pipeline_outflow = [
-        {"$match": {"user_id": user_id, "type": "outflow"}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-    ]
+    if currency:
+        # Get balance for specific currency
+        pipeline_inflow = [
+            {"$match": {"user_id": user_id, "type": "inflow", "currency": currency}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]
+        pipeline_outflow = [
+            {"$match": {"user_id": user_id, "type": "outflow", "currency": currency}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]
 
-    inflow_result = list(transactions_collection.aggregate(pipeline_inflow))
-    outflow_result = list(transactions_collection.aggregate(pipeline_outflow))
+        inflow_result = list(transactions_collection.aggregate(pipeline_inflow))
+        outflow_result = list(transactions_collection.aggregate(pipeline_outflow))
 
-    total_inflow = inflow_result[0]["total"] if inflow_result else 0
-    total_outflow = outflow_result[0]["total"] if outflow_result else 0
-    
-    # Calculate total allocated to ALL goals (both active and achieved)
-    goals_pipeline = [
-        {"$match": {"user_id": user_id}},
-        {"$group": {"_id": None, "total": {"$sum": "$current_amount"}}}
-    ]
-    goals_result = list(goals_collection.aggregate(goals_pipeline))
-    total_allocated_to_goals = goals_result[0]["total"] if goals_result else 0
+        total_inflow = inflow_result[0]["total"] if inflow_result else 0
+        total_outflow = outflow_result[0]["total"] if outflow_result else 0
+        
+        # Calculate total allocated to goals for this currency
+        goals_pipeline = [
+            {"$match": {"user_id": user_id, "currency": currency}},
+            {"$group": {"_id": None, "total": {"$sum": "$current_amount"}}}
+        ]
+        goals_result = list(goals_collection.aggregate(goals_pipeline))
+        total_allocated_to_goals = goals_result[0]["total"] if goals_result else 0
 
-    total_balance = total_inflow - total_outflow
-    available_balance = total_balance - total_allocated_to_goals
+        total_balance = total_inflow - total_outflow
+        available_balance = total_balance - total_allocated_to_goals
 
-    return {
-        "balance": total_balance,
-        "available_balance": available_balance,
-        "allocated_to_goals": total_allocated_to_goals,
-        "total_inflow": total_inflow,
-        "total_outflow": total_outflow
-    }
+        return {
+            "currency": currency,
+            "balance": total_balance,
+            "available_balance": available_balance,
+            "allocated_to_goals": total_allocated_to_goals,
+            "total_inflow": total_inflow,
+            "total_outflow": total_outflow
+        }
+    else:
+        # Get balances for all currencies
+        # Get all unique currencies from transactions
+        currencies_pipeline = [
+            {"$match": {"user_id": user_id}},
+            {"$group": {"_id": "$currency"}}
+        ]
+        currencies_result = list(transactions_collection.aggregate(currencies_pipeline))
+        currencies = [c["_id"] for c in currencies_result if c["_id"]]
+        
+        # If no transactions, use default currency
+        if not currencies:
+            user = users_collection.find_one({"_id": user_id})
+            currencies = [user.get("default_currency", "usd")]
+        
+        balances = {}
+        for curr in currencies:
+            balance_data = await get_user_balance(user_id, curr)
+            balances[curr] = balance_data
+        
+        return {"balances": balances}
 
 
 def require_premium(current_user: dict = Depends(get_current_user)):

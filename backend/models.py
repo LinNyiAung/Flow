@@ -8,6 +8,15 @@ from recurrence_models import TransactionRecurrence
 class TransactionType(str, Enum):
     INFLOW = "inflow"
     OUTFLOW = "outflow"
+    
+    
+class Currency(str, Enum):
+    USD = "usd"
+    MMK = "mmk"
+    
+    
+class CurrencyUpdate(BaseModel):
+    default_currency: Currency
 
 # NEW: Add subscription type enum
 class SubscriptionType(str, Enum):
@@ -28,8 +37,9 @@ class UserResponse(BaseModel):
     name: str
     email: str
     created_at: datetime
-    subscription_type: SubscriptionType  # NEW
-    subscription_expires_at: Optional[datetime] = None  # NEW
+    subscription_type: SubscriptionType
+    subscription_expires_at: Optional[datetime] = None
+    default_currency: Currency = Currency.USD  # NEW
     
     
 
@@ -66,6 +76,7 @@ class TransactionCreate(BaseModel):
     description: Optional[str] = None
     recurrence: Optional[TransactionRecurrence] = None
     amount: float
+    currency: Currency = Currency.USD  # NEW
 
 class TransactionUpdate(BaseModel):
     type: Optional[TransactionType] = None
@@ -75,6 +86,7 @@ class TransactionUpdate(BaseModel):
     description: Optional[str] = None
     recurrence: Optional[TransactionRecurrence] = None
     amount: Optional[float] = None
+    currency: Optional[Currency] = None  # NEW
 
 class TransactionResponse(BaseModel):
     id: str
@@ -87,6 +99,7 @@ class TransactionResponse(BaseModel):
     recurrence: Optional[TransactionRecurrence] = None
     parent_transaction_id: Optional[str] = None
     amount: float
+    currency: Currency  # NEW
     created_at: datetime
     updated_at: datetime
 
@@ -101,6 +114,7 @@ class TransactionExtraction(BaseModel):
     date: datetime
     description: Optional[str] = None
     amount: float
+    currency: Currency = Currency.USD  # NEW
     confidence: float
     reasoning: Optional[str] = None
 

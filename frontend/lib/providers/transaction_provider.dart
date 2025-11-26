@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/recurring_transaction.dart';
+import 'package:frontend/models/user.dart';
 import 'package:provider/provider.dart';
 import '../models/transaction.dart';
 import '../services/api_service.dart';
@@ -45,6 +46,7 @@ Future<void> loadMoreTransactions({
   TransactionType? type,
   DateTime? startDate,
   DateTime? endDate,
+  Currency? currency, // ADD THIS LINE
   required int limit,
   required int currentCount,
 }) async {
@@ -54,6 +56,7 @@ Future<void> loadMoreTransactions({
       type: type,
       startDate: startDate,
       endDate: endDate,
+      currency: currency, // ADD THIS LINE
       limit: limit,
       skip: 0,
     );
@@ -70,87 +73,91 @@ Future<void> loadMoreTransactions({
 
   // Create a new transaction - UPDATED with context parameter
   Future<bool> createTransaction({
-    required TransactionType type,
-    required String mainCategory,
-    required String subCategory,
-    required DateTime date,
-    String? description,
-    required double amount,
-    BuildContext? context,
-    TransactionRecurrence? recurrence,  // ADD THIS
-  }) async {
-    _setLoading(true);
-    _setError(null);
+  required TransactionType type,
+  required String mainCategory,
+  required String subCategory,
+  required DateTime date,
+  String? description,
+  required double amount,
+  required Currency currency,  // NEW
+  BuildContext? context,
+  TransactionRecurrence? recurrence,
+}) async {
+  _setLoading(true);
+  _setError(null);
 
-    try {
-      final transaction = await ApiService.createTransaction(
-        type: type,
-        mainCategory: mainCategory,
-        subCategory: subCategory,
-        date: date,
-        description: description,
-        amount: amount,
-        recurrence: recurrence,  // ADD THIS
-      );
+  try {
+    final transaction = await ApiService.createTransaction(
+      type: type,
+      mainCategory: mainCategory,
+      subCategory: subCategory,
+      date: date,
+      description: description,
+      amount: amount,
+      currency: currency,  // NEW
+      recurrence: recurrence,
+    );
 
-      _transactions.insert(0, transaction);
-      await fetchBalance();
-      
-      _refreshAiData(context);
-      
-      _setLoading(false);
-      return true;
-    } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
-      return false;
-    }
+    _transactions.insert(0, transaction);
+    await fetchBalance();
+    
+    _refreshAiData(context);
+    
+    _setLoading(false);
+    return true;
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
+    return false;
   }
+}
 
   // Update an existing transaction - UPDATED with context parameter
 Future<bool> updateTransaction({
-    required String transactionId,
-    TransactionType? type,
-    String? mainCategory,
-    String? subCategory,
-    DateTime? date,
-    String? description,
-    double? amount,
-    BuildContext? context,
-    TransactionRecurrence? recurrence,  // ADD THIS
-  }) async {
-    _setLoading(true);
-    _setError(null);
+  required String transactionId,
+  TransactionType? type,
+  String? mainCategory,
+  String? subCategory,
+  DateTime? date,
+  String? description,
+  double? amount,
+  Currency? currency,  // NEW
+  BuildContext? context,
+  TransactionRecurrence? recurrence,
+}) async {
+  _setLoading(true);
+  _setError(null);
 
-    try {
-      final updatedTransaction = await ApiService.updateTransaction(
-        transactionId: transactionId,
-        type: type,
-        mainCategory: mainCategory,
-        subCategory: subCategory,
-        date: date,
-        description: description,
-        amount: amount,
-        recurrence: recurrence,  // ADD THIS
-      );
+  try {
+    final updatedTransaction = await ApiService.updateTransaction(
+      transactionId: transactionId,
+      type: type,
+      mainCategory: mainCategory,
+      subCategory: subCategory,
+      date: date,
+      description: description,
+      amount: amount,
+      currency: currency,  // NEW
+      recurrence: recurrence,
+    );
 
-      final index = _transactions.indexWhere((t) => t.id == transactionId);
-      if (index != -1) {
-        _transactions[index] = updatedTransaction;
-      }
-
-      await fetchBalance();
-      
-      _refreshAiData(context);
-      
-      _setLoading(false);
-      return true;
-    } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
-      return false;
+    final index = _transactions.indexWhere((t) => t.id == transactionId);
+    if (index != -1) {
+      _transactions[index] = updatedTransaction;
     }
+
+    await fetchBalance();
+    
+    _refreshAiData(context);
+    
+    _setLoading(false);
+    return true;
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
+    return false;
   }
+}
 
   // Delete a transaction - UPDATED with context parameter
   Future<bool> deleteTransaction(String transactionId, {BuildContext? context}) async {
@@ -176,32 +183,34 @@ Future<bool> updateTransaction({
 
   // Fetch all transactions for the user, optionally filtered by type and date range
   Future<void> fetchTransactions({
-    TransactionType? type,
-    DateTime? startDate,
-    DateTime? endDate,
-    int? limit,
-    int? skip,
-  }) async {
-    _setLoading(true);
-    _setError(null);
+  TransactionType? type,
+  DateTime? startDate,
+  DateTime? endDate,
+  Currency? currency,  // NEW
+  int? limit,
+  int? skip,
+}) async {
+  _setLoading(true);
+  _setError(null);
 
-    try {
-      final int nonNullableLimit = limit ?? 50;
-      final int nonNullableSkip = skip ?? 0;
+  try {
+    final int nonNullableLimit = limit ?? 50;
+    final int nonNullableSkip = skip ?? 0;
 
-      _transactions = await ApiService.getTransactions(
-        type: type,
-        startDate: startDate,
-        endDate: endDate,
-        limit: nonNullableLimit,
-        skip: nonNullableSkip,
-      );
-      _setLoading(false);
-    } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
-    }
+    _transactions = await ApiService.getTransactions(
+      type: type,
+      startDate: startDate,
+      endDate: endDate,
+      currency: currency,  // NEW
+      limit: nonNullableLimit,
+      skip: nonNullableSkip,
+    );
+    _setLoading(false);
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
   }
+}
 
   // Fetch a single transaction by ID
   Future<Transaction?> getTransaction(String transactionId) async {
@@ -214,14 +223,14 @@ Future<bool> updateTransaction({
   }
 
   // Fetch the user's financial balance and totals
-  Future<void> fetchBalance() async {
-    try {
-      _balance = await ApiService.getBalance();
-      notifyListeners();
-    } catch (e) {
-      print("Error fetching balance: $e");
-    }
+Future<void> fetchBalance({Currency? currency}) async {
+  try {
+    _balance = await ApiService.getBalance(currency: currency);
+    notifyListeners();
+  } catch (e) {
+    print("Error fetching balance: $e");
   }
+}
 
   // Clear any displayed error message
   void clearError() {

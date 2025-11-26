@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, status, Depends,  Path
 
 from utils import create_access_token, get_current_user, get_password_hash, verify_password
 from models import (
-    PasswordChange, ProfileUpdate, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType,
+    Currency, CurrencyUpdate, PasswordChange, ProfileUpdate, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType,
 )
 from database import users_collection
 from config import settings
@@ -29,8 +29,9 @@ async def register(user_data: UserCreate):
         "name": user_data.name,
         "email": user_data.email,
         "password": get_password_hash(user_data.password),
-        "subscription_type": "free",  # NEW
-        "subscription_expires_at": None,  # NEW
+        "subscription_type": "free",
+        "subscription_expires_at": None,
+        "default_currency": "usd",  # NEW
         "created_at": datetime.now(UTC)
     }
     users_collection.insert_one(new_user)
@@ -48,8 +49,9 @@ async def register(user_data: UserCreate):
             name=user_data.name,
             email=user_data.email,
             created_at=new_user["created_at"],
-            subscription_type=SubscriptionType.FREE,  # NEW
-            subscription_expires_at=None  # NEW
+            subscription_type=SubscriptionType.FREE,
+            subscription_expires_at=None,
+            default_currency=Currency.USD  # NEW
         )
     )
 
@@ -74,8 +76,9 @@ async def login(user_credentials: UserLogin):
             name=user["name"],
             email=user["email"],
             created_at=user["created_at"],
-            subscription_type=SubscriptionType(user.get("subscription_type", "free")),  # NEW
-            subscription_expires_at=user.get("subscription_expires_at")  # NEW
+            subscription_type=SubscriptionType(user.get("subscription_type", "free")),
+            subscription_expires_at=user.get("subscription_expires_at"),
+            default_currency=Currency(user.get("default_currency", "usd"))  # NEW
         )
     )
 
@@ -88,9 +91,11 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         name=current_user["name"],
         email=current_user["email"],
         created_at=current_user["created_at"],
-        subscription_type=SubscriptionType(current_user.get("subscription_type", "free")),  # NEW
-        subscription_expires_at=current_user.get("subscription_expires_at")  # NEW
+        subscription_type=SubscriptionType(current_user.get("subscription_type", "free")),
+        subscription_expires_at=current_user.get("subscription_expires_at"),
+        default_currency=Currency(current_user.get("default_currency", "usd"))  # NEW
     )
+
     
     
 @router.put("/profile", response_model=UserResponse)
@@ -111,13 +116,11 @@ async def update_profile(
             detail="Name must be at least 2 characters"
         )
     
-    # Update user in database
     users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"name": profile_data.name.strip()}}
     )
     
-    # Get updated user
     updated_user = users_collection.find_one({"_id": current_user["_id"]})
     
     return UserResponse(
@@ -126,7 +129,32 @@ async def update_profile(
         email=updated_user["email"],
         created_at=updated_user["created_at"],
         subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
-        subscription_expires_at=updated_user.get("subscription_expires_at")
+        subscription_expires_at=updated_user.get("subscription_expires_at"),
+        default_currency=Currency(updated_user.get("default_currency", "usd"))  # NEW
+    )
+    
+    
+@router.put("/currency", response_model=UserResponse)
+async def update_default_currency(
+    currency_data: CurrencyUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user's default currency"""
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"default_currency": currency_data.default_currency.value}}
+    )
+    
+    updated_user = users_collection.find_one({"_id": current_user["_id"]})
+    
+    return UserResponse(
+        id=updated_user["_id"],
+        name=updated_user["name"],
+        email=updated_user["email"],
+        created_at=updated_user["created_at"],
+        subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
+        subscription_expires_at=updated_user.get("subscription_expires_at"),
+        default_currency=Currency(updated_user["default_currency"])
     )
     
     
@@ -190,7 +218,8 @@ async def update_subscription(
         email=updated_user["email"],
         created_at=updated_user["created_at"],
         subscription_type=SubscriptionType(updated_user["subscription_type"]),
-        subscription_expires_at=updated_user.get("subscription_expires_at")
+        subscription_expires_at=updated_user.get("subscription_expires_at"),
+        default_currency=Currency(updated_user.get("default_currency", "usd"))  # NEW
     )
     
     

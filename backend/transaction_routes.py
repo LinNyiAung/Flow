@@ -11,7 +11,7 @@ from recurring_transaction_service import disable_recurrence_for_parent, disable
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
 from budget_service import update_all_user_budgets
 from models import (
-    MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction, 
+    Currency, MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction, 
     TransactionCreate, TransactionResponse, TransactionType,
     TransactionUpdate
 )
@@ -28,7 +28,6 @@ router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
 # ==================== TRANSACTIONS ====================
-
 
 @router.post("", response_model=TransactionResponse)
 async def create_transaction(
@@ -48,6 +47,7 @@ async def create_transaction(
         "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
         "description": transaction_data.description,
         "amount": transaction_data.amount,
+        "currency": transaction_data.currency.value,  # NEW
         "created_at": now,
         "updated_at": now,
     }
@@ -55,7 +55,6 @@ async def create_transaction(
     # Add recurrence if provided
     if transaction_data.recurrence:
         new_transaction["recurrence"] = transaction_data.recurrence.dict()
-        # Initialize last_created_date to transaction date
         if transaction_data.recurrence.enabled:
             new_transaction["recurrence"]["last_created_date"] = new_transaction["date"]
     else:
@@ -74,7 +73,8 @@ async def create_transaction(
     try:
         user_transactions = list(transactions_collection.find({
             "user_id": current_user["_id"],
-            "type": "outflow"
+            "type": "outflow",
+            "currency": transaction_data.currency.value  # NEW - filter by currency
         }).limit(50))
         
         if user_transactions:
@@ -94,7 +94,6 @@ async def create_transaction(
     refresh_ai_data_silent(current_user["_id"])
     update_all_user_budgets(current_user["_id"])
 
-    # Prepare response
     recurrence_obj = None
     if new_transaction.get("recurrence"):
         recurrence_obj = TransactionRecurrence(**new_transaction["recurrence"])
@@ -108,11 +107,13 @@ async def create_transaction(
         date=transaction_data.date,
         description=transaction_data.description,
         amount=transaction_data.amount,
+        currency=transaction_data.currency,  # NEW
         created_at=now,
         updated_at=now,
         recurrence=recurrence_obj,
         parent_transaction_id=new_transaction["recurrence"].get("parent_transaction_id")
     )
+
 
 
 @router.get("", response_model=List[TransactionResponse])
@@ -122,13 +123,17 @@ async def get_transactions(
     skip: int = Query(default=0, ge=0),
     transaction_type: Optional[TransactionType] = None,
     start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None,
+    currency: Optional[Currency] = None  # NEW
 ):
     """Get user transactions with filters"""
     query = {"user_id": current_user["_id"]}
     
     if transaction_type:
         query["type"] = transaction_type.value
+    
+    if currency:  # NEW
+        query["currency"] = currency.value
     
     if start_date or end_date:
         date_filter = {}
@@ -161,6 +166,7 @@ async def get_transactions(
             date=t["date"],
             description=t.get("description"),
             amount=t["amount"],
+            currency=Currency(t.get("currency", "usd")),  # NEW
             created_at=t["created_at"],
             updated_at=t.get("updated_at", t["created_at"]),
             recurrence=recurrence_obj,
@@ -286,6 +292,7 @@ async def get_transaction(
         date=transaction["date"],
         description=transaction.get("description"),
         amount=transaction["amount"],
+        currency=Currency(transaction.get("currency", "usd")),  # NEW
         created_at=transaction["created_at"],
         updated_at=transaction.get("updated_at", transaction["created_at"]),
         recurrence=recurrence_obj,
@@ -310,15 +317,13 @@ async def update_transaction(
 
     update_data = {"updated_at": datetime.now(UTC)}
     
-    for field in ["type", "main_category", "sub_category", "date", "description", "amount"]:
+    for field in ["type", "main_category", "sub_category", "date", "description", "amount", "currency"]:  # Added currency
         value = getattr(transaction_data, field, None)
         if value is not None:
-            update_data[field] = value.value if field == "type" else value
+            update_data[field] = value.value if field in ["type", "currency"] else value
 
-    # ADD THIS SECTION TO HANDLE RECURRENCE UPDATES
     if transaction_data.recurrence is not None:
         update_data["recurrence"] = transaction_data.recurrence.dict()
-        # Initialize last_created_date if recurrence is being enabled
         if transaction_data.recurrence.enabled and not transaction.get("recurrence", {}).get("enabled"):
             update_data["recurrence"]["last_created_date"] = update_data.get("date", transaction["date"])
 
@@ -331,7 +336,6 @@ async def update_transaction(
     refresh_ai_data_silent(current_user["_id"])
     update_all_user_budgets(current_user["_id"])
 
-    # UPDATE THE RESPONSE TO INCLUDE RECURRENCE
     recurrence_obj = None
     if updated_transaction.get("recurrence"):
         recurrence_obj = TransactionRecurrence(**updated_transaction["recurrence"])
@@ -345,10 +349,11 @@ async def update_transaction(
         date=updated_transaction["date"],
         description=updated_transaction["description"],
         amount=updated_transaction["amount"],
+        currency=Currency(updated_transaction.get("currency", "usd")),  # NEW
         created_at=updated_transaction["created_at"],
         updated_at=updated_transaction["updated_at"],
-        recurrence=recurrence_obj,  # ADD THIS
-        parent_transaction_id=updated_transaction.get("recurrence", {}).get("parent_transaction_id")  # ADD THIS
+        recurrence=recurrence_obj,
+        parent_transaction_id=updated_transaction.get("recurrence", {}).get("parent_transaction_id")
     )
 
 
@@ -455,8 +460,12 @@ RULES:
 3. Extract the amount as a positive number
 4. Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
 5. Extract any description/notes
-6. Provide a confidence score (0.0-1.0) based on clarity
-7. Provide brief reasoning for your categorization
+6. Detect the currency from the text (look for currency symbols like $, K, â‚¹, â‚¬, Â£, Â¥ or currency codes like USD, MMK, EUR, GBP, JPY, etc.)
+   - If $ or USD is mentioned, use "usd"
+   - If K, Ks, Kyat, or MMK is mentioned, use "mmk"
+   - If no currency is detected, use "usd" as default
+7. Provide a confidence score (0.0-1.0) based on clarity
+8. Provide brief reasoning for your categorization
 
 Respond in JSON format:
 {{
@@ -466,6 +475,7 @@ Respond in JSON format:
     "date": "YYYY-MM-DD",
     "description": "optional description",
     "amount": 123.45,
+    "currency": "usd" or "mmk",
     "confidence": 0.95,
     "reasoning": "why you chose these categories"
 }}"""
@@ -544,6 +554,10 @@ RULES:
    - Extract the amount as a positive number
    - Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
    - Extract any description/notes
+   - Detect the currency from the text (look for currency symbols like $, K, â‚¹, â‚¬, Â£, Â¥ or currency codes like USD, MMK, EUR, GBP, JPY, etc.)
+     * If $ or USD is mentioned, use "usd"
+     * If K, Ks, Kyat, or MMK is mentioned, use "mmk"
+     * If no currency is detected, use "usd" as default
    - Provide a confidence score (0.0-1.0) based on clarity
    - Provide brief reasoning for your categorization
 
@@ -561,6 +575,7 @@ Respond in JSON format:
             "date": "YYYY-MM-DD",
             "description": "optional description",
             "amount": 123.45,
+            "currency": "usd" or "mmk",
             "confidence": 0.95,
             "reasoning": "why you chose these categories"
         }},
@@ -715,8 +730,12 @@ RULES:
 3. Extract the total amount
 4. Extract the date from receipt (default to today if not visible: {datetime.now(UTC).strftime('%Y-%m-%d')})
 5. Create a brief description including merchant name
-6. Provide confidence score (0.0-1.0)
-7. Explain your reasoning
+6. Detect the currency from the receipt (look for currency symbols like $, K, â‚¹, â‚¬, Â£, Â¥ or currency codes like USD, MMK, EUR, GBP, JPY, etc.)
+   - If $ or USD is found, use "usd"
+   - If K, Ks, Kyat, or MMK is found, use "mmk"
+   - If no currency is detected, use "usd" as default
+7. Provide confidence score (0.0-1.0)
+8. Explain your reasoning
 
 Respond in JSON format:
 {{
@@ -726,6 +745,7 @@ Respond in JSON format:
     "date": "YYYY-MM-DD",
     "description": "merchant name and brief description",
     "amount": 123.45,
+    "currency": "usd" or "mmk",
     "confidence": 0.95,
     "reasoning": "what you saw on the receipt"
 }}"""

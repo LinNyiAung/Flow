@@ -17,6 +17,8 @@ class AuthProvider with ChangeNotifier {
   SubscriptionType get subscriptionType => _user?.subscriptionType ?? SubscriptionType.free;
   DateTime? get subscriptionExpiresAt => _user?.subscriptionExpiresAt;
 
+  Currency get defaultCurrency => _user?.defaultCurrency ?? Currency.usd;
+
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
@@ -26,6 +28,21 @@ class AuthProvider with ChangeNotifier {
     _error = error;
     notifyListeners();
   }
+
+  Future<bool> updateDefaultCurrency({required Currency currency}) async {
+  _setLoading(true);
+  _setError(null);
+
+  try {
+    _user = await ApiService.updateDefaultCurrency(currency: currency);
+    _setLoading(false);
+    return true;
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
+    return false;
+  }
+}
 
   Future<bool> register({
     required String name,

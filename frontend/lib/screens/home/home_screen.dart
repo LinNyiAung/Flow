@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -63,26 +65,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Function to refresh data (pull-to-refresh and initial load)
   Future<void> _refreshData() async {
-    final transactionProvider = Provider.of<TransactionProvider>(
-      context,
-      listen: false,
-    );
-    final goalProvider = Provider.of<GoalProvider>(
-      context,
-      listen: false,
-    ); // ADD THIS
-    final notificationProvider = Provider.of<NotificationProvider>(
-      context,
-      listen: false,
-    ); // ADD THIS
+  final transactionProvider = Provider.of<TransactionProvider>(
+    context,
+    listen: false,
+  );
+  final goalProvider = Provider.of<GoalProvider>(
+    context,
+    listen: false,
+  );
+  final notificationProvider = Provider.of<NotificationProvider>(
+    context,
+    listen: false,
+  );
+  final authProvider = Provider.of<AuthProvider>(
+    context,
+    listen: false,
+  );
 
-    await Future.wait([
-      transactionProvider.fetchTransactions(limit: 3),
-      transactionProvider.fetchBalance(),
-      goalProvider.fetchSummary(), // ADD THIS
-      notificationProvider.fetchUnreadCount(), // ADD THIS
-    ]);
-  }
+  // Get the current default currency
+  final defaultCurrency = authProvider.defaultCurrency;
+
+  await Future.wait([
+    transactionProvider.fetchTransactions(limit: 3),
+    transactionProvider.fetchBalance(currency: defaultCurrency), // Pass default currency
+    goalProvider.fetchSummary(),
+    notificationProvider.fetchUnreadCount(),
+  ]);
+}
 
   // Function to navigate to the TransactionsListScreen
   void _navigateToTransactionsList() {
@@ -247,109 +256,147 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 // Balance Card
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
-                    child: Card(
-                      shape: RoundedRectangleBorder(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Card(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    elevation: 8,
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                        ),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      elevation: 8,
-                      child: Container(
-                        width: double.infinity,
-                        padding: EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  localizations.totalBalance,
-                                  style: GoogleFonts.poppins(
-                                    color: Colors.white.withOpacity(0.8),
-                                    fontSize: 16,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    localizations.totalBalance,
+                                    style: GoogleFonts.poppins(
+                                      color: Colors.white.withOpacity(0.8),
+                                      fontSize: 16,
+                                    ),
                                   ),
-                                ),
-                                Icon(
-                                  Icons.account_balance_wallet,
-                                  color: Colors.white,
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              '\$${transactionProvider.balance?.balance.toStringAsFixed(2) ?? '0.00'}',
-                              style: GoogleFonts.poppins(
+                                  SizedBox(height: 4),
+                                  Text(
+                                    authProvider.defaultCurrency.displayName,
+                                    style: GoogleFonts.poppins(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Icon(
+                                Icons.account_balance_wallet,
                                 color: Colors.white,
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              '${localizations.available}: \$${transactionProvider.balance?.availableBalance.toStringAsFixed(2) ?? '0.00'}',
-                              style: GoogleFonts.poppins(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            if (transactionProvider.balance?.allocatedToGoals !=
-                                    null &&
-                                transactionProvider.balance!.allocatedToGoals >
-                                    0) ...[
-                              SizedBox(height: 2),
-                              Text(
-                                '${localizations.allocatedToGoals}: \$${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
-                                style: GoogleFonts.poppins(
-                                  color: Colors.white.withOpacity(0.7),
-                                  fontSize: 12,
-                                ),
                               ),
                             ],
-                            SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                _buildBalanceInfo(
-                                  icon: Icons.arrow_upward,
-                                  label: localizations.inflow,
-                                  amount:
-                                      transactionProvider
-                                          .balance
-                                          ?.totalInflow ??
-                                      0.0,
-                                  color: Colors.green,
-                                ),
-                                Container(
-                                  height: 40,
-                                  width: 1,
-                                  color: Colors.white.withOpacity(0.3),
-                                ),
-                                _buildBalanceInfo(
-                                  icon: Icons.arrow_downward,
-                                  label: localizations.outflow,
-                                  amount:
-                                      transactionProvider
-                                          .balance
-                                          ?.totalOutflow ??
-                                      0.0,
-                                  color: Colors.red,
-                                ),
-                              ],
+                          ),
+                          SizedBox(height: 8),
+                          // Primary Currency Balance
+                          Text(
+                            transactionProvider.balance != null
+                                ? transactionProvider.balance!.displayBalance
+                                : '${authProvider.defaultCurrency.symbol}0.00',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '${localizations.available}: ${transactionProvider.balance != null ? '${transactionProvider.balance!.currency.symbol}${transactionProvider.balance!.availableBalance.toStringAsFixed(2)}' : '${authProvider.defaultCurrency.symbol}0.00'}',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (transactionProvider.balance?.allocatedToGoals != null &&
+                              transactionProvider.balance!.allocatedToGoals > 0) ...[
+                            SizedBox(height: 2),
+                            Text(
+                              '${localizations.allocatedToGoals}: ${transactionProvider.balance!.currency.symbol}${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 12,
+                              ),
                             ),
                           ],
-                        ),
+                          SizedBox(height: 16),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildBalanceInfo(
+                                icon: Icons.arrow_upward,
+                                label: localizations.inflow,
+                                amount: transactionProvider.balance?.totalInflow ?? 0.0,
+                                currency: transactionProvider.balance?.currency ?? authProvider.defaultCurrency,
+                                color: Colors.green,
+                              ),
+                              Container(
+                                height: 40,
+                                width: 1,
+                                color: Colors.white.withOpacity(0.3),
+                              ),
+                              _buildBalanceInfo(
+                                icon: Icons.arrow_downward,
+                                label: localizations.outflow,
+                                amount: transactionProvider.balance?.totalOutflow ?? 0.0,
+                                currency: transactionProvider.balance?.currency ?? authProvider.defaultCurrency,
+                                color: Colors.red,
+                              ),
+                            ],
+                          ),
+                          
+                          // Multi-Currency Expansion
+                          SizedBox(height: 16),
+                          GestureDetector(
+                            onTap: () => _showMultiCurrencyBottomSheet(),
+                            child: Container(
+                              padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.currency_exchange, color: Colors.white, size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'View All Currencies',
+                                    style: GoogleFonts.poppins(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 18),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
+              ),
 
                 SliverToBoxAdapter(child: SizedBox(height: 30)), // Spacer
                 // AI Assistant Card (Styled consistently)
@@ -687,37 +734,282 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Helper widget to display balance information (Inflow/Outflow)
   Widget _buildBalanceInfo({
-    required IconData icon,
-    required String label,
-    required double amount,
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 16),
-            SizedBox(width: 4),
-            Text(
-              label,
-              style: GoogleFonts.poppins(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 12,
-              ),
+  required IconData icon,
+  required String label,
+  required double amount,
+  required Currency currency,
+  required Color color,
+}) {
+  return Column(
+    children: [
+      Row(
+        children: [
+          Icon(icon, color: Colors.white, size: 16),
+          SizedBox(width: 4),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
             ),
+          ),
+        ],
+      ),
+      Text(
+        '${currency.symbol}${amount.toStringAsFixed(2)}',
+        style: GoogleFonts.poppins(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ],
+  );
+}
+
+// ADD this new method to show multi-currency bottom sheet
+void _showMultiCurrencyBottomSheet() async {
+  final localizations = AppLocalizations.of(context);
+  
+  // Fetch all balances
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => Center(
+      child: CircularProgressIndicator(
+        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+      ),
+    ),
+  );
+  
+  try {
+    final multiBalances = await ApiService.getAllBalances();
+    Navigator.pop(context); // Close loading dialog
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.currency_exchange, color: Colors.white, size: 20),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'All Currency Balances',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 24),
+            
+            // Display all currency balances
+            ...multiBalances.currencies.map((currency) {
+              final balance = multiBalances.getBalanceForCurrency(currency);
+              if (balance == null) return SizedBox.shrink();
+              
+              return Container(
+                margin: EdgeInsets.only(bottom: 16),
+                padding: EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF667eea).withOpacity(0.1), Color(0xFF764ba2).withOpacity(0.1)],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Color(0xFF667eea).withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Color(0xFF667eea),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                currency.symbol,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            Text(
+                              currency.displayName,
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF333333),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (currency == Provider.of<AuthProvider>(context, listen: false).defaultCurrency)
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Color(0xFF4CAF50),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Default',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      balance.displayBalance,
+                      style: GoogleFonts.poppins(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF333333),
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Available',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              '${currency.symbol}${balance.availableBalance.toStringAsFixed(2)}',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF333333),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              'In Goals',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              '${currency.symbol}${balance.allocatedToGoals.toStringAsFixed(2)}',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFFF9800),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 12),
+                    Divider(),
+                    SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.arrow_upward, size: 14, color: Colors.green),
+                            SizedBox(width: 4),
+                            Text(
+                              '${currency.symbol}${balance.totalInflow.toStringAsFixed(2)}',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: Colors.green,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Icon(Icons.arrow_downward, size: 14, color: Colors.red),
+                            SizedBox(width: 4),
+                            Text(
+                              '${currency.symbol}${balance.totalOutflow.toStringAsFixed(2)}',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            
+            SizedBox(height: 16),
           ],
         ),
-        Text(
-          '\$${amount.toStringAsFixed(2)}', // Formatted amount
-          style: GoogleFonts.poppins(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+      ),
+    );
+  } catch (e) {
+    Navigator.pop(context); // Close loading dialog
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Failed to load currency balances: ${e.toString().replaceAll('Exception: ', '')}',
+          style: GoogleFonts.poppins(color: Colors.white),
         ),
-      ],
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
+}
 
   // Widget to build a card for each transaction (consistent with TransactionsListScreen)
   Widget _buildTransactionCard(Transaction transaction) {
@@ -849,7 +1141,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(
                   // Display amount with +/- sign and formatted to 2 decimal places
-                  '${transaction.type == TransactionType.inflow ? '+' : '-'}\$${transaction.amount.toStringAsFixed(2)}',
+                  '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}',
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,

@@ -18,7 +18,7 @@ from pdf_generator import generate_financial_report_pdf
 from report_models import CategoryBreakdown, FinancialReport, GoalProgress, ReportPeriod, ReportRequest
 from insight_models import InsightResponse
 from models import (
-    CategoryResponse, TransactionType,
+    CategoryResponse, Currency, TransactionType,
 )
 from chat_models import (
     ChatRequest, ChatResponse, ChatMessage, MessageRole,
@@ -82,9 +82,16 @@ async def get_categories(transaction_type: TransactionType):
 
 
 @app.get("/api/dashboard/balance")
-async def get_balance(current_user: dict = Depends(get_current_user)):
-    """Get user's financial balance including goal allocations"""
-    return await get_user_balance(current_user["_id"])
+async def get_balance(
+    currency: Optional[Currency] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get user's financial balance including goal allocations
+    If currency is specified, returns balance for that currency only
+    Otherwise returns balances for all currencies
+    """
+    return await get_user_balance(current_user["_id"], currency.value if currency else None)
 
 
 # ==================== AI CHATBOT ====================

@@ -11,6 +11,7 @@ import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
+import 'package:frontend/screens/settings/currency_settings_screen.dart';
 import 'package:frontend/screens/settings/language_settings_screen.dart';
 import 'package:frontend/screens/settings/notification_settings_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
@@ -128,6 +129,7 @@ class _MyAppState extends State<MyApp> {
           '/subscription': (context) => SubscriptionScreen(),
           '/settings': (context) => SettingsScreen(),
           '/notification-settings': (context) => NotificationSettingsScreen(),
+          '/currency-settings': (context) => CurrencySettingsScreen(),
         },
         onGenerateRoute: (settings) {
           if (settings.name == '/language-settings') {

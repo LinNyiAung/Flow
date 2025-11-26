@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/recurring_transaction.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -50,6 +51,9 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+
+  late Currency _selectedCurrency;
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +66,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
     _selectedSubCategory = widget.transaction.subCategory;
     _selectedDate = widget.transaction.date; // Initialize with the transaction's date
     _recurrence = widget.transaction.recurrence;
+    _selectedCurrency = widget.transaction.currency;
 
     // Setup animations
     _animationController = AnimationController(
@@ -361,6 +366,59 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               ),
                             ),
                             SizedBox(height: 24),
+                            // ADD CURRENCY SELECTOR HERE
+                          Text(
+                            'Currency',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.1),
+                                  spreadRadius: 2,
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: DropdownButtonFormField<Currency>(
+                              decoration: InputDecoration(
+                                hintText: 'Select currency',
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.all(20),
+                                
+                              ),
+                              value: _selectedCurrency,
+                              items: Currency.values.map((currency) {
+                                return DropdownMenuItem(
+                                  value: currency,
+                                  child: Text(
+                                    '${currency.symbol} - ${currency.displayName}',
+                                    style: GoogleFonts.poppins(),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() {
+                                  _selectedCurrency = value!;
+                                });
+                              },
+                              validator: (value) {
+                                if (value == null) {
+                                  return 'Please select a currency';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          SizedBox(height: 24),
 
                             // Amount Field
                             Text(
@@ -389,7 +447,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                 keyboardType: TextInputType.numberWithOptions(decimal: true), // Allow decimal input
                                 decoration: InputDecoration(
                                   hintText: '0.00',
-                                  prefixText: '\$ ', // Currency symbol
+                                  prefixText: '${_selectedCurrency.symbol} ', // Currency symbol
                                   prefixStyle: GoogleFonts.poppins(
                                     fontSize: 24,
                                     fontWeight: FontWeight.bold,
@@ -1278,42 +1336,41 @@ void _viewParentTransaction() async {
 
   // Function to handle the update transaction logic
 void _updateTransaction() async {
-  if (_formKey.currentState!.validate()) {
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    
-    // CREATE A PROPER RECURRENCE OBJECT EVEN WHEN DISABLED
-    TransactionRecurrence? recurrenceToSend;
-    if (_recurrence != null && _recurrence!.enabled) {
-      recurrenceToSend = _recurrence;
-    } else {
-      // Explicitly pass disabled recurrence to update the backend
-      recurrenceToSend = TransactionRecurrence(
-        enabled: false,
-        config: null,
-        lastCreatedDate: null,
-        parentTransactionId: null,
+    if (_formKey.currentState!.validate()) {
+      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+      
+      TransactionRecurrence? recurrenceToSend;
+      if (_recurrence != null && _recurrence!.enabled) {
+        recurrenceToSend = _recurrence;
+      } else {
+        recurrenceToSend = TransactionRecurrence(
+          enabled: false,
+          config: null,
+          lastCreatedDate: null,
+          parentTransactionId: null,
+        );
+      }
+      
+      final success = await transactionProvider.updateTransaction(
+        transactionId: widget.transaction.id,
+        type: _selectedType,
+        mainCategory: _selectedMainCategory!,
+        subCategory: _selectedSubCategory!,
+        date: _selectedDate,
+        description: _descriptionController.text.trim().isEmpty
+            ? null
+            : _descriptionController.text.trim(),
+        amount: double.parse(_amountController.text),
+        currency: _selectedCurrency,  // ADD THIS LINE
+        context: context,
+        recurrence: recurrenceToSend,
       );
-    }
-    
-    final success = await transactionProvider.updateTransaction(
-      transactionId: widget.transaction.id,
-      type: _selectedType,
-      mainCategory: _selectedMainCategory!,
-      subCategory: _selectedSubCategory!,
-      date: _selectedDate,
-      description: _descriptionController.text.trim().isEmpty
-          ? null
-          : _descriptionController.text.trim(),
-      amount: double.parse(_amountController.text),
-      context: context,
-      recurrence: recurrenceToSend,  // UPDATED THIS
-    );
 
-    if (success) {
-      Navigator.pop(context, true);
+      if (success) {
+        Navigator.pop(context, true);
+      }
     }
   }
-}
 
   // Function to show the delete confirmation dialog
   void _showDeleteDialog() {

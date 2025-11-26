@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -29,6 +30,8 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+  Currency _selectedCurrency = Currency.usd;
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +46,13 @@ class _ImageInputScreenState extends State<ImageInputScreen>
       begin: Offset(0, 0.1),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      setState(() {
+        _selectedCurrency = authProvider.defaultCurrency;
+      });
+    });
 
     _animationController.forward();
     _requestPermissions();
@@ -139,6 +149,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
       date: _extractedData!.date,
       description: _extractedData!.description,
       amount: _extractedData!.amount,
+      currency: _selectedCurrency,
       context: context,
     );
 

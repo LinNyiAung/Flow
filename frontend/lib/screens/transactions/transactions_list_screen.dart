@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
@@ -36,6 +37,8 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   int _currentLimit = 50;
   bool _isLoadingMore = false;
   bool _hasMoreData = true;
+
+  Currency? _selectedCurrency;
 
   @override
   void initState() {
@@ -79,6 +82,7 @@ Future<void> _loadMoreTransactions() async {
     type: _selectedFilterType,
     startDate: _selectedStartDate,
     endDate: _selectedEndDate,
+    currency: _selectedCurrency, // ADD THIS LINE
     limit: _currentLimit,
     currentCount: currentCount,
   );
@@ -102,10 +106,11 @@ Future<void> _fetchTransactionsWithFilter() async {
     type: _selectedFilterType,
     startDate: _selectedStartDate,
     endDate: _selectedEndDate,
+    currency: _selectedCurrency, // ADD THIS LINE
     limit: _currentLimit,
   );
 
-  // ADD THIS: Check if we have less than the limit, meaning no more data
+  // Check if we have less than the limit, meaning no more data
   final loadedCount = Provider.of<TransactionProvider>(context, listen: false).transactions.length;
   setState(() {
     _hasMoreData = loadedCount >= _currentLimit;
@@ -162,13 +167,14 @@ Future<void> _fetchTransactionsWithFilter() async {
   }
 
   void _clearAllFilters() {
-    setState(() {
-      _selectedFilterType = null;
-      _selectedStartDate = null;
-      _selectedEndDate = null;
-    });
-    _fetchTransactionsWithFilter();
-  }
+  setState(() {
+    _selectedFilterType = null;
+    _selectedStartDate = null;
+    _selectedEndDate = null;
+    _selectedCurrency = null; // ADD THIS LINE
+  });
+  _fetchTransactionsWithFilter();
+}
 
   // Function to handle navigation to AddTransactionScreen
   void _navigateToAddTransaction() {
@@ -480,7 +486,7 @@ Widget _buildAddOption({
         ),
         actions: [
           // Clear filter button - Now correctly wrapped in IconButton
-          if (_selectedFilterType != null || _selectedStartDate != null)
+          if (_selectedFilterType != null || _selectedStartDate != null || _selectedCurrency != null)
             IconButton(
               icon: Container( // Visual representation of the button for consistent styling
                 padding: EdgeInsets.all(8),
@@ -691,6 +697,44 @@ Widget _buildAddOption({
                               ),
                               SizedBox(height: 20),
 
+                              // Currency Filter
+                              Text(
+                                'Currency Filter',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white.withOpacity(0.9),
+                                ),
+                              ),
+                              SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _buildCurrencyFilterChip(
+                                    label: 'All',
+                                    currency: null,
+                                    isSelected: _selectedCurrency == null,
+                                    onSelected: (selected) {
+                                      setState(() { _selectedCurrency = null; });
+                                      _fetchTransactionsWithFilter();
+                                    },
+                                  ),
+                                  ...Currency.values.map((currency) {
+                                    return _buildCurrencyFilterChip(
+                                      label: '${currency.symbol} ${currency.name.toUpperCase()}',
+                                      currency: currency,
+                                      isSelected: _selectedCurrency == currency,
+                                      onSelected: (selected) {
+                                        setState(() { _selectedCurrency = currency; });
+                                        _fetchTransactionsWithFilter();
+                                      },
+                                    );
+                                  }).toList(),
+                                ],
+                              ),
+                              SizedBox(height: 20),
+
                               // Date Range Filter
                               Text(
                                 localizations.dateRangeFilterLabel,
@@ -769,7 +813,7 @@ Widget _buildAddOption({
                   ),
 
                   // Clear All Filters Button - conditionally shown and aligned to center
-                  if (_isFiltersExpanded && (_selectedFilterType != null || _selectedStartDate != null))
+                  if (_isFiltersExpanded && (_selectedFilterType != null || _selectedStartDate != null || _selectedCurrency != null))
                     Padding(
                       padding: const EdgeInsets.only(top: 16.0),
                       child: Center(
@@ -905,6 +949,50 @@ Widget _buildAddOption({
       ),
     );
   }
+
+
+  Widget _buildCurrencyFilterChip({
+  required String label,
+  required Currency? currency,
+  required bool isSelected,
+  required ValueChanged<bool> onSelected,
+}) {
+  Color chipColor;
+  Color labelColor;
+
+  if (isSelected) {
+    chipColor = Color(0xFF667eea); // Primary purple color for selected
+    labelColor = Colors.white;
+  } else {
+    chipColor = Colors.white.withOpacity(0.2); // Lighter transparent background for unselected
+    labelColor = Colors.black.withOpacity(0.9); // White text for better contrast on gradient
+  }
+
+  return ChoiceChip(
+    label: Text(
+      label,
+      style: GoogleFonts.poppins(
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+        color: labelColor,
+      ),
+    ),
+    selected: isSelected,
+    onSelected: onSelected,
+    selectedColor: chipColor,
+    backgroundColor: chipColor,
+    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(20),
+      side: BorderSide(
+        color: isSelected ? chipColor : Colors.transparent,
+        width: 1,
+      ),
+    ),
+    elevation: isSelected ? 4 : 0,
+    shadowColor: chipColor.withOpacity(0.3),
+  );
+}
 
   Widget _buildFilterChip({
     required String label,
@@ -1082,7 +1170,7 @@ Widget _buildAddOption({
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${transaction.type == TransactionType.inflow ? '+' : '-'}\$${transaction.amount.toStringAsFixed(2)}',
+                  '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}', // UPDATED to include currency
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
