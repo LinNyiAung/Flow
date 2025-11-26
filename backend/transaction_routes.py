@@ -450,6 +450,9 @@ async def extract_transaction_from_text(
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
         
+        # Get user's default currency
+        user_default_currency = current_user.get("default_currency", "usd")
+        
         system_prompt = f"""You are a financial transaction extraction assistant. Extract transaction details from user text.
 
 {categories_text}
@@ -460,10 +463,16 @@ RULES:
 3. Extract the amount as a positive number
 4. Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
 5. Extract any description/notes
-6. Detect the currency from the text (look for currency symbols like $, K, â‚¹, â‚¬, Â£, Â¥ or currency codes like USD, MMK, EUR, GBP, JPY, etc.)
-   - If $ or USD is mentioned, use "usd"
-   - If K, Ks, Kyat, or MMK is mentioned, use "mmk"
-   - If no currency is detected, use "usd" as default
+6. CURRENCY DETECTION (VERY IMPORTANT):
+   - Carefully analyze the text for currency indicators
+   - Look for currency symbols: $, K, Ks, Kyat, ₹, €, £, ¥, ₩, etc.
+   - Look for currency codes: USD, MMK, EUR, GBP, JPY, INR, etc.
+   - Look for currency names: dollars, kyat, euros, pounds, yen, rupees, etc.
+   - Common patterns:
+     * "$" or "USD" or "dollar" → use "usd"
+     * "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
+   - If NO currency is mentioned anywhere in the text, use the user's default currency: "{user_default_currency}"
+   - Be thorough - check the entire text, not just near the amount
 7. Provide a confidence score (0.0-1.0) based on clarity
 8. Provide brief reasoning for your categorization
 
@@ -503,6 +512,7 @@ Respond in JSON format:
             date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
             description=result.get("description"),
             amount=float(result["amount"]),
+            currency=Currency(result.get("currency", user_default_currency)),  # Fallback to user default
             confidence=float(result["confidence"]),
             reasoning=result.get("reasoning")
         )
@@ -542,6 +552,9 @@ async def extract_multiple_transactions_from_text(
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
         
+        # Get user's default currency
+        user_default_currency = current_user.get("default_currency", "usd")
+        
         system_prompt = f"""You are a financial transaction extraction assistant. Extract ALL transaction details from user text, even if there are multiple transactions mentioned.
 
 {categories_text}
@@ -554,10 +567,16 @@ RULES:
    - Extract the amount as a positive number
    - Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
    - Extract any description/notes
-   - Detect the currency from the text (look for currency symbols like $, K, â‚¹, â‚¬, Â£, Â¥ or currency codes like USD, MMK, EUR, GBP, JPY, etc.)
-     * If $ or USD is mentioned, use "usd"
-     * If K, Ks, Kyat, or MMK is mentioned, use "mmk"
-     * If no currency is detected, use "usd" as default
+   - CURRENCY DETECTION (VERY IMPORTANT):
+     * Carefully analyze the text for currency indicators for EACH transaction
+     * Look for currency symbols: $, K, Ks, Kyat, ₹, €, £, ¥, ₩, etc.
+     * Look for currency codes: USD, MMK, EUR, GBP, JPY, INR, etc.
+     * Look for currency names: dollars, kyat, euros, pounds, yen, rupees, etc.
+     * Common patterns:
+       - "$" or "USD" or "dollar" → use "usd"
+       - "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
+     * If a transaction mentions no currency, use the user's default currency: "{user_default_currency}"
+     * Each transaction can have a different currency
    - Provide a confidence score (0.0-1.0) based on clarity
    - Provide brief reasoning for your categorization
 
@@ -611,6 +630,7 @@ Respond in JSON format:
                 date=datetime.fromisoformat(tx_data["date"]).replace(tzinfo=UTC),
                 description=tx_data.get("description"),
                 amount=float(tx_data["amount"]),
+                currency=Currency(tx_data.get("currency", user_default_currency)),  # Fallback to user default
                 confidence=float(tx_data["confidence"]),
                 reasoning=tx_data.get("reasoning")
             ))
@@ -720,6 +740,9 @@ async def extract_transaction_from_image(
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
         
+        # Get user's default currency
+        user_default_currency = current_user.get("default_currency", "usd")
+        
         system_prompt = f"""You are a financial receipt analyzer. Extract transaction details from receipt images.
 
 {categories_text}
@@ -730,10 +753,16 @@ RULES:
 3. Extract the total amount
 4. Extract the date from receipt (default to today if not visible: {datetime.now(UTC).strftime('%Y-%m-%d')})
 5. Create a brief description including merchant name
-6. Detect the currency from the receipt (look for currency symbols like $, K, â‚¹, â‚¬, Â£, Â¥ or currency codes like USD, MMK, EUR, GBP, JPY, etc.)
-   - If $ or USD is found, use "usd"
-   - If K, Ks, Kyat, or MMK is found, use "mmk"
-   - If no currency is detected, use "usd" as default
+6. CURRENCY DETECTION (VERY IMPORTANT):
+   - Look CAREFULLY at the receipt for currency indicators
+   - Check for currency symbols: $, K, Ks, ₹, €, £, ¥, ₩, etc.
+   - Check for currency codes: USD, MMK, EUR, GBP, JPY, INR, etc.
+   - Check for country/language clues (Myanmar text → MMK, English with $ → USD)
+   - Look at price format (e.g., "1,000 K" or "Ks 1,000" → MMK)
+   - Common patterns:
+     * "$" or "USD" or "US Dollar" → use "usd"
+     * "K", "Ks", "Kyat", "ကျပ်", "MMK" → use "mmk"
+   - If NO currency indicators are visible on the receipt, use the user's default currency: "{user_default_currency}"
 7. Provide confidence score (0.0-1.0)
 8. Explain your reasoning
 
@@ -790,6 +819,7 @@ Respond in JSON format:
             date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
             description=result.get("description"),
             amount=float(result["amount"]),
+            currency=Currency(result.get("currency", user_default_currency)),  # Fallback to user default
             confidence=float(result["confidence"]),
             reasoning=result.get("reasoning")
         )

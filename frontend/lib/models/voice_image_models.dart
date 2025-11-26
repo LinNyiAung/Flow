@@ -1,4 +1,5 @@
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/models/user.dart';
 
 class TransactionExtractionRequest {
   final String? text;
@@ -27,6 +28,7 @@ class ExtractedTransactionData {
   final DateTime date;
   final String? description;
   final double amount;
+  final Currency currency;  // ADDED CURRENCY
   final double confidence;
   final String? reasoning;
 
@@ -37,6 +39,7 @@ class ExtractedTransactionData {
     required this.date,
     this.description,
     required this.amount,
+    required this.currency,  // ADDED CURRENCY
     required this.confidence,
     this.reasoning,
   });
@@ -51,6 +54,7 @@ class ExtractedTransactionData {
       date: DateTime.parse(json['date']),
       description: json['description'],
       amount: json['amount'].toDouble(),
+      currency: Currency.fromString(json['currency'] ?? 'usd'),  // ADDED CURRENCY WITH FALLBACK
       confidence: json['confidence'].toDouble(),
       reasoning: json['reasoning'],
     );
@@ -64,6 +68,7 @@ class ExtractedTransactionData {
       'date': date.toIso8601String(),
       'description': description,
       'amount': amount,
+      'currency': currency.name,  // ADDED CURRENCY
     };
   }
 }

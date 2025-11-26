@@ -130,40 +130,40 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   }
 
   Future<void> _saveAllTransactions() async {
-    if (_extractedData == null || _isSaving) return;
+  if (_extractedData == null || _isSaving) return;
 
+  setState(() {
+    _isSaving = true;
+    _error = null;
+  });
+
+  try {
+    // Use batch create endpoint - currencies are already in the extracted data
+    await ApiService.batchCreateTransactions(
+      transactions: _extractedData!.transactions,
+    );
+
+    // Refresh transaction list and balance
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+    await transactionProvider.fetchTransactions();
+    await transactionProvider.fetchBalance();
+
+    // Show success message
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Successfully saved ${_extractedData!.totalCount} transaction(s)'),
+        backgroundColor: Colors.green,
+      ),
+    );
+
+    Navigator.pop(context, true);
+  } catch (e) {
     setState(() {
-      _isSaving = true;
-      _error = null;
+      _isSaving = false;
+      _error = e.toString().replaceAll('Exception: ', '');
     });
-
-    try {
-      // Use batch create endpoint
-      await ApiService.batchCreateTransactions(
-        transactions: _extractedData!.transactions,
-      );
-
-      // Refresh transaction list and balance
-      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-      await transactionProvider.fetchTransactions();
-      await transactionProvider.fetchBalance();
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Successfully saved ${_extractedData!.totalCount} transaction(s)'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      Navigator.pop(context, true);
-    } catch (e) {
-      setState(() {
-        _isSaving = false;
-        _error = e.toString().replaceAll('Exception: ', '');
-      });
-    }
   }
+}
 
   @override
   void dispose() {
@@ -580,7 +580,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 ),
                                 SizedBox(height: 16),
                                 Text(
-                                  '\$${transaction.amount.toStringAsFixed(2)}',
+                                  '${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}',  // Use detected currency
                                   style: GoogleFonts.poppins(
                                     fontSize: 28,
                                     fontWeight: FontWeight.bold,
@@ -590,6 +590,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                   ),
                                 ),
                                 SizedBox(height: 12),
+                                _buildDetailRow(
+                                  Icons.attach_money,
+                                  'Currency',
+                                  transaction.currency.displayName,
+                                ),
                                 _buildDetailRow(
                                   Icons.category,
                                   'Category',
@@ -696,38 +701,38 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   }
 
   Widget _buildDetailRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 16, color: Colors.grey[600]),
-          SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    color: Colors.grey[500],
-                    fontWeight: FontWeight.w500,
-                  ),
+  return Padding(
+    padding: EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: Colors.grey[600]),
+        SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: Colors.grey[500],
+                  fontWeight: FontWeight.w500,
                 ),
-                Text(
-                  value,
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    color: Color(0xFF333333),
-                    fontWeight: FontWeight.w500,
-                  ),
+              ),
+              Text(
+                value,
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: Color(0xFF333333),
+                  fontWeight: FontWeight.w500,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 }

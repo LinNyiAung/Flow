@@ -30,7 +30,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  Currency _selectedCurrency = Currency.usd;
+  
 
   @override
   void initState() {
@@ -46,13 +46,6 @@ class _ImageInputScreenState extends State<ImageInputScreen>
       begin: Offset(0, 0.1),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      setState(() {
-        _selectedCurrency = authProvider.defaultCurrency;
-      });
-    });
 
     _animationController.forward();
     _requestPermissions();
@@ -133,35 +126,35 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   }
 
   Future<void> _saveTransaction() async {
-    if (_extractedData == null || _isSaving) return; // Prevent multiple calls
+  if (_extractedData == null || _isSaving) return;
 
+  setState(() {
+    _isSaving = true;
+    _error = null;
+  });
+
+  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+  
+  final success = await transactionProvider.createTransaction(
+    type: _extractedData!.type,
+    mainCategory: _extractedData!.mainCategory,
+    subCategory: _extractedData!.subCategory,
+    date: _extractedData!.date,
+    description: _extractedData!.description,
+    amount: _extractedData!.amount,
+    currency: _extractedData!.currency,  // Use detected currency from AI
+    context: context,
+  );
+
+  if (success) {
+    Navigator.pop(context, true);
+  } else {
     setState(() {
-      _isSaving = true; // Set saving flag
-      _error = null;
+      _isSaving = false;
+      _error = transactionProvider.error ?? 'Failed to save transaction';
     });
-
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    
-    final success = await transactionProvider.createTransaction(
-      type: _extractedData!.type,
-      mainCategory: _extractedData!.mainCategory,
-      subCategory: _extractedData!.subCategory,
-      date: _extractedData!.date,
-      description: _extractedData!.description,
-      amount: _extractedData!.amount,
-      currency: _selectedCurrency,
-      context: context,
-    );
-
-    if (success) {
-      Navigator.pop(context, true);
-    } else {
-      setState(() {
-        _isSaving = false; // Reset flag on error
-        _error = transactionProvider.error ?? 'Failed to save transaction';
-      });
-    }
   }
+}
 
   void _showImageSourceDialog() {
     final localizations = AppLocalizations.of(context);
@@ -555,7 +548,8 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   ),
                                   SizedBox(height: 16),
                                   _buildDataRow(localizations.dataLabelType, _extractedData!.type.name.toUpperCase()),
-                                  _buildDataRow(localizations.dataLabelAmount, '\$${_extractedData!.amount.toStringAsFixed(2)}'),
+                                  _buildDataRow(localizations.dataLabelAmount, '${_extractedData!.currency.symbol}${_extractedData!.amount.toStringAsFixed(2)}'),
+                                  _buildDataRow('Currency', _extractedData!.currency.displayName),
                                   _buildDataRow(localizations.dataLabelCategory, '${_extractedData!.mainCategory} > ${_extractedData!.subCategory}'),
                                   _buildDataRow(localizations.dataLabelDate, DateFormat('yyyy-MM-dd').format(_extractedData!.date)),
                                   if (_extractedData!.description != null)
