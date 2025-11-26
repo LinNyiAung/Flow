@@ -465,9 +465,9 @@ RULES:
 5. Extract any description/notes
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Carefully analyze the text for currency indicators
-   - Look for currency symbols: $, K, Ks, Kyat, ₹, €, £, ¥, ₩, etc.
-   - Look for currency codes: USD, MMK, EUR, GBP, JPY, INR, etc.
-   - Look for currency names: dollars, kyat, euros, pounds, yen, rupees, etc.
+   - Look for currency symbols: $, USD, K, Ks, Kyat, etc.
+   - Look for currency codes: USD, MMK, etc.
+   - Look for currency names: dollars, kyat, myanmar Kyat, etc.
    - Common patterns:
      * "$" or "USD" or "dollar" → use "usd"
      * "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
@@ -569,9 +569,9 @@ RULES:
    - Extract any description/notes
    - CURRENCY DETECTION (VERY IMPORTANT):
      * Carefully analyze the text for currency indicators for EACH transaction
-     * Look for currency symbols: $, K, Ks, Kyat, ₹, €, £, ¥, ₩, etc.
-     * Look for currency codes: USD, MMK, EUR, GBP, JPY, INR, etc.
-     * Look for currency names: dollars, kyat, euros, pounds, yen, rupees, etc.
+     * Look for currency symbols: $, USD, K, Ks, Kyat, etc.
+     * Look for currency codes: USD, MMK, etc.
+     * Look for currency names: dollars, kyat, myanmar Kyat, etc.
      * Common patterns:
        - "$" or "USD" or "dollar" → use "usd"
        - "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
@@ -755,8 +755,8 @@ RULES:
 5. Create a brief description including merchant name
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Look CAREFULLY at the receipt for currency indicators
-   - Check for currency symbols: $, K, Ks, ₹, €, £, ¥, ₩, etc.
-   - Check for currency codes: USD, MMK, EUR, GBP, JPY, INR, etc.
+   - Check for currency symbols: $, K, Ks, etc.
+   - Check for currency codes: USD, MMK, etc.
    - Check for country/language clues (Myanmar text → MMK, English with $ → USD)
    - Look at price format (e.g., "1,000 K" or "Ks 1,000" → MMK)
    - Common patterns:
