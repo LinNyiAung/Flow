@@ -418,6 +418,27 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               },
                             ),
                           ),
+
+                          SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showCurrencyConversionDialog(),
+                              icon: Icon(Icons.currency_exchange, size: 18),
+                              label: Text(
+                                'Convert Currency',
+                                style: GoogleFonts.poppins(fontSize: 14),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Color(0xFF667eea),
+                                side: BorderSide(color: Color(0xFF667eea), width: 1.5),
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
                           SizedBox(height: 24),
 
                             // Amount Field
@@ -1065,6 +1086,273 @@ void _showDisableRecurrenceDialog() {
       },
     );
   }
+
+
+  void _showCurrencyConversionDialog() {
+  final localizations = AppLocalizations.of(context);
+  final TextEditingController _rateController = TextEditingController();
+  Currency? _targetCurrency;
+
+  showDialog(
+    context: context,
+    builder: (BuildContext dialogContext) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Icon(Icons.currency_exchange, color: Color(0xFF667eea)),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Convert Currency',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Current Currency Display
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Current: ',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          '${_selectedCurrency.symbol} ${_selectedCurrency.displayName}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF333333),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 16),
+
+                  // Target Currency Selector
+                  Text(
+                    'Convert To:',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF333333),
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  DropdownButtonFormField<Currency>(
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    hint: Text('Select target currency'),
+                    value: _targetCurrency,
+                    items: Currency.values
+                        .where((c) => c != _selectedCurrency)
+                        .map((currency) {
+                      return DropdownMenuItem(
+                        value: currency,
+                        child: Text(
+                          '${currency.symbol} - ${currency.displayName}',
+                          style: GoogleFonts.poppins(fontSize: 14),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        _targetCurrency = value;
+                      });
+                    },
+                  ),
+                  SizedBox(height: 16),
+
+                  // Exchange Rate Input
+                  Text(
+                    'Exchange Rate:',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF333333),
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  TextField(
+                    controller: _rateController,
+                    keyboardType: TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      hintText: 'e.g., 3000',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      prefixText: '1 ${_selectedCurrency.symbol} = ',
+                      suffixText: _targetCurrency != null ? _targetCurrency!.symbol : '',
+                    ),
+                    style: GoogleFonts.poppins(fontSize: 14),
+                  ),
+                  SizedBox(height: 12),
+
+                  // Preview Calculation
+                  if (_targetCurrency != null && _rateController.text.isNotEmpty)
+                    Container(
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Color(0xFF667eea).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Color(0xFF667eea).withOpacity(0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Preview:',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF667eea),
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '${_selectedCurrency.symbol}${double.parse(_amountController.text).toStringAsFixed(2)} → ${_targetCurrency!.symbol}${(double.parse(_amountController.text) * (double.tryParse(_rateController.text) ?? 1)).toStringAsFixed(2)}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF333333),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.poppins(
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (_targetCurrency == null || _rateController.text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Please fill all fields'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  final rate = double.tryParse(_rateController.text);
+                  if (rate == null || rate <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Please enter a valid exchange rate'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  Navigator.pop(dialogContext);
+                  _convertCurrency(_targetCurrency!, rate);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Color(0xFF667eea),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                child: Text(
+                  'Convert',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
+
+void _convertCurrency(Currency targetCurrency, double exchangeRate) {
+  final currentAmount = double.tryParse(_amountController.text);
+  if (currentAmount == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Please enter a valid amount first',
+          style: GoogleFonts.poppins(color: Colors.white),
+        ),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+    return;
+  }
+
+  // Calculate the new amount
+  final convertedAmount = currentAmount * exchangeRate;
+
+  // ONLY UPDATE LOCAL STATE - don't save to backend
+  setState(() {
+    _selectedCurrency = targetCurrency;
+    _amountController.text = convertedAmount.toStringAsFixed(2);
+  });
+
+  // Show success message
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        'Currency converted! Amount updated to ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}',
+        style: GoogleFonts.poppins(color: Colors.white),
+      ),
+      backgroundColor: Color(0xFF4CAF50),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: Duration(seconds: 4),
+    ),
+  );
+}
 
 void _disableParentRecurrence() async {
   final localizations = AppLocalizations.of(context);
