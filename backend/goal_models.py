@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
@@ -12,12 +12,17 @@ class GoalStatus(str, Enum):
     ACTIVE = "active"
     ACHIEVED = "achieved"
 
+class Currency(str, Enum):  # NEW
+    USD = "usd"
+    MMK = "mmk"
+
 class GoalCreate(BaseModel):
     name: str
     target_amount: float
     target_date: Optional[datetime] = None
     goal_type: GoalType
     initial_contribution: Optional[float] = 0.0
+    currency: Currency = Currency.USD  # NEW
 
 class GoalUpdate(BaseModel):
     name: Optional[str] = None
@@ -41,6 +46,7 @@ class GoalResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     achieved_at: Optional[datetime] = None
+    currency: Currency  # NEW
 
 class GoalsSummary(BaseModel):
     total_goals: int
@@ -49,3 +55,19 @@ class GoalsSummary(BaseModel):
     total_allocated: float
     total_target: float
     overall_progress: float
+    currency: Optional[Currency] = None  # NEW - for currency-specific summary
+    
+    
+class CurrencySummary(BaseModel):
+    currency: Currency
+    active_goals: int
+    achieved_goals: int
+    total_allocated: float
+    total_target: float
+    overall_progress: float
+
+class MultiCurrencyGoalsSummary(BaseModel):
+    total_goals: int
+    active_goals: int
+    achieved_goals: int
+    currency_summaries: List[CurrencySummary]  # Per-currency breakdown

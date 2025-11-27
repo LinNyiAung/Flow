@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Path
 
 from utils import get_current_user, get_user_balance, refresh_ai_data_silent
-from goal_models import GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary
+from goal_models import Currency, CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
     check_goal_notifications,
@@ -25,23 +25,13 @@ async def create_goal(
 ):
     """Create a new financial goal"""
     # Check if user has sufficient balance for initial contribution
-    balance_data = await get_user_balance(current_user)
-    available_balance = balance_data["balance"]
+    balance_data = await get_user_balance(current_user["_id"], goal_data.currency.value)  # UPDATED - pass currency
+    available_balance = balance_data["available_balance"]  # UPDATED - use available_balance
     
-    # Get total already allocated to goals
-    allocated_pipeline = [
-        {"$match": {"user_id": current_user["_id"], "status": "active"}},
-        {"$group": {"_id": None, "total": {"$sum": "$current_amount"}}}
-    ]
-    allocated_result = list(goals_collection.aggregate(allocated_pipeline))
-    total_allocated = allocated_result[0]["total"] if allocated_result else 0
-    
-    available_for_goals = available_balance - total_allocated
-    
-    if goal_data.initial_contribution > available_for_goals:
+    if goal_data.initial_contribution > available_balance:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Insufficient balance. Available for goals: ${available_for_goals:.2f}"
+            detail=f"Insufficient balance. Available for goals: {goal_data.currency.value.upper()} {available_balance:.2f}"  # UPDATED
         )
     
     goal_id = str(uuid.uuid4())
@@ -63,6 +53,7 @@ async def create_goal(
         "target_date": goal_data.target_date.replace(tzinfo=timezone.utc) if goal_data.target_date and goal_data.target_date.tzinfo is None else goal_data.target_date,
         "goal_type": goal_data.goal_type.value,
         "status": status_value.value,
+        "currency": goal_data.currency.value,  # NEW
         "created_at": now,
         "updated_at": now,
         "achieved_at": achieved_at
@@ -87,6 +78,7 @@ async def create_goal(
         goal_type=goal_data.goal_type,
         status=status_value,
         progress_percentage=progress,
+        currency=goal_data.currency,  # NEW
         created_at=now,
         updated_at=now,
         achieved_at=achieved_at
@@ -96,13 +88,17 @@ async def create_goal(
 @router.get("", response_model=List[GoalResponse])
 async def get_goals(
     current_user: dict = Depends(get_current_user),
-    status_filter: Optional[GoalStatus] = None
+    status_filter: Optional[GoalStatus] = None,
+    currency: Optional[str] = None  # NEW - add currency filter
 ):
     """Get all user goals"""
     query = {"user_id": current_user["_id"]}
     
     if status_filter:
         query["status"] = status_filter.value
+    
+    if currency:  # NEW
+        query["currency"] = currency
     
     goals = list(goals_collection.find(query).sort("created_at", -1))
     
@@ -117,6 +113,7 @@ async def get_goals(
             goal_type=GoalType(g["goal_type"]),
             status=GoalStatus(g["status"]),
             progress_percentage=(g["current_amount"] / g["target_amount"] * 100) if g["target_amount"] > 0 else 0,
+            currency=Currency(g.get("currency", "usd")),  # NEW - with fallback
             created_at=g["created_at"],
             updated_at=g.get("updated_at", g["created_at"]),
             achieved_at=g.get("achieved_at")
@@ -126,9 +123,16 @@ async def get_goals(
 
 
 @router.get("/summary", response_model=GoalsSummary)
-async def get_goals_summary(current_user: dict = Depends(get_current_user)):
+async def get_goals_summary(
+    current_user: dict = Depends(get_current_user),
+    currency: Optional[str] = None  # NEW - add currency parameter
+):
     """Get summary of all goals"""
-    goals = list(goals_collection.find({"user_id": current_user["_id"]}))
+    query = {"user_id": current_user["_id"]}
+    if currency:  # NEW - filter by currency
+        query["currency"] = currency
+    
+    goals = list(goals_collection.find(query))
     
     total_goals = len(goals)
     active_goals = len([g for g in goals if g["status"] == "active"])
@@ -143,7 +147,8 @@ async def get_goals_summary(current_user: dict = Depends(get_current_user)):
         achieved_goals=achieved_goals,
         total_allocated=total_allocated,
         total_target=total_target,
-        overall_progress=overall_progress
+        overall_progress=overall_progress,
+        currency=Currency(currency) if currency else None  # NEW
     )
 
 
@@ -174,6 +179,7 @@ async def get_goal(
         goal_type=GoalType(goal["goal_type"]),
         status=GoalStatus(goal["status"]),
         progress_percentage=(goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0,
+        currency=Currency(goal.get("currency", "usd")),  # NEW
         created_at=goal["created_at"],
         updated_at=goal.get("updated_at", goal["created_at"]),
         achieved_at=goal.get("achieved_at")
@@ -236,6 +242,7 @@ async def update_goal(
         goal_type=GoalType(updated_goal["goal_type"]),
         status=GoalStatus(updated_goal["status"]),
         progress_percentage=(updated_goal["current_amount"] / updated_goal["target_amount"] * 100) if updated_goal["target_amount"] > 0 else 0,
+        currency=Currency(updated_goal.get("currency", "usd")),  # NEW
         created_at=updated_goal["created_at"],
         updated_at=updated_goal["updated_at"],
         achieved_at=updated_goal.get("achieved_at")
@@ -266,6 +273,8 @@ async def contribute_to_goal(
             detail="Cannot add funds to an achieved goal"
         )
     
+    goal_currency = goal.get("currency", "usd")  # NEW - get goal currency
+    
     # Store old values for notification checks
     old_amount = goal["current_amount"]
     old_progress = (old_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
@@ -280,27 +289,17 @@ async def contribute_to_goal(
             max_can_add = goal["target_amount"] - goal["current_amount"]
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot exceed target amount. Maximum you can add: ${max_can_add:.2f}"
+                detail=f"Cannot exceed target amount. Maximum you can add: {goal_currency.upper()} {max_can_add:.2f}"
             )
         
-        # Check available balance
-        balance_data = await get_user_balance(current_user)
-        available_balance = balance_data["balance"]
+        # Check available balance for the GOAL'S CURRENCY - UPDATED
+        balance_data = await get_user_balance(current_user["_id"], goal_currency)
+        available_balance = balance_data["available_balance"]
         
-        # Get total already allocated to other active goals
-        allocated_pipeline = [
-            {"$match": {"user_id": current_user["_id"], "status": "active", "_id": {"$ne": goal_id}}},
-            {"$group": {"_id": None, "total": {"$sum": "$current_amount"}}}
-        ]
-        allocated_result = list(goals_collection.aggregate(allocated_pipeline))
-        total_allocated = allocated_result[0]["total"] if allocated_result else 0
-        
-        available_for_goals = available_balance - total_allocated
-        
-        if contribution.amount > available_for_goals:
+        if contribution.amount > available_balance:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Insufficient balance. Available for goals: ${available_for_goals:.2f}"
+                detail=f"Insufficient balance. Available for goals: {goal_currency.upper()} {available_balance:.2f}"
             )
     
     # For reducing money from goal
@@ -308,7 +307,7 @@ async def contribute_to_goal(
         if abs(contribution.amount) > goal["current_amount"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot reduce more than current amount: ${goal['current_amount']:.2f}"
+                detail=f"Cannot reduce more than current amount: {goal_currency.upper()} {goal['current_amount']:.2f}"
             )
     
     # Determine new status
@@ -368,6 +367,7 @@ async def contribute_to_goal(
         goal_type=GoalType(updated_goal["goal_type"]),
         status=GoalStatus(updated_goal["status"]),
         progress_percentage=(updated_goal["current_amount"] / updated_goal["target_amount"] * 100) if updated_goal["target_amount"] > 0 else 0,
+        currency=Currency(updated_goal.get("currency", "usd")),  # NEW
         created_at=updated_goal["created_at"],
         updated_at=updated_goal["updated_at"],
         achieved_at=updated_goal.get("achieved_at")
@@ -410,3 +410,49 @@ async def delete_goal(
         "message": "Goal deleted successfully",
         "returned_amount": returned_amount
     }
+    
+    
+@router.get("/summary/all-currencies", response_model=MultiCurrencyGoalsSummary)
+async def get_multi_currency_goals_summary(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get summary of all goals with per-currency breakdown"""
+    all_goals = list(goals_collection.find({"user_id": current_user["_id"]}))
+    
+    total_goals = len(all_goals)
+    active_goals = len([g for g in all_goals if g["status"] == "active"])
+    achieved_goals = len([g for g in all_goals if g["status"] == "achieved"])
+    
+    # Group goals by currency
+    currency_groups = {}
+    for goal in all_goals:
+        currency = goal.get("currency", "usd")
+        if currency not in currency_groups:
+            currency_groups[currency] = []
+        currency_groups[currency].append(goal)
+    
+    # Calculate summary for each currency
+    currency_summaries = []
+    for currency, goals in currency_groups.items():
+        active = [g for g in goals if g["status"] == "active"]
+        achieved = [g for g in goals if g["status"] == "achieved"]
+        
+        total_allocated = sum(g["current_amount"] for g in active)
+        total_target = sum(g["target_amount"] for g in active)
+        overall_progress = (total_allocated / total_target * 100) if total_target > 0 else 0
+        
+        currency_summaries.append(CurrencySummary(
+            currency=Currency(currency),
+            active_goals=len(active),
+            achieved_goals=len(achieved),
+            total_allocated=total_allocated,
+            total_target=total_target,
+            overall_progress=overall_progress
+        ))
+    
+    return MultiCurrencyGoalsSummary(
+        total_goals=total_goals,
+        active_goals=active_goals,
+        achieved_goals=achieved_goals,
+        currency_summaries=currency_summaries
+    )

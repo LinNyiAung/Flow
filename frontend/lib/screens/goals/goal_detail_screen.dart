@@ -114,41 +114,62 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   void _showContributionDialog() {
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    final availableBalance = transactionProvider.balance?.availableBalance ?? 0.0;
+  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+  
+  // Fetch balance for the goal's currency
+  transactionProvider.fetchBalance(currency: _currentGoal.currency);
+  
+  final availableBalance = transactionProvider.balance != null && 
+                          transactionProvider.balance!.currency == _currentGoal.currency
+      ? transactionProvider.balance!.availableBalance 
+      : 0.0;
 
-    // Reset loading state when opening dialog
-    _isContributionLoading = false;
+  _isContributionLoading = false;
 
-    showDialog(
-      context: context,
-      barrierDismissible: !_isContributionLoading, // NEW: Prevent dismissing while loading
-      builder: (context) => StatefulBuilder( // NEW: Use StatefulBuilder to update dialog state
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Manage Funds', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Available: \$${availableBalance.toStringAsFixed(2)}',
-                style: GoogleFonts.poppins(fontSize: 14, color: Color(0xFF667eea), fontWeight: FontWeight.w600),
+  showDialog(
+    context: context,
+    barrierDismissible: !_isContributionLoading,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Manage Funds', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // UPDATE to show currency symbol
+            Text(
+              'Available: ${_currentGoal.currency.symbol}${availableBalance.toStringAsFixed(2)}',
+              style: GoogleFonts.poppins(
+                fontSize: 14, 
+                color: Color(0xFF667eea), 
+                fontWeight: FontWeight.w600
               ),
-              SizedBox(height: 16),
-              TextField(
-                controller: _contributionController,
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                enabled: !_isContributionLoading, // NEW: Disable input while loading
-                decoration: InputDecoration(
-                  labelText: 'Amount',
-                  prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Currency: ${_currentGoal.currency.displayName}',
+              style: GoogleFonts.poppins(
+                fontSize: 12, 
+                color: Colors.grey[600],
               ),
-            ],
-          ),
-          actions: [
+            ),
+            SizedBox(height: 16),
+            TextField(
+              controller: _contributionController,
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              enabled: !_isContributionLoading,
+              decoration: InputDecoration(
+                labelText: 'Amount',
+                
+                // UPDATE hint to show currency symbol
+                prefixText: '${_currentGoal.currency.symbol} ',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
             TextButton(
               onPressed: _isContributionLoading ? null : () => Navigator.pop(context), // NEW: Disable while loading
               child: Text('Cancel', style: GoogleFonts.poppins(color: _isContributionLoading ? Colors.grey : Colors.grey[600])),
@@ -210,10 +231,10 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     : Text('Add', style: GoogleFonts.poppins(color: Colors.white)),
               ),
           ],
-        ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _showEditDialog() {
     final _nameController = TextEditingController(text: _currentGoal.name);
@@ -630,7 +651,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '\$${_currentGoal.currentAmount.toStringAsFixed(2)}',
+                          _currentGoal.displayCurrentAmount,  // UPDATED
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontSize: 32,
@@ -638,7 +659,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           ),
                         ),
                         Text(
-                          'of \$${_currentGoal.targetAmount.toStringAsFixed(2)}',
+                          'of ${_currentGoal.displayTargetAmount}',  // UPDATED
                           style: GoogleFonts.poppins(
                             color: Colors.white.withOpacity(0.8),
                             fontSize: 16,
@@ -694,11 +715,13 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       ),
                     ),
                     SizedBox(height: 16),
-                    _buildInfoRow('Target Amount', '\$${_currentGoal.targetAmount.toStringAsFixed(2)}'),
+                    _buildInfoRow('Target Amount', _currentGoal.displayTargetAmount),
                     Divider(height: 24),
-                    _buildInfoRow('Current Amount', '\$${_currentGoal.currentAmount.toStringAsFixed(2)}'),
+                    _buildInfoRow('Current Amount', _currentGoal.displayCurrentAmount),
                     Divider(height: 24),
-                    _buildInfoRow('Remaining', '\$${(_currentGoal.targetAmount - _currentGoal.currentAmount).toStringAsFixed(2)}'),
+                    _buildInfoRow('Remaining', _currentGoal.displayRemainingAmount),
+                    Divider(height: 24),
+                    _buildInfoRow('Currency', _currentGoal.currency.displayName),
                     if (_currentGoal.targetDate != null) ...[
                       Divider(height: 24),
                       _buildInfoRow('Target Date', DateFormat('MMMM dd, yyyy').format(_currentGoal.targetDate!)),

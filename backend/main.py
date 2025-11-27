@@ -47,6 +47,7 @@ from auth_routes import router as auth_router
 app = FastAPI(title="Flow Finance API", version="1.0.0")
 app.include_router(transaction_router)
 app.include_router(auth_router)
+app.include_router(goal_router)
 
 try:
     scheduler = start_scheduler()

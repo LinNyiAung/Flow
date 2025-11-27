@@ -583,64 +583,96 @@ class ApiService {
 
   // Goals CRUD methods
   static Future<Goal> createGoal({
-    required String name,
-    required double targetAmount,
-    DateTime? targetDate,
-    required GoalType goalType,
-    double initialContribution = 0.0,
-  }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/goals'),
-      headers: await _getHeaders(),
-      body: jsonEncode({
-        'name': name,
-        'target_amount': targetAmount,
-        'target_date': targetDate?.toIso8601String(),
-        'goal_type': goalType.name,
-        'initial_contribution': initialContribution,
-      }),
-    );
+  required String name,
+  required double targetAmount,
+  DateTime? targetDate,
+  required GoalType goalType,
+  double initialContribution = 0.0,
+  required Currency currency,  // NEW
+}) async {
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/goals'),
+    headers: await _getHeaders(),
+    body: jsonEncode({
+      'name': name,
+      'target_amount': targetAmount,
+      'target_date': targetDate?.toIso8601String(),
+      'goal_type': goalType.name,
+      'initial_contribution': initialContribution,
+      'currency': currency.name,  // NEW
+    }),
+  );
 
-    if (response.statusCode == 200) {
-      return Goal.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to create goal');
-    }
+  if (response.statusCode == 200) {
+    return Goal.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to create goal');
+  }
+}
+
+  static Future<List<Goal>> getGoals({
+  GoalStatus? statusFilter,
+  Currency? currency,  // NEW
+}) async {
+  String url = '$baseUrl/api/goals';
+
+  List<String> queryParams = [];
+  if (statusFilter != null) {
+    queryParams.add('status_filter=${statusFilter.name}');
+  }
+  if (currency != null) {  // NEW
+    queryParams.add('currency=${currency.name}');
+  }
+  
+  if (queryParams.isNotEmpty) {
+    url += '?${queryParams.join('&')}';
   }
 
-  static Future<List<Goal>> getGoals({GoalStatus? statusFilter}) async {
-    String url = '$baseUrl/api/goals';
+  final response = await http.get(
+    Uri.parse(url),
+    headers: await _getHeaders(),
+  );
 
-    if (statusFilter != null) {
-      url += '?status_filter=${statusFilter.name}';
-    }
-
-    final response = await http.get(
-      Uri.parse(url),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
-      return data.map((json) => Goal.fromJson(json)).toList();
-    } else {
-      throw Exception('Failed to get goals');
-    }
+  if (response.statusCode == 200) {
+    final List<dynamic> data = jsonDecode(response.body);
+    return data.map((json) => Goal.fromJson(json)).toList();
+  } else {
+    throw Exception('Failed to get goals');
   }
+}
 
-  static Future<GoalsSummary> getGoalsSummary() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/goals/summary'),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      return GoalsSummary.fromJson(jsonDecode(response.body));
-    } else {
-      throw Exception('Failed to get goals summary');
-    }
+  static Future<GoalsSummary> getGoalsSummary({Currency? currency}) async {  // NEW - add currency parameter
+  String url = '$baseUrl/api/goals/summary';
+  if (currency != null) {  // NEW
+    url += '?currency=${currency.name}';
   }
+  
+  final response = await http.get(
+    Uri.parse(url),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return GoalsSummary.fromJson(jsonDecode(response.body));
+  } else {
+    throw Exception('Failed to get goals summary');
+  }
+}
+
+
+static Future<MultiCurrencyGoalsSummary> getMultiCurrencyGoalsSummary() async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/goals/summary/all-currencies'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return MultiCurrencyGoalsSummary.fromJson(jsonDecode(response.body));
+  } else {
+    throw Exception('Failed to get multi-currency goals summary');
+  }
+}
 
   static Future<Goal> getGoal(String goalId) async {
     final response = await http.get(

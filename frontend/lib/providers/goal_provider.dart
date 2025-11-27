@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';  // NEW - import Currency
 import '../models/goal.dart';
 import '../services/api_service.dart';
 
@@ -7,6 +8,10 @@ class GoalProvider with ChangeNotifier {
   GoalsSummary? _summary;
   bool _isLoading = false;
   String? _error;
+  MultiCurrencyGoalsSummary? _multiCurrencySummary;
+
+
+  MultiCurrencyGoalsSummary? get multiCurrencySummary => _multiCurrencySummary;
 
   List<Goal> get goals => _goals;
   GoalsSummary? get summary => _summary;
@@ -26,12 +31,22 @@ class GoalProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> fetchMultiCurrencySummary() async {
+  try {
+    _multiCurrencySummary = await ApiService.getMultiCurrencyGoalsSummary();
+    notifyListeners();
+  } catch (e) {
+    print("Error fetching multi-currency goals summary: $e");
+  }
+}
+
   Future<bool> createGoal({
     required String name,
     required double targetAmount,
     DateTime? targetDate,
     required GoalType goalType,
     double initialContribution = 0.0,
+    required Currency currency,  // NEW
   }) async {
     _setLoading(true);
     _setError(null);
@@ -43,10 +58,12 @@ class GoalProvider with ChangeNotifier {
         targetDate: targetDate,
         goalType: goalType,
         initialContribution: initialContribution,
+        currency: currency,  // NEW
       );
 
       _goals.insert(0, goal);
       await fetchSummary();
+      await fetchMultiCurrencySummary();
       _setLoading(false);
       return true;
     } catch (e) {
@@ -56,12 +73,18 @@ class GoalProvider with ChangeNotifier {
     }
   }
 
-  Future<void> fetchGoals({GoalStatus? statusFilter}) async {
+  Future<void> fetchGoals({
+    GoalStatus? statusFilter,
+    Currency? currency,  // NEW
+  }) async {
     _setLoading(true);
     _setError(null);
 
     try {
-      _goals = await ApiService.getGoals(statusFilter: statusFilter);
+      _goals = await ApiService.getGoals(
+        statusFilter: statusFilter,
+        currency: currency,  // NEW
+      );
       _setLoading(false);
     } catch (e) {
       _setError(e.toString().replaceAll('Exception: ', ''));
@@ -69,9 +92,9 @@ class GoalProvider with ChangeNotifier {
     }
   }
 
-  Future<void> fetchSummary() async {
+  Future<void> fetchSummary({Currency? currency}) async {  // NEW - add currency parameter
     try {
-      _summary = await ApiService.getGoalsSummary();
+      _summary = await ApiService.getGoalsSummary(currency: currency);  // NEW
       notifyListeners();
     } catch (e) {
       print("Error fetching goals summary: $e");
@@ -112,6 +135,7 @@ class GoalProvider with ChangeNotifier {
       }
 
       await fetchSummary();
+      await fetchMultiCurrencySummary();
       _setLoading(false);
       return true;
     } catch (e) {
@@ -140,6 +164,7 @@ class GoalProvider with ChangeNotifier {
       }
 
       await fetchSummary();
+      await fetchMultiCurrencySummary();
       _setLoading(false);
       return true;
     } catch (e) {
@@ -157,6 +182,7 @@ class GoalProvider with ChangeNotifier {
       await ApiService.deleteGoal(goalId);
       _goals.removeWhere((g) => g.id == goalId);
       await fetchSummary();
+      await fetchMultiCurrencySummary();
       _setLoading(false);
       return true;
     } catch (e) {

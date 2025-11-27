@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -20,6 +22,23 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
   GoalType _selectedGoalType = GoalType.savings;
   DateTime? _targetDate;
   bool _isLoading = false;
+
+  Currency _selectedCurrency = Currency.usd;
+
+
+  @override
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+    setState(() {
+      _selectedCurrency = authProvider.defaultCurrency;
+    });
+    // Fetch balance for default currency
+    transactionProvider.fetchBalance(currency: _selectedCurrency);
+  });
+}
 
   @override
   void dispose() {
@@ -54,46 +73,47 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
   }
 
   Future<void> _createGoal() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      _isLoading = true;
-    });
+  setState(() {
+    _isLoading = true;
+  });
 
-    final goalProvider = Provider.of<GoalProvider>(context, listen: false);
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+  final goalProvider = Provider.of<GoalProvider>(context, listen: false);
+  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
-    final success = await goalProvider.createGoal(
-      name: _nameController.text.trim(),
-      targetAmount: double.parse(_targetAmountController.text),
-      targetDate: _targetDate,
-      goalType: _selectedGoalType,
-      initialContribution: _initialContributionController.text.isNotEmpty
-          ? double.parse(_initialContributionController.text)
-          : 0.0,
-    );
+  final success = await goalProvider.createGoal(
+    name: _nameController.text.trim(),
+    targetAmount: double.parse(_targetAmountController.text),
+    targetDate: _targetDate,
+    goalType: _selectedGoalType,
+    initialContribution: _initialContributionController.text.isNotEmpty
+        ? double.parse(_initialContributionController.text)
+        : 0.0,
+    currency: _selectedCurrency,  // ADD THIS LINE
+  );
 
-    setState(() {
-      _isLoading = false;
-    });
+  setState(() {
+    _isLoading = false;
+  });
 
-    if (success) {
-      await transactionProvider.fetchBalance();
-      Navigator.pop(context, true);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            goalProvider.error ?? 'Failed to create goal',
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Colors.red,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          behavior: SnackBarBehavior.floating,
+  if (success) {
+    await transactionProvider.fetchBalance(currency: _selectedCurrency);  // Refresh balance
+    Navigator.pop(context, true);
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          goalProvider.error ?? 'Failed to create goal',
+          style: GoogleFonts.poppins(color: Colors.white),
         ),
-      );
-    }
+        backgroundColor: Colors.red,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -146,15 +166,30 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Available for Goals',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 14,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            'Available for Goals',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 14,
+                            ),
+                          ),
+                          Spacer(),
+                          Text(
+                            _selectedCurrency.displayName,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white.withOpacity(0.7),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
                       Text(
-                        '\$${availableBalance.toStringAsFixed(2)}',
+                        transactionProvider.balance != null && 
+                        transactionProvider.balance!.currency == _selectedCurrency
+                            ? '${_selectedCurrency.symbol}${transactionProvider.balance!.availableBalance.toStringAsFixed(2)}'
+                            : '${_selectedCurrency.symbol}0.00',
                         style: GoogleFonts.poppins(
                           color: Colors.white,
                           fontSize: 28,
@@ -162,6 +197,50 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+
+                SizedBox(height: 24),
+
+                // Currency Selector
+                Text(
+                  'Currency',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+                SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: DropdownButtonFormField<Currency>(
+                    value: _selectedCurrency,
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(Icons.currency_exchange, color: Color(0xFF667eea)),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                    ),
+                    items: Currency.values.map((currency) {
+                      return DropdownMenuItem(
+                        value: currency,
+                        child: Text(
+                          '${currency.symbol} - ${currency.displayName}',
+                          style: GoogleFonts.poppins(fontSize: 14),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) async {
+                      setState(() {
+                        _selectedCurrency = value!;
+                      });
+                      // Fetch balance for selected currency
+                      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+                      await transactionProvider.fetchBalance(currency: _selectedCurrency);
+                    },
                   ),
                 ),
 
