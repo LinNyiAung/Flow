@@ -17,9 +17,9 @@ class NotificationType(str, Enum):
     LARGE_TRANSACTION = "large_transaction"
     UNUSUAL_SPENDING = "unusual_spending"
     PAYMENT_REMINDER = "payment_reminder"
-    RECURRING_TRANSACTION_CREATED = "recurring_transaction_created"  # ADD
-    RECURRING_TRANSACTION_ENDED = "recurring_transaction_ended"      # ADD
-    RECURRING_TRANSACTION_DISABLED = "recurring_transaction_disabled" # ADD
+    RECURRING_TRANSACTION_CREATED = "recurring_transaction_created"
+    RECURRING_TRANSACTION_ENDED = "recurring_transaction_ended"
+    RECURRING_TRANSACTION_DISABLED = "recurring_transaction_disabled"
 
 class NotificationResponse(BaseModel):
     id: str
@@ -29,5 +29,6 @@ class NotificationResponse(BaseModel):
     message: str
     goal_id: Optional[str] = None
     goal_name: Optional[str] = None
+    currency: Optional[str] = None  # NEW - add currency field
     created_at: datetime
     is_read: bool

@@ -12,9 +12,9 @@ enum NotificationType {
   large_transaction,
   unusual_spending,
   payment_reminder,
-  recurring_transaction_created,   // ADD
-  recurring_transaction_ended,     // ADD
-  recurring_transaction_disabled,  // ADD
+  recurring_transaction_created,
+  recurring_transaction_ended,
+  recurring_transaction_disabled,
 }
 
 class AppNotification {
@@ -25,6 +25,7 @@ class AppNotification {
   final String message;
   final String? goalId;
   final String? goalName;
+  final String? currency;  // NEW - add currency field
   final DateTime createdAt;
   final bool isRead;
 
@@ -36,25 +37,27 @@ class AppNotification {
     required this.message,
     this.goalId,
     this.goalName,
+    this.currency,  // NEW
     required this.createdAt,
     required this.isRead,
   });
 
-factory AppNotification.fromJson(Map<String, dynamic> json) {
-  return AppNotification(
-    id: json['id'],
-    userId: json['user_id'],
-    type: NotificationType.values.firstWhere(
-      (e) => e.name == json['type'],
-    ),
-    title: json['title'],
-    message: json['message'],
-    goalId: json['goal_id'],
-    goalName: json['goal_name'],
-    createdAt: DateTime.parse(json['created_at'] + 'Z').toLocal(), // Add 'Z' to mark as UTC
-    isRead: json['is_read'],
-  );
-}
+  factory AppNotification.fromJson(Map<String, dynamic> json) {
+    return AppNotification(
+      id: json['id'],
+      userId: json['user_id'],
+      type: NotificationType.values.firstWhere(
+        (e) => e.name == json['type'],
+      ),
+      title: json['title'],
+      message: json['message'],
+      goalId: json['goal_id'],
+      goalName: json['goal_name'],
+      currency: json['currency'],  // NEW
+      createdAt: DateTime.parse(json['created_at'] + 'Z').toLocal(),
+      isRead: json['is_read'],
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -65,8 +68,35 @@ factory AppNotification.fromJson(Map<String, dynamic> json) {
       'message': message,
       'goal_id': goalId,
       'goal_name': goalName,
+      'currency': currency,  // NEW
       'created_at': createdAt.toIso8601String(),
       'is_read': isRead,
     };
+  }
+  
+  // NEW - Helper method to get currency symbol
+  String getCurrencySymbol() {
+    if (currency == 'mmk') {
+      return 'K';
+    }
+    return '\$';
+  }
+  
+  // NEW - Helper method to check if notification is currency-related
+  bool isCurrencyRelated() {
+    return currency != null && (
+      type == NotificationType.goal_progress ||
+      type == NotificationType.goal_milestone ||
+      type == NotificationType.goal_approaching_date ||
+      type == NotificationType.goal_achieved ||
+      type == NotificationType.budget_started ||
+      type == NotificationType.budget_threshold ||
+      type == NotificationType.budget_exceeded ||
+      type == NotificationType.budget_auto_created ||
+      type == NotificationType.budget_now_active ||
+      type == NotificationType.large_transaction ||
+      type == NotificationType.unusual_spending ||
+      type == NotificationType.payment_reminder
+    );
   }
 }

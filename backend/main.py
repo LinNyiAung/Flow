@@ -725,6 +725,7 @@ async def get_notifications(
                 message=n["message"],
                 goal_id=n.get("goal_id"),
                 goal_name=n.get("goal_name"),
+                currency=n.get("currency"),  # NEW
                 created_at=n["created_at"],
                 is_read=n["is_read"]
             )

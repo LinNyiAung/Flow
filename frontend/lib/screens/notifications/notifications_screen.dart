@@ -228,6 +228,31 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
     );
   }
 
+
+  Widget _buildCurrencyBadge(String? currency) {
+  if (currency == null) return SizedBox.shrink();
+  
+  String symbol = currency == 'mmk' ? 'K' : '\$';
+  Color color = currency == 'mmk' ? Color(0xFF4CAF50) : Color(0xFF667eea);
+  
+  return Container(
+    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(4),
+      border: Border.all(color: color.withOpacity(0.3)),
+    ),
+    child: Text(
+      symbol,
+      style: GoogleFonts.poppins(
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+        color: color,
+      ),
+    ),
+  );
+}
+
   Widget _buildNotificationCard(AppNotification notification) {
     final icon = _getNotificationIcon(notification.type);
     final color = _getNotificationColor(notification.type);
@@ -379,8 +404,13 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                             ),
                           ),
                         ],
+                        // NEW - Currency badge
+                        if (notification.currency != null) ...[
+                          SizedBox(width: 8),
+                          _buildCurrencyBadge(notification.currency),
+                        ],
                       ],
-                    ),
+                    )
                   ],
                 ),
               ),
