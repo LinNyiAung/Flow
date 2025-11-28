@@ -3,6 +3,8 @@
 //   fl_chart: ^0.68.0
 
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -29,13 +31,25 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
   int _touchedBarIndex = -1;
   bool _isLoading = false;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadTransactions();
+  Currency? _selectedCurrency;
+
+@override
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Set default currency from user's preference
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    setState(() {
+      _selectedCurrency = authProvider.defaultCurrency;
     });
-  }
+    _loadTransactions();
+  });
+}
+
+Future<void> _loadBalance() async {
+  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+  await transactionProvider.fetchBalance(currency: _selectedCurrency);
+}
 
   Future<void> _loadTransactions() async {
     setState(() => _isLoading = true);
@@ -77,6 +91,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
         type: TransactionType.outflow,
         startDate: startDate,
         endDate: endDate,
+        currency: _selectedCurrency,
         limit: 10000,
       );
 
@@ -410,6 +425,49 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                     ),
                   ),
 
+                  SizedBox(height: 20),
+
+                  // ADD THIS CURRENCY FILTER SECTION HERE
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Currency',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF333333),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    Container(
+                      padding: EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.1),
+                            spreadRadius: 1,
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: Currency.values.map((currency) {
+                          return _buildCurrencyFilterButton(
+                            currency.symbol,
+                            currency,
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
                 SizedBox(height: 20),
 
                 // Loading Indicator
@@ -454,7 +512,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                           ),
                           SizedBox(height: 8),
                           Text(
-                            '\$${totalSpending.toStringAsFixed(2)}',
+                            '${_selectedCurrency?.symbol ?? '\$'}${totalSpending.toStringAsFixed(2)}',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
                               fontSize: 32,
@@ -602,7 +660,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                 getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                   String label = timeSeriesData.keys.toList()[group.x.toInt()];
                                   return BarTooltipItem(
-                                    '$label\n\$${rod.toY.toStringAsFixed(2)}',
+                                    '$label\n${_selectedCurrency?.symbol ?? '\$'}${rod.toY.toStringAsFixed(2)}',
                                     GoogleFonts.poppins(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
@@ -666,7 +724,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                   showTitles: true,
                                   getTitlesWidget: (value, meta) {
                                     return Text(
-                                      '\$${value.toInt()}',
+                                      '${_selectedCurrency?.symbol ?? '\$'}${value.toInt()}',
                                       style: GoogleFonts.poppins(
                                         fontSize: 10,
                                         color: Colors.grey[600],
@@ -746,6 +804,38 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
       ),
     );
   }
+
+
+  Widget _buildCurrencyFilterButton(String label, Currency currency) {
+  bool isSelected = _selectedCurrency == currency;
+  return Expanded(
+    child: GestureDetector(
+      onTap: () {
+        setState(() => _selectedCurrency = currency);
+        _loadTransactions();
+      },
+      child: Container(
+        padding: EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          gradient: isSelected
+              ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
+              : null,
+          color: isSelected ? null : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            color: isSelected ? Colors.white : Colors.grey[600],
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
   Widget _buildPeriodButton(String label, TimePeriod period) {
     bool isSelected = _selectedPeriod == period;
