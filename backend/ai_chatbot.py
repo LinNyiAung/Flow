@@ -67,109 +67,156 @@ class FinancialDataProcessor:
             return []
     
     def get_financial_summary(self) -> Dict[str, Any]:
-        """Generate comprehensive financial summary"""
+        """Generate comprehensive financial summary with multi-currency support"""
         transactions = self.get_user_transactions()
         
         if not transactions:
             return {"message": "No financial data available"}
         
-        total_inflow = sum(t["amount"] for t in transactions if t["type"] == "inflow")
-        total_outflow = sum(t["amount"] for t in transactions if t["type"] == "outflow")
-        
-        inflow_by_category = {}
-        outflow_by_category = {}
-        monthly_data = {}
+        # Group by currency
+        currency_summaries = {}
         
         for t in transactions:
+            currency = t.get("currency", "usd")
+            
+            if currency not in currency_summaries:
+                currency_summaries[currency] = {
+                    "transactions": [],
+                    "total_inflow": 0,
+                    "total_outflow": 0,
+                    "inflow_by_category": {},
+                    "outflow_by_category": {},
+                    "monthly_data": {}
+                }
+            
+            currency_summaries[currency]["transactions"].append(t)
+            
+            if t["type"] == "inflow":
+                currency_summaries[currency]["total_inflow"] += t["amount"]
+            else:
+                currency_summaries[currency]["total_outflow"] += t["amount"]
+            
+            # Category breakdown
             category_key = f"{t['main_category']} > {t['sub_category']}"
             if t["type"] == "inflow":
-                inflow_by_category[category_key] = inflow_by_category.get(category_key, 0) + t["amount"]
+                currency_summaries[currency]["inflow_by_category"][category_key] = \
+                    currency_summaries[currency]["inflow_by_category"].get(category_key, 0) + t["amount"]
             else:
-                outflow_by_category[category_key] = outflow_by_category.get(category_key, 0) + t["amount"]
+                currency_summaries[currency]["outflow_by_category"][category_key] = \
+                    currency_summaries[currency]["outflow_by_category"].get(category_key, 0) + t["amount"]
             
+            # Monthly trends
             date_obj = ensure_utc_datetime(t["date"])
             month_key = date_obj.strftime("%Y-%m")
-            if month_key not in monthly_data:
-                monthly_data[month_key] = {"inflow": 0, "outflow": 0}
-            monthly_data[month_key][t["type"]] += t["amount"]
+            if month_key not in currency_summaries[currency]["monthly_data"]:
+                currency_summaries[currency]["monthly_data"][month_key] = {"inflow": 0, "outflow": 0}
+            currency_summaries[currency]["monthly_data"][month_key][t["type"]] += t["amount"]
         
-        all_dates = [ensure_utc_datetime(t["date"]) for t in transactions]
-        
-        return {
-            "total_transactions": len(transactions),
-            "balance": total_inflow - total_outflow,
-            "total_inflow": total_inflow,
-            "total_outflow": total_outflow,
-            "top_inflow_categories": dict(sorted(inflow_by_category.items(), key=lambda x: x[1], reverse=True)[:10]),
-            "top_outflow_categories": dict(sorted(outflow_by_category.items(), key=lambda x: x[1], reverse=True)[:10]),
-            "monthly_trends": monthly_data,
-            "avg_transaction_amount": sum(t["amount"] for t in transactions) / len(transactions),
-            "date_range": {
+        # Calculate per-currency summaries
+        for currency, data in currency_summaries.items():
+            txs = data["transactions"]
+            data["total_transactions"] = len(txs)
+            data["balance"] = data["total_inflow"] - data["total_outflow"]
+            data["avg_transaction_amount"] = sum(t["amount"] for t in txs) / len(txs)
+            
+            all_dates = [ensure_utc_datetime(t["date"]) for t in txs]
+            data["date_range"] = {
                 "from": min(all_dates).isoformat(),
                 "to": max(all_dates).isoformat()
             }
+            
+            # Top categories
+            data["top_inflow_categories"] = dict(sorted(
+                data["inflow_by_category"].items(), 
+                key=lambda x: x[1], 
+                reverse=True
+            )[:10])
+            
+            data["top_outflow_categories"] = dict(sorted(
+                data["outflow_by_category"].items(), 
+                key=lambda x: x[1], 
+                reverse=True
+            )[:10])
+        
+        return {
+            "currencies": currency_summaries,
+            "total_transactions": len(transactions)
         }
     
     def create_financial_documents(self) -> List[Document]:
-        """Create optimized documents for GPT-4 with clear chronological structure"""
+        """Create optimized documents for GPT-4 with multi-currency support"""
         transactions = self.get_user_transactions()
         goals = self.get_user_goals()
         summary = self.get_financial_summary()
         documents = []
         
-        # === FINANCIAL GOALS OVERVIEW ===
+        # === FINANCIAL GOALS OVERVIEW (MULTI-CURRENCY) ===
         if goals:
-            goals_text = "╔═══════════════════════════════════════════════════╗\n"
+            # Group goals by currency
+            goals_by_currency = {}
+            for g in goals:
+                currency = g.get("currency", "usd")
+                if currency not in goals_by_currency:
+                    goals_by_currency[currency] = []
+                goals_by_currency[currency].append(g)
+            
+            goals_text = "═══════════════════════════════════════════════════\n"
             goals_text += "║           FINANCIAL GOALS OVERVIEW                ║\n"
-            goals_text += "╚═══════════════════════════════════════════════════╝\n\n"
+            goals_text += "═══════════════════════════════════════════════════\n\n"
             
-            active_goals = [g for g in goals if g["status"] == "active"]
-            achieved_goals = [g for g in goals if g["status"] == "achieved"]
-            
-            total_allocated = sum(g["current_amount"] for g in active_goals)
-            total_target = sum(g["target_amount"] for g in active_goals)
-            
-            goals_text += f"📊 Summary:\n"
-            goals_text += f"  • Total Goals: {len(goals)}\n"
-            goals_text += f"  • Active Goals: {len(active_goals)}\n"
-            goals_text += f"  • Achieved Goals: {len(achieved_goals)}\n"
-            goals_text += f"  • Total Allocated: ${total_allocated:.2f}\n"
-            goals_text += f"  • Total Target (Active): ${total_target:.2f}\n"
-            goals_text += f"  • Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
-            
-            if active_goals:
-                goals_text += "🎯 ACTIVE GOALS:\n\n"
-                for idx, g in enumerate(active_goals, 1):
-                    progress = (g["current_amount"] / g["target_amount"] * 100) if g["target_amount"] > 0 else 0
-                    remaining = g["target_amount"] - g["current_amount"]
-                    
-                    goals_text += f"──── Goal #{idx}: {g['name']} ────\n"
-                    goals_text += f"Type: {g['goal_type'].replace('_', ' ').title()}\n"
-                    goals_text += f"Target: ${g['target_amount']:.2f}\n"
-                    goals_text += f"Current: ${g['current_amount']:.2f}\n"
-                    goals_text += f"Remaining: ${remaining:.2f}\n"
-                    goals_text += f"Progress: {progress:.1f}%\n"
-                    
-                    if g.get("target_date"):
-                        target_date = ensure_utc_datetime(g["target_date"])
-                        days_remaining = (target_date - datetime.now(timezone.utc)).days
-                        goals_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
-                        goals_text += f"Days Remaining: {days_remaining}\n"
+            for currency, curr_goals in goals_by_currency.items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                active_goals = [g for g in curr_goals if g["status"] == "active"]
+                achieved_goals = [g for g in curr_goals if g["status"] == "achieved"]
+                
+                total_allocated = sum(g["current_amount"] for g in active_goals)
+                total_target = sum(g["target_amount"] for g in active_goals)
+                
+                goals_text += f"💰 {currency_name} GOALS:\n"
+                goals_text += f"  • Total Goals: {len(curr_goals)}\n"
+                goals_text += f"  • Active Goals: {len(active_goals)}\n"
+                goals_text += f"  • Achieved Goals: {len(achieved_goals)}\n"
+                goals_text += f"  • Total Allocated: {currency_symbol}{total_allocated:.2f}\n"
+                goals_text += f"  • Total Target (Active): {currency_symbol}{total_target:.2f}\n"
+                goals_text += f"  • Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
+                
+                if active_goals:
+                    goals_text += f"🎯 ACTIVE {currency_name} GOALS:\n\n"
+                    for idx, g in enumerate(active_goals, 1):
+                        progress = (g["current_amount"] / g["target_amount"] * 100) if g["target_amount"] > 0 else 0
+                        remaining = g["target_amount"] - g["current_amount"]
                         
-                        if days_remaining > 0 and remaining > 0:
-                            daily_needed = remaining / days_remaining
-                            goals_text += f"Daily Savings Needed: ${daily_needed:.2f}\n"
-                    
-                    goals_text += f"Created: {ensure_utc_datetime(g['created_at']).strftime('%b %d, %Y')}\n\n"
-            
-            if achieved_goals:
-                goals_text += "🏆 ACHIEVED GOALS:\n\n"
-                for idx, g in enumerate(achieved_goals, 1):
-                    goals_text += f"✓ {g['name']}: ${g['target_amount']:.2f}\n"
-                    if g.get("achieved_at"):
-                        achieved_date = ensure_utc_datetime(g["achieved_at"])
-                        goals_text += f"  Achieved: {achieved_date.strftime('%b %d, %Y')}\n"
-                    goals_text += "\n"
+                        goals_text += f"──── Goal #{idx}: {g['name']} ────\n"
+                        goals_text += f"Type: {g['goal_type'].replace('_', ' ').title()}\n"
+                        goals_text += f"Target: {currency_symbol}{g['target_amount']:.2f}\n"
+                        goals_text += f"Current: {currency_symbol}{g['current_amount']:.2f}\n"
+                        goals_text += f"Remaining: {currency_symbol}{remaining:.2f}\n"
+                        goals_text += f"Progress: {progress:.1f}%\n"
+                        
+                        if g.get("target_date"):
+                            target_date = ensure_utc_datetime(g["target_date"])
+                            days_remaining = (target_date - datetime.now(timezone.utc)).days
+                            goals_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
+                            goals_text += f"Days Remaining: {days_remaining}\n"
+                            
+                            if days_remaining > 0 and remaining > 0:
+                                daily_needed = remaining / days_remaining
+                                goals_text += f"Daily Savings Needed: {currency_symbol}{daily_needed:.2f}\n"
+                        
+                        goals_text += f"Created: {ensure_utc_datetime(g['created_at']).strftime('%b %d, %Y')}\n\n"
+                
+                if achieved_goals:
+                    goals_text += f"🏆 ACHIEVED {currency_name} GOALS:\n\n"
+                    for idx, g in enumerate(achieved_goals, 1):
+                        goals_text += f"✓ {g['name']}: {currency_symbol}{g['target_amount']:.2f}\n"
+                        if g.get("achieved_at"):
+                            achieved_date = ensure_utc_datetime(g["achieved_at"])
+                            goals_text += f"  Achieved: {achieved_date.strftime('%b %d, %Y')}\n"
+                        goals_text += "\n"
+                
+                goals_text += "\n"
             
             documents.append(Document(
                 page_content=goals_text,
@@ -180,10 +227,10 @@ class FinancialDataProcessor:
                 }
             ))
         
-        # === CRITICAL: CHRONOLOGICAL INDEX ===
-        chronological_text = "╔═══════════════════════════════════════════════════╗\n"
+        # === CRITICAL: CHRONOLOGICAL INDEX (MULTI-CURRENCY) ===
+        chronological_text = "═══════════════════════════════════════════════════\n"
         chronological_text += "║   TRANSACTION TIMELINE - NEWEST TO OLDEST          ║\n"
-        chronological_text += "╚═══════════════════════════════════════════════════╝\n\n"
+        chronological_text += "═══════════════════════════════════════════════════\n\n"
         chronological_text += "⚠️ IMPORTANT: The transactions below are sorted NEWEST FIRST.\n"
         chronological_text += "When asked about 'latest', 'recent', 'last', or 'newest' - Transaction #1 is the MOST RECENT.\n\n"
         
@@ -191,12 +238,16 @@ class FinancialDataProcessor:
             date_obj = ensure_utc_datetime(t["date"])
             days_ago = (datetime.now(timezone.utc) - date_obj).days
             
+            currency = t.get("currency", "usd")
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
             recency_indicator = "🔴 TODAY" if days_ago == 0 else f"📅 {days_ago} days ago"
             
             chronological_text += f"─── Transaction #{idx} ({recency_indicator}) ───\n"
             chronological_text += f"Date: {date_obj.strftime('%A, %B %d, %Y')} ({get_date_only(t['date'])})\n"
             chronological_text += f"Type: {t['type'].title()}\n"
-            chronological_text += f"Amount: ${t['amount']:.2f}\n"
+            chronological_text += f"Amount: {currency_symbol}{t['amount']:.2f} ({currency_name})\n"
             chronological_text += f"Category: {t['main_category']} > {t['sub_category']}\n"
             if t.get("description"):
                 chronological_text += f"Description: {t['description']}\n"
@@ -214,37 +265,43 @@ class FinancialDataProcessor:
             }
         ))
         
-        # === FINANCIAL SUMMARY ===
-        summary_text = "╔═══════════════════════════════════════════════════╗\n"
+        # === FINANCIAL SUMMARY (MULTI-CURRENCY) ===
+        summary_text = "═══════════════════════════════════════════════════\n"
         summary_text += "║              FINANCIAL SUMMARY                       ║\n"
-        summary_text += "╚═══════════════════════════════════════════════════╝\n\n"
+        summary_text += "═══════════════════════════════════════════════════\n\n"
         
-        # Add goals impact to summary
-        if goals:
-            active_goals = [g for g in goals if g["status"] == "active"]
-            total_allocated = sum(g["current_amount"] for g in active_goals)
-            available_balance = summary.get('balance', 0) - total_allocated
-            
-            summary_text += f"💰 Balance Overview:\n"
-            summary_text += f"Total Balance: ${summary.get('balance', 0):.2f}\n"
-            summary_text += f"Allocated to Goals: ${total_allocated:.2f}\n"
-            summary_text += f"Available Balance: ${available_balance:.2f}\n\n"
-        else:
-            summary_text += f"Current Balance: ${summary.get('balance', 0):.2f}\n"
-        
-        summary_text += f"Total Income: ${summary.get('total_inflow', 0):.2f}\n"
-        summary_text += f"Total Expenses: ${summary.get('total_outflow', 0):.2f}\n"
-        summary_text += f"Total Transactions: {summary.get('total_transactions', 0)}\n"
-        summary_text += f"Average Transaction: ${summary.get('avg_transaction_amount', 0):.2f}\n"
-        summary_text += f"Data Period: {summary.get('date_range', {}).get('from', 'N/A')[:10]} to {summary.get('date_range', {}).get('to', 'N/A')[:10]}\n\n"
-        
-        summary_text += "Top Income Sources:\n"
-        for cat, amount in list(summary.get('top_inflow_categories', {}).items())[:5]:
-            summary_text += f"  • {cat}: ${amount:.2f}\n"
-        
-        summary_text += "\nTop Expense Categories:\n"
-        for cat, amount in list(summary.get('top_outflow_categories', {}).items())[:5]:
-            summary_text += f"  • {cat}: ${amount:.2f}\n"
+        if summary.get("currencies"):
+            for currency, data in summary["currencies"].items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                summary_text += f"💰 {currency_name} SUMMARY:\n"
+                summary_text += f"Current Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
+                
+                # Add goals impact if exists
+                curr_goals = [g for g in goals if g.get("currency", "usd") == currency and g["status"] == "active"]
+                if curr_goals:
+                    total_allocated = sum(g["current_amount"] for g in curr_goals)
+                    available_balance = data.get('balance', 0) - total_allocated
+                    
+                    summary_text += f"Allocated to Goals: {currency_symbol}{total_allocated:.2f}\n"
+                    summary_text += f"Available Balance: {currency_symbol}{available_balance:.2f}\n"
+                
+                summary_text += f"Total Income: {currency_symbol}{data.get('total_inflow', 0):.2f}\n"
+                summary_text += f"Total Expenses: {currency_symbol}{data.get('total_outflow', 0):.2f}\n"
+                summary_text += f"Total Transactions: {data.get('total_transactions', 0)}\n"
+                summary_text += f"Average Transaction: {currency_symbol}{data.get('avg_transaction_amount', 0):.2f}\n"
+                summary_text += f"Data Period: {data.get('date_range', {}).get('from', 'N/A')[:10]} to {data.get('date_range', {}).get('to', 'N/A')[:10]}\n\n"
+                
+                summary_text += f"Top Income Sources ({currency_name}):\n"
+                for cat, amount in list(data.get('top_inflow_categories', {}).items())[:5]:
+                    summary_text += f"  • {cat}: {currency_symbol}{amount:.2f}\n"
+                
+                summary_text += f"\nTop Expense Categories ({currency_name}):\n"
+                for cat, amount in list(data.get('top_outflow_categories', {}).items())[:5]:
+                    summary_text += f"  • {cat}: {currency_symbol}{amount:.2f}\n"
+                
+                summary_text += "\n"
         
         documents.append(Document(
             page_content=summary_text,
@@ -254,20 +311,25 @@ class FinancialDataProcessor:
             }
         ))
         
-        # === INDIVIDUAL GOAL DETAILS ===
+        # === INDIVIDUAL GOAL DETAILS (with currency) ===
         for goal in goals:
-            goal_text = f"╔═══════════════════════════════════════════════════╗\n"
+            currency = goal.get("currency", "usd")
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
+            goal_text = f"═══════════════════════════════════════════════════\n"
             goal_text += f"║   GOAL: {goal['name'][:40].center(40)}   ║\n"
-            goal_text += f"╚═══════════════════════════════════════════════════╝\n\n"
+            goal_text += f"═══════════════════════════════════════════════════\n\n"
             
             progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
             remaining = goal["target_amount"] - goal["current_amount"]
             
+            goal_text += f"Currency: {currency_name}\n"
             goal_text += f"Status: {goal['status'].upper()}\n"
             goal_text += f"Type: {goal['goal_type'].replace('_', ' ').title()}\n"
-            goal_text += f"Target Amount: ${goal['target_amount']:.2f}\n"
-            goal_text += f"Current Amount: ${goal['current_amount']:.2f}\n"
-            goal_text += f"Remaining: ${remaining:.2f}\n"
+            goal_text += f"Target Amount: {currency_symbol}{goal['target_amount']:.2f}\n"
+            goal_text += f"Current Amount: {currency_symbol}{goal['current_amount']:.2f}\n"
+            goal_text += f"Remaining: {currency_symbol}{remaining:.2f}\n"
             goal_text += f"Progress: {progress:.1f}%\n\n"
             
             if goal.get("target_date"):
@@ -284,9 +346,9 @@ class FinancialDataProcessor:
                         monthly_needed = daily_needed * 30
                         
                         goal_text += f"\nSavings Needed:\n"
-                        goal_text += f"  • Daily: ${daily_needed:.2f}\n"
-                        goal_text += f"  • Weekly: ${weekly_needed:.2f}\n"
-                        goal_text += f"  • Monthly: ${monthly_needed:.2f}\n"
+                        goal_text += f"  • Daily: {currency_symbol}{daily_needed:.2f}\n"
+                        goal_text += f"  • Weekly: {currency_symbol}{weekly_needed:.2f}\n"
+                        goal_text += f"  • Monthly: {currency_symbol}{monthly_needed:.2f}\n"
             
             goal_text += f"\nCreated: {ensure_utc_datetime(goal['created_at']).strftime('%B %d, %Y')}\n"
             
@@ -305,11 +367,12 @@ class FinancialDataProcessor:
                     "user_id": self.user_id,
                     "goal_id": goal["_id"],
                     "goal_name": goal["name"],
-                    "goal_status": goal["status"]
+                    "goal_status": goal["status"],
+                    "currency": currency
                 }
             ))
         
-        # === DAILY SUMMARIES (Last 30 days only) ===
+        # === DAILY SUMMARIES (Last 30 days, multi-currency) ===
         transactions_by_date = {}
         for t in transactions:
             date_str = get_date_only(t["date"])
@@ -326,18 +389,40 @@ class FinancialDataProcessor:
                 continue
             
             days_ago = (datetime.now(timezone.utc) - date_obj).days
-            daily_inflow = sum(t["amount"] for t in daily_transactions if t["type"] == "inflow")
-            daily_outflow = sum(t["amount"] for t in daily_transactions if t["type"] == "outflow")
+            
+            # Group by currency
+            currency_totals = {}
+            for t in daily_transactions:
+                currency = t.get("currency", "usd")
+                if currency not in currency_totals:
+                    currency_totals[currency] = {"inflow": 0, "outflow": 0, "transactions": []}
+                
+                if t["type"] == "inflow":
+                    currency_totals[currency]["inflow"] += t["amount"]
+                else:
+                    currency_totals[currency]["outflow"] += t["amount"]
+                
+                currency_totals[currency]["transactions"].append(t)
             
             daily_text = f"─── {date_obj.strftime('%A, %B %d, %Y')} ({days_ago} days ago) ───\n\n"
-            daily_text += f"Daily Summary: {len(daily_transactions)} transactions\n"
-            daily_text += f"  Income: +${daily_inflow:.2f}\n"
-            daily_text += f"  Expenses: -${daily_outflow:.2f}\n"
-            daily_text += f"  Net: ${daily_inflow - daily_outflow:.2f}\n\n"
-            daily_text += "Transactions:\n"
+            daily_text += f"Daily Summary: {len(daily_transactions)} transactions\n\n"
             
+            for currency, totals in currency_totals.items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                daily_text += f"{currency_name}:\n"
+                daily_text += f"  Income: +{currency_symbol}{totals['inflow']:.2f}\n"
+                daily_text += f"  Expenses: -{currency_symbol}{totals['outflow']:.2f}\n"
+                daily_text += f"  Net: {currency_symbol}{totals['inflow'] - totals['outflow']:.2f}\n\n"
+            
+            daily_text += "Transactions:\n"
             for t in daily_transactions:
-                daily_text += f"  • {t['type'].title()}: ${t['amount']:.2f} - {t['main_category']} > {t['sub_category']}"
+                currency = t.get("currency", "usd")
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                daily_text += f"  • {t['type'].title()}: {currency_symbol}{t['amount']:.2f} ({currency_name}) - {t['main_category']} > {t['sub_category']}"
                 if t.get("description"):
                     daily_text += f" ({t['description']})"
                 daily_text += "\n"
@@ -352,40 +437,50 @@ class FinancialDataProcessor:
                 }
             ))
         
-        # === CATEGORY INSIGHTS ===
-        all_categories = {}
+        # === CATEGORY INSIGHTS (group by currency) ===
+        categories_by_currency = {}
         for t in transactions:
+            currency = t.get("currency", "usd")
+            if currency not in categories_by_currency:
+                categories_by_currency[currency] = {}
+            
             cat_key = f"{t['main_category']} > {t['sub_category']}"
-            if cat_key not in all_categories:
-                all_categories[cat_key] = {"transactions": [], "total": 0, "type": t["type"]}
-            all_categories[cat_key]["transactions"].append(t)
-            all_categories[cat_key]["total"] += t["amount"]
-        
-        for category, data in sorted(all_categories.items(), key=lambda x: x[1]["total"], reverse=True)[:8]:
-            category_text = f"─── Category: {category} ───\n\n"
-            category_text += f"Type: {data['type'].title()}\n"
-            category_text += f"Total: ${data['total']:.2f}\n"
-            category_text += f"Transactions: {len(data['transactions'])}\n"
-            category_text += f"Average: ${data['total'] / len(data['transactions']):.2f}\n\n"
-            category_text += "Recent Examples:\n"
+            if cat_key not in categories_by_currency[currency]:
+                categories_by_currency[currency][cat_key] = {"transactions": [], "total": 0, "type": t["type"]}
             
-            for t in data['transactions'][:5]:
-                date_obj = ensure_utc_datetime(t["date"])
-                category_text += f"  • {date_obj.strftime('%b %d, %Y')}: ${t['amount']:.2f}"
-                if t.get("description"):
-                    category_text += f" - {t['description']}"
-                category_text += "\n"
-            
-            documents.append(Document(
-                page_content=category_text,
-                metadata={
-                    "type": "category",
-                    "user_id": self.user_id,
-                    "category": category
-                }
-            ))
+            categories_by_currency[currency][cat_key]["transactions"].append(t)
+            categories_by_currency[currency][cat_key]["total"] += t["amount"]
         
-        print(f"✅ Created {len(documents)} optimized documents for GPT-4 (including {len(goals)} goals)")
+        for currency, categories in categories_by_currency.items():
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
+            for category, data in sorted(categories.items(), key=lambda x: x[1]["total"], reverse=True)[:8]:
+                category_text = f"─── Category: {category} ({currency_name}) ───\n\n"
+                category_text += f"Type: {data['type'].title()}\n"
+                category_text += f"Total: {currency_symbol}{data['total']:.2f}\n"
+                category_text += f"Transactions: {len(data['transactions'])}\n"
+                category_text += f"Average: {currency_symbol}{data['total'] / len(data['transactions']):.2f}\n\n"
+                category_text += "Recent Examples:\n"
+                
+                for t in data['transactions'][:5]:
+                    date_obj = ensure_utc_datetime(t["date"])
+                    category_text += f"  • {date_obj.strftime('%b %d, %Y')}: {currency_symbol}{t['amount']:.2f}"
+                    if t.get("description"):
+                        category_text += f" - {t['description']}"
+                    category_text += "\n"
+                
+                documents.append(Document(
+                    page_content=category_text,
+                    metadata={
+                        "type": "category",
+                        "user_id": self.user_id,
+                        "category": category,
+                        "currency": currency
+                    }
+                ))
+        
+        print(f"✅ Created {len(documents)} optimized documents for GPT-4 (including {len(goals)} goals, multi-currency)")
         return documents
 
 
@@ -492,106 +587,146 @@ class FinancialChatbot:
         
         return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history and financial goals.
 
-    📅 Today's date: {today}
+📅 Today's date: {today}
 
-    🌐 LANGUAGE CAPABILITY:
-    - You are FLUENT in both Myanmar (Burmese) and English language
-    - Detect the user's language automatically from their message
-    - If the user writes in Myanmar, respond ENTIRELY in Myanmar
-    - If the user writes in English, respond ENTIRELY in English
-    - Maintain consistency - don't mix languages unless the user does
-    - Use natural, conversational Myanmar that feels native and friendly
-    - For financial terms in Myanmar, use commonly understood terms (e.g., "ငွေ" for money, "စုငွေ" for savings, "ရည်မှန်းချက်" for goals)
+🌍 LANGUAGE CAPABILITY:
+- You are FLUENT in both Myanmar (Burmese) and English language
+- Detect the user's language automatically from their message
+- If the user writes in Myanmar, respond ENTIRELY in Myanmar
+- If the user writes in English, respond ENTIRELY in English
+- Maintain consistency - don't mix languages unless the user does
+- Use natural, conversational Myanmar that feels native and friendly
+- For financial terms in Myanmar, use commonly understood terms (e.g., "ငွေ" for money, "စုငွေ" for savings, "ရည်မှန်းချက်" for goals)
 
-    Your capabilities:
-    - Answer questions about transactions with precision
-    - Provide insights on financial goals and progress
-    - Track goal achievements and suggest strategies
-    - Calculate savings needed to reach goals
-    - Identify spending patterns that affect goal progress
-    - Provide spending insights and financial advice
-    - Help users understand their finances holistically
+💱 MULTI-CURRENCY CAPABILITY:
+- The user can have transactions, goals, and budgets in multiple currencies (USD, MMK)
+- ALWAYS specify the currency when discussing amounts (e.g., "$100 USD" or "50,000 K MMK")
+- When comparing amounts across currencies, mention they are in different currencies
+- Currency symbols: USD uses "$", MMK uses "K" or "Ks"
+- NEVER mix currencies in calculations without explicit conversion
+- If asked about "total balance" or "overall finances", break down by currency
+- When discussing goals or budgets, always mention which currency they are in
 
-    🎯 CRITICAL RULES FOR ACCURACY:
+Your capabilities:
+- Answer questions about transactions with precision (multi-currency aware)
+- Provide insights on financial goals and progress (per currency)
+- Track goal achievements and suggest strategies
+- Calculate savings needed to reach goals (in the goal's currency)
+- Identify spending patterns that affect goal progress (currency-specific)
+- Provide spending insights and financial advice
+- Help users understand their finances holistically across currencies
 
-    1. TEMPORAL QUERIES ("latest", "recent", "last", "newest" or Myanmar: "နောက်ဆုံး", "မကြာသေးမီက", "လတ်တလော"):
-    - The data includes a CHRONOLOGICAL INDEX sorted NEWEST → OLDEST
-    - Transaction #1 in that index is ALWAYS the most recent
-    - Look for visual indicators like "🔴 TODAY" or "days ago"
-    - NEVER confuse older transactions with newer ones
+🎯 CRITICAL RULES FOR ACCURACY:
 
-    2. GOALS AWARENESS:
-    - Always check the GOALS OVERVIEW for the user's financial goals
-    - When discussing balance, consider both total balance and available balance (after goal allocations)
-    - Suggest how spending changes could help achieve goals faster
-    - Celebrate progress and provide encouragement
-    - Be specific about goal timelines and required savings rates
+1. TEMPORAL QUERIES ("latest", "recent", "last", "newest" or Myanmar: "နောက်ဆုံး", "မကြာသေးသော", "လတ်တလော"):
+- The data includes a CHRONOLOGICAL INDEX sorted NEWEST → OLDEST
+- Transaction #1 in that index is ALWAYS the most recent
+- Look for visual indicators like "🔴 TODAY" or "days ago"
+- NEVER confuse older transactions with newer ones
 
-    3. DATE ACCURACY:
-    - Today is {today}
-    - Verify dates carefully before answering
-    - Use the "days ago" information as a guide
+2. CURRENCY AWARENESS:
+- ALWAYS mention currency when discussing amounts
+- Format: "$X.XX (USD)" or "X K (MMK)"
+- Never add amounts from different currencies without mentioning it
+- If comparing multi-currency data, present them separately
+- Be explicit: "You have $500 USD and 1,000,000 K MMK"
 
-    4. RESPONSE STYLE - {response_style.upper()}:
-    {style_instruction}
+3. GOALS AWARENESS (MULTI-CURRENCY):
+- Always check the GOALS OVERVIEW for the user's financial goals
+- Goals are currency-specific - mention which currency each goal uses
+- When discussing balance, consider both total balance and available balance per currency
+- Suggest how spending changes could help achieve goals faster
+- Celebrate progress and provide encouragement
+- Be specific about goal timelines and required savings rates (in goal's currency)
 
-    5. FORMATTING:
-    - Format money as $X.XX (or if in Myanmar: $X.XX ကျပ်)
-    - Include specific dates when relevant
-    - If unsure about something, say so honestly
-    - Never fabricate transaction or goal details
+4. DATE ACCURACY:
+- Today is {today}
+- Verify dates carefully before answering
+- Use the "days ago" information as a guide
 
-    6. MYANMAR LANGUAGE SPECIFICS:
-    - Use respectful Myanmar expressions naturally 
-    - Keep financial advice clear and easy to understand
-    - Use bullet points (•) for lists in Myanmar responses too
-    - When translating amounts, keep the $ symbol but you can add context in Myanmar
-    - Be warm and encouraging in Myanmar - financial discussions can be sensitive
+5. RESPONSE STYLE - {response_style.upper()}:
+{style_instructions.get(response_style, style_instructions["normal"])}
 
-    7. PRIORITIZATION:
-    - For "latest/recent" queries, ALWAYS check the chronological index FIRST
-    - For goal-related queries, check the goals overview and individual goal details
-    - Consider the interplay between spending, saving, and goal progress
+6. FORMATTING:
+- Format money as $X.XX (USD) or X K (MMK)
+- Include specific dates when relevant
+- If unsure about something, say so honestly
+- Never fabricate transaction or goal details
 
-    Remember: Accuracy is more important than speed. Double-check dates and amounts! Respect their time and adapt your verbosity to their preference.
+7. MYANMAR LANGUAGE SPECIFICS:
+- Use respectful Myanmar expressions naturally 
+- Keep financial advice clear and easy to understand
+- Use bullet points (•) for lists in Myanmar responses too
+- When translating amounts, keep currency symbols: $X.XX or X K
+- Be warm and encouraging in Myanmar - financial discussions can be sensitive
 
-    ဘာသာစကားကို သဘာဝကျကျ သုံးစွဲပါ။ (Use language naturally.)"""
+8. PRIORITIZATION:
+- For "latest/recent" queries, ALWAYS check the chronological index FIRST
+- For goal-related queries, check the goals overview and individual goal details
+- For currency-specific queries, filter by the mentioned currency
+- Consider the interplay between spending, saving, and goal progress per currency
+
+Remember: Accuracy is more important than speed. Double-check dates, amounts, AND currencies! Respect their time and adapt your verbosity to their preference.
+
+ဘာသာစကား၏ သဘာဝကို ဂရုစိုက်ပါ။ (Use language naturally.)"""
     
     def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
-        """Build comprehensive user prompt"""
+        """Build comprehensive user prompt with multi-currency support"""
         prompt = f"""User Profile:
-Name: {user.get('name', 'User')}
-Today: {today}
+    Name: {user.get('name', 'User')}
+    Default Currency: {user.get('default_currency', 'usd').upper()}
+    Today: {today}
 
-Quick Overview:
-💰 Total Balance: ${summary.get('balance', 0):.2f}
-"""
+    Quick Overview:
+    """
         
-        if goals_summary:
-            prompt += f"""💎 Allocated to Goals: ${goals_summary.get('total_allocated', 0):.2f}
-✨ Available Balance: ${summary.get('balance', 0) - goals_summary.get('total_allocated', 0):.2f}
-🎯 Active Goals: {goals_summary.get('active_goals', 0)}
-🏆 Achieved Goals: {goals_summary.get('achieved_goals', 0)}
-"""
+        # Multi-currency balance display
+        if summary.get("currencies"):
+            prompt += "💰 BALANCES BY CURRENCY:\n"
+            for currency, data in summary["currencies"].items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                prompt += f"\n{currency_name}:\n"
+                prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
+                
+                # Goals allocation for this currency
+                if goals_summary:
+                    curr_goals = [g for g in goals_summary.get('goals_by_currency', {}).get(currency, [])]
+                    if curr_goals:
+                        allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
+                        prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:.2f}\n"
+                        prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:.2f}\n"
+                
+                prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):.2f}\n"
+                prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):.2f}\n"
         
-        prompt += f"""📈 Income: ${summary.get('total_inflow', 0):.2f}
-📉 Expenses: ${summary.get('total_outflow', 0):.2f}
+        # Goals summary by currency
+        if goals_summary and goals_summary.get('goals_by_currency'):
+            prompt += "\n🎯 GOALS BY CURRENCY:\n"
+            for currency, curr_goals in goals_summary['goals_by_currency'].items():
+                currency_name = "USD" if currency == "usd" else "MMK"
+                active = [g for g in curr_goals if g.get('status') == 'active']
+                achieved = [g for g in curr_goals if g.get('status') == 'achieved']
+                prompt += f"  {currency_name}: {len(active)} active, {len(achieved)} achieved\n"
+        
+        prompt += f"""
 
-═══════════════════════════════════════════════════
-                    FINANCIAL DATA
-═══════════════════════════════════════════════════
+    ══════════════════════════════════════════════════
+                        FINANCIAL DATA
+    ══════════════════════════════════════════════════
 
-{context}
+    {context}
 
-{f"═══════════════════════════════════════════════════\n                CONVERSATION HISTORY\n═══════════════════════════════════════════════════{history_text}" if history_text else ""}
+    {f"══════════════════════════════════════════════════\n                CONVERSATION HISTORY\n══════════════════════════════════════════════════{history_text}" if history_text else ""}
 
-═══════════════════════════════════════════════════
-                    USER QUESTION
-═══════════════════════════════════════════════════
+    ══════════════════════════════════════════════════
+                        USER QUESTION
+    ══════════════════════════════════════════════════
 
-{message}
+    {message}
 
-Please provide an accurate, helpful answer based on the financial data above."""
+    Please provide an accurate, helpful answer based on the financial data above. Remember to specify currencies when discussing amounts!"""
         
         return prompt
     
@@ -794,38 +929,48 @@ Please provide an accurate, helpful answer based on the financial data above."""
             # System prompt for insights generation
             system_prompt = """You are Flow Finance AI, an expert financial analyst providing personalized insights.
 
-    Your task is to analyze the user's complete financial data and generate comprehensive, actionable insights.
+Your task is to analyze the user's complete financial data and generate comprehensive, actionable insights.
 
-    INSIGHT STRUCTURE:
-    Generate insights covering ALL relevant areas:
+💱 MULTI-CURRENCY AWARENESS:
+- The user may have transactions, goals, and budgets in multiple currencies (USD, MMK)
+- ALWAYS specify currency when discussing amounts
+- Format: "$X.XX (USD)" or "X K (MMK)"
+- Analyze each currency separately when relevant
+- When comparing across currencies, mention they cannot be directly added
+- Provide insights per currency and overall strategy
 
-    1. **Financial Health Overview** - Current state, trends, patterns
-    2. **Spending Analysis** - Where money goes, concerning patterns, opportunities
-    3. **Income Analysis** - Sources, stability, growth opportunities  
-    4. **Savings & Goals Progress** - Goal tracking, recommendations, timeline analysis
-    5. **Budget Recommendations** - Specific, actionable advice
-    6. **Future Projections** - Where they're headed, what to watch
-    7. **Celebration & Encouragement** - Acknowledge wins, motivate progress
+INSIGHT STRUCTURE:
+Generate insights covering ALL relevant areas:
 
-    CRITICAL RULES:
-    - Be COMPREHENSIVE - cover all aspects of their finances
-    - Be SPECIFIC - use actual numbers, dates, categories from their data
-    - Be ACTIONABLE - give concrete steps they can take
-    - Be HONEST - point out both strengths and areas for improvement
-    - Be ENCOURAGING - maintain a positive, supportive tone
-    - NO LIMITATIONS - analyze everything thoroughly
-    - Include comparisons (month-over-month, category ratios, goal progress)
-    - Identify both opportunities and risks
-    - Make predictions based on current trends
+1. **Financial Health Overview** - Current state, trends, patterns (per currency)
+2. **Spending Analysis** - Where money goes, concerning patterns, opportunities (by currency)
+3. **Income Analysis** - Sources, stability, growth opportunities (by currency)
+4. **Savings & Goals Progress** - Goal tracking, recommendations, timeline analysis (per currency)
+5. **Multi-Currency Strategy** - If applicable, discuss balance between currencies
+6. **Budget Recommendations** - Specific, actionable advice (currency-specific)
+7. **Future Projections** - Where they're headed, what to watch (per currency)
+8. **Celebration & Encouragement** - Acknowledge wins, motivate progress
 
-    Format with clear sections using markdown:
-    - Use ## for main sections
-    - Use **bold** for emphasis
-    - Use bullet points for lists
-    - Include specific dollar amounts and percentages
-    - Add emojis for visual appeal (💰 📈 📉 🎯 ⚠️ ✅ 🎉)
+CRITICAL RULES:
+- Be COMPREHENSIVE - cover all aspects of their finances
+- Be SPECIFIC - use actual numbers, dates, categories, AND CURRENCIES from their data
+- Be ACTIONABLE - give concrete steps they can take
+- Be HONEST - point out both strengths and areas for improvement
+- Be ENCOURAGING - maintain a positive, supportive tone
+- ALWAYS mention currency with amounts
+- NO LIMITATIONS - analyze everything thoroughly
+- Include comparisons (month-over-month, category ratios, goal progress)
+- Identify both opportunities and risks
+- Make predictions based on current trends
 
-    Length: 800-1500 words of detailed, personalized analysis."""
+Format with clear sections using markdown:
+- Use ## for main sections
+- Use **bold** for emphasis
+- Use bullet points for lists
+- Include specific dollar/kyat amounts with currency labels
+- Add emojis for visual appeal (💰 📈 📉 🎯 ⚠️ ✅ 🎉)
+
+Length: 800-1500 words of detailed, personalized analysis."""
 
             today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
             user_prompt = f"""Today's Date: {today}
@@ -857,77 +1002,104 @@ Please provide an accurate, helpful answer based on the financial data above."""
             raise Exception(f"Failed to generate insights: {str(e)}")
 
     def _build_insight_context(self, user: Dict, summary: Dict, goals: List[Dict], transactions: List[Dict]) -> str:
-        """Build comprehensive context for insight generation"""
-        context = f"User: {user.get('name', 'User')}\n\n"
+        """Build comprehensive context for insight generation with multi-currency"""
+        context = f"User: {user.get('name', 'User')}\n"
+        context += f"Default Currency: {user.get('default_currency', 'usd').upper()}\n\n"
         
-        # Financial Summary
-        context += "=== FINANCIAL OVERVIEW ===\n"
-        context += f"Total Balance: ${summary.get('balance', 0):.2f}\n"
-        context += f"Total Income: ${summary.get('total_inflow', 0):.2f}\n"
-        context += f"Total Expenses: ${summary.get('total_outflow', 0):.2f}\n"
-        context += f"Total Transactions: {summary.get('total_transactions', 0)}\n"
-        context += f"Average Transaction: ${summary.get('avg_transaction_amount', 0):.2f}\n"
-        
-        if summary.get('date_range'):
-            context += f"Data Period: {summary['date_range'].get('from', 'N/A')[:10]} to {summary['date_range'].get('to', 'N/A')[:10]}\n"
-        
-        context += "\n"
-        
-        # Goals Summary
-        if goals:
-            active_goals = [g for g in goals if g["status"] == "active"]
-            achieved_goals = [g for g in goals if g["status"] == "achieved"]
-            total_allocated = sum(g["current_amount"] for g in active_goals)
-            total_target = sum(g["target_amount"] for g in active_goals)
+        # Multi-currency financial summary
+        if summary.get("currencies"):
+            context += "=== FINANCIAL OVERVIEW (BY CURRENCY) ===\n"
+            for currency, data in summary["currencies"].items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                context += f"\n{currency_name}:\n"
+                context += f"Total Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
+                context += f"Total Income: {currency_symbol}{data.get('total_inflow', 0):.2f}\n"
+                context += f"Total Expenses: {currency_symbol}{data.get('total_outflow', 0):.2f}\n"
+                context += f"Total Transactions: {data.get('total_transactions', 0)}\n"
+                context += f"Average Transaction: {currency_symbol}{data.get('avg_transaction_amount', 0):.2f}\n"
+                
+                if data.get('date_range'):
+                    context += f"Data Period: {data['date_range'].get('from', 'N/A')[:10]} to {data['date_range'].get('to', 'N/A')[:10]}\n"
             
-            context += "=== FINANCIAL GOALS ===\n"
-            context += f"Total Goals: {len(goals)}\n"
-            context += f"Active Goals: {len(active_goals)}\n"
-            context += f"Achieved Goals: {len(achieved_goals)}\n"
-            context += f"Total Allocated: ${total_allocated:.2f}\n"
-            context += f"Total Target: ${total_target:.2f}\n"
-            context += f"Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
-            
-            for goal in active_goals[:5]:  # Top 5 active goals
-                progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-                context += f"Goal: {goal['name']}\n"
-                context += f"  Target: ${goal['target_amount']:.2f}\n"
-                context += f"  Current: ${goal['current_amount']:.2f}\n"
-                context += f"  Progress: {progress:.1f}%\n"
-                if goal.get("target_date"):
-                    target_date = ensure_utc_datetime(goal["target_date"])
-                    days_remaining = (target_date - datetime.now(timezone.utc)).days
-                    context += f"  Days Remaining: {days_remaining}\n"
-                context += "\n"
-        
-        # Income Analysis
-        context += "=== INCOME SOURCES ===\n"
-        for cat, amount in list(summary.get('top_inflow_categories', {}).items())[:10]:
-            context += f"{cat}: ${amount:.2f}\n"
-        context += "\n"
-        
-        # Expense Analysis
-        context += "=== EXPENSE CATEGORIES ===\n"
-        for cat, amount in list(summary.get('top_outflow_categories', {}).items())[:10]:
-            context += f"{cat}: ${amount:.2f}\n"
-        context += "\n"
-        
-        # Monthly Trends
-        if summary.get('monthly_trends'):
-            context += "=== MONTHLY TRENDS ===\n"
-            for month, data in sorted(summary['monthly_trends'].items(), reverse=True)[:6]:
-                net = data['inflow'] - data['outflow']
-                context += f"{month}:\n"
-                context += f"  Income: ${data['inflow']:.2f}\n"
-                context += f"  Expenses: ${data['outflow']:.2f}\n"
-                context += f"  Net: ${net:.2f}\n"
             context += "\n"
         
-        # Recent Transactions (last 20)
+        # Goals summary by currency
+        if goals:
+            goals_by_currency = {}
+            for g in goals:
+                currency = g.get("currency", "usd")
+                if currency not in goals_by_currency:
+                    goals_by_currency[currency] = []
+                goals_by_currency[currency].append(g)
+            
+            context += "=== FINANCIAL GOALS (BY CURRENCY) ===\n"
+            for currency, curr_goals in goals_by_currency.items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                active_goals = [g for g in curr_goals if g["status"] == "active"]
+                achieved_goals = [g for g in curr_goals if g["status"] == "achieved"]
+                total_allocated = sum(g["current_amount"] for g in active_goals)
+                total_target = sum(g["target_amount"] for g in active_goals)
+                
+                context += f"\n{currency_name} Goals:\n"
+                context += f"Total Goals: {len(curr_goals)}\n"
+                context += f"Active Goals: {len(active_goals)}\n"
+                context += f"Achieved Goals: {len(achieved_goals)}\n"
+                context += f"Total Allocated: {currency_symbol}{total_allocated:.2f}\n"
+                context += f"Total Target: {currency_symbol}{total_target:.2f}\n"
+                context += f"Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
+                
+                for goal in active_goals[:5]:  # Top 5 active goals per currency
+                    progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+                    context += f"Goal: {goal['name']}\n"
+                    context += f"  Target: {currency_symbol}{goal['target_amount']:.2f}\n"
+                    context += f"  Current: {currency_symbol}{goal['current_amount']:.2f}\n"
+                    context += f"  Progress: {progress:.1f}%\n"
+                    if goal.get("target_date"):
+                        target_date = ensure_utc_datetime(goal["target_date"])
+                        days_remaining = (target_date - datetime.now(timezone.utc)).days
+                        context += f"  Days Remaining: {days_remaining}\n"
+                    context += "\n"
+        
+        # Income/Expense Analysis by currency
+        if summary.get("currencies"):
+            for currency, data in summary["currencies"].items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                context += f"=== {currency_name} INCOME SOURCES ===\n"
+                for cat, amount in list(data.get('top_inflow_categories', {}).items())[:10]:
+                    context += f"{cat}: {currency_symbol}{amount:.2f}\n"
+                context += "\n"
+                
+                context += f"=== {currency_name} EXPENSE CATEGORIES ===\n"
+                for cat, amount in list(data.get('top_outflow_categories', {}).items())[:10]:
+                    context += f"{cat}: {currency_symbol}{amount:.2f}\n"
+                context += "\n"
+                
+                # Monthly Trends
+                if data.get('monthly_data'):
+                    context += f"=== {currency_name} MONTHLY TRENDS ===\n"
+                    for month, month_data in sorted(data['monthly_data'].items(), reverse=True)[:6]:
+                        net = month_data['inflow'] - month_data['outflow']
+                        context += f"{month}:\n"
+                        context += f"  Income: {currency_symbol}{month_data['inflow']:.2f}\n"
+                        context += f"  Expenses: {currency_symbol}{month_data['outflow']:.2f}\n"
+                        context += f"  Net: {currency_symbol}{net:.2f}\n"
+                    context += "\n"
+        
+        # Recent Transactions (last 20, with currency)
         context += "=== RECENT TRANSACTIONS ===\n"
         for t in transactions[:20]:
             date_obj = ensure_utc_datetime(t["date"])
-            context += f"{date_obj.strftime('%Y-%m-%d')}: {t['type']} ${t['amount']:.2f} - {t['main_category']} > {t['sub_category']}"
+            currency = t.get("currency", "usd")
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
+            context += f"{date_obj.strftime('%Y-%m-%d')}: {t['type']} {currency_symbol}{t['amount']:.2f} ({currency_name}) - {t['main_category']} > {t['sub_category']}"
             if t.get('description'):
                 context += f" ({t['description']})"
             context += "\n"
