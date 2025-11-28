@@ -4,8 +4,9 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Path
 
+from models import Currency
 from utils import get_current_user, get_user_balance, refresh_ai_data_silent
-from goal_models import Currency, CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
+from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
     check_goal_notifications,

@@ -5,9 +5,10 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
 
 
+from models import Currency
 from utils import get_current_user, refresh_ai_data_silent, require_premium
 
-from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget
+from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
 from budget_service import BudgetAnalyzer, is_budget_active, update_budget_spent_amounts
 
 
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 @router.post("/ai-suggest", response_model=AIBudgetSuggestion)
 async def get_ai_budget_suggestions(
     request: AIBudgetRequest,
-    current_user: dict = Depends(require_premium)  # CHANGED: Added premium requirement
+    current_user: dict = Depends(require_premium)
 ):
     """Get AI-generated budget suggestions (Premium Feature)"""
     try:
@@ -36,7 +37,8 @@ async def get_ai_budget_suggestions(
             end_date=request.end_date,
             analysis_months=request.analysis_months,
             include_categories=request.include_categories,
-            user_context=request.user_context
+            user_context=request.user_context,
+            currency=request.currency  # NEW
         )
         
         return suggestions
@@ -100,9 +102,10 @@ async def create_budget(
             "status": BudgetStatus.ACTIVE.value,
             "description": budget_data.description,
             "is_active": is_active,
-            "auto_create_enabled": budget_data.auto_create_enabled,  # NEW
-            "auto_create_with_ai": budget_data.auto_create_with_ai,  # NEW
-            "parent_budget_id": None,  # NEW
+            "auto_create_enabled": budget_data.auto_create_enabled,
+            "auto_create_with_ai": budget_data.auto_create_with_ai,
+            "parent_budget_id": None,
+            "currency": budget_data.currency.value,  # NEW
             "created_at": now,
             "updated_at": now
         }
@@ -112,8 +115,6 @@ async def create_budget(
         # Calculate actual spent amounts
         update_budget_spent_amounts(current_user["_id"], budget_id)
         
-        
-        # NEW: Send notification if budget is starting now
         if is_active:
             notify_budget_started(
                 user_id=current_user["_id"],
@@ -144,9 +145,10 @@ async def create_budget(
             status=BudgetStatus(updated_budget["status"]),
             description=updated_budget.get("description"),
             is_active=updated_budget["is_active"],
-            auto_create_enabled=updated_budget.get("auto_create_enabled", False),  # NEW
-            auto_create_with_ai=updated_budget.get("auto_create_with_ai", False),  # NEW
-            parent_budget_id=updated_budget.get("parent_budget_id"),  # NEW
+            auto_create_enabled=updated_budget.get("auto_create_enabled", False),
+            auto_create_with_ai=updated_budget.get("auto_create_with_ai", False),
+            parent_budget_id=updated_budget.get("parent_budget_id"),
+            currency=Currency(updated_budget.get("currency", "usd")),  # NEW with fallback
             created_at=updated_budget["created_at"],
             updated_at=updated_budget["updated_at"]
         )
@@ -165,7 +167,8 @@ async def create_budget(
 async def get_budgets(
     current_user: dict = Depends(get_current_user),
     active_only: bool = Query(default=False),
-    period: Optional[BudgetPeriod] = None
+    period: Optional[BudgetPeriod] = None,
+    currency: Optional[Currency] = None  # NEW
 ):
     """Get all user budgets"""
     try:
@@ -176,6 +179,9 @@ async def get_budgets(
         
         if period:
             query["period"] = period.value
+        
+        if currency:  # NEW
+            query["currency"] = currency.value
         
         budgets = list(budgets_collection.find(query).sort("created_at", -1))
         
@@ -202,6 +208,7 @@ async def get_budgets(
                 status=BudgetStatus(b["status"]),
                 description=b.get("description"),
                 is_active=b["is_active"],
+                currency=Currency(b.get("currency", "usd")),  # NEW with fallback
                 created_at=b["created_at"],
                 updated_at=b["updated_at"]
             )
@@ -217,17 +224,28 @@ async def get_budgets(
 
 
 @router.get("/summary", response_model=BudgetSummary)
-async def get_budgets_summary(current_user: dict = Depends(get_current_user)):
-    """Get summary of all budgets"""
+async def get_budgets_summary(
+    current_user: dict = Depends(get_current_user),
+    currency: Optional[Currency] = Query(default=None)  # NEW - make it required or use default
+):
+    """Get summary of budgets for specific currency"""
     try:
-        budgets = list(budgets_collection.find({"user_id": current_user["_id"]}))
+        query = {"user_id": current_user["_id"]}
+        
+        # If currency not specified, use user's default currency
+        if currency is None:
+            currency = Currency(current_user.get("default_currency", "usd"))
+        
+        query["currency"] = currency.value  # NEW - filter by currency
+        
+        budgets = list(budgets_collection.find(query))
         
         # Update all budgets
         for budget in budgets:
             update_budget_spent_amounts(current_user["_id"], budget["_id"])
         
         # Fetch updated budgets
-        budgets = list(budgets_collection.find({"user_id": current_user["_id"]}))
+        budgets = list(budgets_collection.find(query))
         
         total_budgets = len(budgets)
         active_budgets = len([b for b in budgets if b["is_active"] and b["status"] == "active"])
@@ -249,11 +267,79 @@ async def get_budgets_summary(current_user: dict = Depends(get_current_user)):
             upcoming_budgets=upcoming_budgets,
             total_allocated=total_allocated,
             total_spent=total_spent,
-            overall_remaining=overall_remaining
+            overall_remaining=overall_remaining,
+            currency=currency  # NEW
         )
         
     except Exception as e:
         print(f"Error calculating budget summary: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to calculate budget summary"
+        )
+        
+        
+@router.get("/summary/all-currencies", response_model=MultiCurrencyBudgetSummary)
+async def get_multi_currency_budgets_summary(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get summary of all budgets with per-currency breakdown"""
+    try:
+        all_budgets = list(budgets_collection.find({"user_id": current_user["_id"]}))
+        
+        # Update all budgets
+        for budget in all_budgets:
+            update_budget_spent_amounts(current_user["_id"], budget["_id"])
+        
+        # Fetch updated budgets
+        all_budgets = list(budgets_collection.find({"user_id": current_user["_id"]}))
+        
+        total_budgets = len(all_budgets)
+        active_budgets = len([b for b in all_budgets if b["is_active"] and b["status"] == "active"])
+        upcoming_budgets = len([b for b in all_budgets if b["status"] == "upcoming"])
+        completed_budgets = len([b for b in all_budgets if b["status"] == "completed"])
+        exceeded_budgets = len([b for b in all_budgets if b["status"] == "exceeded"])
+        
+        # Group budgets by currency
+        currency_groups = {}
+        for budget in all_budgets:
+            currency = budget.get("currency", "usd")
+            if currency not in currency_groups:
+                currency_groups[currency] = []
+            currency_groups[currency].append(budget)
+        
+        # Calculate summary for each currency
+        currency_summaries = []
+        for currency, budgets in currency_groups.items():
+            active = [b for b in budgets if b["is_active"] and b["status"] == "active"]
+            
+            total_allocated = sum(b["total_budget"] for b in active)
+            total_spent = sum(b["total_spent"] for b in active)
+            overall_remaining = total_allocated - total_spent
+            
+            currency_summaries.append(CurrencyBudgetSummary(
+                currency=Currency(currency),
+                total_budgets=len(budgets),
+                active_budgets=len([b for b in budgets if b["is_active"] and b["status"] == "active"]),
+                completed_budgets=len([b for b in budgets if b["status"] == "completed"]),
+                exceeded_budgets=len([b for b in budgets if b["status"] == "exceeded"]),
+                upcoming_budgets=len([b for b in budgets if b["status"] == "upcoming"]),
+                total_allocated=total_allocated,
+                total_spent=total_spent,
+                overall_remaining=overall_remaining
+            ))
+        
+        return MultiCurrencyBudgetSummary(
+            total_budgets=total_budgets,
+            active_budgets=active_budgets,
+            completed_budgets=completed_budgets,
+            exceeded_budgets=exceeded_budgets,
+            upcoming_budgets=upcoming_budgets,
+            currency_summaries=currency_summaries
+        )
+        
+    except Exception as e:
+        print(f"Error calculating multi-currency budget summary: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to calculate budget summary"
@@ -299,6 +385,7 @@ async def get_budget(
             status=BudgetStatus(budget["status"]),
             description=budget.get("description"),
             is_active=budget["is_active"],
+            currency=Currency(budget.get("currency", "usd")),  # ADD THIS - with fallback
             created_at=budget["created_at"],
             updated_at=budget["updated_at"]
         )
@@ -353,7 +440,7 @@ async def update_budget(
                 cat_dict["spent_amount"] = 0
                 cat_dict["percentage_used"] = 0
                 cat_dict["is_exceeded"] = False
-                category_budgets.routerend(cat_dict)
+                category_budgets.append(cat_dict)
             
             update_data["category_budgets"] = category_budgets
             update_data["total_budget"] = sum(cat.allocated_amount for cat in budget_data.category_budgets)
@@ -387,6 +474,7 @@ async def update_budget(
             status=BudgetStatus(updated_budget["status"]),
             description=updated_budget.get("description"),
             is_active=updated_budget["is_active"],
+            currency=Currency(budget.get("currency", "usd")),
             created_at=updated_budget["created_at"],
             updated_at=updated_budget["updated_at"]
         )

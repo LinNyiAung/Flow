@@ -288,6 +288,82 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 
               SizedBox(height: 20),
 
+                // NEW: Currency Display (Read-only)
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.grey[100]!,
+                        Colors.grey[50]!,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.grey[600], size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Currency (Cannot be changed)',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey[300]!),
+                            ),
+                            child: Text(
+                              widget.budget.currency.symbol,
+                              style: GoogleFonts.poppins(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF667eea),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              widget.budget.currency.displayName,
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF333333),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Only ${widget.budget.currency.displayName} transactions will affect this budget',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              SizedBox(height: 20),
+
               // Name Field
               TextFormField(
                 controller: _nameController,
@@ -558,7 +634,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                               ),
                             ),
                             Text(
-                              '\$${totalBudget.toStringAsFixed(2)}',
+                              '${widget.budget.currency.symbol}${totalBudget.toStringAsFixed(2)}',  // NEW: use budget currency
                               style: GoogleFonts.poppins(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
@@ -579,7 +655,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                               ),
                             ),
                             Text(
-                              '\$${widget.budget.totalBudget.toStringAsFixed(2)}',
+                              '${widget.budget.currency.symbol}${widget.budget.totalBudget.toStringAsFixed(2)}',  // NEW: use budget currency
                               style: GoogleFonts.poppins(
                                 fontSize: 20,
                                 fontWeight: FontWeight.w600,
@@ -610,7 +686,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                             ),
                             SizedBox(width: 4),
                             Text(
-                              '${totalBudget > widget.budget.totalBudget ? '+' : ''}\$${(totalBudget - widget.budget.totalBudget).toStringAsFixed(2)}',
+                              '${totalBudget > widget.budget.totalBudget ? '+' : ''}${widget.budget.currency.symbol}${(totalBudget - widget.budget.totalBudget).toStringAsFixed(2)}',  // NEW: use budget currency
                               style: GoogleFonts.poppins(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -727,7 +803,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   ),
                 ),
                 Text(
-                  '\$${catBudget.allocatedAmount.toStringAsFixed(2)}',
+                  '${widget.budget.currency.symbol}${catBudget.allocatedAmount.toStringAsFixed(2)}',  // NEW: use budget currency
                   style: GoogleFonts.poppins(
                     fontSize: 12,
                     color: Colors.grey[600],

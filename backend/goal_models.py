@@ -3,6 +3,8 @@ from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
+from models import Currency
+
 class GoalType(str, Enum):
     SAVINGS = "savings"
     DEBT_REDUCTION = "debt_reduction"
@@ -11,10 +13,6 @@ class GoalType(str, Enum):
 class GoalStatus(str, Enum):
     ACTIVE = "active"
     ACHIEVED = "achieved"
-
-class Currency(str, Enum):  # NEW
-    USD = "usd"
-    MMK = "mmk"
 
 class GoalCreate(BaseModel):
     name: str

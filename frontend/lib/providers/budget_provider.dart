@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';  // NEW: import Currency
 import '../models/budget.dart';
 import '../services/api_service.dart';
 
@@ -7,11 +8,15 @@ class BudgetProvider with ChangeNotifier {
   BudgetSummary? _summary;
   bool _isLoading = false;
   String? _error;
+  Currency? _selectedCurrency;  // NEW: track selected currency for filtering
+  MultiCurrencyBudgetSummary? _multiCurrencySummary;
 
   List<Budget> get budgets => _budgets;
   BudgetSummary? get summary => _summary;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  Currency? get selectedCurrency => _selectedCurrency;  // NEW
+  MultiCurrencyBudgetSummary? get multiCurrencySummary => _multiCurrencySummary;
 
   List<Budget> get activeBudgets => _budgets
       .where((b) => b.isActive && b.status == BudgetStatus.active)
@@ -34,13 +39,29 @@ class BudgetProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // NEW: Set selected currency for filtering
+  void setSelectedCurrency(Currency currency) {
+    _selectedCurrency = currency;
+    notifyListeners();
+  }
+
+  Future<void> fetchMultiCurrencySummary() async {
+  try {
+    _multiCurrencySummary = await ApiService.getMultiCurrencyBudgetsSummary();
+    notifyListeners();
+  } catch (e) {
+    print("Error fetching multi-currency budgets summary: $e");
+  }
+}
+
   Future<AIBudgetSuggestion?> getAISuggestions({
     required BudgetPeriod period,
     required DateTime startDate,
     DateTime? endDate,
     List<String>? includeCategories,
     int analysisMonths = 3,
-    String? userContext, // NEW
+    String? userContext,
+    required Currency currency,  // NEW - make it required
   }) async {
     _setLoading(true);
     _setError(null);
@@ -52,7 +73,8 @@ class BudgetProvider with ChangeNotifier {
         endDate: endDate,
         includeCategories: includeCategories,
         analysisMonths: analysisMonths,
-        userContext: userContext, // NEW
+        userContext: userContext,
+        currency: currency,  // NEW
       );
 
       _setLoading(false);
@@ -72,8 +94,9 @@ class BudgetProvider with ChangeNotifier {
     required List<CategoryBudget> categoryBudgets,
     required double totalBudget,
     String? description,
-    bool autoCreateEnabled = false, // NEW
-    bool autoCreateWithAi = false, // NEW
+    bool autoCreateEnabled = false,
+    bool autoCreateWithAi = false,
+    required Currency currency,  // NEW - make it required
   }) async {
     _setLoading(true);
     _setError(null);
@@ -87,12 +110,13 @@ class BudgetProvider with ChangeNotifier {
         categoryBudgets: categoryBudgets,
         totalBudget: totalBudget,
         description: description,
-        autoCreateEnabled: autoCreateEnabled, // NEW
-        autoCreateWithAi: autoCreateWithAi, // NEW
+        autoCreateEnabled: autoCreateEnabled,
+        autoCreateWithAi: autoCreateWithAi,
+        currency: currency,  // NEW
       );
 
       _budgets.insert(0, budget);
-      await fetchSummary();
+      await fetchSummary(currency: currency);  // NEW: fetch summary for this currency
       _setLoading(false);
       return true;
     } catch (e) {
@@ -105,6 +129,7 @@ class BudgetProvider with ChangeNotifier {
   Future<void> fetchBudgets({
     bool activeOnly = false,
     BudgetPeriod? period,
+    Currency? currency,  // NEW - optional filter
   }) async {
     _setLoading(true);
     _setError(null);
@@ -113,6 +138,7 @@ class BudgetProvider with ChangeNotifier {
       _budgets = await ApiService.getBudgets(
         activeOnly: activeOnly,
         period: period,
+        currency: currency,  // NEW
       );
       _setLoading(false);
     } catch (e) {
@@ -121,9 +147,9 @@ class BudgetProvider with ChangeNotifier {
     }
   }
 
-  Future<void> fetchSummary() async {
+  Future<void> fetchSummary({Currency? currency}) async {  // NEW: add currency parameter
     try {
-      _summary = await ApiService.getBudgetsSummary();
+      _summary = await ApiService.getBudgetsSummary(currency: currency);
       notifyListeners();
     } catch (e) {
       print("Error fetching budget summary: $e");
@@ -145,8 +171,8 @@ class BudgetProvider with ChangeNotifier {
     List<CategoryBudget>? categoryBudgets,
     double? totalBudget,
     String? description,
-    bool? autoCreateEnabled, // NEW
-    bool? autoCreateWithAi, // NEW
+    bool? autoCreateEnabled,
+    bool? autoCreateWithAi,
   }) async {
     _setLoading(true);
     _setError(null);
@@ -158,8 +184,8 @@ class BudgetProvider with ChangeNotifier {
         categoryBudgets: categoryBudgets,
         totalBudget: totalBudget,
         description: description,
-        autoCreateEnabled: autoCreateEnabled, // NEW
-        autoCreateWithAi: autoCreateWithAi, // NEW
+        autoCreateEnabled: autoCreateEnabled,
+        autoCreateWithAi: autoCreateWithAi,
       );
 
       final index = _budgets.indexWhere((b) => b.id == budgetId);
@@ -167,7 +193,7 @@ class BudgetProvider with ChangeNotifier {
         _budgets[index] = updatedBudget;
       }
 
-      await fetchSummary();
+      await fetchSummary(currency: updatedBudget.currency);  // NEW: use budget's currency
       _setLoading(false);
       return true;
     } catch (e) {
@@ -182,9 +208,14 @@ class BudgetProvider with ChangeNotifier {
     _setError(null);
 
     try {
+      // Get the budget's currency before deleting
+      final budget = _budgets.firstWhere((b) => b.id == budgetId);
+      final budgetCurrency = budget.currency;
+      
       await ApiService.deleteBudget(budgetId);
       _budgets.removeWhere((b) => b.id == budgetId);
-      await fetchSummary();
+      
+      await fetchSummary(currency: budgetCurrency);  // NEW: use budget's currency
       _setLoading(false);
       return true;
     } catch (e) {
@@ -197,7 +228,7 @@ class BudgetProvider with ChangeNotifier {
   Future<void> refreshBudget(String budgetId) async {
     try {
       await ApiService.refreshBudget(budgetId);
-      await fetchBudgets();
+      await fetchBudgets(currency: _selectedCurrency);  // NEW: refresh with selected currency
     } catch (e) {
       print("Error refreshing budget: $e");
     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -17,22 +18,30 @@ class BudgetsScreen extends StatefulWidget {
 class _BudgetsScreenState extends State<BudgetsScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _activeOnly = true;
+  Currency? _selectedCurrency;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      
+      setState(() {
+        _selectedCurrency = null;
+      });
       _refreshData();
     });
   }
 
   Future<void> _refreshData() async {
-    final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
-    await Future.wait([
-      budgetProvider.fetchBudgets(activeOnly: _activeOnly),
-      budgetProvider.fetchSummary(),
-    ]);
-  }
+  final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
+  await Future.wait([
+    budgetProvider.fetchBudgets(
+      activeOnly: _activeOnly,
+      currency: _selectedCurrency,
+    ),
+    budgetProvider.fetchMultiCurrencySummary(),  // ADD this line
+  ]);
+}
 
   void _navigateToCreateBudget() async {
     final result = await Navigator.push(
@@ -184,14 +193,12 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
           child: CustomScrollView(
             slivers: [
               // Summary Card
-              if (budgetProvider.summary != null)
+              if (budgetProvider.multiCurrencySummary != null)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.all(20),
                     child: Card(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       elevation: 8,
                       child: Container(
                         padding: EdgeInsets.all(24),
@@ -214,78 +221,216 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                                     fontSize: 16,
                                   ),
                                 ),
-                                Icon(
-                                  Icons.account_balance_wallet,
-                                  color: Colors.white,
-                                ),
+                                Icon(Icons.account_balance_wallet, color: Colors.white),
                               ],
                             ),
                             SizedBox(height: 16),
+                            
+                            // Overall stats
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
                                 _buildSummaryItem(
                                   'Active',
-                                  budgetProvider.summary!.activeBudgets
-                                      .toString(),
+                                  budgetProvider.multiCurrencySummary!.activeBudgets.toString(),
                                 ),
-                                Container(
-                                  height: 40,
-                                  width: 1,
-                                  color: Colors.white.withOpacity(0.3),
-                                ),
+                                Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
                                 _buildSummaryItem(
                                   'Exceeded',
-                                  budgetProvider.summary!.exceededBudgets
-                                      .toString(),
+                                  budgetProvider.multiCurrencySummary!.exceededBudgets.toString(),
                                 ),
-                                Container(
-                                  height: 40,
-                                  width: 1,
-                                  color: Colors.white.withOpacity(0.3),
-                                ),
+                                Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
                                 _buildSummaryItem(
                                   'Total',
-                                  budgetProvider.summary!.totalBudgets
-                                      .toString(),
+                                  budgetProvider.multiCurrencySummary!.totalBudgets.toString(),
                                 ),
                               ],
                             ),
+                            
+                            SizedBox(height: 20),
+                            Divider(color: Colors.white.withOpacity(0.3), height: 1),
                             SizedBox(height: 16),
+                            
+                            // Per-currency breakdown
                             Text(
-                              '\$${budgetProvider.summary!.totalSpent.toStringAsFixed(2)} / \$${budgetProvider.summary!.totalAllocated.toStringAsFixed(2)}',
-                              style: GoogleFonts.poppins(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            LinearProgressIndicator(
-                              value: budgetProvider.summary!.totalAllocated > 0
-                                  ? budgetProvider.summary!.totalSpent /
-                                        budgetProvider.summary!.totalAllocated
-                                  : 0,
-                              backgroundColor: Colors.white.withOpacity(0.3),
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                              minHeight: 8,
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              'Remaining: \$${budgetProvider.summary!.overallRemaining.toStringAsFixed(2)}',
+                              'By Currency',
                               style: GoogleFonts.poppins(
                                 color: Colors.white.withOpacity(0.8),
-                                fontSize: 12,
+                                fontSize: 14,
                               ),
                             ),
+                            SizedBox(height: 12),
+                            
+                            ...budgetProvider.multiCurrencySummary!.currencySummaries.map((summary) {
+                              return Container(
+                                margin: EdgeInsets.only(bottom: 12),
+                                padding: EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.2),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withOpacity(0.2),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                summary.currency.name.toUpperCase(),
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Text(
+                                              summary.currency.displayName,
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 12,
+                                                color: Colors.white.withOpacity(0.9),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Text(
+                                          '${summary.activeBudgets} active',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            color: Colors.white.withOpacity(0.7),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      '${summary.displayTotalSpent} / ${summary.displayTotalAllocated}',
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(height: 6),
+                                    LinearProgressIndicator(
+                                      value: summary.percentageUsed / 100,
+                                      backgroundColor: Colors.white.withOpacity(0.2),
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      minHeight: 6,
+                                    ),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      '${summary.percentageUsed.toStringAsFixed(1)}% Used',
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.white.withOpacity(0.8),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
                           ],
                         ),
                       ),
                     ),
                   ),
                 ),
+
+              // NEW: Currency Filter Chips
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Currency',
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF333333),
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          // 'All' chip
+                          ChoiceChip(
+                            label: Text(
+                              'All Currencies',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: _selectedCurrency == null ? Colors.white : Color(0xFF667eea),
+                              ),
+                            ),
+                            selected: _selectedCurrency == null,
+                            onSelected: (selected) {
+                              setState(() {
+                                _selectedCurrency = null;
+                              });
+                              _refreshData();
+                            },
+                            selectedColor: Color(0xFF667eea),
+                            backgroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                              side: BorderSide(color: Color(0xFF667eea), width: 1),
+                            ),
+                          ),
+                          // Individual currency chips
+                          ...Currency.values.map((currency) {
+                            final isSelected = _selectedCurrency == currency;
+                            return ChoiceChip(
+                              label: Text(
+                                '${currency.symbol} ${currency.displayName}',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: isSelected ? Colors.white : Color(0xFF667eea),
+                                ),
+                              ),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setState(() {
+                                  _selectedCurrency = currency;
+                                });
+                                _refreshData();
+                              },
+                              selectedColor: Color(0xFF667eea),
+                              backgroundColor: Colors.white,
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                side: BorderSide(color: Color(0xFF667eea), width: 1),
+                              ),
+                            );
+                          }).toList(),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              SliverToBoxAdapter(child: SizedBox(height: 16)),
 
               // Filter Toggle
               SliverToBoxAdapter(
@@ -447,65 +592,82 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(statusIcon, color: statusColor),
                 ),
-                child: Icon(statusIcon, color: statusColor),
-              ),
-              SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            budget.name,
-                            style: GoogleFonts.poppins(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF333333),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              budget.name,
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF333333),
+                              ),
                             ),
                           ),
-                        ),
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            statusLabel,
-                            style: GoogleFonts.poppins(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: statusColor,
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              statusLabel,
+                              style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: statusColor,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Text(
-                          budget.period.name.toUpperCase(),
-                          style: GoogleFonts.poppins(
-                            fontSize: 11,
-                            color: Colors.grey[600],
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Text(
+                            budget.period.name.toUpperCase(),
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
                           ),
-                        ),
+                          // NEW: Show currency
+                          SizedBox(width: 8),
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              budget.currency.symbol,
+                              style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ),
                         // NEW: Show auto-create indicator
                         if (budget.autoCreateEnabled) ...[
                           SizedBox(width: 8),
@@ -591,7 +753,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    '\$${budget.totalSpent.toStringAsFixed(2)}',
+                    budget.displayTotalSpent,  // NEW: use display method
                     style: GoogleFonts.poppins(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -599,7 +761,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                     ),
                   ),
                   Text(
-                    '\$${budget.totalBudget.toStringAsFixed(2)}',
+                    budget.displayTotalBudget,  // NEW: use display method
                     style: GoogleFonts.poppins(
                       fontSize: 14,
                       color: Colors.grey[600],

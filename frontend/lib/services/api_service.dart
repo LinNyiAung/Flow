@@ -1123,124 +1123,154 @@ static Future<MultiCurrencyGoalsSummary> getMultiCurrencyGoalsSummary() async {
   }
 
   static Future<AIBudgetSuggestion> getAIBudgetSuggestions({
-    required BudgetPeriod period,
-    required DateTime startDate,
-    DateTime? endDate,
-    List<String>? includeCategories,
-    int analysisMonths = 3,
-    String? userContext, // NEW
-  }) async {
-    final Map<String, dynamic> requestBody = {
-      'period': period.name,
-      'start_date': startDate.toUtc().toIso8601String(),
-      'analysis_months': analysisMonths,
-    };
+  required BudgetPeriod period,
+  required DateTime startDate,
+  DateTime? endDate,
+  List<String>? includeCategories,
+  int analysisMonths = 3,
+  String? userContext,
+  required Currency currency,  // NEW - make it required
+}) async {
+  final Map<String, dynamic> requestBody = {
+    'period': period.name,
+    'start_date': startDate.toUtc().toIso8601String(),
+    'analysis_months': analysisMonths,
+    'currency': currency.name,  // NEW
+  };
 
-    if (endDate != null) {
-      requestBody['end_date'] = endDate.toUtc().toIso8601String();
-    }
-
-    if (includeCategories != null && includeCategories.isNotEmpty) {
-      requestBody['include_categories'] = includeCategories;
-    }
-
-    if (userContext != null && userContext.isNotEmpty) {
-      // NEW
-      requestBody['user_context'] = userContext;
-    }
-
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/budgets/ai-suggest'),
-      headers: await _getHeaders(),
-      body: jsonEncode(requestBody),
-    );
-
-    if (response.statusCode == 200) {
-      return AIBudgetSuggestion.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to get AI budget suggestions');
-    }
+  if (endDate != null) {
+    requestBody['end_date'] = endDate.toUtc().toIso8601String();
   }
+
+  if (includeCategories != null && includeCategories.isNotEmpty) {
+    requestBody['include_categories'] = includeCategories;
+  }
+
+  if (userContext != null && userContext.isNotEmpty) {
+    requestBody['user_context'] = userContext;
+  }
+
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/budgets/ai-suggest'),
+    headers: await _getHeaders(),
+    body: jsonEncode(requestBody),
+  );
+
+  if (response.statusCode == 200) {
+    return AIBudgetSuggestion.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to get AI budget suggestions');
+  }
+}
 
   static Future<Budget> createBudget({
-    required String name,
-    required BudgetPeriod period,
-    required DateTime startDate,
-    DateTime? endDate,
-    required List<CategoryBudget> categoryBudgets,
-    required double totalBudget,
-    String? description,
-    bool autoCreateEnabled = false, // NEW
-    bool autoCreateWithAi = false, // NEW
-  }) async {
-    final Map<String, dynamic> requestBody = {
-      'name': name,
-      'period': period.name,
-      'start_date': startDate.toUtc().toIso8601String(),
-      'category_budgets': categoryBudgets.map((cat) => cat.toJson()).toList(),
-      'total_budget': totalBudget,
-      'auto_create_enabled': autoCreateEnabled, // NEW
-      'auto_create_with_ai': autoCreateWithAi, // NEW
-    };
+  required String name,
+  required BudgetPeriod period,
+  required DateTime startDate,
+  DateTime? endDate,
+  required List<CategoryBudget> categoryBudgets,
+  required double totalBudget,
+  String? description,
+  bool autoCreateEnabled = false,
+  bool autoCreateWithAi = false,
+  required Currency currency,  // NEW - make it required
+}) async {
+  final Map<String, dynamic> requestBody = {
+    'name': name,
+    'period': period.name,
+    'start_date': startDate.toUtc().toIso8601String(),
+    'category_budgets': categoryBudgets.map((cat) => cat.toJson()).toList(),
+    'total_budget': totalBudget,
+    'auto_create_enabled': autoCreateEnabled,
+    'auto_create_with_ai': autoCreateWithAi,
+    'currency': currency.name,  // NEW
+  };
 
-    if (endDate != null) {
-      requestBody['end_date'] = endDate.toUtc().toIso8601String();
-    }
-
-    if (description != null) {
-      requestBody['description'] = description;
-    }
-
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/budgets'),
-      headers: await _getHeaders(),
-      body: jsonEncode(requestBody),
-    );
-
-    if (response.statusCode == 200) {
-      return Budget.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to create budget');
-    }
+  if (endDate != null) {
+    requestBody['end_date'] = endDate.toUtc().toIso8601String();
   }
+
+  if (description != null) {
+    requestBody['description'] = description;
+  }
+
+  final response = await http.post(
+    Uri.parse('$baseUrl/api/budgets'),
+    headers: await _getHeaders(),
+    body: jsonEncode(requestBody),
+  );
+
+  if (response.statusCode == 200) {
+    return Budget.fromJson(jsonDecode(response.body));
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to create budget');
+  }
+}
 
   static Future<List<Budget>> getBudgets({
-    bool activeOnly = false,
-    BudgetPeriod? period,
-  }) async {
-    String url = '$baseUrl/api/budgets?active_only=$activeOnly';
+  bool activeOnly = false,
+  BudgetPeriod? period,
+  Currency? currency,  // NEW - optional filter
+}) async {
+  String url = '$baseUrl/api/budgets?active_only=$activeOnly';
 
-    if (period != null) {
-      url += '&period=${period.name}';
-    }
-
-    final response = await http.get(
-      Uri.parse(url),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
-      return data.map((json) => Budget.fromJson(json)).toList();
-    } else {
-      throw Exception('Failed to get budgets');
-    }
+  if (period != null) {
+    url += '&period=${period.name}';
   }
 
-  static Future<BudgetSummary> getBudgetsSummary() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/budgets/summary'),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      return BudgetSummary.fromJson(jsonDecode(response.body));
-    } else {
-      throw Exception('Failed to get budgets summary');
-    }
+  if (currency != null) {  // NEW
+    url += '&currency=${currency.name}';
   }
+
+  final response = await http.get(
+    Uri.parse(url),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    final List<dynamic> data = jsonDecode(response.body);
+    return data.map((json) => Budget.fromJson(json)).toList();
+  } else {
+    throw Exception('Failed to get budgets');
+  }
+}
+
+  static Future<BudgetSummary> getBudgetsSummary({
+  Currency? currency,  // NEW - optional, will use user's default if not provided
+}) async {
+  String url = '$baseUrl/api/budgets/summary';
+  
+  if (currency != null) {
+    url += '?currency=${currency.name}';
+  }
+  
+  final response = await http.get(
+    Uri.parse(url),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return BudgetSummary.fromJson(jsonDecode(response.body));
+  } else {
+    throw Exception('Failed to get budgets summary');
+  }
+}
+
+
+static Future<MultiCurrencyBudgetSummary> getMultiCurrencyBudgetsSummary() async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/api/budgets/summary/all-currencies'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    return MultiCurrencyBudgetSummary.fromJson(jsonDecode(response.body));
+  } else {
+    throw Exception('Failed to get multi-currency budgets summary');
+  }
+}
 
   static Future<Budget> getBudget(String budgetId) async {
     final response = await http.get(

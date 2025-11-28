@@ -251,130 +251,135 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
             children: [
               // Budget Overview Card
               Container(
-                padding: EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: _budget.isUpcoming
-                        ? [Color(0xFF2196F3), Color(0xFF1976D2)]
-                        : [Color(0xFF667eea), Color(0xFF764ba2)],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: statusColor.withOpacity(0.3),
-                      spreadRadius: 2,
-                      blurRadius: 8,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
+              padding: EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: _budget.isUpcoming
+                      ? [Color(0xFF2196F3), Color(0xFF1976D2)]
+                      : [Color(0xFF667eea), Color(0xFF764ba2)],
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _budget.name,
-                            style: GoogleFonts.poppins(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                _getStatusIcon(),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: statusColor.withOpacity(0.3),
+                    spreadRadius: 2,
+                    blurRadius: 8,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _budget.name,
+                              style: GoogleFonts.poppins(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
                                 color: Colors.white,
-                                size: 16,
                               ),
-                              SizedBox(width: 4),
-                              Text(
-                                _getStatusLabel(),
-                                style: GoogleFonts.poppins(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
+                            ),
+                            // NEW: Show currency
+                            Text(
+                              _budget.currency.displayName,
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                color: Colors.white.withOpacity(0.8),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      _budget.period.name.toUpperCase(),
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.8),
                       ),
-                    ),
-                    if (_budget.description != null) ...[
-                      SizedBox(height: 8),
-                      Text(
-                        _budget.description!,
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color: Colors.white.withOpacity(0.9),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(_getStatusIcon(), color: Colors.white, size: 16),
+                            SizedBox(width: 4),
+                            Text(
+                              _getStatusLabel(),
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
-                    SizedBox(height: 20),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    _budget.period.name.toUpperCase(),
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.white.withOpacity(0.8),
+                    ),
+                  ),
+                  if (_budget.description != null) ...[
+                    SizedBox(height: 8),
+                    Text(
+                      _budget.description!,
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        color: Colors.white.withOpacity(0.9),
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: 20),
 
-                    
+                  // NEW: Use display methods with currency
+                  Text(
+                    '${_budget.displayTotalSpent} / ${_budget.displayTotalBudget}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  LinearProgressIndicator(
+                    value: _budget.percentageUsed / 100,
+                    backgroundColor: Colors.white.withOpacity(0.3),
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    minHeight: 8,
+                  ),
+                  SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
                       Text(
-                        '\$${_budget.totalSpent.toStringAsFixed(2)} / \$${_budget.totalBudget.toStringAsFixed(2)}',
+                        '${_budget.percentageUsed.toStringAsFixed(1)}% Used',
                         style: GoogleFonts.poppins(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: Colors.white.withOpacity(0.8),
+                        ),
+                      ),
+                      Text(
+                        'Remaining: ${_budget.displayRemainingBudget}',  // NEW: use display method
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                           color: Colors.white,
                         ),
                       ),
-                      SizedBox(height: 12),
-                      LinearProgressIndicator(
-                        value: _budget.percentageUsed / 100,
-                        backgroundColor: Colors.white.withOpacity(0.3),
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        minHeight: 8,
-                      ),
-                      SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '${_budget.percentageUsed.toStringAsFixed(1)}% Used',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              color: Colors.white.withOpacity(0.8),
-                            ),
-                          ),
-                          Text(
-                            'Remaining: \$${_budget.remainingBudget.toStringAsFixed(2)}',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
-                  
-                ),
+                  ),
+                ],
               ),
+            ),
 
               if (_budget.isAutoCreated) ...[
               SizedBox(height: 16),
@@ -593,9 +598,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               SizedBox(height: 12),
 
               ..._budget.categoryBudgets.map((catBudget) {
-                return _buildCategoryCard(catBudget);
-              }).toList(),
-
+              return _buildCategoryCard(catBudget);
+            }).toList(),
               SizedBox(height: 24),
 
               // Budget Tips
@@ -779,25 +783,25 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           ),
           SizedBox(height: 12),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '\$${catBudget.spentAmount.toStringAsFixed(2)}',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: statusColor,
-                ),
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${_budget.currency.symbol}${catBudget.spentAmount.toStringAsFixed(2)}',  // NEW: use budget currency
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: statusColor,
               ),
-              Text(
-                '\$${catBudget.allocatedAmount.toStringAsFixed(2)}',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
+            ),
+            Text(
+              '${_budget.currency.symbol}${catBudget.allocatedAmount.toStringAsFixed(2)}',  // NEW: use budget currency
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: Colors.grey[600],
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
           SizedBox(height: 8),
           LinearProgressIndicator(
             value: catBudget.percentageUsed / 100,
@@ -807,27 +811,27 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           ),
           SizedBox(height: 4),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${catBudget.percentageUsed.toStringAsFixed(1)}% Used',
-                style: GoogleFonts.poppins(
-                  fontSize: 11,
-                  color: Colors.grey[600],
-                ),
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${catBudget.percentageUsed.toStringAsFixed(1)}% Used',
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                color: Colors.grey[600],
               ),
-              Text(
-                'Remaining: \$${(catBudget.allocatedAmount - catBudget.spentAmount).toStringAsFixed(2)}',
-                style: GoogleFonts.poppins(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: statusColor,
-                ),
+            ),
+            Text(
+              'Remaining: ${_budget.currency.symbol}${(catBudget.allocatedAmount - catBudget.spentAmount).toStringAsFixed(2)}',  // NEW: use budget currency
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: statusColor,
               ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
 }

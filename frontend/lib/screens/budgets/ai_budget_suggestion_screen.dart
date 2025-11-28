@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -10,12 +11,14 @@ class AIBudgetSuggestionScreen extends StatefulWidget {
   final DateTime startDate;
   final DateTime? endDate;
   final String? userContext; // NEW
+  final Currency currency;
 
   AIBudgetSuggestionScreen({
     required this.period,
     required this.startDate,
     this.endDate,
     this.userContext, // NEW
+    required this.currency,
   });
 
   @override
@@ -51,6 +54,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
       endDate: widget.endDate,
       analysisMonths: _analysisMonths,
       userContext: widget.userContext,
+      currency: widget.currency,
     );
 
     setState(() {
@@ -222,7 +226,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     ),
                     SizedBox(height: 16),
                     Text(
-                      'Analyzing your spending patterns...',
+                      'Analyzing your ${widget.currency.displayName} spending patterns...',  // NEW
                       style: GoogleFonts.poppins(color: Colors.grey[600]),
                     ),
                   ],
@@ -487,6 +491,11 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               ),
               _buildInfoRow(
                 Icons.attach_money,
+                'Currency',
+                _suggestion!.currency.displayName,  // NEW
+              ),
+              _buildInfoRow(
+                Icons.attach_money,
                 'Total Budget',
                 '\$${_suggestion!.totalBudget.toStringAsFixed(2)}',
               ),
@@ -587,13 +596,14 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                       ),
                     ),
                     Text(
-                      '\$${catBudget.allocatedAmount.toStringAsFixed(2)}',
+                      '${_suggestion!.currency.symbol}${catBudget.allocatedAmount.toStringAsFixed(2)}',  // NEW: use currency symbol
                       style: GoogleFonts.poppins(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF667eea),
                       ),
                     ),
+                  
                   ],
                 ),
                 SizedBox(height: 8),

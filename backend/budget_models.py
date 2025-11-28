@@ -3,6 +3,8 @@ from typing import Any, Optional, List, Dict
 from datetime import datetime
 from enum import Enum
 
+from models import Currency
+
 class BudgetPeriod(str, Enum):
     WEEKLY = "weekly"
     MONTHLY = "monthly"
@@ -10,7 +12,7 @@ class BudgetPeriod(str, Enum):
     CUSTOM = "custom"
 
 class BudgetStatus(str, Enum):
-    UPCOMING = "upcoming"  # Added - budget hasn't started yet
+    UPCOMING = "upcoming"
     ACTIVE = "active"
     COMPLETED = "completed"
     EXCEEDED = "exceeded"
@@ -30,16 +32,18 @@ class BudgetCreate(BaseModel):
     category_budgets: List[CategoryBudget]
     total_budget: float
     description: Optional[str] = None
-    auto_create_enabled: bool = False  # NEW
-    auto_create_with_ai: bool = False  # NEW
+    auto_create_enabled: bool = False
+    auto_create_with_ai: bool = False
+    currency: Currency  # NEW
 
 class BudgetUpdate(BaseModel):
     name: Optional[str] = None
     category_budgets: Optional[List[CategoryBudget]] = None
     total_budget: Optional[float] = None
     description: Optional[str] = None
-    auto_create_enabled: Optional[bool] = None  # NEW
-    auto_create_with_ai: Optional[bool] = None  # NEW
+    auto_create_enabled: Optional[bool] = None
+    auto_create_with_ai: Optional[bool] = None
+    # Note: currency cannot be changed after creation
 
 class BudgetResponse(BaseModel):
     id: str
@@ -58,19 +62,21 @@ class BudgetResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    auto_create_enabled: bool = False  # NEW
-    auto_create_with_ai: bool = False  # NEW
-    parent_budget_id: Optional[str] = None  # NEW - to track budget lineage
+    auto_create_enabled: bool = False
+    auto_create_with_ai: bool = False
+    parent_budget_id: Optional[str] = None
+    currency: Currency  # NEW
 
 class BudgetSummary(BaseModel):
     total_budgets: int
     active_budgets: int
     completed_budgets: int
     exceeded_budgets: int
-    upcoming_budgets: int  # Added
+    upcoming_budgets: int
     total_allocated: float
     total_spent: float
     overall_remaining: float
+    currency: Currency  # NEW - for filtered summary
 
 class AIBudgetRequest(BaseModel):
     period: BudgetPeriod
@@ -78,9 +84,10 @@ class AIBudgetRequest(BaseModel):
     end_date: Optional[datetime] = None
     name: Optional[str] = None
     description: Optional[str] = None
-    include_categories: Optional[List[str]] = None  # Specific categories to budget for
-    analysis_months: Optional[int] = 3  # How many months of history to analyze
-    user_context: Optional[str] = None  # NEW: User-provided context for AI
+    include_categories: Optional[List[str]] = None
+    analysis_months: Optional[int] = 3
+    user_context: Optional[str] = None
+    currency: Currency  # NEW
 
 class AIBudgetSuggestion(BaseModel):
     suggested_name: str
@@ -90,6 +97,27 @@ class AIBudgetSuggestion(BaseModel):
     category_budgets: List[CategoryBudget]
     total_budget: float
     reasoning: str
-    data_confidence: float  # 0.0-1.0, how confident the AI is based on available data
-    warnings: List[str]  # Warnings about data insufficiency
-    analysis_summary: Dict[str, Any]  # Summary of the analysis performed
+    data_confidence: float
+    warnings: List[str]
+    analysis_summary: Dict[str, Any]
+    currency: Currency  # NEW
+    
+    
+class CurrencyBudgetSummary(BaseModel):
+    currency: Currency
+    total_budgets: int
+    active_budgets: int
+    completed_budgets: int
+    exceeded_budgets: int
+    upcoming_budgets: int
+    total_allocated: float
+    total_spent: float
+    overall_remaining: float
+
+class MultiCurrencyBudgetSummary(BaseModel):
+    total_budgets: int
+    active_budgets: int
+    completed_budgets: int
+    exceeded_budgets: int
+    upcoming_budgets: int
+    currency_summaries: List[CurrencyBudgetSummary]

@@ -22,14 +22,15 @@ class BudgetAnalyzer:
     def __init__(self, user_id: str):
         self.user_id = user_id
     
-    def analyze_spending_patterns(self, months: int = 3) -> Dict:
-        """Analyze user's spending patterns over the last N months"""
+    def analyze_spending_patterns(self, months: int = 3, currency: str = "usd") -> Dict:  # NEW: add currency parameter
+        """Analyze user's spending patterns over the last N months for specific currency"""
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
         
         transactions = list(transactions_collection.find({
             "user_id": self.user_id,
             "date": {"$gte": cutoff_date},
-            "type": "outflow"
+            "type": "outflow",
+            "currency": currency  # NEW: filter by currency
         }))
         
         if len(transactions) < 10:
@@ -68,7 +69,8 @@ class BudgetAnalyzer:
         income_transactions = list(transactions_collection.find({
             "user_id": self.user_id,
             "date": {"$gte": cutoff_date},
-            "type": "inflow"
+            "type": "inflow",
+            "currency": currency  # NEW: filter by currency
         }))
         
         total_income = sum(t["amount"] for t in income_transactions)
@@ -77,7 +79,8 @@ class BudgetAnalyzer:
         # Check goals
         goals = list(goals_collection.find({
             "user_id": self.user_id,
-            "status": "active"
+            "status": "active",
+            "currency": currency  # NEW: filter by currency
         }))
         
         total_goal_target = sum(g["target_amount"] for g in goals)
@@ -150,12 +153,13 @@ class BudgetAnalyzer:
         end_date: Optional[datetime] = None,
         analysis_months: int = 3,
         include_categories: Optional[List[str]] = None,
-        user_context: Optional[str] = None  # NEW
+        user_context: Optional[str] = None,
+        currency: str = "usd"  # NEW parameter
     ) -> AIBudgetSuggestion:
-        """Generate AI budget suggestions"""
+        """Generate AI budget suggestions for specific currency"""
         
-        # Analyze spending patterns
-        analysis = self.analyze_spending_patterns(analysis_months)
+        # Analyze spending patterns for the specified currency
+        analysis = self.analyze_spending_patterns(analysis_months, currency)  # NEW: pass currency
         
         warnings = []
         data_confidence = 1.0
@@ -177,7 +181,7 @@ class BudgetAnalyzer:
         # Use OpenAI to generate smart suggestions
         if settings.OPENAI_API_KEY and analysis["sufficient_data"]:
             suggestions = await self._generate_with_ai(
-                analysis, period, days_in_period, include_categories, user_context  # NEW parameter
+                analysis, period, days_in_period, include_categories, user_context, currency  # NEW parameter
             )
         else:
             suggestions = self._generate_basic_suggestions(
@@ -207,6 +211,7 @@ class BudgetAnalyzer:
             reasoning=suggestions["reasoning"],
             data_confidence=data_confidence,
             warnings=warnings,
+            currency=currency,  # NEW
             analysis_summary={
                 "transaction_count": analysis.get("transaction_count", 0),
                 "analysis_months": analysis_months,
@@ -223,12 +228,16 @@ class BudgetAnalyzer:
         period: BudgetPeriod,
         days_in_period: int,
         include_categories: Optional[List[str]],
-        user_context: Optional[str] = None
+        user_context: Optional[str] = None,
+        currency: str = "usd"
     ) -> Dict:
         """Use OpenAI to generate intelligent budget suggestions with sub-categories"""
         from openai import AsyncOpenAI
         
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        
+        currency_symbol = "$" if currency == "usd" else "K"
         
         # Fetch available categories with sub-categories from database
         outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
@@ -310,20 +319,23 @@ class BudgetAnalyzer:
         "reasoning": "Detailed explanation of budget suggestions including why certain sub-categories were chosen"
     }}"""
 
-        user_prompt = f"""Based on this financial data, suggest a {period.value} budget:
+        user_prompt = f"""Based on this financial data, suggest a {period.value} budget in {currency.upper()}:
 
-    SPENDING ANALYSIS:
-    {json.dumps(context, indent=2)}
+SPENDING ANALYSIS:
+{json.dumps(context, indent=2)}
 
-    {f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for relevant spending categories. Include specific sub-category budgets where spending patterns suggest it would be helpful."}
+All amounts should be in {currency.upper()} ({currency_symbol}).
 
-    Calculate budgets for {days_in_period} days period.
+{f"Focus on these categories: {', '.join(include_categories)}" if include_categories else "Suggest budgets for relevant spending categories. Include specific sub-category budgets where spending patterns suggest it would be helpful."}
 
-    REMEMBER: 
-    - Only use categories/sub-categories from the AVAILABLE CATEGORIES list
-    - If you suggest budget for both main category AND its sub-categories, the budget for main category must be greater than its sub-categories combined
-    - Budget for SPECIFIC SUB-CATEGORIES as much as possible rather than just a MAIN CATEGORY
-    - Use sub-category budgets when spending patterns show clear distinctions"""
+Calculate budgets for {days_in_period} days period.
+
+REMEMBER: 
+- Only use categories/sub-categories from the AVAILABLE CATEGORIES list
+- If you suggest budget for both main category AND its sub-categories, the budget for main category must be greater than its sub-categories combined
+- Budget for SPECIFIC SUB-CATEGORIES as much as possible rather than just a MAIN CATEGORY
+- Use sub-category budgets when spending patterns show clear distinctions
+- All amounts must be in {currency.upper()}"""
 
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -546,10 +558,14 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
     for cat_budget in budget["category_budgets"]:
         old_category_percentages[cat_budget["main_category"]] = cat_budget.get("percentage_used", 0)
     
-    # Get all transactions in budget period
+    # Get budget currency
+    budget_currency = budget.get("currency", "usd")  # NEW: get budget currency
+    
+    # Get all transactions in budget period WITH SAME CURRENCY
     transactions = list(transactions_collection.find({
         "user_id": user_id,
         "type": "outflow",
+        "currency": budget_currency,  # NEW: filter by currency
         "date": {
             "$gte": budget["start_date"],
             "$lte": budget["end_date"]

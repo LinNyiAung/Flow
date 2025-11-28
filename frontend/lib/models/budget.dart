@@ -1,6 +1,8 @@
+import 'package:frontend/models/user.dart';  // NEW: import Currency
+
 enum BudgetPeriod { weekly, monthly, yearly, custom }
 
-enum BudgetStatus { active, completed, exceeded, upcoming } // Added upcoming
+enum BudgetStatus { active, completed, exceeded, upcoming }
 
 class CategoryBudget {
   final String mainCategory;
@@ -55,9 +57,10 @@ class Budget {
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final bool autoCreateEnabled;  // NEW
-  final bool autoCreateWithAi;   // NEW
-  final String? parentBudgetId;  // NEW
+  final bool autoCreateEnabled;
+  final bool autoCreateWithAi;
+  final String? parentBudgetId;
+  final Currency currency;  // NEW
 
   Budget({
     required this.id,
@@ -76,9 +79,10 @@ class Budget {
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
-    this.autoCreateEnabled = false,  // NEW
-    this.autoCreateWithAi = false,   // NEW
-    this.parentBudgetId,             // NEW
+    this.autoCreateEnabled = false,
+    this.autoCreateWithAi = false,
+    this.parentBudgetId,
+    required this.currency,  // NEW
   });
 
   bool get isUpcoming {
@@ -86,8 +90,20 @@ class Budget {
     return now.isBefore(startDate.toUtc());
   }
   
-  // NEW: Check if this was auto-created
   bool get isAutoCreated => parentBudgetId != null;
+
+  // NEW: Display amount with currency symbol
+  String get displayTotalBudget {
+    return '${currency.symbol}${totalBudget.toStringAsFixed(2)}';
+  }
+
+  String get displayTotalSpent {
+    return '${currency.symbol}${totalSpent.toStringAsFixed(2)}';
+  }
+
+  String get displayRemainingBudget {
+    return '${currency.symbol}${remainingBudget.toStringAsFixed(2)}';
+  }
 
   factory Budget.fromJson(Map<String, dynamic> json) {
     return Budget(
@@ -109,9 +125,10 @@ class Budget {
       isActive: json['is_active'],
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
-      autoCreateEnabled: json['auto_create_enabled'] ?? false,  // NEW
-      autoCreateWithAi: json['auto_create_with_ai'] ?? false,   // NEW
-      parentBudgetId: json['parent_budget_id'],                 // NEW
+      autoCreateEnabled: json['auto_create_enabled'] ?? false,
+      autoCreateWithAi: json['auto_create_with_ai'] ?? false,
+      parentBudgetId: json['parent_budget_id'],
+      currency: Currency.fromString(json['currency'] ?? 'usd'),  // NEW with fallback
     );
   }
 }
@@ -121,21 +138,36 @@ class BudgetSummary {
   final int activeBudgets;
   final int completedBudgets;
   final int exceededBudgets;
-  final int upcomingBudgets; // Added
+  final int upcomingBudgets;
   final double totalAllocated;
   final double totalSpent;
   final double overallRemaining;
+  final Currency currency;  // NEW
 
   BudgetSummary({
     required this.totalBudgets,
     required this.activeBudgets,
     required this.completedBudgets,
     required this.exceededBudgets,
-    required this.upcomingBudgets, // Added
+    required this.upcomingBudgets,
     required this.totalAllocated,
     required this.totalSpent,
     required this.overallRemaining,
+    required this.currency,  // NEW
   });
+
+  // NEW: Display methods
+  String get displayTotalAllocated {
+    return '${currency.symbol}${totalAllocated.toStringAsFixed(2)}';
+  }
+
+  String get displayTotalSpent {
+    return '${currency.symbol}${totalSpent.toStringAsFixed(2)}';
+  }
+
+  String get displayOverallRemaining {
+    return '${currency.symbol}${overallRemaining.toStringAsFixed(2)}';
+  }
 
   factory BudgetSummary.fromJson(Map<String, dynamic> json) {
     return BudgetSummary(
@@ -143,10 +175,11 @@ class BudgetSummary {
       activeBudgets: json['active_budgets'],
       completedBudgets: json['completed_budgets'],
       exceededBudgets: json['exceeded_budgets'],
-      upcomingBudgets: json['upcoming_budgets'] ?? 0, // Added with fallback
+      upcomingBudgets: json['upcoming_budgets'] ?? 0,
       totalAllocated: json['total_allocated'].toDouble(),
       totalSpent: json['total_spent'].toDouble(),
       overallRemaining: json['overall_remaining'].toDouble(),
+      currency: Currency.fromString(json['currency'] ?? 'usd'),  // NEW with fallback
     );
   }
 }
@@ -162,6 +195,7 @@ class AIBudgetSuggestion {
   final double dataConfidence;
   final List<String> warnings;
   final Map<String, dynamic> analysisSummary;
+  final Currency currency;  // NEW
 
   AIBudgetSuggestion({
     required this.suggestedName,
@@ -174,6 +208,7 @@ class AIBudgetSuggestion {
     required this.dataConfidence,
     required this.warnings,
     required this.analysisSummary,
+    required this.currency,  // NEW
   });
 
   factory AIBudgetSuggestion.fromJson(Map<String, dynamic> json) {
@@ -190,6 +225,105 @@ class AIBudgetSuggestion {
       dataConfidence: json['data_confidence'].toDouble(),
       warnings: List<String>.from(json['warnings']),
       analysisSummary: json['analysis_summary'],
+      currency: Currency.fromString(json['currency'] ?? 'usd'),  // NEW with fallback
     );
+  }
+}
+
+
+class CurrencyBudgetSummary {
+  final Currency currency;
+  final int totalBudgets;
+  final int activeBudgets;
+  final int completedBudgets;
+  final int exceededBudgets;
+  final int upcomingBudgets;
+  final double totalAllocated;
+  final double totalSpent;
+  final double overallRemaining;
+
+  CurrencyBudgetSummary({
+    required this.currency,
+    required this.totalBudgets,
+    required this.activeBudgets,
+    required this.completedBudgets,
+    required this.exceededBudgets,
+    required this.upcomingBudgets,
+    required this.totalAllocated,
+    required this.totalSpent,
+    required this.overallRemaining,
+  });
+
+  factory CurrencyBudgetSummary.fromJson(Map<String, dynamic> json) {
+    return CurrencyBudgetSummary(
+      currency: Currency.fromString(json['currency']),
+      totalBudgets: json['total_budgets'],
+      activeBudgets: json['active_budgets'],
+      completedBudgets: json['completed_budgets'],
+      exceededBudgets: json['exceeded_budgets'],
+      upcomingBudgets: json['upcoming_budgets'],
+      totalAllocated: json['total_allocated'].toDouble(),
+      totalSpent: json['total_spent'].toDouble(),
+      overallRemaining: json['overall_remaining'].toDouble(),
+    );
+  }
+
+  String get displayTotalAllocated {
+    return '${currency.symbol}${totalAllocated.toStringAsFixed(2)}';
+  }
+
+  String get displayTotalSpent {
+    return '${currency.symbol}${totalSpent.toStringAsFixed(2)}';
+  }
+
+  String get displayOverallRemaining {
+    return '${currency.symbol}${overallRemaining.toStringAsFixed(2)}';
+  }
+
+  double get percentageUsed {
+    return totalAllocated > 0 ? (totalSpent / totalAllocated * 100) : 0;
+  }
+}
+
+class MultiCurrencyBudgetSummary {
+  final int totalBudgets;
+  final int activeBudgets;
+  final int completedBudgets;
+  final int exceededBudgets;
+  final int upcomingBudgets;
+  final List<CurrencyBudgetSummary> currencySummaries;
+
+  MultiCurrencyBudgetSummary({
+    required this.totalBudgets,
+    required this.activeBudgets,
+    required this.completedBudgets,
+    required this.exceededBudgets,
+    required this.upcomingBudgets,
+    required this.currencySummaries,
+  });
+
+  factory MultiCurrencyBudgetSummary.fromJson(Map<String, dynamic> json) {
+    return MultiCurrencyBudgetSummary(
+      totalBudgets: json['total_budgets'],
+      activeBudgets: json['active_budgets'],
+      completedBudgets: json['completed_budgets'],
+      exceededBudgets: json['exceeded_budgets'],
+      upcomingBudgets: json['upcoming_budgets'],
+      currencySummaries: (json['currency_summaries'] as List)
+          .map((e) => CurrencyBudgetSummary.fromJson(e))
+          .toList(),
+    );
+  }
+
+  CurrencyBudgetSummary? getSummaryForCurrency(Currency currency) {
+    try {
+      return currencySummaries.firstWhere((s) => s.currency == currency);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  List<Currency> get currencies {
+    return currencySummaries.map((s) => s.currency).toList();
   }
 }

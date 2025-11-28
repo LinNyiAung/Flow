@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -33,6 +34,22 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   bool _autoCreateWithAi = false;
 
   bool _showAiFeatures = false;
+
+
+  Currency _selectedCurrency = Currency.usd;
+
+
+  @override
+  void initState() {
+    super.initState();
+    // NEW: Set default currency from user's preference
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      setState(() {
+        _selectedCurrency = authProvider.defaultCurrency;
+      });
+    });
+  }
 
   @override
   void dispose() {
@@ -281,25 +298,23 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   }
 
 void _navigateToAISuggestion() async {
-  final authProvider = Provider.of<AuthProvider>(context, listen: false);
-  
-  // Check if user is premium
-  if (!authProvider.isPremium) {
-    Navigator.pushNamed(context, '/subscription');
-    return;
-  }
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    
+    if (!authProvider.isPremium) {
+      Navigator.pushNamed(context, '/subscription');
+      return;
+    }
 
-  if (_selectedPeriod == BudgetPeriod.custom && _endDate == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Please select end date for custom period'),
-        backgroundColor: Colors.red,
-      ),
-    );
-    return;
-  }
+    if (_selectedPeriod == BudgetPeriod.custom && _endDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please select end date for custom period'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-    // Get context from the text field
     final userContext = _contextController.text.trim().isEmpty
         ? null
         : _contextController.text.trim();
@@ -311,7 +326,8 @@ void _navigateToAISuggestion() async {
           period: _selectedPeriod,
           startDate: _startDate,
           endDate: _endDate,
-          userContext: userContext, // Pass context from field
+          userContext: userContext,
+          currency: _selectedCurrency,  // NEW: pass currency
         ),
       ),
     );
@@ -320,6 +336,7 @@ void _navigateToAISuggestion() async {
       setState(() {
         _nameController.text = result.suggestedName;
         _categoryBudgets = result.categoryBudgets;
+        // Currency should match what was used for AI suggestion
       });
     }
   }
@@ -362,8 +379,9 @@ void _navigateToAISuggestion() async {
           description: _descriptionController.text.isEmpty
               ? null
               : _descriptionController.text,
-          autoCreateEnabled: _autoCreateEnabled, // NEW
-          autoCreateWithAi: _autoCreateWithAi, // NEW
+          autoCreateEnabled: _autoCreateEnabled,
+          autoCreateWithAi: _autoCreateWithAi,
+          currency: _selectedCurrency,  // NEW: add currency
         );
 
     setState(() => _isLoading = false);
@@ -416,6 +434,87 @@ void _navigateToAISuggestion() async {
           child: ListView(
             padding: EdgeInsets.all(20),
             children: [
+              // NEW: Currency Selector (Add this BEFORE the AI Features section)
+              Text(
+                'Currency',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
+                ),
+              ),
+              SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.1),
+                      spreadRadius: 2,
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: DropdownButtonFormField<Currency>(
+                  decoration: InputDecoration(
+                    hintText: 'Select currency for this budget',
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.all(20),
+                    prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
+                  ),
+                  value: _selectedCurrency,
+                  items: Currency.values.map((currency) {
+                    return DropdownMenuItem(
+                      value: currency,
+                      child: Text(
+                        '${currency.symbol} - ${currency.displayName}',
+                        style: GoogleFonts.poppins(fontSize: 14),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedCurrency = value!;
+                    });
+                  },
+                  validator: (value) {
+                    if (value == null) {
+                      return 'Please select a currency';
+                    }
+                    return null;
+                  },
+                ),
+              ),
+              SizedBox(height: 12),
+              
+              // Info note about currency
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Color(0xFF2196F3).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Color(0xFF2196F3).withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Color(0xFF2196F3), size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Only transactions in ${_selectedCurrency.displayName} will affect this budget',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Color(0xFF2196F3),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 24),
               // NEW: Collapsible AI Features Section
               Container(
                 margin: EdgeInsets.only(bottom: 20),
@@ -1032,7 +1131,7 @@ void _navigateToAISuggestion() async {
                       ),
                     ),
                     Text(
-                      '\$${totalBudget.toStringAsFixed(2)}',
+                      '${_selectedCurrency.symbol}${totalBudget.toStringAsFixed(2)}',  // NEW: use selected currency
                       style: GoogleFonts.poppins(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
