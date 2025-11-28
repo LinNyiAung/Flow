@@ -8,19 +8,28 @@ from reportlab.platypus import Image as RLImage
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from datetime import datetime, UTC, timezone, timedelta
 from io import BytesIO
+from models import Currency
 from report_models import FinancialReport
 
-def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_timezone_offset: int = 0) -> BytesIO:
+def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_timezone_offset: int = 0, currency: Currency = None) -> BytesIO:
     """
-    Generate a PDF financial report
+    Generate a PDF financial report with currency support
     
     Args:
         report: The financial report data
         user_name: Name of the user
-        user_timezone_offset: Timezone offset in minutes from UTC (e.g., +480 for Asia/Singapore UTC+8)
+        user_timezone_offset: Timezone offset in minutes from UTC
+        currency: Currency for formatting (from models.Currency enum)
     """
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    
+    # Determine currency symbol
+    if currency is None:
+        currency = report.currency if hasattr(report, 'currency') else Currency.USD
+    
+    currency_symbol = "$" if currency == Currency.USD else "K"
+    currency_name = "USD" if currency == Currency.USD else "MMK"
     
     # Convert UTC times to user's local time
     user_tz = timezone(timedelta(minutes=user_timezone_offset))
@@ -103,10 +112,10 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
     
     summary_data = [
         ['Metric', 'Amount'],
-        ['Total Income', f"${report.total_inflow:,.2f}"],
-        ['Total Expenses', f"${report.total_outflow:,.2f}"],
-        ['Net Balance', f"${report.net_balance:,.2f}"],
-        ['Allocated to Goals', f"${report.total_allocated_to_goals:,.2f}"],
+        ['Total Income', f"{currency_symbol}{report.total_inflow:,.2f} ({currency_name})"],
+        ['Total Expenses', f"{currency_symbol}{report.total_outflow:,.2f} ({currency_name})"],
+        ['Net Balance', f"{currency_symbol}{report.net_balance:,.2f} ({currency_name})"],
+        ['Allocated to Goals', f"{currency_symbol}{report.total_allocated_to_goals:,.2f} ({currency_name})"],
         ['Total Transactions', str(report.total_transactions)],
     ]
     
@@ -134,8 +143,8 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
     elements.append(avg_heading)
     
     avg_data = [
-        ['Average Daily Income', f"${report.average_daily_inflow:,.2f}"],
-        ['Average Daily Expenses', f"${report.average_daily_outflow:,.2f}"],
+        ['Average Daily Income', f"{currency_symbol}{report.average_daily_inflow:,.2f}"],
+        ['Average Daily Expenses', f"{currency_symbol}{report.average_daily_outflow:,.2f}"],
     ]
     
     avg_table = Table(avg_data, colWidths=[3*inch, 2*inch])
@@ -160,7 +169,7 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
         for cat in report.inflow_by_category[:10]:  # Top 10
             income_data.append([
                 cat.category,
-                f"${cat.amount:,.2f}",
+                f"{currency_symbol}{cat.amount:,.2f}",
                 f"{cat.percentage:.1f}%",
                 str(cat.transaction_count)
             ])
@@ -193,7 +202,7 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
         for cat in report.outflow_by_category[:10]:  # Top 10
             expense_data.append([
                 cat.category,
-                f"${cat.amount:,.2f}",
+                f"{currency_symbol}{cat.amount:,.2f}",
                 f"{cat.percentage:.1f}%",
                 str(cat.transaction_count)
             ])
@@ -226,8 +235,8 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
         for goal in report.goals:
             goals_data.append([
                 goal.name,
-                f"${goal.target_amount:,.2f}",
-                f"${goal.current_amount:,.2f}",
+                f"{currency_symbol}{goal.target_amount:,.2f}",
+                f"{currency_symbol}{goal.current_amount:,.2f}",
                 f"{goal.progress_percentage:.1f}%",
                 goal.status.upper()
             ])

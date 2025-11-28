@@ -3,6 +3,8 @@ from typing import Optional, List, Dict
 from datetime import datetime
 from enum import Enum
 
+from models import Currency  # ADD THIS IMPORT
+
 class ReportPeriod(str, Enum):
     WEEK = "week"
     MONTH = "month"
@@ -14,6 +16,7 @@ class ReportRequest(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     timezone_offset: Optional[int] = 0
+    currency: Optional[Currency] = None  # NEW - optional currency filter
 
 class CategoryBreakdown(BaseModel):
     category: str
@@ -28,6 +31,7 @@ class GoalProgress(BaseModel):
     current_amount: float
     progress_percentage: float
     status: str
+    currency: Currency  # NEW
 
 class FinancialReport(BaseModel):
     period: ReportPeriod
@@ -60,4 +64,29 @@ class FinancialReport(BaseModel):
     average_daily_inflow: float
     average_daily_outflow: float
     
+    currency: Currency  # NEW - which currency this report is for
+    generated_at: datetime
+
+
+# NEW - Multi-currency report models
+class CurrencyReport(BaseModel):
+    currency: Currency
+    total_inflow: float
+    total_outflow: float
+    net_balance: float
+    inflow_by_category: List[CategoryBreakdown]
+    outflow_by_category: List[CategoryBreakdown]
+    total_transactions: int
+    inflow_count: int
+    outflow_count: int
+    average_daily_inflow: float
+    average_daily_outflow: float
+
+class MultiCurrencyFinancialReport(BaseModel):
+    period: ReportPeriod
+    start_date: datetime
+    end_date: datetime
+    currency_reports: List[CurrencyReport]
+    goals: List[GoalProgress]  # All goals across currencies
+    total_transactions: int
     generated_at: datetime

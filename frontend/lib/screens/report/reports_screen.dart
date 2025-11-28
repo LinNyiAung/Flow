@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
@@ -14,9 +15,11 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   ReportPeriod _selectedPeriod = ReportPeriod.month;
+  Currency? _selectedCurrency;
   DateTime? _customStartDate;
   DateTime? _customEndDate;
   FinancialReport? _report;
+  MultiCurrencyFinancialReport? _multiCurrencyReport;
   bool _isLoading = false;
   bool _isDownloading = false;
   String? _error;
@@ -24,42 +27,62 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedCurrency = null;
     _generateReport();
   }
   
   Future<void> _generateReport() async {
-    if (_selectedPeriod == ReportPeriod.custom &&
-        (_customStartDate == null || _customEndDate == null)) {
-      setState(() {
-        _report = null;
-        _error = null;
-      });
-      return;
-    }
-
+  if (_selectedPeriod == ReportPeriod.custom &&
+      (_customStartDate == null || _customEndDate == null)) {
     setState(() {
-      _isLoading = true;
+      _report = null;
+      _multiCurrencyReport = null;
       _error = null;
     });
+    return;
+  }
 
-    try {
-      final report = await ApiService.generateReport(
+  setState(() {
+    _isLoading = true;
+    _error = null;
+  });
+
+  try {
+    if (_selectedCurrency == null) {
+      // Generate multi-currency report
+      final multiReport = await ApiService.generateMultiCurrencyReport(
         period: _selectedPeriod,
         startDate: _customStartDate,
         endDate: _customEndDate,
       );
 
       setState(() {
-        _report = report;
+        _multiCurrencyReport = multiReport;
+        _report = null;
         _isLoading = false;
       });
-    } catch (e) {
+    } else {
+      // Generate single currency report
+      final report = await ApiService.generateReport(
+        period: _selectedPeriod,
+        startDate: _customStartDate,
+        endDate: _customEndDate,
+        currency: _selectedCurrency,
+      );
+
       setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
+        _report = report;
+        _multiCurrencyReport = null;
         _isLoading = false;
       });
     }
+  } catch (e) {
+    setState(() {
+      _error = e.toString().replaceAll('Exception: ', '');
+      _isLoading = false;
+    });
   }
+}
 
   Future<void> _downloadReport() async {
     if (_selectedPeriod == ReportPeriod.custom &&
@@ -76,11 +99,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     setState(() => _isDownloading = true);
 
     try {
-      final filePath = await ApiService.downloadReportPdf(
-        period: _selectedPeriod,
-        startDate: _customStartDate,
-        endDate: _customEndDate,
-      );
+    final filePath = await ApiService.downloadReportPdf(
+      period: _selectedPeriod,
+      startDate: _customStartDate,
+      endDate: _customEndDate,
+      currency: _selectedCurrency,  // NEW - Add this
+    );
 
       setState(() => _isDownloading = false);
 
@@ -195,6 +219,76 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                   ),
 
+
+                  SizedBox(height: 16),
+
+                  // Currency Selector
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.1),
+                          spreadRadius: 1,
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.attach_money, color: Color(0xFF667eea), size: 20),
+                        SizedBox(width: 12),
+                        Text(
+                          'Currency:',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF333333),
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<Currency?>(
+                              value: _selectedCurrency,
+                              isExpanded: true,
+                              items: [
+                                DropdownMenuItem<Currency?>(
+                                  value: null,
+                                  child: Text(
+                                    'All Currencies',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      
+                                    ),
+                                  ),
+                                ),
+                                ...Currency.values.map((currency) {
+                                  return DropdownMenuItem<Currency?>(
+                                    value: currency,
+                                    child: Text(
+                                      '${currency.displayName} (${currency.symbol})',
+                                      style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600,),
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
+                              onChanged: (Currency? newValue) {
+                                setState(() {
+                                  _selectedCurrency = newValue;
+                                });
+                                _generateReport();
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   // Custom Date Selector (removed Generate Report button)
                   if (_selectedPeriod == ReportPeriod.custom) ...[
                     SizedBox(height: 16),
@@ -275,8 +369,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                     )
                   else if (_report != null)
-                      _buildReportContent(_report!)
-                    else if (_selectedPeriod == ReportPeriod.custom)
+                    _buildReportContent(_report!)
+                else if (_multiCurrencyReport != null)
+                    _buildMultiCurrencyReportContent(_multiCurrencyReport!)
+                else if (_selectedPeriod == ReportPeriod.custom)
                         Center(
                           child: Padding(
                             padding: EdgeInsets.symmetric(vertical: 60),
@@ -452,6 +548,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           report.netBalance,
           report.netBalance >= 0 ? Color(0xFF4CAF50) : Color(0xFFFF5722),
           Icons.account_balance_wallet,
+          report,
         ),
 
         SizedBox(height: 12),
@@ -464,6 +561,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 report.totalInflow,
                 Color(0xFF4CAF50),
                 Icons.arrow_upward,
+                report,
               ),
             ),
             SizedBox(width: 12),
@@ -473,6 +571,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 report.totalOutflow,
                 Color(0xFFFF5722),
                 Icons.arrow_downward,
+                report,
               ),
             ),
           ],
@@ -493,7 +592,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Expanded(
               child: _buildInfoCard(
                 'Goals Allocated',
-                '\$${report.totalAllocatedToGoals.toStringAsFixed(0)}',
+                '${report.currency.symbol}${report.totalAllocatedToGoals.toStringAsFixed(0)}',
                 Icons.flag,
               ),
             ),
@@ -533,12 +632,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 'Average Daily Income',
                 report.averageDailyInflow,
                 Color(0xFF4CAF50),
+                report,
               ),
               Divider(height: 24),
               _buildAverageRow(
                 'Average Daily Expenses',
                 report.averageDailyOutflow,
                 Color(0xFFFF5722),
+                report,
               ),
             ],
           ),
@@ -562,6 +663,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             cat.amount,
             cat.percentage,
             Color(0xFF4CAF50),
+            report,
           )),
           SizedBox(height: 24),
         ],
@@ -582,6 +684,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             cat.amount,
             cat.percentage,
             Color(0xFFFF5722),
+            report,
           )),
           SizedBox(height: 24),
         ],
@@ -603,7 +706,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildSummaryCard(String label, double amount, Color color, IconData icon) {
+  Widget _buildSummaryCard(String label, double amount, Color color, IconData icon, FinancialReport report) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(20),
@@ -645,7 +748,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  '\$${amount.toStringAsFixed(2)}',
+                  '${report.currency.symbol}${amount.toStringAsFixed(2)}',
                   style: GoogleFonts.poppins(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -660,7 +763,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildSmallSummaryCard(String label, double amount, Color color, IconData icon) {
+  Widget _buildSmallSummaryCard(String label, double amount, Color color, IconData icon, FinancialReport report) {
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -691,7 +794,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           SizedBox(height: 4),
           Text(
-            '\$${amount.toStringAsFixed(2)}',
+            '${report.currency.symbol}${amount.toStringAsFixed(2)}',
             style: GoogleFonts.poppins(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -702,6 +805,500 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
     );
   }
+
+
+  Widget _buildMultiCurrencyReportContent(MultiCurrencyFinancialReport report) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // Report Period Info
+      Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 4,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.public, color: Color(0xFF667eea), size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Multi-Currency Report',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF667eea),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Text(
+              '${DateFormat('MMM d, yyyy').format(report.startDate.toUtc())} - ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())}',
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF333333),
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      SizedBox(height: 20),
+
+      // Overview Card
+      Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0xFF667eea).withOpacity(0.3),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Overview',
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Total Transactions',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.9),
+                  ),
+                ),
+                Text(
+                  '${report.totalTransactions}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Currencies',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.9),
+                  ),
+                ),
+                Text(
+                  '${report.currencyReports.length}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+
+      SizedBox(height: 24),
+
+      // Currency Reports
+      Text(
+        'By Currency',
+        style: GoogleFonts.poppins(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF333333),
+        ),
+      ),
+
+      SizedBox(height: 12),
+
+      ...report.currencyReports.map((currencyReport) => 
+        _buildCurrencyReportCard(currencyReport)
+      ),
+
+      SizedBox(height: 24),
+
+      // All Goals
+      if (report.goals.isNotEmpty) ...[
+        Text(
+          'All Goals',
+          style: GoogleFonts.poppins(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF333333),
+          ),
+        ),
+        SizedBox(height: 12),
+        ...report.goals.map((goal) => _buildGoalCard(goal)),
+      ],
+
+      SizedBox(height: 100),
+    ],
+  );
+}
+
+Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
+  final currency = currencyReport.currency;
+  final netBalance = currencyReport.netBalance;
+  final balanceColor = netBalance >= 0 ? Color(0xFF4CAF50) : Color(0xFFFF5722);
+
+  return Container(
+    margin: EdgeInsets.only(bottom: 16),
+    padding: EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.grey.withOpacity(0.1),
+          spreadRadius: 2,
+          blurRadius: 6,
+        ),
+      ],
+      border: Border(
+        left: BorderSide(color: balanceColor, width: 4),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Currency Header
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: balanceColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    currency.displayName,
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: balanceColor,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  '(${currency.symbol})',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              '${currencyReport.totalTransactions} txns',
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+
+        Divider(height: 24),
+
+        // Net Balance
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Net Balance',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            Text(
+              '${currency.symbol}${netBalance.toStringAsFixed(2)}',
+              style: GoogleFonts.poppins(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: balanceColor,
+              ),
+            ),
+          ],
+        ),
+
+        SizedBox(height: 16),
+
+        // Income and Expenses
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.arrow_upward, color: Color(0xFF4CAF50), size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Income',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    '${currency.symbol}${currencyReport.totalInflow.toStringAsFixed(2)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF4CAF50),
+                    ),
+                  ),
+                  Text(
+                    '${currencyReport.inflowCount} transactions',
+                    style: GoogleFonts.poppins(
+                      fontSize: 10,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: 1,
+              height: 40,
+              color: Colors.grey[300],
+            ),
+            SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.arrow_downward, color: Color(0xFFFF5722), size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Expenses',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    '${currency.symbol}${currencyReport.totalOutflow.toStringAsFixed(2)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFFF5722),
+                    ),
+                  ),
+                  Text(
+                    '${currencyReport.outflowCount} transactions',
+                    style: GoogleFonts.poppins(
+                      fontSize: 10,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        SizedBox(height: 16),
+
+        // Daily Averages
+        Container(
+          padding: EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Avg. Daily Income',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  Text(
+                    '${currency.symbol}${currencyReport.averageDailyInflow.toStringAsFixed(2)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF4CAF50),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Avg. Daily Expenses',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  Text(
+                    '${currency.symbol}${currencyReport.averageDailyOutflow.toStringAsFixed(2)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFFF5722),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // Top Categories (expandable)
+        if (currencyReport.inflowByCategory.isNotEmpty || currencyReport.outflowByCategory.isNotEmpty) ...[
+          SizedBox(height: 12),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: Text(
+              'View Categories',
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF667eea),
+              ),
+            ),
+            children: [
+              if (currencyReport.inflowByCategory.isNotEmpty) ...[
+                Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Top Income Categories',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ),
+                ...currencyReport.inflowByCategory.take(3).map((cat) => 
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            cat.category,
+                            style: GoogleFonts.poppins(fontSize: 11),
+                          ),
+                        ),
+                        Text(
+                          '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF4CAF50),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (currencyReport.outflowByCategory.isNotEmpty) ...[
+                Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Text(
+                    'Top Expense Categories',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ),
+                ...currencyReport.outflowByCategory.take(3).map((cat) => 
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            cat.category,
+                            style: GoogleFonts.poppins(fontSize: 11),
+                          ),
+                        ),
+                        Text(
+                          '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFFF5722),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ],
+    ),
+  );
+}
 
   Widget _buildInfoCard(String label, String value, IconData icon) {
     return Container(
@@ -743,7 +1340,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildAverageRow(String label, double amount, Color color) {
+  
+  Widget _buildAverageRow(String label, double amount, Color color, FinancialReport report) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -755,7 +1353,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ),
         Text(
-          '\$${amount.toStringAsFixed(2)}',
+          '${report.currency.symbol}${amount.toStringAsFixed(2)}',
           style: GoogleFonts.poppins(
             fontSize: 16,
             fontWeight: FontWeight.bold,
@@ -766,7 +1364,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildCategoryCard(String category, double amount, double percentage, Color color) {
+Widget _buildCategoryCard(String category, double amount, double percentage, Color color, FinancialReport report) {
     return Container(
       margin: EdgeInsets.only(bottom: 8),
       padding: EdgeInsets.all(16),
@@ -798,7 +1396,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
               ),
               Text(
-                '\$${amount.toStringAsFixed(2)}',
+                '${report.currency.symbol}${amount.toStringAsFixed(2)}',
                 style: GoogleFonts.poppins(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -887,7 +1485,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '\$${goal.currentAmount.toStringAsFixed(2)}',
+                '${goal.currency.symbol}${goal.currentAmount.toStringAsFixed(2)}',  // Use goal.currency instead
                 style: GoogleFonts.poppins(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -895,7 +1493,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
               ),
               Text(
-                '\$${goal.targetAmount.toStringAsFixed(2)}',
+                '${goal.currency.symbol}${goal.targetAmount.toStringAsFixed(2)}',  // Use goal.currency instead
                 style: GoogleFonts.poppins(
                   fontSize: 14,
                   color: Colors.grey[600],
