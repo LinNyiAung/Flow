@@ -149,6 +149,7 @@ def check_and_create_recurring_transactions():
                 "date": next_occurrence,
                 "description": transaction.get("description"),
                 "amount": transaction["amount"],
+                "currency": transaction.get("currency", "usd"),  # ADDED - preserve currency from parent
                 "created_at": now,
                 "updated_at": now,
                 "recurrence": {
@@ -169,12 +170,15 @@ def check_and_create_recurring_transactions():
             
             created_count += 1
             
+            # Get currency symbol for notification
+            currency_symbol = "$" if transaction.get("currency", "usd") == "usd" else "K"
+            
             # Notify user
             create_notification(
                 user_id=transaction["user_id"],
                 notification_type="recurring_transaction_created",
                 title="Recurring Transaction Created 🔄",
-                message=f"Your recurring {transaction['type']} of ${transaction['amount']:.2f} for '{transaction.get('description', transaction['sub_category'])}' has been automatically created.",
+                message=f"Your recurring {transaction['type']} of {currency_symbol}{transaction['amount']:.2f} for '{transaction.get('description', transaction['sub_category'])}' has been automatically created.",
                 goal_id=new_transaction_id,
                 goal_name=transaction.get("description", transaction["sub_category"])
             )
