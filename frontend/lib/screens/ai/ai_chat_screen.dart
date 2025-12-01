@@ -558,36 +558,58 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   }
 
   Widget _buildQuickSuggestion(String suggestion, ChatProvider chatProvider) {
-    return Container(
-      margin: EdgeInsets.only(right: 12, bottom: 16),
-      child: GestureDetector(
-        onTap: () => chatProvider.addQuickMessage(suggestion),
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                spreadRadius: 1,
-                blurRadius: 4,
-              ),
-            ],
+  final authProvider = Provider.of<AuthProvider>(context);
+  final isLocked = !authProvider.isPremium;
+  
+  return Container(
+    margin: EdgeInsets.only(right: 12, bottom: 16),
+    child: GestureDetector(
+      onTap: isLocked 
+          ? () => Navigator.pushNamed(context, '/subscription')
+          : () => chatProvider.addQuickMessage(suggestion),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isLocked ? Colors.grey[100] : Colors.white,
+          border: Border.all(
+            color: isLocked 
+                ? Colors.grey[300]! 
+                : Color(0xFF667eea).withOpacity(0.3),
           ),
-          child: Text(
-            suggestion,
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              color: Color(0xFF667eea),
-              fontWeight: FontWeight.w500,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 4,
             ),
-          ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isLocked) ...[
+              Icon(
+                Icons.lock,
+                color: Color(0xFFFFD700),
+                size: 16,
+              ),
+              SizedBox(width: 6),
+            ],
+            Text(
+              suggestion,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: isLocked ? Colors.grey[500] : Color(0xFF667eea),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildMessageBubble(ChatMessage message, {bool isStreamingMessage = false}) {
     final isUser = message.role == MessageRole.user;
