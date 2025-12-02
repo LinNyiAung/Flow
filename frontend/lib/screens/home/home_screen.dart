@@ -608,26 +608,32 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          localizations.recentTransactions,
-                          style: GoogleFonts.poppins(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF333333),
+                        Flexible(
+                        flex: 3,
+                          child: Text(
+                            localizations.recentTransactions,
+                            style: GoogleFonts.poppins(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF333333),
+                            ),
                           ),
                         ),
                         // "See More" Text Button
-                        GestureDetector(
-                          onTap:
-                              _navigateToTransactionsList, // Navigate to the full list
-                          child: Text(
-                            localizations.seeMore,
-                            style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(
-                                0xFF667eea,
-                              ), // Use primary purple color
+                        Flexible(
+                        flex: 1,
+                          child: GestureDetector(
+                            onTap:
+                                _navigateToTransactionsList, // Navigate to the full list
+                            child: Text(
+                              localizations.seeMore,
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(
+                                  0xFF667eea,
+                                ), // Use primary purple color
+                              ),
                             ),
                           ),
                         ),
@@ -878,18 +884,20 @@ void _showMultiCurrencyBottomSheet() async {
                           ],
                         ),
                         if (currency == Provider.of<AuthProvider>(context, listen: false).defaultCurrency)
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Color(0xFF4CAF50),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              'Default',
-                              style: GoogleFonts.poppins(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                          Expanded(
+                            child: Container(
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Color(0xFF4CAF50),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'Default',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
                               ),
                             ),
                           ),
@@ -1207,12 +1215,14 @@ void _showAddTransactionOptions() {
                   child: Icon(Icons.add, color: Colors.white, size: 20),
                 ),
                 SizedBox(width: 12),
-                Text(
-                  localizations.addTransaction,
-                  style: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
+                Expanded(
+                  child: Text(
+                    localizations.addTransaction,
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF333333),
+                    ),
                   ),
                 ),
               ],

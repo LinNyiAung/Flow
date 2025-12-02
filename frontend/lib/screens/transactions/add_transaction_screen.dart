@@ -834,12 +834,14 @@ void _showCurrencyConversionDialog() {
                             color: Colors.grey[600],
                           ),
                         ),
-                        Text(
-                          '${_selectedCurrency.symbol} ${_selectedCurrency.displayName}',
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF333333),
+                        Expanded(
+                          child: Text(
+                            '${_selectedCurrency.symbol} ${_selectedCurrency.displayName}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF333333),
+                            ),
                           ),
                         ),
                       ],

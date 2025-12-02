@@ -261,12 +261,14 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       children: [
                         Icon(Icons.info_outline, color: Color(0xFF667eea)),
                         SizedBox(width: 8),
-                        Text(
-                          'Budget Period (Cannot be changed)',
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF333333),
+                        Expanded(
+                          child: Text(
+                            'Budget Period (Cannot be changed)',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
+                            ),
                           ),
                         ),
                       ],

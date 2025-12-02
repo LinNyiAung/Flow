@@ -269,6 +269,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
+                  isExpanded: true, // ADD THIS LINE - prevents overflow
                   items: GoalType.values.map((type) {
                     IconData icon;
                     switch (type) {
@@ -288,9 +289,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                         children: [
                           Icon(icon, size: 20, color: Color(0xFF667eea)),
                           SizedBox(width: 8),
-                          Text(
-                            type.name.replaceAll('_', ' ').toUpperCase(),
-                            style: GoogleFonts.poppins(fontSize: 14),
+                          Flexible( // WRAP Text with Flexible
+                            child: Text(
+                              type.name.replaceAll('_', ' ').toUpperCase(),
+                              style: GoogleFonts.poppins(fontSize: 14),
+                              overflow: TextOverflow.ellipsis, // Handle long text
+                            ),
                           ),
                         ],
                       ),
@@ -346,13 +350,15 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       children: [
                         Icon(Icons.calendar_today, color: Color(0xFF667eea)),
                         SizedBox(width: 12),
-                        Text(
-                          _targetDate == null
-                              ? 'Select target date (Optional)'
-                              : DateFormat('MMM dd, yyyy').format(_targetDate!),
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            color: _targetDate == null ? Colors.grey[600] : Color(0xFF333333),
+                        Expanded(
+                          child: Text(
+                            _targetDate == null
+                                ? 'Select target date (Optional)'
+                                : DateFormat('MMM dd, yyyy').format(_targetDate!),
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              color: _targetDate == null ? Colors.grey[600] : Color(0xFF333333),
+                            ),
                           ),
                         ),
                       ],

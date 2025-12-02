@@ -208,12 +208,14 @@ void _showAddTransactionOptions() {
                   child: Icon(Icons.add, color: Colors.white, size: 20),
                 ),
                 SizedBox(width: 12),
-                Text(
-                  'Add Transaction',
-                  style: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
+                Expanded(
+                  child: Text(
+                    'Add Transaction',
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF333333),
+                    ),
                   ),
                 ),
               ],

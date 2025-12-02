@@ -460,7 +460,7 @@ void _navigateToAISuggestion() async {
                   decoration: InputDecoration(
                     hintText: 'Select currency for this budget',
                     border: InputBorder.none,
-                    contentPadding: EdgeInsets.all(20),
+                    contentPadding: EdgeInsets.all(15),
                     prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
                   ),
                   value: _selectedCurrency,
