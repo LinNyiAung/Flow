@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class AddGoalScreen extends StatefulWidget {
   @override
@@ -81,6 +82,7 @@ void initState() {
 
   final goalProvider = Provider.of<GoalProvider>(context, listen: false);
   final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+  final responsive = ResponsiveHelper(context);
 
   final success = await goalProvider.createGoal(
     name: _nameController.text.trim(),
@@ -108,7 +110,7 @@ void initState() {
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Colors.red,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -119,13 +121,14 @@ void initState() {
   Widget build(BuildContext context) {
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final availableBalance = transactionProvider.balance?.availableBalance ?? 0.0;
+    final responsive = ResponsiveHelper(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'Create New Goal',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -147,7 +150,7 @@ void initState() {
           ),
         ),
         child: SingleChildScrollView(
-          padding: EdgeInsets.all(20),
+          padding: responsive.padding(all: 20),
           child: Form(
             key: _formKey,
             child: Column(
@@ -156,12 +159,12 @@ void initState() {
                 // Available Balance Card
                 Container(
                   width: double.infinity,
-                  padding: EdgeInsets.all(20),
+                  padding: responsive.padding(all: 20),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,7 +175,7 @@ void initState() {
                             'Available for Goals',
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.8),
-                              fontSize: 14,
+                              fontSize: responsive.fs14,
                             ),
                           ),
                           Spacer(),
@@ -180,7 +183,7 @@ void initState() {
                             _selectedCurrency.displayName,
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.7),
-                              fontSize: 12,
+                              fontSize: responsive.fs12,
                             ),
                           ),
                         ],
@@ -192,7 +195,7 @@ void initState() {
                             : '${_selectedCurrency.symbol}0.00',
                         style: GoogleFonts.poppins(
                           color: Colors.white,
-                          fontSize: 28,
+                          fontSize: responsive.fs28,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -200,36 +203,36 @@ void initState() {
                   ),
                 ),
 
-                SizedBox(height: 24),
+                SizedBox(height: responsive.sp24),
 
                 // Currency Selector
                 Text(
                   'Currency',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                   child: DropdownButtonFormField<Currency>(
                     value: _selectedCurrency,
                     decoration: InputDecoration(
                       prefixIcon: Icon(Icons.currency_exchange, color: Color(0xFF667eea)),
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                      contentPadding: responsive.padding(horizontal: 15, vertical: 15),
                     ),
                     items: Currency.values.map((currency) {
                       return DropdownMenuItem(
                         value: currency,
                         child: Text(
                           '${currency.symbol} - ${currency.displayName}',
-                          style: GoogleFonts.poppins(fontSize: 14),
+                          style: GoogleFonts.poppins(fontSize: responsive.fs14),
                         ),
                       );
                     }).toList(),
@@ -244,18 +247,18 @@ void initState() {
                   ),
                 ),
 
-                SizedBox(height: 24),
+                SizedBox(height: responsive.sp24),
 
                 // Goal Name
                 Text(
                   'Goal Name',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 TextFormField(
                   controller: _nameController,
                   decoration: InputDecoration(
@@ -270,29 +273,29 @@ void initState() {
                   },
                 ),
 
-                SizedBox(height: 20),
+                SizedBox(height: responsive.sp20),
 
                 // Goal Type
                 Text(
                   'Goal Type',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                   child: DropdownButtonFormField<GoalType>(
                     value: _selectedGoalType,
                     decoration: InputDecoration(
                       prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                      contentPadding: responsive.padding(horizontal: 15, vertical: 15),
                     ),
                     items: GoalType.values.map((type) {
                       IconData icon;
@@ -311,11 +314,11 @@ void initState() {
                         value: type,
                         child: Row(
                           children: [
-                            Icon(icon, size: 20, color: Color(0xFF667eea)),
-                            SizedBox(width: 8),
+                            Icon(icon, size: responsive.icon20, color: Color(0xFF667eea)),
+                            SizedBox(width: responsive.sp8),
                             Text(
                               type.name.replaceAll('_', ' ').toUpperCase(),
-                              style: GoogleFonts.poppins(fontSize: 14),
+                              style: GoogleFonts.poppins(fontSize: responsive.fs14),
                             ),
                           ],
                         ),
@@ -329,18 +332,18 @@ void initState() {
                   ),
                 ),
 
-                SizedBox(height: 20),
+                SizedBox(height: responsive.sp20),
 
                 // Target Amount
                 Text(
                   'Target Amount',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 TextFormField(
                   controller: _targetAmountController,
                   keyboardType: TextInputType.numberWithOptions(decimal: true),
@@ -360,18 +363,18 @@ void initState() {
                   },
                 ),
 
-                SizedBox(height: 20),
+                SizedBox(height: responsive.sp20),
 
                 // Initial Contribution
                 Text(
                   'Initial Contribution (Optional)',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 TextFormField(
                   controller: _initialContributionController,
                   keyboardType: TextInputType.numberWithOptions(decimal: true),
@@ -393,36 +396,36 @@ void initState() {
                   },
                 ),
 
-                SizedBox(height: 20),
+                SizedBox(height: responsive.sp20),
 
                 // Target Date
                 Text(
                   'Target Date (Optional)',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 InkWell(
                   onTap: _selectTargetDate,
                   child: Container(
-                    padding: EdgeInsets.all(15),
+                    padding: responsive.padding(all: 15),
                     decoration: BoxDecoration(
                       color: Colors.grey[50],
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     ),
                     child: Row(
                       children: [
                         Icon(Icons.calendar_today, color: Color(0xFF667eea)),
-                        SizedBox(width: 12),
+                        SizedBox(width: responsive.sp12),
                         Text(
                           _targetDate == null
                               ? 'Select target date'
                               : DateFormat('MMM dd, yyyy').format(_targetDate!),
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             color: _targetDate == null ? Colors.grey[600] : Color(0xFF333333),
                           ),
                         ),
@@ -431,25 +434,25 @@ void initState() {
                   ),
                 ),
 
-                SizedBox(height: 32),
+                SizedBox(height: responsive.sp32),
 
                 // Create Button
                 SizedBox(
                   width: double.infinity,
-                  height: 52,
+                  height: responsive.cardHeight(baseHeight: 52),
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _createGoal,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Color(0xFF667eea),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       ),
                       elevation: 4,
                     ),
                     child: _isLoading
                         ? SizedBox(
-                            height: 20,
-                            width: 20,
+                            height: responsive.iconSize(mobile: 20),
+                            width: responsive.iconSize(mobile: 20),
                             child: CircularProgressIndicator(
                               color: Colors.white,
                               strokeWidth: 2,
@@ -458,7 +461,7 @@ void initState() {
                         : Text(
                             'Create Goal',
                             style: GoogleFonts.poppins(
-                              fontSize: 16,
+                              fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
                               color: Colors.white,
                             ),

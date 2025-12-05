@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../providers/notification_provider.dart';
 import 'edit_profile_screen.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class SettingsScreen extends StatefulWidget {
   @override
@@ -19,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
+    final responsive = ResponsiveHelper(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -29,7 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text(
           'Settings',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -40,16 +42,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 16.0),
+            padding: responsive.padding(right: 16),
             child: Consumer<NotificationProvider>(
               builder: (context, notificationProvider, child) {
                 return Stack(
                   children: [
                     Container(
-                      padding: EdgeInsets.all(8),
+                      padding: responsive.padding(all: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -75,7 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         right: 0,
                         top: 0,
                         child: Container(
-                          padding: EdgeInsets.all(4),
+                          padding: responsive.padding(all: 4),
                           decoration: BoxDecoration(
                             color: Colors.red,
                             shape: BoxShape.circle,
@@ -88,7 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
-                              fontSize: 10,
+                              fontSize: responsive.fs10,
                               fontWeight: FontWeight.bold,
                             ),
                             textAlign: TextAlign.center,
@@ -114,16 +116,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         child: ListView(
-          padding: EdgeInsets.all(20),
+          padding: responsive.padding(all: 20),
           children: [
             // Profile Card
             Container(
-              padding: EdgeInsets.all(20),
+              padding: responsive.padding(all: 20),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                 boxShadow: [
                   BoxShadow(
                     color: Color(0xFF667eea).withOpacity(0.3),
@@ -165,32 +167,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Icon(
                               Icons.star,
                               color: Colors.white,
-                              size: 16,
+                              size: responsive.icon16,
                             ),
                           ),
                         ),
                     ],
                   ),
-                  SizedBox(height: 16),
+                  SizedBox(height: responsive.sp16),
                   // Name
                   Text(
                     user?.name ?? 'User',
                     style: GoogleFonts.poppins(
-                      fontSize: 24,
+                      fontSize: responsive.fs24,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                   ),
-                  SizedBox(height: 4),
+                  SizedBox(height: responsive.sp4),
                   // Email
                   Text(
                     user?.email ?? '',
                     style: GoogleFonts.poppins(
-                      fontSize: 14,
+                      fontSize: responsive.fs14,
                       color: Colors.white.withOpacity(0.8),
                     ),
                   ),
-                  SizedBox(height: 12),
+                  SizedBox(height: responsive.sp12),
                   // Subscription Badge
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -198,7 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: authProvider.isPremium
                           ? Color(0xFFFFD700).withOpacity(0.3)
                           : Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                       border: Border.all(
                         color: authProvider.isPremium
                             ? Color(0xFFFFD700)
@@ -212,13 +214,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Icon(
                           authProvider.isPremium ? Icons.star : Icons.lock_outline,
                           color: Colors.white,
-                          size: 16,
+                          size: responsive.icon16,
                         ),
                         SizedBox(width: 6),
                         Text(
                           authProvider.isPremium ? 'Premium Member' : 'Free Plan',
                           style: GoogleFonts.poppins(
-                            fontSize: 12,
+                            fontSize: responsive.fs12,
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
                           ),
@@ -227,11 +229,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null) ...[
-                    SizedBox(height: 8),
+                    SizedBox(height: responsive.sp8),
                     Text(
                       'Expires: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
                       style: GoogleFonts.poppins(
-                        fontSize: 11,
+                        fontSize: responsive.fs11,
                         color: Colors.white.withOpacity(0.7),
                       ),
                     ),
@@ -240,11 +242,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
 
             // Account Settings Section
             _buildSectionHeader('Account'),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: Icons.person_outline,
@@ -272,7 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
 
             _buildSettingCard(
               icon: Icons.lock_outline,
@@ -293,7 +295,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       backgroundColor: Color(0xFF4CAF50),
                       behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
                     ),
                   );
                 }
@@ -301,7 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
 
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
 
             _buildSettingCard(
               icon: Icons.language,
@@ -314,7 +316,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
 
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
 
             _buildSettingCard(
               icon: Icons.attach_money,
@@ -326,10 +328,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
 
             _buildSectionHeader('Notifications'),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: Icons.notifications_outlined,
@@ -342,11 +344,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
 
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
 
             // Subscription Section
             _buildSectionHeader('Subscription'),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: authProvider.isPremium ? Icons.star : Icons.upgrade,
@@ -360,11 +362,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
 
             // About Section
             _buildSectionHeader('About'),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: Icons.info_outline,
@@ -376,7 +378,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
 
             _buildSettingCard(
               icon: Icons.privacy_tip_outlined,
@@ -397,7 +399,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
 
             _buildSettingCard(
               icon: Icons.description_outlined,
@@ -418,7 +420,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
-            SizedBox(height: 32),
+            SizedBox(height: responsive.sp32),
 
             // Logout Button
             Container(
@@ -430,7 +432,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: Text(
                   'Logout',
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
+                    fontSize: responsive.fs16,
                     fontWeight: FontWeight.w600,
                     color: Colors.white,
                   ),
@@ -438,14 +440,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                   elevation: 4,
                 ),
               ),
             ),
 
-            SizedBox(height: 32),
+            SizedBox(height: responsive.sp32),
           ],
         ),
       ),
@@ -453,12 +455,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildSectionHeader(String title) {
+    final responsive = ResponsiveHelper(context);
     return Padding(
       padding: EdgeInsets.only(left: 8),
       child: Text(
         title,
         style: GoogleFonts.poppins(
-          fontSize: 18,
+          fontSize: responsive.fs18,
           fontWeight: FontWeight.bold,
           color: Color(0xFF333333),
         ),
@@ -473,14 +476,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required List<Color> gradientColors,
     required VoidCallback onTap,
   }) {
+    final responsive = ResponsiveHelper(context);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
       child: Container(
-        padding: EdgeInsets.all(16),
+        padding: responsive.padding(all: 16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           boxShadow: [
             BoxShadow(
               color: Colors.grey.withOpacity(0.1),
@@ -492,14 +496,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Row(
           children: [
             Container(
-              padding: EdgeInsets.all(12),
+              padding: responsive.padding(all: 12),
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: gradientColors),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
               ),
-              child: Icon(icon, color: Colors.white, size: 24),
+              child: Icon(icon, color: Colors.white, size: responsive.icon24),
             ),
-            SizedBox(width: 16),
+            SizedBox(width: responsive.sp16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -507,7 +511,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Text(
                     title,
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF333333),
                     ),
@@ -516,7 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Text(
                     subtitle,
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       color: Colors.grey[600],
                     ),
                   ),
@@ -525,7 +529,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             Icon(
               Icons.arrow_forward_ios,
-              size: 16,
+              size: responsive.icon16,
               color: Colors.grey[400],
             ),
           ],
@@ -539,25 +543,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showAboutDialog(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         ),
         title: Row(
           children: [
             Container(
-              padding: EdgeInsets.all(8),
+              padding: responsive.padding(all: 8),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                 ),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(Icons.account_balance_wallet, color: Colors.white, size: 24),
+              child: Icon(Icons.account_balance_wallet, color: Colors.white, size: responsive.icon24),
             ),
-            SizedBox(width: 12),
+            SizedBox(width: responsive.sp12),
             Text(
               'Flow Finance',
               style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
@@ -571,20 +576,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(
               'Version 1.0.0',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[600],
               ),
             ),
-            SizedBox(height: 16),
+            SizedBox(height: responsive.sp16),
             Text(
               'Flow Finance is your personal finance management app with AI-powered insights and budget tracking.',
-              style: GoogleFonts.poppins(fontSize: 14),
+              style: GoogleFonts.poppins(fontSize: responsive.fs14),
             ),
-            SizedBox(height: 16),
+            SizedBox(height: responsive.sp16),
             Text(
               '© 2025 Flow Finance. All rights reserved.',
               style: GoogleFonts.poppins(
-                fontSize: 12,
+                fontSize: responsive.fs12,
                 color: Colors.grey[500],
               ),
             ),
@@ -607,12 +612,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showLogoutDialog(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           title: Text(
             'Logout',

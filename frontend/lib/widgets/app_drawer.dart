@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/transactions/transactions_list_screen.dart';
 import '../widgets/premium_badge.dart';  // NEW
+import 'package:frontend/services/responsive_helper.dart';
 
 class AppDrawer extends StatelessWidget {
   @override
@@ -14,6 +15,7 @@ class AppDrawer extends StatelessWidget {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
 
     return Drawer(
       child: Container(
@@ -45,14 +47,14 @@ class AppDrawer extends StatelessWidget {
                     Row(
                       children: [
                         CircleAvatar(
-                          radius: 30,
+                          radius: responsive.iconSize(mobile: 30),
                           backgroundColor: Colors.white.withOpacity(0.8),
                           child: Text(
                             user?.name != null && user!.name.isNotEmpty
                                 ? user.name[0].toUpperCase()
                                 : 'U',
                             style: GoogleFonts.poppins(
-                              fontSize: 24,
+                              fontSize: responsive.fs24,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF667eea),
                             ),
@@ -69,7 +71,7 @@ class AppDrawer extends StatelessWidget {
                     Text(
                       user?.name ?? localizations.takeUploadPhoto,
                       style: GoogleFonts.poppins(
-                        fontSize: 18,
+                        fontSize: responsive.fs18,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -77,7 +79,7 @@ class AppDrawer extends StatelessWidget {
                     Text(
                       user?.email ?? '',
                       style: GoogleFonts.poppins(
-                        fontSize: 12,
+                        fontSize: responsive.fs12,
                         color: Colors.white.withOpacity(0.8),
                       ),
                     ),
@@ -88,7 +90,7 @@ class AppDrawer extends StatelessWidget {
                         child: Text(
                           '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
                           style: GoogleFonts.poppins(
-                            fontSize: 10,
+                            fontSize: responsive.fs10,
                             color: Colors.white.withOpacity(0.7),
                           ),
                         ),
@@ -107,7 +109,7 @@ class AppDrawer extends StatelessWidget {
                     leading: Icon(Icons.dashboard, color: Color(0xFF667eea)),
                     title: Text(
                       localizations.dashboard,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -124,7 +126,7 @@ class AppDrawer extends StatelessWidget {
                     leading: Icon(Icons.list_alt, color: Color(0xFF764ba2)),
                     title: Text(
                       localizations.transactions,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -137,19 +139,19 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.flag, color: Colors.white, size: 20),
+                      child: Icon(Icons.flag, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Text(
                       localizations.goals,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -159,19 +161,19 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.account_balance_wallet, color: Colors.white, size: 18),
+                      child: Icon(Icons.account_balance_wallet, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Text(
                       localizations.budgets,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -181,19 +183,19 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.trending_up, color: Colors.white, size: 18),
+                      child: Icon(Icons.trending_up, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Text(
                       localizations.inflowAnalytics,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -203,19 +205,19 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFFFF5722), Color(0xFFE64A19)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.analytics, color: Colors.white, size: 18),
+                      child: Icon(Icons.analytics, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Text(
                       localizations.outflowAnalytics,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -225,19 +227,19 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.assessment, color: Colors.white, size: 16),
+                      child: Icon(Icons.assessment, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Text(
                       localizations.financialReports,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -247,28 +249,28 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFFFFB74D), Color(0xFFFF9800)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.lightbulb, color: Colors.white, size: 16),
+                      child: Icon(Icons.lightbulb, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Row(
                       children: [
                         Expanded(
                           child: Text(
                             localizations.aiInsights,
-                            style: GoogleFonts.poppins(fontSize: 16),
+                            style: GoogleFonts.poppins(fontSize: responsive.fs16),
                             
                           ),
                         ),
                         if (!authProvider.isPremium) ...[
                           SizedBox(width: 8),
-                          Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                          Icon(Icons.lock, size: responsive.icon20, color: Color(0xFFFFD700)),
                         ],
                       ],
                     ),
@@ -283,7 +285,7 @@ class AppDrawer extends StatelessWidget {
                             child: Text(
                               localizations.premium,
                               style: GoogleFonts.poppins(
-                                fontSize: 10,
+                                fontSize: responsive.fs10,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFFFFD700),
                               ),
@@ -298,26 +300,26 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.smart_toy, color: Colors.white, size: 16),
+                      child: Icon(Icons.smart_toy, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Row(
                       children: [
                         Text(
                           localizations.aiAssistant,
-                          style: GoogleFonts.poppins(fontSize: 16),
+                          style: GoogleFonts.poppins(fontSize: responsive.fs16),
                         ),
                         
                         if (!authProvider.isPremium) ...[
                           SizedBox(width: 8),
-                          Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                          Icon(Icons.lock, size: responsive.icon20, color: Color(0xFFFFD700)),
                         ]
                       ],
                     ),
@@ -332,7 +334,7 @@ class AppDrawer extends StatelessWidget {
                             child: Text(
                               localizations.premium,
                               style: GoogleFonts.poppins(
-                                fontSize: 10,
+                                fontSize: responsive.fs10,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFFFFD700),
                               ),
@@ -347,19 +349,19 @@ class AppDrawer extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                   ListTile(
                     leading: Container(
-                      width: 24,
-                      height: 24,
+                      width: responsive.icon24,
+                      height: responsive.icon24,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF607D8B), Color(0xFF455A64)],
                         ),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Icon(Icons.settings, color: Colors.white, size: 18),
+                      child: Icon(Icons.settings, color: Colors.white, size: responsive.icon20),
                     ),
                     title: Text(
                       localizations.settings,
-                      style: GoogleFonts.poppins(fontSize: 16),
+                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -371,19 +373,19 @@ class AppDrawer extends StatelessWidget {
                   // NEW: Subscription/Upgrade option
                   // ListTile(
                   //   leading: Container(
-                  //     width: 24,
-                  //     height: 24,
+                  //     width: responsive.icon24,
+                  //     height: responsive.icon24,
                   //     decoration: BoxDecoration(
                   //       gradient: LinearGradient(
                   //         colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                   //       ),
                   //       borderRadius: BorderRadius.circular(4),
                   //     ),
-                  //     child: Icon(Icons.star, color: Colors.white, size: 16),
+                  //     child: Icon(Icons.star, color: Colors.white, size: responsive.icon20),
                   //   ),
                   //   title: Text(
                   //     authProvider.isPremium ? 'Manage Subscription' : 'Upgrade to Premium',
-                  //     style: GoogleFonts.poppins(fontSize: 16),
+                  //     style: GoogleFonts.poppins(fontSize: responsive.fs16),
                   //   ),
                   //   onTap: () {
                   //     Navigator.pop(context);
@@ -418,7 +420,7 @@ class AppDrawer extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    padding: responsive.padding(vertical: 12, horizontal: 16),
                   ),
                 ),
               ),

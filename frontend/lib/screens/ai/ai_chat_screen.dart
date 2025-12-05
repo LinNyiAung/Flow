@@ -7,6 +7,7 @@ import 'dart:math';
 import '../../providers/chat_provider.dart';
 import '../../models/chat.dart';
 import '../../widgets/app_drawer.dart'; // Import the drawer widget
+import 'package:frontend/services/responsive_helper.dart';
 
 class AiChatScreen extends StatefulWidget {
   @override
@@ -87,13 +88,14 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 
   // NEW: Show response style selector
   void _showStyleSelector(ChatProvider chatProvider) {
+    final responsive = ResponsiveHelper(context);
     showModalBottomSheet(
       context: context,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => Container(
-        padding: EdgeInsets.all(24),
+        padding: responsive.padding(all: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -101,26 +103,26 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             Row(
               children: [
                 Icon(Icons.tune, color: Color(0xFF667eea)),
-                SizedBox(width: 12),
+                SizedBox(width: responsive.sp12),
                 Text(
                   'Response Style',
                   style: GoogleFonts.poppins(
-                    fontSize: 20,
+                    fontSize: responsive.fs20,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF333333),
                   ),
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
             Text(
               'Choose how detailed you want the AI responses',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[600],
               ),
             ),
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
             ...ResponseStyle.values.map((style) {
               final isSelected = chatProvider.responseStyle == style;
               return Container(
@@ -132,9 +134,9 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                       chatProvider.setResponseStyle(style);
                       Navigator.pop(context);
                     },
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     child: Container(
-                      padding: EdgeInsets.all(16),
+                      padding: responsive.padding(all: 16),
                       decoration: BoxDecoration(
                         color: isSelected 
                             ? Color(0xFF667eea).withOpacity(0.1)
@@ -145,13 +147,13 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                               : Colors.grey[300]!,
                           width: 2,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       ),
                       child: Row(
                         children: [
                           Container(
-                            width: 48,
-                            height: 48,
+                            width: responsive.icon48,
+                            height: responsive.icon48,
                             decoration: BoxDecoration(
                               color: isSelected
                                   ? Color(0xFF667eea)
@@ -161,10 +163,10 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                             child: Icon(
                               style.icon,
                               color: Colors.white,
-                              size: 24,
+                              size: responsive.icon24,
                             ),
                           ),
-                          SizedBox(width: 16),
+                          SizedBox(width: responsive.sp16),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,18 +174,18 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                                 Text(
                                   style.displayName,
                                   style: GoogleFonts.poppins(
-                                    fontSize: 16,
+                                    fontSize: responsive.fs16,
                                     fontWeight: FontWeight.w600,
                                     color: isSelected
                                         ? Color(0xFF667eea)
                                         : Color(0xFF333333),
                                   ),
                                 ),
-                                SizedBox(height: 4),
+                                SizedBox(height: responsive.sp4),
                                 Text(
                                   style.description,
                                   style: GoogleFonts.poppins(
-                                    fontSize: 14,
+                                    fontSize: responsive.fs14,
                                     color: Colors.grey[600],
                                   ),
                                 ),
@@ -194,7 +196,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                             Icon(
                               Icons.check_circle,
                               color: Color(0xFF667eea),
-                              size: 24,
+                              size: responsive.icon24,
                             ),
                         ],
                       ),
@@ -203,7 +205,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 ),
               );
             }).toList(),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
           ],
         ),
       ),
@@ -214,6 +216,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
+    final responsive = ResponsiveHelper(context);
     
     return Scaffold(
       key: _scaffoldKey,
@@ -235,11 +238,11 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 gradient: LinearGradient(
                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                 ),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
               ),
-              child: Icon(Icons.smart_toy, color: Colors.white, size: 20),
+              child: Icon(Icons.smart_toy, color: Colors.white, size: responsive.icon20),
             ),
-            SizedBox(width: 12),
+            SizedBox(width: responsive.sp12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,7 +250,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   Text(
                     'AI Assistant',
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF333333),
                     ),
@@ -258,7 +261,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                       return Text(
                         chatProvider.isStreaming ? 'Thinking...' : 'Financial advisor',
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
+                          fontSize: responsive.fs12,
                           color: chatProvider.isStreaming ? Colors.green[600] : Colors.grey[600],
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -269,20 +272,20 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               ),
             ),
             if (!authProvider.isPremium) ...[
-              SizedBox(width: 4),
-              Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
-              SizedBox(width: 4),
+              SizedBox(width: responsive.sp4),
+              Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
+              SizedBox(width: responsive.sp4),
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: responsive.padding(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Color(0xFFFFD700).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   border: Border.all(color: Color(0xFFFFD700), width: 1),
                 ),
                 child: Text(
                   'PREMIUM',
                   style: GoogleFonts.poppins(
-                    fontSize: 10,
+                    fontSize: responsive.fs10,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFFFFD700),
                   ),
@@ -326,8 +329,8 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 value: 'clear',
                 child: Row(
                   children: [
-                    Icon(Icons.clear_all, size: 20, color: Colors.red),
-                    SizedBox(width: 8),
+                    Icon(Icons.clear_all, size: responsive.icon20, color: Colors.red),
+                    SizedBox(width: responsive.sp8),
                     Text('Clear History'),
                   ],
                 ),
@@ -352,7 +355,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
               ),
-              SizedBox(height: 16),
+              SizedBox(height: responsive.sp16),
               Text(
                 'Loading chat history...',
                 style: GoogleFonts.poppins(color: Colors.grey[600]),
@@ -368,13 +371,13 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
           if (!authProvider.isPremium)
             Container(
               width: double.infinity,
-              padding: EdgeInsets.all(16),
-              margin: EdgeInsets.all(16),
+              padding: responsive.padding(all: 16),
+              margin: responsive.padding(all: 16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                 ),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 boxShadow: [
                   BoxShadow(
                     color: Color(0xFFFFD700).withOpacity(0.3),
@@ -385,8 +388,8 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               ),
               child: Row(
                 children: [
-                  Icon(Icons.star, color: Colors.white, size: 32),
-                  SizedBox(width: 12),
+                  Icon(Icons.star, color: Colors.white, size: responsive.iconSize(mobile: 32)),
+                  SizedBox(width: responsive.sp12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -394,7 +397,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                         Text(
                           'Upgrade to Premium',
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
@@ -402,7 +405,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                         Text(
                           'Unlock full AI chat capabilities',
                           style: GoogleFonts.poppins(
-                            fontSize: 12,
+                            fontSize: responsive.fs12,
                             color: Colors.white.withOpacity(0.9),
                           ),
                         ),
@@ -415,14 +418,14 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                       backgroundColor: Colors.white,
                       foregroundColor: Color(0xFFFFD700),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                       ),
                       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     ),
                     child: Text(
                       'Upgrade',
                       style: GoogleFonts.poppins(
-                        fontSize: 12,
+                        fontSize: responsive.fs12,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -434,29 +437,29 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               if (chatProvider.error != null)
                 Container(
                   width: double.infinity,
-                  padding: EdgeInsets.all(12),
-                  margin: EdgeInsets.all(16),
+                  padding: responsive.padding(all: 12),
+                  margin: responsive.padding(all: 16),
                   decoration: BoxDecoration(
                     color: Colors.red.withOpacity(0.1),
                     border: Border.all(color: Colors.red.withOpacity(0.3)),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.error_outline, color: Colors.red, size: 20),
-                      SizedBox(width: 8),
+                      Icon(Icons.error_outline, color: Colors.red, size: responsive.icon20),
+                      SizedBox(width: responsive.sp8),
                       Expanded(
                         child: Text(
                           chatProvider.error!,
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             color: Colors.red[800],
                           ),
                         ),
                       ),
                       IconButton(
                         onPressed: chatProvider.clearError,
-                        icon: Icon(Icons.close, color: Colors.red, size: 18),
+                        icon: Icon(Icons.close, color: Colors.red, size: responsive.icon18),
                       ),
                     ],
                   ),
@@ -489,7 +492,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   height: 120,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    padding: responsive.padding(horizontal: 16),
                     itemCount: quickSuggestions.length,
                     itemBuilder: (context, index) {
                       return _buildQuickSuggestion(quickSuggestions[index], chatProvider);
@@ -506,9 +509,10 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   }
 
   Widget _buildEmptyState() {
+    final responsive = ResponsiveHelper(context);
     return Center(
       child: Padding(
-        padding: EdgeInsets.all(32),
+        padding: responsive.padding(all: 32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -521,32 +525,32 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 ),
                 borderRadius: BorderRadius.circular(40),
               ),
-              child: Icon(Icons.smart_toy, color: Colors.white, size: 40),
+              child: Icon(Icons.smart_toy, color: Colors.white, size: responsive.iconSize(mobile: 40)),
             ),
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
             Text(
               'Hello! I\'m your AI financial assistant',
               style: GoogleFonts.poppins(
-                fontSize: 20,
+                fontSize: responsive.fs20,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF333333),
               ),
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
             Text(
               'I can help you analyze your spending, provide insights, and answer questions about your finances.',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[600],
               ),
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 32),
+            SizedBox(height: responsive.sp32),
             Text(
               'Try asking me something like:',
               style: GoogleFonts.poppins(
-                fontSize: 16,
+                fontSize: responsive.fs16,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF667eea),
               ),
@@ -560,6 +564,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   Widget _buildQuickSuggestion(String suggestion, ChatProvider chatProvider) {
   final authProvider = Provider.of<AuthProvider>(context);
   final isLocked = !authProvider.isPremium;
+  final responsive = ResponsiveHelper(context);
   
   return Container(
     margin: EdgeInsets.only(right: 12, bottom: 16),
@@ -568,7 +573,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
           ? () => Navigator.pushNamed(context, '/subscription')
           : () => chatProvider.addQuickMessage(suggestion),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: responsive.padding(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: isLocked ? Colors.grey[100] : Colors.white,
           border: Border.all(
@@ -576,7 +581,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 ? Colors.grey[300]! 
                 : Color(0xFF667eea).withOpacity(0.3),
           ),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
           boxShadow: [
             BoxShadow(
               color: Colors.grey.withOpacity(0.1),
@@ -592,14 +597,14 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               Icon(
                 Icons.lock,
                 color: Color(0xFFFFD700),
-                size: 16,
+                size: responsive.icon16,
               ),
               SizedBox(width: 6),
             ],
             Text(
               suggestion,
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: isLocked ? Colors.grey[500] : Color(0xFF667eea),
                 fontWeight: FontWeight.w500,
               ),
@@ -613,25 +618,26 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 
   Widget _buildMessageBubble(ChatMessage message, {bool isStreamingMessage = false}) {
     final isUser = message.role == MessageRole.user;
+    final responsive = ResponsiveHelper(context);
     return Container(
-      margin: EdgeInsets.symmetric(vertical: 4),
+      margin: responsive.padding(vertical: 4),
       child: Row(
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isUser) ...[
             Container(
-              width: 32,
-              height: 32,
+              width: responsive.iconSize(mobile: 32),
+              height: responsive.iconSize(mobile: 32),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                 ),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
               ),
-              child: Icon(Icons.smart_toy, color: Colors.white, size: 16),
+              child: Icon(Icons.smart_toy, color: Colors.white, size: responsive.icon16),
             ),
-            SizedBox(width: 8),
+            SizedBox(width: responsive.sp8),
           ],
           Flexible(
             child: Column(
@@ -641,7 +647,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   constraints: BoxConstraints(
                     maxWidth: MediaQuery.of(context).size.width * 0.75,
                   ),
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: responsive.padding(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
                     color: isUser ? Color(0xFF667eea) : Colors.grey[100],
                     borderRadius: BorderRadius.only(
@@ -657,22 +663,22 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                       Text(
                         message.content,
                         style: GoogleFonts.poppins(
-                          fontSize: 14,
+                          fontSize: responsive.fs14,
                           color: isUser ? Colors.white : Color(0xFF333333),
                           height: 1.4,
                         ),
                       ),
                       if (isStreamingMessage) ...[
-                        SizedBox(height: 8),
+                        SizedBox(height: responsive.sp8),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             _buildTypingIndicator(),
-                            SizedBox(width: 8),
+                            SizedBox(width: responsive.sp8),
                             Text(
                               'AI is typing...',
                               style: GoogleFonts.poppins(
-                                fontSize: 12,
+                                fontSize: responsive.fs12,
                                 color: Colors.grey[600],
                                 fontStyle: FontStyle.italic,
                               ),
@@ -683,11 +689,11 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                     ],
                   ),
                 ),
-                SizedBox(height: 4),
+                SizedBox(height: responsive.sp4),
                 Text(
                   DateFormat('HH:mm').format(message.timestamp),
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[500],
                   ),
                 ),
@@ -695,11 +701,11 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             ),
           ),
           if (isUser) ...[
-            SizedBox(width: 8),
+            SizedBox(width: responsive.sp8),
             CircleAvatar(
               radius: 16,
               backgroundColor: Color(0xFF667eea),
-              child: Icon(Icons.person, color: Colors.white, size: 16),
+              child: Icon(Icons.person, color: Colors.white, size: responsive.icon16),
             ),
           ],
         ],
@@ -741,9 +747,10 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 Widget _buildMessageInput(ChatProvider chatProvider) {
   final authProvider = Provider.of<AuthProvider>(context);
   final isLocked = !authProvider.isPremium;
+  final responsive = ResponsiveHelper(context);
   
   return Container(
-    padding: EdgeInsets.all(16),
+    padding: responsive.padding(all: 16),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border(top: BorderSide(color: Colors.grey[200]!)),
@@ -769,37 +776,37 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
                         ? 'AI is responding...' 
                         : 'Ask me about your finances...'),
                 hintStyle: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   color: isLocked ? Colors.grey[400] : Colors.grey[500],
                 ),
                 border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                contentPadding: responsive.padding(horizontal: 20, vertical: 12),
                 suffixIcon: isLocked
                     ? Padding(
                         padding: EdgeInsets.only(right: 8),
                         child: Icon(
                           Icons.lock,
                           color: Color(0xFFFFD700),
-                          size: 20,
+                          size: responsive.icon20,
                         ),
                       )
                     : null,
               ),
-              style: GoogleFonts.poppins(fontSize: 14),
+              style: GoogleFonts.poppins(fontSize: responsive.fs14),
               maxLines: null,
               textCapitalization: TextCapitalization.sentences,
               onSubmitted: (_) => (chatProvider.isStreaming || isLocked) ? null : _sendMessage(),
             ),
           ),
         ),
-        SizedBox(width: 8),
+        SizedBox(width: responsive.sp8),
         GestureDetector(
           onTap: isLocked
               ? () => Navigator.pushNamed(context, '/subscription')
               : ((chatProvider.isSendingMessage || chatProvider.isStreaming) ? null : _sendMessage),
           child: Container(
-            width: 48,
-            height: 48,
+            width: responsive.icon48,
+            height: responsive.icon48,
             decoration: BoxDecoration(
               gradient: isLocked
                   ? LinearGradient(
@@ -826,8 +833,8 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
               children: [
                 if (chatProvider.isSendingMessage || chatProvider.isStreaming)
                   SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: responsive.iconSize(mobile: 20),
+                    height: responsive.iconSize(mobile: 20),
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
@@ -837,7 +844,7 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
                   Stack(
                     alignment: Alignment.center,
                     children: [
-                      Icon(Icons.send, color: Colors.white, size: 20),
+                      Icon(Icons.send, color: Colors.white, size: responsive.icon20),
                       Positioned(
                         right: 0,
                         top: 0,
@@ -857,7 +864,7 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
                     ],
                   )
                 else
-                  Icon(Icons.send, color: Colors.white, size: 20),
+                  Icon(Icons.send, color: Colors.white, size: responsive.icon20),
               ],
             ),
           ),
@@ -868,10 +875,11 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
 }
 
   void _showClearHistoryDialog() {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text(
           'Clear Chat History',
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
@@ -895,7 +903,7 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
             ),
             child: Text(
               'Clear',

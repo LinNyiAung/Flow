@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class EditProfileScreen extends StatefulWidget {
   @override
@@ -86,12 +87,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<bool> _onWillPop() async {
     if (!_hasChanges) return true;
+    final responsive = ResponsiveHelper(context);
     
     return await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         ),
         title: Text(
           'Discard Changes?',
@@ -114,7 +116,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
               ),
             ),
             child: Text(
@@ -131,6 +133,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
+    final responsive = ResponsiveHelper(context);
 
     return WillPopScope(
       onWillPop: _onWillPop,
@@ -139,7 +142,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           title: Text(
             'Edit Profile',
             style: GoogleFonts.poppins(
-              fontSize: 20,
+              fontSize: responsive.fs20,
               fontWeight: FontWeight.bold,
               color: Color(0xFF333333),
             ),
@@ -167,14 +170,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           child: Form(
             key: _formKey,
             child: ListView(
-              padding: EdgeInsets.all(20),
+              padding: responsive.padding(all: 20),
               children: [
                 // Profile Avatar Section
                 Center(
                   child: Stack(
                     children: [
                       Container(
-                        padding: EdgeInsets.all(4),
+                        padding: responsive.padding(all: 4),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: LinearGradient(
@@ -201,7 +204,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           bottom: 5,
                           right: 5,
                           child: Container(
-                            padding: EdgeInsets.all(8),
+                            padding: responsive.padding(all: 8),
                             decoration: BoxDecoration(
                               color: Color(0xFFFFD700),
                               shape: BoxShape.circle,
@@ -210,7 +213,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             child: Icon(
                               Icons.star,
                               color: Colors.white,
-                              size: 20,
+                              size: responsive.icon20,
                             ),
                           ),
                         ),
@@ -218,7 +221,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         bottom: 0,
                         right: 0,
                         child: Container(
-                          padding: EdgeInsets.all(8),
+                          padding: responsive.padding(all: 8),
                           decoration: BoxDecoration(
                             color: Color(0xFF667eea),
                             shape: BoxShape.circle,
@@ -234,37 +237,37 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           child: Icon(
                             Icons.camera_alt,
                             color: Colors.white,
-                            size: 20,
+                            size: responsive.icon20,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                SizedBox(height: 12),
+                SizedBox(height: responsive.sp12),
                 Center(
                   child: Text(
                     'Tap icon to change avatar',
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       color: Colors.grey[600],
                       fontStyle: FontStyle.italic,
                     ),
                   ),
                 ),
 
-                SizedBox(height: 32),
+                SizedBox(height: responsive.sp32),
 
                 // Name Field
                 Text(
                   'Full Name',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 TextFormField(
                   controller: _nameController,
                   decoration: InputDecoration(
@@ -273,19 +276,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       borderSide: BorderSide(color: Colors.grey[300]!),
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       borderSide: BorderSide(color: Colors.grey[300]!),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
                     ),
                     errorBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       borderSide: BorderSide(color: Colors.red),
                     ),
                   ),
@@ -300,23 +303,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   },
                 ),
 
-                SizedBox(height: 24),
+                SizedBox(height: responsive.sp24),
 
                 // Email Field (Read-only)
                 Text(
                   'Email Address',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding: responsive.padding(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
                     color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     border: Border.all(color: Colors.grey[300]!),
                   ),
                   child: Row(
@@ -325,12 +328,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         Icons.email_outlined,
                         color: Colors.grey[600],
                       ),
-                      SizedBox(width: 12),
+                      SizedBox(width: responsive.sp12),
                       Expanded(
                         child: Text(
                           user?.email ?? '',
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             color: Colors.grey[700],
                           ),
                         ),
@@ -338,25 +341,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       Icon(
                         Icons.lock_outline,
                         color: Colors.grey[400],
-                        size: 18,
+                        size: responsive.icon18,
                       ),
                     ],
                   ),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 Padding(
                   padding: const EdgeInsets.only(left: 4),
                   child: Text(
                     'Email cannot be changed',
                     style: GoogleFonts.poppins(
-                      fontSize: 11,
+                      fontSize: responsive.fs11,
                       color: Colors.grey[600],
                       fontStyle: FontStyle.italic,
                     ),
                   ),
                 ),
 
-                SizedBox(height: 32),
+                SizedBox(height: responsive.sp32),
 
                 // Save Button
                 SizedBox(
@@ -367,7 +370,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       backgroundColor: Color(0xFF667eea),
                       disabledBackgroundColor: Colors.grey[300],
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       ),
                       elevation: _hasChanges ? 4 : 0,
                     ),
@@ -383,7 +386,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         : Text(
                             'Save Changes',
                             style: GoogleFonts.poppins(
-                              fontSize: 16,
+                              fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
                               color: _hasChanges ? Colors.white : Colors.grey[600],
                             ),
@@ -392,12 +395,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
 
                 if (_hasChanges) ...[
-                  SizedBox(height: 12),
+                  SizedBox(height: responsive.sp12),
                   Center(
                     child: Text(
                       'You have unsaved changes',
                       style: GoogleFonts.poppins(
-                        fontSize: 12,
+                        fontSize: responsive.fs12,
                         color: Color(0xFFFF9800),
                         fontWeight: FontWeight.w500,
                       ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   @override
@@ -31,6 +32,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
+    final responsive = ResponsiveHelper(context);
 
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -53,7 +55,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
           ),
         );
       }
@@ -67,7 +69,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           ),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
         ),
       );
     }
@@ -75,12 +77,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'Change Password',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -104,12 +108,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: EdgeInsets.all(20),
+            padding: responsive.padding(all: 20),
             children: [
               // Security Icon
               Center(
                 child: Container(
-                  padding: EdgeInsets.all(20),
+                  padding: responsive.padding(all: 20),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Color(0xFF667eea), Color(0xFF764ba2)],
@@ -125,19 +129,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   ),
                   child: Icon(
                     Icons.lock_outline,
-                    size: 60,
+                    size: responsive.iconSize(mobile: 60),
                     color: Colors.white,
                   ),
                 ),
               ),
-              SizedBox(height: 32),
+              SizedBox(height: responsive.sp32),
 
               // Info Card
               Container(
-                padding: EdgeInsets.all(16),
+                padding: responsive.padding(all: 16),
                 decoration: BoxDecoration(
                   color: Color(0xFF2196F3).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   border: Border.all(
                     color: Color(0xFF2196F3).withOpacity(0.3),
                     width: 1,
@@ -148,14 +152,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     Icon(
                       Icons.info_outline,
                       color: Color(0xFF2196F3),
-                      size: 24,
+                      size: responsive.icon24,
                     ),
                     SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Password must be at least 6 characters long',
                         style: GoogleFonts.poppins(
-                          fontSize: 13,
+                          fontSize: responsive.fs13,
                           color: Color(0xFF2196F3),
                         ),
                       ),
@@ -164,18 +168,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 ),
               ),
 
-              SizedBox(height: 32),
+              SizedBox(height: responsive.sp32),
 
               // Current Password
               Text(
                 'Current Password',
                 style: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF333333),
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: responsive.sp8),
               TextFormField(
                 controller: _currentPasswordController,
                 obscureText: _obscureCurrentPassword,
@@ -198,19 +202,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
                   ),
                   errorBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.red),
                   ),
                 ),
@@ -222,18 +226,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 },
               ),
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               // New Password
               Text(
                 'New Password',
                 style: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF333333),
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: responsive.sp8),
               TextFormField(
                 controller: _newPasswordController,
                 obscureText: _obscureNewPassword,
@@ -256,19 +260,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
                   ),
                   errorBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.red),
                   ),
                 ),
@@ -286,18 +290,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 },
               ),
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               // Confirm Password
               Text(
                 'Confirm New Password',
                 style: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF333333),
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: responsive.sp8),
               TextFormField(
                 controller: _confirmPasswordController,
                 obscureText: _obscureConfirmPassword,
@@ -320,19 +324,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
                   ),
                   errorBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.red),
                   ),
                 ),
@@ -358,7 +362,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     backgroundColor: Color(0xFF667eea),
                     disabledBackgroundColor: Colors.grey[300],
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     ),
                     elevation: 4,
                   ),
@@ -374,7 +378,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       : Text(
                           'Change Password',
                           style: GoogleFonts.poppins(
-                            fontSize: 16,
+                            fontSize: responsive.fs16,
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
                           ),
@@ -382,7 +386,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 ),
               ),
 
-              SizedBox(height: 16),
+              SizedBox(height: responsive.sp16),
 
               // Cancel Button
               SizedBox(
@@ -392,13 +396,13 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Colors.grey[400]!, width: 1),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     ),
                   ),
                   child: Text(
                     'Cancel',
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey[700],
                     ),

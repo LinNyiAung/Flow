@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../providers/insight_provider.dart';
 import '../../widgets/app_drawer.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class InsightsScreen extends StatefulWidget {
   @override
@@ -38,6 +39,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   final insightProvider = Provider.of<InsightProvider>(context, listen: false);
   final locale = Localizations.localeOf(context);
   final language = locale.languageCode == 'my' ? 'mm' : 'en';
+  final responsive = ResponsiveHelper(context);
   
   // Show loading dialog
   showDialog(
@@ -46,10 +48,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
     builder: (BuildContext context) {
       return Center(
         child: Container(
-          padding: EdgeInsets.all(24),
+          padding: responsive.padding(all: 24),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -57,11 +59,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
               CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
               ),
-              SizedBox(height: 16),
+              SizedBox(height: responsive.sp16),
               Text(
                 'Generating insights...',
                 style: GoogleFonts.poppins(
-                  fontSize: 16,
+                  fontSize: responsive.fs16,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -84,7 +86,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Color(0xFF4CAF50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -96,7 +98,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Colors.red,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -107,6 +109,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget build(BuildContext context) {
     final insightProvider = Provider.of<InsightProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
+    final responsive = ResponsiveHelper(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -119,27 +122,27 @@ class _InsightsScreenState extends State<InsightsScreen> {
             Text(
               'AI Insights',
               style: GoogleFonts.poppins(
-                fontSize: 20,
+                fontSize: responsive.fs20,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF333333),
               ),
             ),
-            SizedBox(width: 8),
+            SizedBox(width: responsive.sp8),
             if (!authProvider.isPremium)
-              Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
-              SizedBox(width: 8),
+              Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
+              SizedBox(width: responsive.sp8),
             if (!authProvider.isPremium)
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: responsive.padding(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Color(0xFFFFD700).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   border: Border.all(color: Color(0xFFFFD700), width: 1),
                 ),
                 child: Text(
                   'PREMIUM',
                   style: GoogleFonts.poppins(
-                    fontSize: 10,
+                    fontSize: responsive.fs10,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFFFFD700),
                   ),
@@ -157,10 +160,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
           // if (insightProvider.insight != null && !insightProvider.isLoading)
           //   IconButton(
           //     icon: Container(
-          //       padding: EdgeInsets.all(8),
+          //       padding: responsive.padding(all: 8),
           //       decoration: BoxDecoration(
           //         color: Colors.white,
-          //         borderRadius: BorderRadius.circular(12),
+          //         borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
           //         boxShadow: [
           //           BoxShadow(
           //             color: Colors.grey.withOpacity(0.1),
@@ -178,16 +181,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
           //     onPressed: _regenerateInsights,
           //   ),
           Padding(
-            padding: const EdgeInsets.only(right: 16.0),
+            padding: responsive.padding(right: 16),
             child: Consumer<NotificationProvider>(
               builder: (context, notificationProvider, child) {
                 return Stack(
                   children: [
                     Container(
-                      padding: EdgeInsets.all(8),
+                      padding: responsive.padding(all: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -216,7 +219,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                         right: 0,
                         top: 0,
                         child: Container(
-                          padding: EdgeInsets.all(4),
+                          padding: responsive.padding(all: 4),
                           decoration: BoxDecoration(
                             color: Colors.red,
                             shape: BoxShape.circle,
@@ -229,7 +232,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                             '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
-                              fontSize: 10,
+                              fontSize: responsive.fs10,
                               fontWeight: FontWeight.bold,
                             ),
                             textAlign: TextAlign.center,
@@ -264,17 +267,18 @@ class _InsightsScreenState extends State<InsightsScreen> {
   }
 
   Widget _buildFeatureItem(String text) {
+    final responsive = ResponsiveHelper(context);
   return Padding(
     padding: EdgeInsets.symmetric(vertical: 8),
     child: Row(
       children: [
-        Icon(Icons.check_circle, color: Colors.white, size: 20),
-        SizedBox(width: 12),
+        Icon(Icons.check_circle, color: Colors.white, size: responsive.icon20),
+        SizedBox(width: responsive.sp12),
         Expanded(
           child: Text(
             text,
             style: GoogleFonts.poppins(
-              fontSize: 14,
+              fontSize: responsive.fs14,
               color: Colors.white,
               fontWeight: FontWeight.w500,
             ),
@@ -286,21 +290,22 @@ class _InsightsScreenState extends State<InsightsScreen> {
 }
 
   Widget _buildBody(InsightProvider insightProvider) {
+    final responsive = ResponsiveHelper(context);
       if (!Provider.of<AuthProvider>(context).isPremium) {
     return SingleChildScrollView(
       child: Padding(
-        padding: EdgeInsets.all(20),
+        padding: responsive.padding(all: 20),
         child: Column(
           children: [
-            SizedBox(height: 20),
+            SizedBox(height: responsive.sp20),
             Container(
               width: double.infinity,
-              padding: EdgeInsets.all(24),
+              padding: responsive.padding(all: 24),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                 boxShadow: [
                   BoxShadow(
                     color: Color(0xFFFFD700).withOpacity(0.3),
@@ -311,30 +316,30 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
               child: Column(
                 children: [
-                  Icon(Icons.lightbulb, color: Colors.white, size: 64),
-                  SizedBox(height: 16),
+                  Icon(Icons.lightbulb, color: Colors.white, size: responsive.icon64),
+                  SizedBox(height: responsive.sp16),
                   Text(
                     'AI Insights',
                     style: GoogleFonts.poppins(
-                      fontSize: 24,
+                      fontSize: responsive.fs24,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                   ),
-                  SizedBox(height: 8),
+                  SizedBox(height: responsive.sp8),
                   Text(
                     'Premium Feature',
                     style: GoogleFonts.poppins(
-                      fontSize: 14,
+                      fontSize: responsive.fs14,
                       color: Colors.white.withOpacity(0.9),
                     ),
                   ),
-                  SizedBox(height: 24),
+                  SizedBox(height: responsive.sp24),
                   Container(
-                    padding: EdgeInsets.all(20),
+                    padding: responsive.padding(all: 20),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     ),
                     child: Column(
                       children: [
@@ -346,7 +351,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       ],
                     ),
                   ),
-                  SizedBox(height: 24),
+                  SizedBox(height: responsive.sp24),
                   SizedBox(
                     width: double.infinity,
                     height: 56,
@@ -356,19 +361,19 @@ class _InsightsScreenState extends State<InsightsScreen> {
                         backgroundColor: Colors.white,
                         foregroundColor: Color(0xFFFFD700),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                         ),
                         elevation: 4,
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.upgrade, size: 24),
-                          SizedBox(width: 12),
+                          Icon(Icons.upgrade, size: responsive.icon24),
+                          SizedBox(width: responsive.sp12),
                           Text(
                             'Upgrade to Premium',
                             style: GoogleFonts.poppins(
-                              fontSize: 18,
+                              fontSize: responsive.fs18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -392,19 +397,19 @@ class _InsightsScreenState extends State<InsightsScreen> {
             CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
             ),
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
             Text(
               'Analyzing your financial data...',
               style: GoogleFonts.poppins(
-                fontSize: 16,
+                fontSize: responsive.fs16,
                 color: Colors.grey[600],
               ),
             ),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
             Text(
               'This may take a few seconds',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[500],
               ),
             ),
@@ -416,41 +421,41 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (insightProvider.error != null && insightProvider.insight == null) {
       return Center(
         child: Container(
-          padding: EdgeInsets.all(32),
+          padding: responsive.padding(all: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: EdgeInsets.all(24),
+                padding: responsive.padding(all: 24),
                 decoration: BoxDecoration(
                   color: Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                 ),
                 child: Icon(
                   Icons.error_outline,
-                  size: 48,
+                  size: responsive.icon48,
                   color: Colors.red,
                 ),
               ),
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
               Text(
                 'Failed to load insights',
                 style: GoogleFonts.poppins(
-                  fontSize: 18,
+                  fontSize: responsive.fs18,
                   color: Color(0xFF333333),
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: responsive.sp8),
               Text(
                 insightProvider.error!,
                 style: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   color: Colors.grey[500],
                 ),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
               ElevatedButton.icon(
                 onPressed: _fetchInsights,
                 icon: Icon(Icons.refresh, color: Colors.white),
@@ -465,7 +470,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   backgroundColor: Color(0xFF667eea),
                   padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                 ),
               ),
@@ -478,38 +483,38 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (insightProvider.insight == null) {
       return Center(
         child: Container(
-          padding: EdgeInsets.all(32),
+          padding: responsive.padding(all: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: EdgeInsets.all(24),
+                padding: responsive.padding(all: 24),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                   ),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                 ),
                 child: Icon(
                   Icons.lightbulb_outline,
-                  size: 48,
+                  size: responsive.icon48,
                   color: Colors.white,
                 ),
               ),
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
               Text(
                 'No insights available',
                 style: GoogleFonts.poppins(
-                  fontSize: 18,
+                  fontSize: responsive.fs18,
                   color: Color(0xFF333333),
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: responsive.sp8),
               Text(
                 'Add transactions and goals to generate insights',
                 style: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   color: Colors.grey[500],
                 ),
                 textAlign: TextAlign.center,
@@ -522,16 +527,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
     // Display insights
     return ListView(
-      padding: EdgeInsets.all(20),
+      padding: responsive.padding(all: 20),
       children: [
         // Info Card
         Container(
-          padding: EdgeInsets.all(16),
+          padding: responsive.padding(all: 16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [Color(0xFF667eea), Color(0xFF764ba2)],
             ),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.2),
@@ -543,18 +548,18 @@ class _InsightsScreenState extends State<InsightsScreen> {
           child: Row(
             children: [
               Container(
-                padding: EdgeInsets.all(12),
+                padding: responsive.padding(all: 12),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 ),
                 child: Icon(
                   Icons.auto_awesome,
                   color: Colors.white,
-                  size: 28,
+                  size: responsive.icon28,
                 ),
               ),
-              SizedBox(width: 16),
+              SizedBox(width: responsive.sp16),
               Expanded(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -566,13 +571,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   child: Text(
                     'AI-Generated Insights',
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                   ),
                 ),
-                SizedBox(width: 8),
+                SizedBox(width: responsive.sp8),
                 // Language badge
                 Flexible(
                   flex: 2,
@@ -580,12 +585,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                     ),
                     child: Text(
                       insightProvider.currentLanguage == 'mm' ? 'မြန်မာ' : 'English',
                       style: GoogleFonts.poppins(
-                        fontSize: 10,
+                        fontSize: responsive.fs10,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
@@ -597,7 +602,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             Text(
               'Generated ${DateFormat('MMM dd, yyyy â€¢ hh:mm a').format(insightProvider.insight!.generatedAt)}',
               style: GoogleFonts.poppins(
-                fontSize: 12,
+                fontSize: responsive.fs12,
                 color: Colors.white.withOpacity(0.8),
               ),
             ),
@@ -608,14 +613,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
   ),
 ),
 
-        SizedBox(height: 20),
+        SizedBox(height: responsive.sp20),
 
         // Insights Content
         Container(
-          padding: EdgeInsets.all(20),
+          padding: responsive.padding(all: 20),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.1),
@@ -629,22 +634,22 @@ class _InsightsScreenState extends State<InsightsScreen> {
             data: insightProvider.getContentForLanguage() ?? insightProvider.insight!.content,
             styleSheet: MarkdownStyleSheet(
               h1: GoogleFonts.poppins(
-                fontSize: 24,
+                fontSize: responsive.fs24,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF333333),
               ),
               h2: GoogleFonts.poppins(
-                fontSize: 20,
+                fontSize: responsive.fs20,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF667eea),
               ),
               h3: GoogleFonts.poppins(
-                fontSize: 18,
+                fontSize: responsive.fs18,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF333333),
               ),
               p: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Color(0xFF333333),
                 height: 1.6,
               ),
@@ -653,7 +658,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 color: Color(0xFF667eea),
               ),
               listBullet: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Color(0xFF667eea),
               ),
             ),
@@ -661,7 +666,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         ),
         
 
-        SizedBox(height: 20),
+        SizedBox(height: responsive.sp20),
 
         // Regenerate Button
         // SizedBox(
@@ -674,14 +679,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
         //       style: GoogleFonts.poppins(
         //         color: Colors.white,
         //         fontWeight: FontWeight.w600,
-        //         fontSize: 16,
+        //         fontSize: responsive.fs16,
         //       ),
         //     ),
         //     style: ElevatedButton.styleFrom(
         //       backgroundColor: Color(0xFF667eea),
-        //       padding: EdgeInsets.symmetric(vertical: 16),
+        //       padding: responsive.padding(vertical: 16),
         //       shape: RoundedRectangleBorder(
-        //         borderRadius: BorderRadius.circular(12),
+        //         borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
         //       ),
         //       elevation: 4,
         //     ),

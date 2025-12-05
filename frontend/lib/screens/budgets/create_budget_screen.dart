@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 import 'ai_budget_suggestion_screen.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class CreateBudgetScreen extends StatefulWidget {
   @override
@@ -405,13 +406,14 @@ void _navigateToAISuggestion() async {
 
     final totalBudget = _calculateTotalBudget();
     final authProvider = Provider.of<AuthProvider>(context);
+    final responsive = ResponsiveHelper(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'Create Budget',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -432,22 +434,22 @@ void _navigateToAISuggestion() async {
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: EdgeInsets.all(20),
+            padding: responsive.padding(all: 20),
             children: [
               // NEW: Currency Selector (Add this BEFORE the AI Features section)
               Text(
                 'Currency',
                 style: GoogleFonts.poppins(
-                  fontSize: 16,
+                  fontSize: responsive.fs16,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF333333),
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: responsive.sp8),
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.grey.withOpacity(0.1),
@@ -460,7 +462,7 @@ void _navigateToAISuggestion() async {
                   decoration: InputDecoration(
                     hintText: 'Select currency for this budget',
                     border: InputBorder.none,
-                    contentPadding: EdgeInsets.all(15),
+                    contentPadding: responsive.padding(all: 15),
                     prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
                   ),
                   value: _selectedCurrency,
@@ -469,7 +471,7 @@ void _navigateToAISuggestion() async {
                       value: currency,
                       child: Text(
                         '${currency.symbol} - ${currency.displayName}',
-                        style: GoogleFonts.poppins(fontSize: 14),
+                        style: GoogleFonts.poppins(fontSize: responsive.fs14),
                       ),
                     );
                   }).toList(),
@@ -486,27 +488,27 @@ void _navigateToAISuggestion() async {
                   },
                 ),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: responsive.sp12),
               
               // Info note about currency
               Container(
-                padding: EdgeInsets.all(12),
+                padding: responsive.padding(all: 12),
                 decoration: BoxDecoration(
                   color: Color(0xFF2196F3).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   border: Border.all(
                     color: Color(0xFF2196F3).withOpacity(0.3),
                   ),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Color(0xFF2196F3), size: 20),
-                    SizedBox(width: 8),
+                    Icon(Icons.info_outline, color: Color(0xFF2196F3), size: responsive.icon20),
+                    SizedBox(width: responsive.sp8),
                     Expanded(
                       child: Text(
                         'Only transactions in ${_selectedCurrency.displayName} will affect this budget',
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
+                          fontSize: responsive.fs12,
                           color: Color(0xFF2196F3),
                         ),
                       ),
@@ -514,13 +516,13 @@ void _navigateToAISuggestion() async {
                   ],
                 ),
               ),
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
               // NEW: Collapsible AI Features Section
               Container(
                 margin: EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
                   boxShadow: [
                     BoxShadow(
@@ -539,13 +541,13 @@ void _navigateToAISuggestion() async {
                           _showAiFeatures = !_showAiFeatures;
                         });
                       },
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       child: Container(
-                        padding: EdgeInsets.all(16),
+                        padding: responsive.padding(all: 16),
                         child: Row(
                           children: [
                             Container(
-                              padding: EdgeInsets.all(8),
+                              padding: responsive.padding(all: 8),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
@@ -553,15 +555,15 @@ void _navigateToAISuggestion() async {
                                     Color(0xFF764ba2).withOpacity(0.2),
                                   ],
                                 ),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                               ),
                               child: Icon(
                                 Icons.auto_awesome,
                                 color: Color(0xFF667eea),
-                                size: 24,
+                                size: responsive.icon24,
                               ),
                             ),
-                            SizedBox(width: 12),
+                            SizedBox(width: responsive.sp12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,27 +573,27 @@ void _navigateToAISuggestion() async {
                                       Text(
                                         'AI Features',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 16,
+                                          fontSize: responsive.fs16,
                                           fontWeight: FontWeight.w600,
                                           color: Color(0xFF333333),
                                         ),
                                       ),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: responsive.sp8),
                                       if (!authProvider.isPremium)
-                                        Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
-                                        SizedBox(width: 8),
+                                        Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
+                                        SizedBox(width: responsive.sp8),
                                       if (!authProvider.isPremium)
                                       Container(
-                                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        padding: responsive.padding(horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
                                           color: Color(0xFFFFD700).withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                                           border: Border.all(color: Color(0xFFFFD700), width: 1),
                                         ),
                                         child: Text(
                                           'PREMIUM',
                                           style: GoogleFonts.poppins(
-                                            fontSize: 10,
+                                            fontSize: responsive.fs10,
                                             fontWeight: FontWeight.bold,
                                             color: Color(0xFFFFD700),
                                           ),
@@ -604,7 +606,7 @@ void _navigateToAISuggestion() async {
                                         ? 'Get AI-powered budget suggestions'
                                         : 'Tap to use AI budget suggestions',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 12,
+                                      fontSize: responsive.fs12,
                                       color: Colors.grey[600],
                                     ),
                                   ),
@@ -626,16 +628,16 @@ void _navigateToAISuggestion() async {
                     if (_showAiFeatures) ...[
                       Divider(height: 1),
                       Padding(
-                        padding: EdgeInsets.all(16),
+                        padding: responsive.padding(all: 16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             // AI Context Input
                             Container(
-                              padding: EdgeInsets.all(16),
+                              padding: responsive.padding(all: 16),
                               decoration: BoxDecoration(
                                 color: Color(0xFF667eea).withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                 border: Border.all(
                                   color: Color(0xFF667eea).withOpacity(0.2),
                                 ),
@@ -648,53 +650,53 @@ void _navigateToAISuggestion() async {
                                       Icon(
                                         Icons.lightbulb_outline,
                                         color: Color(0xFF667eea),
-                                        size: 18,
+                                        size: responsive.icon18,
                                       ),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: responsive.sp8),
                                       Text(
                                         'Context (Optional)',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 14,
+                                          fontSize: responsive.fs14,
                                           fontWeight: FontWeight.w600,
                                           color: Color(0xFF333333),
                                         ),
                                       ),
                                     ],
                                   ),
-                                  SizedBox(height: 8),
+                                  SizedBox(height: responsive.sp8),
                                   Text(
                                     'Add context to help AI create better budgets',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 12,
+                                      fontSize: responsive.fs12,
                                       color: Colors.grey[600],
                                     ),
                                   ),
-                                  SizedBox(height: 12),
+                                  SizedBox(height: responsive.sp12),
                                   TextFormField(
                                     controller: _contextController,
                                     decoration: InputDecoration(
                                       hintText:
                                           'e.g., "Traveling this week" or "Holiday season"',
                                       hintStyle: GoogleFonts.poppins(
-                                        fontSize: 12,
+                                        fontSize: responsive.fs12,
                                         color: Colors.grey[400],
                                       ),
                                       filled: true,
                                       fillColor: Colors.white,
                                       border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                         borderSide: BorderSide(
                                           color: Colors.grey[300]!,
                                         ),
                                       ),
                                       enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                         borderSide: BorderSide(
                                           color: Colors.grey[300]!,
                                         ),
                                       ),
                                       focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                         borderSide: BorderSide(
                                           color: Color(0xFF667eea),
                                           width: 2,
@@ -713,7 +715,7 @@ void _navigateToAISuggestion() async {
                               ),
                             ),
 
-                            SizedBox(height: 16),
+                            SizedBox(height: responsive.sp16),
 
                             // Generate Button
                             SizedBox(
@@ -722,9 +724,9 @@ void _navigateToAISuggestion() async {
                                 onPressed: _navigateToAISuggestion,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Color(0xFF667eea),
-                                  padding: EdgeInsets.symmetric(vertical: 14),
+                                  padding: responsive.padding(vertical: 14),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                   ),
                                 ),
                                 child: Row(
@@ -733,13 +735,13 @@ void _navigateToAISuggestion() async {
                                     Icon(
                                       Icons.auto_awesome,
                                       color: Colors.white,
-                                      size: 20,
+                                      size: responsive.icon20,
                                     ),
-                                    SizedBox(width: 8),
+                                    SizedBox(width: responsive.sp8),
                                     Text(
                                       'Generate AI Budget',
                                       style: GoogleFonts.poppins(
-                                        fontSize: 15,
+                                        fontSize: responsive.fs14,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.white,
                                       ),
@@ -749,22 +751,22 @@ void _navigateToAISuggestion() async {
                               ),
                             ),
 
-                            SizedBox(height: 8),
+                            SizedBox(height: responsive.sp8),
 
                             // Info note
                             Row(
                               children: [
                                 Icon(
                                   Icons.info_outline,
-                                  size: 14,
+                                  size: responsive.icon16,
                                   color: Color(0xFF667eea),
                                 ),
-                                SizedBox(width: 4),
+                                SizedBox(width: responsive.sp4),
                                 Expanded(
                                   child: Text(
                                     'AI will analyze your spending and suggest category budgets',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 11,
+                                      fontSize: responsive.fs11,
                                       color: Color(0xFF667eea),
                                     ),
                                   ),
@@ -795,23 +797,23 @@ void _navigateToAISuggestion() async {
                 },
               ),
 
-              SizedBox(height: 16),
+              SizedBox(height: responsive.sp16),
 
               // Period Selector
               Text(
                 'Budget Period',
                 style: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF333333),
                 ),
               ),
-              SizedBox(height: 8),
+              SizedBox(height: responsive.sp8),
               Container(
-                padding: EdgeInsets.all(4),
+                padding: responsive.padding(all: 4),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.grey.withOpacity(0.1),
@@ -830,7 +832,7 @@ void _navigateToAISuggestion() async {
                 ),
               ),
 
-              SizedBox(height: 16),
+              SizedBox(height: responsive.sp16),
 
               // Date Selection
               Row(
@@ -839,10 +841,10 @@ void _navigateToAISuggestion() async {
                     child: GestureDetector(
                       onTap: _selectStartDate,
                       child: Container(
-                        padding: EdgeInsets.all(12),
+                        padding: responsive.padding(all: 12),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           border: Border.all(color: Colors.grey[300]!),
                         ),
                         child: Column(
@@ -851,15 +853,15 @@ void _navigateToAISuggestion() async {
                             Text(
                               'Start Date',
                               style: GoogleFonts.poppins(
-                                fontSize: 10,
+                                fontSize: responsive.fs10,
                                 color: Colors.grey[600],
                               ),
                             ),
-                            SizedBox(height: 4),
+                            SizedBox(height: responsive.sp4),
                             Text(
                               DateFormat('MMM d, yyyy').format(_startDate),
                               style: GoogleFonts.poppins(
-                                fontSize: 14,
+                                fontSize: responsive.fs14,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -868,19 +870,19 @@ void _navigateToAISuggestion() async {
                       ),
                     ),
                   ),
-                  SizedBox(width: 12),
+                  SizedBox(width: responsive.sp12),
                   Expanded(
                     child: GestureDetector(
                       onTap: _selectedPeriod == BudgetPeriod.custom
                           ? _selectEndDate
                           : null,
                       child: Container(
-                        padding: EdgeInsets.all(12),
+                        padding: responsive.padding(all: 12),
                         decoration: BoxDecoration(
                           color: _selectedPeriod == BudgetPeriod.custom
                               ? Colors.white
                               : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           border: Border.all(color: Colors.grey[300]!),
                         ),
                         child: Column(
@@ -889,17 +891,17 @@ void _navigateToAISuggestion() async {
                             Text(
                               'End Date',
                               style: GoogleFonts.poppins(
-                                fontSize: 10,
+                                fontSize: responsive.fs10,
                                 color: Colors.grey[600],
                               ),
                             ),
-                            SizedBox(height: 4),
+                            SizedBox(height: responsive.sp4),
                             Text(
                               _endDate != null
                                   ? DateFormat('MMM d, yyyy').format(_endDate!)
                                   : 'Auto',
                               style: GoogleFonts.poppins(
-                                fontSize: 14,
+                                fontSize: responsive.fs14,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -911,7 +913,7 @@ void _navigateToAISuggestion() async {
                 ],
               ),
 
-              SizedBox(height: 16),
+              SizedBox(height: responsive.sp16),
 
               // Description Field
               TextFormField(
@@ -924,12 +926,12 @@ void _navigateToAISuggestion() async {
                 maxLines: 2,
               ),
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               if (_selectedPeriod != BudgetPeriod.custom) ...[
-                SizedBox(height: 24),
+                SizedBox(height: responsive.sp24),
                 Container(
-                  padding: EdgeInsets.all(16),
+                  padding: responsive.padding(all: 16),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
@@ -937,7 +939,7 @@ void _navigateToAISuggestion() async {
                         Color(0xFF764ba2).withOpacity(0.1),
                       ],
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     border: Border.all(
                       color: Color(0xFF667eea).withOpacity(0.3),
                     ),
@@ -948,26 +950,26 @@ void _navigateToAISuggestion() async {
                       Row(
                         children: [
                           Icon(Icons.autorenew, color: Color(0xFF667eea)),
-                          SizedBox(width: 8),
+                          SizedBox(width: responsive.sp8),
                           Text(
                             'Auto-Create Next Budget',
                             style: GoogleFonts.poppins(
-                              fontSize: 16,
+                              fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
                               color: Color(0xFF333333),
                             ),
                           ),
                         ],
                       ),
-                      SizedBox(height: 8),
+                      SizedBox(height: responsive.sp8),
                       Text(
                         'Automatically create a new budget when this one ends',
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
+                          fontSize: responsive.fs12,
                           color: Colors.grey[600],
                         ),
                       ),
-                      SizedBox(height: 12),
+                      SizedBox(height: responsive.sp12),
                       SwitchListTile(
                         value: _autoCreateEnabled,
                         onChanged: (value) {
@@ -981,7 +983,7 @@ void _navigateToAISuggestion() async {
                         title: Text(
                           'Enable Auto-Create',
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -993,12 +995,12 @@ void _navigateToAISuggestion() async {
                         Text(
                           'Choose how to create the next budget:',
                           style: GoogleFonts.poppins(
-                            fontSize: 13,
+                            fontSize: responsive.fs13,
                             fontWeight: FontWeight.w500,
                             color: Color(0xFF333333),
                           ),
                         ),
-                        SizedBox(height: 8),
+                        SizedBox(height: responsive.sp8),
                         RadioListTile<bool>(
                           value: false,
                           groupValue: _autoCreateWithAi,
@@ -1009,12 +1011,12 @@ void _navigateToAISuggestion() async {
                           },
                           title: Text(
                             'Use Current Categories',
-                            style: GoogleFonts.poppins(fontSize: 13),
+                            style: GoogleFonts.poppins(fontSize: responsive.fs13),
                           ),
                           subtitle: Text(
                             'Keep the same budget amounts for all categories',
                             style: GoogleFonts.poppins(
-                              fontSize: 11,
+                              fontSize: responsive.fs11,
                               color: Colors.grey[600],
                             ),
                           ),
@@ -1033,20 +1035,20 @@ void _navigateToAISuggestion() async {
                             children: [
                               Icon(
                                 Icons.auto_awesome,
-                                size: 16,
+                                size: responsive.icon16,
                                 color: Color(0xFF667eea),
                               ),
-                              SizedBox(width: 4),
+                              SizedBox(width: responsive.sp4),
                               Text(
                                 'AI-Optimized Budget',
-                                style: GoogleFonts.poppins(fontSize: 13),
+                                style: GoogleFonts.poppins(fontSize: responsive.fs13),
                               ),
                             ],
                           ),
                           subtitle: Text(
                             'AI analyzes your spending and suggests optimized amounts',
                             style: GoogleFonts.poppins(
-                              fontSize: 11,
+                              fontSize: responsive.fs11,
                               color: Colors.grey[600],
                             ),
                           ),
@@ -1059,7 +1061,7 @@ void _navigateToAISuggestion() async {
                 ),
               ],
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               // Category Budgets Section
               Row(
@@ -1068,7 +1070,7 @@ void _navigateToAISuggestion() async {
                   Text(
                     'Category Budgets',
                     style: GoogleFonts.poppins(
-                      fontSize: 18,
+                      fontSize: responsive.fs18,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF333333),
                     ),
@@ -1084,15 +1086,15 @@ void _navigateToAISuggestion() async {
                 ],
               ),
 
-              SizedBox(height: 12),
+              SizedBox(height: responsive.sp12),
 
               // Category Budgets List
               if (_categoryBudgets.isEmpty)
                 Container(
-                  padding: EdgeInsets.all(32),
+                  padding: responsive.padding(all: 32),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                   child: Center(
                     child: Text(
@@ -1108,16 +1110,16 @@ void _navigateToAISuggestion() async {
                   return _buildCategoryBudgetCard(catBudget, index);
                 }).toList(),
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               // Total Budget Display
               Container(
-                padding: EdgeInsets.all(20),
+                padding: responsive.padding(all: 20),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                   ),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1125,7 +1127,7 @@ void _navigateToAISuggestion() async {
                     Text(
                       'Total Budget',
                       style: GoogleFonts.poppins(
-                        fontSize: 18,
+                        fontSize: responsive.fs18,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -1133,7 +1135,7 @@ void _navigateToAISuggestion() async {
                     Text(
                       '${_selectedCurrency.symbol}${totalBudget.toStringAsFixed(2)}',  // NEW: use selected currency
                       style: GoogleFonts.poppins(
-                        fontSize: 24,
+                        fontSize: responsive.fs24,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -1142,7 +1144,7 @@ void _navigateToAISuggestion() async {
                 ),
               ),
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               // Save Button
               SizedBox(
@@ -1152,7 +1154,7 @@ void _navigateToAISuggestion() async {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Color(0xFF667eea),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     ),
                   ),
                   child: _isLoading
@@ -1160,7 +1162,7 @@ void _navigateToAISuggestion() async {
                       : Text(
                           'Create Budget',
                           style: GoogleFonts.poppins(
-                            fontSize: 16,
+                            fontSize: responsive.fs16,
                             fontWeight: FontWeight.w600,
                             color: Colors.white,
                           ),
@@ -1176,6 +1178,7 @@ void _navigateToAISuggestion() async {
 
   Widget _buildPeriodButton(String label, BudgetPeriod period) {
     bool isSelected = _selectedPeriod == period;
+    final responsive = ResponsiveHelper(context);
     return Expanded(
       child: GestureDetector(
         onTap: () {
@@ -1187,19 +1190,19 @@ void _navigateToAISuggestion() async {
           });
         },
         child: Container(
-          padding: EdgeInsets.symmetric(vertical: 10),
+          padding: responsive.padding(vertical: 10),
           decoration: BoxDecoration(
             gradient: isSelected
                 ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
                 : null,
             color: isSelected ? null : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
           ),
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-              fontSize: 12,
+              fontSize: responsive.fs12,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
               color: isSelected ? Colors.white : Colors.grey[600],
             ),
@@ -1210,12 +1213,13 @@ void _navigateToAISuggestion() async {
   }
 
   Widget _buildCategoryBudgetCard(CategoryBudget catBudget, int index) {
+    final responsive = ResponsiveHelper(context);
     return Container(
       margin: EdgeInsets.only(bottom: 8),
-      padding: EdgeInsets.all(16),
+      padding: responsive.padding(all: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -1233,9 +1237,9 @@ void _navigateToAISuggestion() async {
               color: Color(0xFF667eea).withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(Icons.category, color: Color(0xFF667eea), size: 20),
+            child: Icon(Icons.category, color: Color(0xFF667eea), size: responsive.icon20),
           ),
-          SizedBox(width: 12),
+          SizedBox(width: responsive.sp12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1243,7 +1247,7 @@ void _navigateToAISuggestion() async {
                 Text(
                   catBudget.mainCategory,
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
@@ -1251,7 +1255,7 @@ void _navigateToAISuggestion() async {
                 Text(
                   '\$${catBudget.allocatedAmount.toStringAsFixed(2)}',
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[600],
                   ),
                 ),
@@ -1259,11 +1263,11 @@ void _navigateToAISuggestion() async {
             ),
           ),
           IconButton(
-            icon: Icon(Icons.edit, color: Color(0xFF667eea), size: 20),
+            icon: Icon(Icons.edit, color: Color(0xFF667eea), size: responsive.icon20),
             onPressed: () => _editCategoryBudget(index),
           ),
           IconButton(
-            icon: Icon(Icons.delete, color: Colors.red, size: 20),
+            icon: Icon(Icons.delete, color: Colors.red, size: responsive.icon20),
             onPressed: () => _removeCategoryBudget(index),
           ),
         ],
@@ -1365,8 +1369,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
       title: Text(
         widget.initialCategory == null
             ? 'Add Category Budget'
@@ -1383,12 +1388,12 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   border: Border.all(color: Colors.grey[300]!),
                 ),
                 child: _isLoadingCategories
                     ? Container(
-                        padding: EdgeInsets.all(20),
+                        padding: responsive.padding(all: 20),
                         child: Center(
                           child: CircularProgressIndicator(
                             valueColor: AlwaysStoppedAnimation<Color>(
@@ -1417,7 +1422,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                             value: category.mainCategory,
                             child: Text(
                               category.mainCategory,
-                              style: GoogleFonts.poppins(fontSize: 14),
+                              style: GoogleFonts.poppins(fontSize: responsive.fs14),
                               overflow: TextOverflow.ellipsis,
                             ),
                           );
@@ -1439,11 +1444,11 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
 
               // Sub Category Dropdown (Optional)
               if (_selectedMainCategory != null && !_isLoadingCategories) ...[
-                SizedBox(height: 16),
+                SizedBox(height: responsive.sp16),
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     border: Border.all(color: Colors.grey[300]!),
                   ),
                   child: DropdownButtonFormField<String?>(
@@ -1468,7 +1473,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         child: Text(
                           'All (no filter)',
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             fontStyle: FontStyle.italic,
                             color: Colors.grey[600],
                           ),
@@ -1488,7 +1493,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                               value: subCategory,
                               child: Text(
                                 subCategory,
-                                style: GoogleFonts.poppins(fontSize: 14),
+                                style: GoogleFonts.poppins(fontSize: responsive.fs14),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             );
@@ -1504,7 +1509,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                 ),
               ],
 
-              SizedBox(height: 16),
+              SizedBox(height: responsive.sp16),
 
               // Amount Field
               TextFormField(
@@ -1517,11 +1522,11 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                     color: Color(0xFF667eea),
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
                   ),
                 ),
@@ -1540,28 +1545,28 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
 
               // Info text about sub-categories
               if (_selectedMainCategory != null) ...[
-                SizedBox(height: 12),
+                SizedBox(height: responsive.sp12),
                 Container(
-                  padding: EdgeInsets.all(12),
+                  padding: responsive.padding(all: 12),
                   decoration: BoxDecoration(
                     color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         Icons.info_outline,
-                        size: 16,
+                        size: responsive.icon16,
                         color: Color(0xFF667eea),
                       ),
-                      SizedBox(width: 8),
+                      SizedBox(width: responsive.sp8),
                       Expanded(
                         child: Text(
                           _selectedSubCategory == null
                               ? 'Budget will track all sub-categories in $_selectedMainCategory'
                               : 'Budget will only track $_selectedSubCategory',
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs11,
                             color: Color(0xFF667eea),
                           ),
                         ),
@@ -1629,7 +1634,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: Color(0xFF667eea),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
             ),
             padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           ),

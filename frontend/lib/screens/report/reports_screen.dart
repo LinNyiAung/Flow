@@ -6,6 +6,7 @@ import 'package:open_filex/open_filex.dart';
 import '../../models/report.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_drawer.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class ReportsScreen extends StatefulWidget {
   @override
@@ -132,6 +133,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
@@ -140,7 +142,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         title: Text(
           'Financial Reports',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -153,7 +155,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         actions: [
           if (_report != null)
             Padding(
-              padding: const EdgeInsets.only(right: 16.0),
+              padding: responsive.padding(right: 16),
               child: _isDownloading
                   ? Center(
                 child: SizedBox(
@@ -191,16 +193,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: SingleChildScrollView(
             physics: AlwaysScrollableScrollPhysics(),
             child: Padding(
-              padding: EdgeInsets.all(20),
+              padding: responsive.padding(all: 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Period Selector
                   Container(
-                    padding: EdgeInsets.all(4),
+                    padding: responsive.padding(all: 4),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.grey.withOpacity(0.1),
@@ -220,14 +222,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
 
 
-                  SizedBox(height: 16),
+                  SizedBox(height: responsive.sp16),
 
                   // Currency Selector
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: responsive.padding(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.grey.withOpacity(0.1),
@@ -238,17 +240,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.attach_money, color: Color(0xFF667eea), size: 20),
-                        SizedBox(width: 12),
+                        Icon(Icons.attach_money, color: Color(0xFF667eea), size: responsive.icon20),
+                        SizedBox(width: responsive.sp12),
                         Text(
                           'Currency:',
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             fontWeight: FontWeight.w500,
                             color: Color(0xFF333333),
                           ),
                         ),
-                        SizedBox(width: 12),
+                        SizedBox(width: responsive.sp12),
                         Expanded(
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<Currency?>(
@@ -260,7 +262,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   child: Text(
                                     'All Currencies',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 14,
+                                      fontSize: responsive.fs14,
                                       fontWeight: FontWeight.w600,
                                       
                                     ),
@@ -271,7 +273,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     value: currency,
                                     child: Text(
                                       '${currency.displayName} (${currency.symbol})',
-                                      style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600,),
+                                      style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w600,),
                                     ),
                                   );
                                 }).toList(),
@@ -291,7 +293,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
                   // Custom Date Selector (removed Generate Report button)
                   if (_selectedPeriod == ReportPeriod.custom) ...[
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
                     Row(
                       children: [
                         Expanded(
@@ -307,7 +309,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             },
                           ),
                         ),
-                        SizedBox(width: 12),
+                        SizedBox(width: responsive.sp12),
                         Expanded(
                           child: _buildDateSelector(
                             'End Date',
@@ -325,7 +327,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                   ],
 
-                  SizedBox(height: 24),
+                  SizedBox(height: responsive.sp24),
 
                   // Loading or Error State
                   if (_isLoading)
@@ -336,7 +338,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           CircularProgressIndicator(
                             valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
                           ),
-                          SizedBox(height: 16),
+                          SizedBox(height: responsive.sp16),
                           Text(
                             'Generating report...',
                             style: GoogleFonts.poppins(color: Colors.grey[600]),
@@ -349,17 +351,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       child: Column(
                         children: [
                           SizedBox(height: 40),
-                          Icon(Icons.error_outline, size: 64, color: Colors.red),
-                          SizedBox(height: 16),
+                          Icon(Icons.error_outline, size: responsive.icon64, color: Colors.red),
+                          SizedBox(height: responsive.sp16),
                           Text(
                             'Error',
                             style: GoogleFonts.poppins(
-                              fontSize: 18,
+                              fontSize: responsive.fs18,
                               fontWeight: FontWeight.bold,
                               color: Colors.red,
                             ),
                           ),
-                          SizedBox(height: 8),
+                          SizedBox(height: responsive.sp8),
                           Text(
                             _error!,
                             style: GoogleFonts.poppins(color: Colors.grey[600]),
@@ -380,15 +382,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               children: [
                                 Icon(
                                   Icons.date_range,
-                                  size: 64,
+                                  size: responsive.icon64,
                                   color: Colors.grey[300],
                                 ),
-                                SizedBox(height: 16),
+                                SizedBox(height: responsive.sp16),
                                 Text(
                                   'Select both dates to generate report',
                                   style: GoogleFonts.poppins(
                                     color: Colors.grey[600],
-                                    fontSize: 16,
+                                    fontSize: responsive.fs16,
                                   ),
                                 ),
                               ],
@@ -407,6 +409,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildPeriodButton(String label, ReportPeriod period) {
+    final responsive = ResponsiveHelper(context);
     bool isSelected = _selectedPeriod == period;
     return Expanded(
       child: GestureDetector(
@@ -425,19 +428,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
           }
         },
         child: Container(
-          padding: EdgeInsets.symmetric(vertical: 10),
+          padding: responsive.padding(vertical: 10),
           decoration: BoxDecoration(
             gradient: isSelected
                 ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
                 : null,
             color: isSelected ? null : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
           ),
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-              fontSize: 12,
+              fontSize: responsive.fs12,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
               color: isSelected ? Colors.white : Colors.grey[600],
             ),
@@ -448,6 +451,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildDateSelector(String label, DateTime? date, Function(DateTime) onDateSelected) {
+    final responsive = ResponsiveHelper(context);
     return GestureDetector(
       onTap: () async {
         final picked = await showDatePicker(
@@ -467,10 +471,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
         if (picked != null) onDateSelected(picked);
       },
       child: Container(
-        padding: EdgeInsets.all(12),
+        padding: responsive.padding(all: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
           border: Border.all(color: Colors.grey[300]!),
           boxShadow: [
             BoxShadow(
@@ -485,12 +489,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey[600]),
+              style: GoogleFonts.poppins(fontSize: responsive.fs10, color: Colors.grey[600]),
             ),
-            SizedBox(height: 4),
+            SizedBox(height: responsive.sp4),
             Text(
               date != null ? DateFormat('MMM d, yyyy').format(date) : 'Select',
-              style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500),
+              style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -499,16 +503,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildReportContent(FinancialReport report) {
+    final responsive = ResponsiveHelper(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Report Period Info
         Container(
           width: double.infinity,
-          padding: EdgeInsets.all(16),
+          padding: responsive.padding(all: 16),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.1),
@@ -523,15 +528,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
               Text(
                 'Report Period',
                 style: GoogleFonts.poppins(
-                  fontSize: 12,
+                  fontSize: responsive.fs12,
                   color: Colors.grey[600],
                 ),
               ),
-              SizedBox(height: 4),
+              SizedBox(height: responsive.sp4),
               Text(
                 '${DateFormat('MMM d, yyyy').format(report.startDate.toUtc())} - ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())}',
                 style: GoogleFonts.poppins(
-                  fontSize: 16,
+                  fontSize: responsive.fs16,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF333333),
                 ),
@@ -540,7 +545,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ),
 
-        SizedBox(height: 20),
+        SizedBox(height: responsive.sp20),
 
         // Summary Cards
         _buildSummaryCard(
@@ -551,7 +556,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           report,
         ),
 
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
 
         Row(
           children: [
@@ -564,7 +569,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 report,
               ),
             ),
-            SizedBox(width: 12),
+            SizedBox(width: responsive.sp12),
             Expanded(
               child: _buildSmallSummaryCard(
                 'Expenses',
@@ -577,7 +582,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ],
         ),
 
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
 
         Row(
           children: [
@@ -588,7 +593,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 Icons.receipt_long,
               ),
             ),
-            SizedBox(width: 12),
+            SizedBox(width: responsive.sp12),
             Expanded(
               child: _buildInfoCard(
                 'Goals Allocated',
@@ -599,25 +604,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ],
         ),
 
-        SizedBox(height: 24),
+        SizedBox(height: responsive.sp24),
 
         // Daily Averages
         Text(
           'Daily Averages',
           style: GoogleFonts.poppins(
-            fontSize: 18,
+            fontSize: responsive.fs18,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
         ),
 
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
 
         Container(
-          padding: EdgeInsets.all(16),
+          padding: responsive.padding(all: 16),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.1),
@@ -645,19 +650,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ),
 
-        SizedBox(height: 24),
+        SizedBox(height: responsive.sp24),
 
         // Income Breakdown
         if (report.inflowByCategory.isNotEmpty) ...[
           Text(
             'Income by Category',
             style: GoogleFonts.poppins(
-              fontSize: 18,
+              fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
               color: Color(0xFF333333),
             ),
           ),
-          SizedBox(height: 12),
+          SizedBox(height: responsive.sp12),
           ...report.inflowByCategory.take(5).map((cat) => _buildCategoryCard(
             cat.category,
             cat.amount,
@@ -665,7 +670,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Color(0xFF4CAF50),
             report,
           )),
-          SizedBox(height: 24),
+          SizedBox(height: responsive.sp24),
         ],
 
         // Expense Breakdown
@@ -673,12 +678,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           Text(
             'Expenses by Category',
             style: GoogleFonts.poppins(
-              fontSize: 18,
+              fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
               color: Color(0xFF333333),
             ),
           ),
-          SizedBox(height: 12),
+          SizedBox(height: responsive.sp12),
           ...report.outflowByCategory.take(5).map((cat) => _buildCategoryCard(
             cat.category,
             cat.amount,
@@ -686,7 +691,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Color(0xFFFF5722),
             report,
           )),
-          SizedBox(height: 24),
+          SizedBox(height: responsive.sp24),
         ],
 
         // Goals Progress
@@ -694,12 +699,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           Text(
             'Goals Progress',
             style: GoogleFonts.poppins(
-              fontSize: 18,
+              fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
               color: Color(0xFF333333),
             ),
           ),
-          SizedBox(height: 12),
+          SizedBox(height: responsive.sp12),
           ...report.goals.map((goal) => _buildGoalCard(goal)),
         ],
       ],
@@ -707,14 +712,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildSummaryCard(String label, double amount, Color color, IconData icon, FinancialReport report) {
+    final responsive = ResponsiveHelper(context);
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(20),
+      padding: responsive.padding(all: 20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [color, color.withOpacity(0.8)],
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         boxShadow: [
           BoxShadow(
             color: color.withOpacity(0.3),
@@ -727,14 +733,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
       child: Row(
         children: [
           Container(
-            padding: EdgeInsets.all(12),
+            padding: responsive.padding(all: 12),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             ),
-            child: Icon(icon, color: Colors.white, size: 28),
+            child: Icon(icon, color: Colors.white, size: responsive.icon28),
           ),
-          SizedBox(width: 16),
+          SizedBox(width: responsive.sp16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -742,15 +748,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 Text(
                   label,
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     color: Colors.white.withOpacity(0.9),
                   ),
                 ),
-                SizedBox(height: 4),
+                SizedBox(height: responsive.sp4),
                 Text(
                   '${report.currency.symbol}${amount.toStringAsFixed(2)}',
                   style: GoogleFonts.poppins(
-                    fontSize: 28,
+                    fontSize: responsive.fs28,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
@@ -764,11 +770,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildSmallSummaryCard(String label, double amount, Color color, IconData icon, FinancialReport report) {
+    final responsive = ResponsiveHelper(context);
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: responsive.padding(all: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -783,20 +790,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color, size: 24),
-          SizedBox(height: 8),
+          Icon(icon, color: color, size: responsive.icon24),
+          SizedBox(height: responsive.sp8),
           Text(
             label,
             style: GoogleFonts.poppins(
-              fontSize: 12,
+              fontSize: responsive.fs12,
               color: Colors.grey[600],
             ),
           ),
-          SizedBox(height: 4),
+          SizedBox(height: responsive.sp4),
           Text(
             '${report.currency.symbol}${amount.toStringAsFixed(2)}',
             style: GoogleFonts.poppins(
-              fontSize: 18,
+              fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
               color: color,
             ),
@@ -808,16 +815,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
 
   Widget _buildMultiCurrencyReportContent(MultiCurrencyFinancialReport report) {
+    final responsive = ResponsiveHelper(context);
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       // Report Period Info
       Container(
         width: double.infinity,
-        padding: EdgeInsets.all(16),
+        padding: responsive.padding(all: 16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
           boxShadow: [
             BoxShadow(
               color: Colors.grey.withOpacity(0.1),
@@ -831,23 +839,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.public, color: Color(0xFF667eea), size: 20),
-                SizedBox(width: 8),
+                Icon(Icons.public, color: Color(0xFF667eea), size: responsive.icon20),
+                SizedBox(width: responsive.sp8),
                 Text(
                   'Multi-Currency Report',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF667eea),
                   ),
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
             Text(
               '${DateFormat('MMM d, yyyy').format(report.startDate.toUtc())} - ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())}',
               style: GoogleFonts.poppins(
-                fontSize: 16,
+                fontSize: responsive.fs16,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF333333),
               ),
@@ -856,17 +864,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
       ),
 
-      SizedBox(height: 20),
+      SizedBox(height: responsive.sp20),
 
       // Overview Card
       Container(
         width: double.infinity,
-        padding: EdgeInsets.all(16),
+        padding: responsive.padding(all: 16),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [Color(0xFF667eea), Color(0xFF764ba2)],
           ),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           boxShadow: [
             BoxShadow(
               color: Color(0xFF667eea).withOpacity(0.3),
@@ -882,47 +890,47 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Text(
               'Overview',
               style: GoogleFonts.poppins(
-                fontSize: 16,
+                fontSize: responsive.fs16,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
             ),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   'Total Transactions',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     color: Colors.white.withOpacity(0.9),
                   ),
                 ),
                 Text(
                   '${report.totalTransactions}',
                   style: GoogleFonts.poppins(
-                    fontSize: 18,
+                    fontSize: responsive.fs18,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
                 ),
               ],
             ),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   'Currencies',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     color: Colors.white.withOpacity(0.9),
                   ),
                 ),
                 Text(
                   '${report.currencyReports.length}',
                   style: GoogleFonts.poppins(
-                    fontSize: 18,
+                    fontSize: responsive.fs18,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
@@ -933,37 +941,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
       ),
 
-      SizedBox(height: 24),
+      SizedBox(height: responsive.sp24),
 
       // Currency Reports
       Text(
         'By Currency',
         style: GoogleFonts.poppins(
-          fontSize: 18,
+          fontSize: responsive.fs18,
           fontWeight: FontWeight.bold,
           color: Color(0xFF333333),
         ),
       ),
 
-      SizedBox(height: 12),
+      SizedBox(height: responsive.sp12),
 
       ...report.currencyReports.map((currencyReport) => 
         _buildCurrencyReportCard(currencyReport)
       ),
 
-      SizedBox(height: 24),
+      SizedBox(height: responsive.sp24),
 
       // All Goals
       if (report.goals.isNotEmpty) ...[
         Text(
           'All Goals',
           style: GoogleFonts.poppins(
-            fontSize: 18,
+            fontSize: responsive.fs18,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
         ),
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
         ...report.goals.map((goal) => _buildGoalCard(goal)),
       ],
 
@@ -976,13 +984,14 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
   final currency = currencyReport.currency;
   final netBalance = currencyReport.netBalance;
   final balanceColor = netBalance >= 0 ? Color(0xFF4CAF50) : Color(0xFFFF5722);
+  final responsive = ResponsiveHelper(context);
 
   return Container(
-    margin: EdgeInsets.only(bottom: 16),
-    padding: EdgeInsets.all(20),
+    margin: responsive.padding(bottom: 16),
+    padding: responsive.padding(all: 20),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
       boxShadow: [
         BoxShadow(
           color: Colors.grey.withOpacity(0.1),
@@ -1004,25 +1013,25 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
             Row(
               children: [
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: responsive.padding(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: balanceColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   ),
                   child: Text(
                     currency.displayName,
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,
                       color: balanceColor,
                     ),
                   ),
                 ),
-                SizedBox(width: 8),
+                SizedBox(width: responsive.sp8),
                 Text(
                   '(${currency.symbol})',
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     color: Colors.grey[600],
                   ),
                 ),
@@ -1031,7 +1040,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
             Text(
               '${currencyReport.totalTransactions} txns',
               style: GoogleFonts.poppins(
-                fontSize: 12,
+                fontSize: responsive.fs12,
                 color: Colors.grey[600],
               ),
             ),
@@ -1047,14 +1056,14 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
             Text(
               'Net Balance',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[600],
               ),
             ),
             Text(
               '${currency.symbol}${netBalance.toStringAsFixed(2)}',
               style: GoogleFonts.poppins(
-                fontSize: 22,
+                fontSize: responsive.fs20,
                 fontWeight: FontWeight.bold,
                 color: balanceColor,
               ),
@@ -1062,7 +1071,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
           ],
         ),
 
-        SizedBox(height: 16),
+        SizedBox(height: responsive.sp16),
 
         // Income and Expenses
         Row(
@@ -1073,22 +1082,22 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.arrow_upward, color: Color(0xFF4CAF50), size: 16),
-                      SizedBox(width: 4),
+                      Icon(Icons.arrow_upward, color: Color(0xFF4CAF50), size: responsive.icon16),
+                      SizedBox(width: responsive.sp4),
                       Text(
                         'Income',
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
+                          fontSize: responsive.fs12,
                           color: Colors.grey[600],
                         ),
                       ),
                     ],
                   ),
-                  SizedBox(height: 4),
+                  SizedBox(height: responsive.sp4),
                   Text(
                     '${currency.symbol}${currencyReport.totalInflow.toStringAsFixed(2)}',
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF4CAF50),
                     ),
@@ -1096,7 +1105,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   Text(
                     '${currencyReport.inflowCount} transactions',
                     style: GoogleFonts.poppins(
-                      fontSize: 10,
+                      fontSize: responsive.fs10,
                       color: Colors.grey[500],
                     ),
                   ),
@@ -1108,29 +1117,29 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
               height: 40,
               color: Colors.grey[300],
             ),
-            SizedBox(width: 16),
+            SizedBox(width: responsive.sp16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.arrow_downward, color: Color(0xFFFF5722), size: 16),
-                      SizedBox(width: 4),
+                      Icon(Icons.arrow_downward, color: Color(0xFFFF5722), size: responsive.icon16),
+                      SizedBox(width: responsive.sp4),
                       Text(
                         'Expenses',
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
+                          fontSize: responsive.fs12,
                           color: Colors.grey[600],
                         ),
                       ),
                     ],
                   ),
-                  SizedBox(height: 4),
+                  SizedBox(height: responsive.sp4),
                   Text(
                     '${currency.symbol}${currencyReport.totalOutflow.toStringAsFixed(2)}',
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFFFF5722),
                     ),
@@ -1138,7 +1147,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   Text(
                     '${currencyReport.outflowCount} transactions',
                     style: GoogleFonts.poppins(
-                      fontSize: 10,
+                      fontSize: responsive.fs10,
                       color: Colors.grey[500],
                     ),
                   ),
@@ -1148,14 +1157,14 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
           ],
         ),
 
-        SizedBox(height: 16),
+        SizedBox(height: responsive.sp16),
 
         // Daily Averages
         Container(
-          padding: EdgeInsets.all(12),
+          padding: responsive.padding(all: 12),
           decoration: BoxDecoration(
             color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
           ),
           child: Column(
             children: [
@@ -1165,14 +1174,14 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   Text(
                     'Avg. Daily Income',
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       color: Colors.grey[600],
                     ),
                   ),
                   Text(
                     '${currency.symbol}${currencyReport.averageDailyInflow.toStringAsFixed(2)}',
                     style: GoogleFonts.poppins(
-                      fontSize: 13,
+                      fontSize: responsive.fs13,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF4CAF50),
                     ),
@@ -1186,14 +1195,14 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   Text(
                     'Avg. Daily Expenses',
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       color: Colors.grey[600],
                     ),
                   ),
                   Text(
                     '${currency.symbol}${currencyReport.averageDailyOutflow.toStringAsFixed(2)}',
                     style: GoogleFonts.poppins(
-                      fontSize: 13,
+                      fontSize: responsive.fs13,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFFFF5722),
                     ),
@@ -1206,13 +1215,13 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
 
         // Top Categories (expandable)
         if (currencyReport.inflowByCategory.isNotEmpty || currencyReport.outflowByCategory.isNotEmpty) ...[
-          SizedBox(height: 12),
+          SizedBox(height: responsive.sp12),
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: Text(
               'View Categories',
               style: GoogleFonts.poppins(
-                fontSize: 13,
+                fontSize: responsive.fs13,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF667eea),
               ),
@@ -1224,7 +1233,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   child: Text(
                     'Top Income Categories',
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey[700],
                     ),
@@ -1232,20 +1241,20 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 ),
                 ...currencyReport.inflowByCategory.take(3).map((cat) => 
                   Padding(
-                    padding: EdgeInsets.symmetric(vertical: 4),
+                    padding: responsive.padding(vertical: 4),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           child: Text(
                             cat.category,
-                            style: GoogleFonts.poppins(fontSize: 11),
+                            style: GoogleFonts.poppins(fontSize: responsive.fs11),
                           ),
                         ),
                         Text(
                           '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs11,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFF4CAF50),
                           ),
@@ -1257,11 +1266,11 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
               ],
               if (currencyReport.outflowByCategory.isNotEmpty) ...[
                 Padding(
-                  padding: EdgeInsets.only(top: 12),
+                  padding: responsive.padding(top: 12),
                   child: Text(
                     'Top Expense Categories',
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey[700],
                     ),
@@ -1269,20 +1278,20 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 ),
                 ...currencyReport.outflowByCategory.take(3).map((cat) => 
                   Padding(
-                    padding: EdgeInsets.symmetric(vertical: 4),
+                    padding: responsive.padding(vertical: 4),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           child: Text(
                             cat.category,
-                            style: GoogleFonts.poppins(fontSize: 11),
+                            style: GoogleFonts.poppins(fontSize: responsive.fs11),
                           ),
                         ),
                         Text(
                           '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs11,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFFFF5722),
                           ),
@@ -1301,11 +1310,12 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
 }
 
   Widget _buildInfoCard(String label, String value, IconData icon) {
+    final responsive = ResponsiveHelper(context);
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: responsive.padding(all: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -1317,20 +1327,20 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Color(0xFF667eea), size: 24),
-          SizedBox(height: 8),
+          Icon(icon, color: Color(0xFF667eea), size: responsive.icon24),
+          SizedBox(height: responsive.sp8),
           Text(
             label,
             style: GoogleFonts.poppins(
-              fontSize: 12,
+              fontSize: responsive.fs12,
               color: Colors.grey[600],
             ),
           ),
-          SizedBox(height: 4),
+          SizedBox(height: responsive.sp4),
           Text(
             value,
             style: GoogleFonts.poppins(
-              fontSize: 18,
+              fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
               color: Color(0xFF333333),
             ),
@@ -1342,20 +1352,21 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
 
   
   Widget _buildAverageRow(String label, double amount, Color color, FinancialReport report) {
+    final responsive = ResponsiveHelper(context);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
           style: GoogleFonts.poppins(
-            fontSize: 14,
+            fontSize: responsive.fs14,
             color: Color(0xFF333333),
           ),
         ),
         Text(
           '${report.currency.symbol}${amount.toStringAsFixed(2)}',
           style: GoogleFonts.poppins(
-            fontSize: 16,
+            fontSize: responsive.fs16,
             fontWeight: FontWeight.bold,
             color: color,
           ),
@@ -1365,12 +1376,13 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
   }
 
 Widget _buildCategoryCard(String category, double amount, double percentage, Color color, FinancialReport report) {
+    final responsive = ResponsiveHelper(context);
     return Container(
       margin: EdgeInsets.only(bottom: 8),
-      padding: EdgeInsets.all(16),
+      padding: responsive.padding(all: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -1389,7 +1401,7 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
                 child: Text(
                   category,
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
@@ -1398,25 +1410,25 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
               Text(
                 '${report.currency.symbol}${amount.toStringAsFixed(2)}',
                 style: GoogleFonts.poppins(
-                  fontSize: 16,
+                  fontSize: responsive.fs16,
                   fontWeight: FontWeight.bold,
                   color: color,
                 ),
               ),
             ],
           ),
-          SizedBox(height: 8),
+          SizedBox(height: responsive.sp8),
           LinearProgressIndicator(
             value: percentage / 100,
             backgroundColor: Colors.grey[200],
             valueColor: AlwaysStoppedAnimation<Color>(color),
             minHeight: 6,
           ),
-          SizedBox(height: 4),
+          SizedBox(height: responsive.sp4),
           Text(
             '${percentage.toStringAsFixed(1)}% of total',
             style: GoogleFonts.poppins(
-              fontSize: 11,
+              fontSize: responsive.fs11,
               color: Colors.grey[600],
             ),
           ),
@@ -1426,12 +1438,13 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
   }
 
   Widget _buildGoalCard(GoalProgressReport goal) {
+    final responsive = ResponsiveHelper(context);
     return Container(
       margin: EdgeInsets.only(bottom: 8),
-      padding: EdgeInsets.all(16),
+      padding: responsive.padding(all: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -1456,7 +1469,7 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
                 child: Text(
                   goal.name,
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
@@ -1464,15 +1477,15 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
               ),
               if (goal.status == 'achieved')
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: responsive.padding(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: Color(0xFF4CAF50).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   ),
                   child: Text(
                     'ACHIEVED',
                     style: GoogleFonts.poppins(
-                      fontSize: 10,
+                      fontSize: responsive.fs10,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF4CAF50),
                     ),
@@ -1480,14 +1493,14 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
                 ),
             ],
           ),
-          SizedBox(height: 8),
+          SizedBox(height: responsive.sp8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 '${goal.currency.symbol}${goal.currentAmount.toStringAsFixed(2)}',  // Use goal.currency instead
                 style: GoogleFonts.poppins(
-                  fontSize: 16,
+                  fontSize: responsive.fs16,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF667eea),
                 ),
@@ -1495,13 +1508,13 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
               Text(
                 '${goal.currency.symbol}${goal.targetAmount.toStringAsFixed(2)}',  // Use goal.currency instead
                 style: GoogleFonts.poppins(
-                  fontSize: 14,
+                  fontSize: responsive.fs14,
                   color: Colors.grey[600],
                 ),
               ),
             ],
           ),
-          SizedBox(height: 8),
+          SizedBox(height: responsive.sp8),
           LinearProgressIndicator(
             value: goal.progressPercentage / 100,
             backgroundColor: Colors.grey[200],
@@ -1510,11 +1523,11 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
             ),
             minHeight: 6,
           ),
-          SizedBox(height: 4),
+          SizedBox(height: responsive.sp4),
           Text(
             '${goal.progressPercentage.toStringAsFixed(1)}% Complete',
             style: GoogleFonts.poppins(
-              fontSize: 11,
+              fontSize: responsive.fs11,
               color: Colors.grey[600],
             ),
           ),

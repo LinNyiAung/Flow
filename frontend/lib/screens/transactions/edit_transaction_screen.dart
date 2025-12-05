@@ -9,6 +9,7 @@ import 'package:intl/intl.dart'; // Import for date formatting
 import '../../models/transaction.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 // Extension for safely finding an element in a list (useful for dropdowns)
 extension FirstWhereOrNullExtension<E> on Iterable<E> {
@@ -171,6 +172,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
     // Access the TransactionProvider for state management
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
     
     return Scaffold(
       body: Container(
@@ -192,17 +194,17 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
             children: [
               // Header Section
               Container(
-                padding: EdgeInsets.all(20),
+                padding: responsive.padding(all: 20),
                 child: Row(
                   children: [
                     // Back Button
                     IconButton(
                       onPressed: () => Navigator.pop(context),
                       icon: Container(
-                        padding: EdgeInsets.all(8),
+                        padding: responsive.padding(all: 8),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.grey.withOpacity(0.1),
@@ -220,7 +222,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                       child: Text(
                         localizations.editTransactionTitle,
                         style: GoogleFonts.poppins(
-                          fontSize: 24,
+                          fontSize: responsive.fs24,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF333333),
                         ),
@@ -230,10 +232,10 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                     IconButton(
                       onPressed: () => _showDeleteDialog(), // Show confirmation dialog for deletion
                       icon: Container(
-                        padding: EdgeInsets.all(8),
+                        padding: responsive.padding(all: 8),
                         decoration: BoxDecoration(
                           color: Colors.red[50], // Light red background for delete
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         ),
                         child: Icon(Icons.delete_outline, color: Colors.red), // Red delete icon
                       ),
@@ -249,7 +251,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                   child: SlideTransition( // Apply slide animation
                     position: _slideAnimation,
                     child: SingleChildScrollView( // Allow scrolling for form content
-                      padding: EdgeInsets.all(20),
+                      padding: responsive.padding(all: 20),
                       child: Form(
                         key: _formKey,
                         child: Column(
@@ -259,7 +261,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -285,12 +287,12 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                         }
                                       },
                                       child: Container(
-                                        padding: EdgeInsets.symmetric(vertical: 16),
+                                        padding: responsive.padding(vertical: 16),
                                         decoration: BoxDecoration(
                                           color: _selectedType == TransactionType.outflow
                                               ? Color(0xFFFF5722) // Red for outflow
                                               : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -331,12 +333,12 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                         }
                                       },
                                       child: Container(
-                                        padding: EdgeInsets.symmetric(vertical: 16),
+                                        padding: responsive.padding(vertical: 16),
                                         decoration: BoxDecoration(
                                           color: _selectedType == TransactionType.inflow
                                               ? Color(0xFF4CAF50) // Green for inflow
                                               : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -370,7 +372,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                           Text(
                             'Currency',
                             style: GoogleFonts.poppins(
-                              fontSize: 16,
+                              fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
                               color: Color(0xFF333333),
                             ),
@@ -379,7 +381,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.grey.withOpacity(0.1),
@@ -392,7 +394,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               decoration: InputDecoration(
                                 hintText: 'Select currency',
                                 border: InputBorder.none,
-                                contentPadding: EdgeInsets.all(20),
+                                contentPadding: responsive.padding(all: 20),
                                 
                               ),
                               value: _selectedCurrency,
@@ -424,7 +426,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             width: double.infinity,
                             child: OutlinedButton.icon(
                               onPressed: () => _showCurrencyConversionDialog(),
-                              icon: Icon(Icons.currency_exchange, size: 18),
+                              icon: Icon(Icons.currency_exchange, size: responsive.icon18),
                               label: Text(
                                 'Convert Currency',
                                 style: GoogleFonts.poppins(fontSize: 14),
@@ -434,7 +436,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                 side: BorderSide(color: Color(0xFF667eea), width: 1.5),
                                 padding: EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                 ),
                               ),
                             ),
@@ -445,7 +447,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Text(
                               'Amount',
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -454,7 +456,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -470,17 +472,17 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                   hintText: '0.00',
                                   prefixText: '${_selectedCurrency.symbol} ', // Currency symbol
                                   prefixStyle: GoogleFonts.poppins(
-                                    fontSize: 24,
+                                    fontSize: responsive.fs24,
                                     fontWeight: FontWeight.bold,
                                     color: _selectedType == TransactionType.inflow
                                         ? Color(0xFF4CAF50)
                                         : Color(0xFFFF5722),
                                   ),
                                   border: InputBorder.none, // Remove default border
-                                  contentPadding: EdgeInsets.all(20),
+                                  contentPadding: responsive.padding(all: 20),
                                 ),
                                 style: GoogleFonts.poppins(
-                                  fontSize: 24,
+                                  fontSize: responsive.fs24,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF333333),
                                 ),
@@ -507,7 +509,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Text(
                               'Date',
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -518,7 +520,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               child: Container(
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.grey.withOpacity(0.1),
@@ -528,7 +530,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                   ],
                                 ),
                                 child: Padding(
-                                  padding: EdgeInsets.all(20),
+                                  padding: responsive.padding(all: 20),
                                   child: Row(
                                     children: [
                                       Icon(Icons.calendar_today_outlined), // Calendar icon
@@ -537,7 +539,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                         child: Text(
                                           DateFormat('yyyy-MM-dd').format(_selectedDate), // Display selected date
                                           style: GoogleFonts.poppins(
-                                            fontSize: 16,
+                                            fontSize: responsive.fs16,
                                             color: Color(0xFF333333),
                                           ),
                                         ),
@@ -554,7 +556,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Text(
                               'Category',
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -563,7 +565,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -575,14 +577,14 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               // Show loading indicator while fetching categories
                               child: _isLoadingCategories
                                   ? Container(
-                                      padding: EdgeInsets.all(20),
+                                      padding: responsive.padding(all: 20),
                                       child: Center(child: CircularProgressIndicator()),
                                     )
                                   : DropdownButtonFormField<String>(
                                       decoration: InputDecoration(
                                         hintText: 'Select main category',
                                         border: InputBorder.none,
-                                        contentPadding: EdgeInsets.all(20),
+                                        contentPadding: responsive.padding(all: 20),
                                         prefixIcon: Icon(Icons.category_outlined),
                                       ),
                                       value: _selectedMainCategory, // Current selected value
@@ -618,7 +620,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               Container(
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.grey.withOpacity(0.1),
@@ -631,7 +633,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                   decoration: InputDecoration(
                                     hintText: 'Select sub category',
                                     border: InputBorder.none,
-                                    contentPadding: EdgeInsets.all(20),
+                                    contentPadding: responsive.padding(all: 20),
                                     prefixIcon: Icon(Icons.list_outlined),
                                   ),
                                   value: _selectedSubCategory, // Current selected value
@@ -673,7 +675,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Text(
                               'Description (Optional)',
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -682,7 +684,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -697,9 +699,9 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                 decoration: InputDecoration(
                                   hintText: 'Add a note about this transaction...',
                                   border: InputBorder.none,
-                                  contentPadding: EdgeInsets.all(20),
+                                  contentPadding: responsive.padding(all: 20),
                                   prefixIcon: Padding( // Icon padding for alignment
-                                    padding: EdgeInsets.only(top: 12),
+                                    padding: responsive.padding(top: 12),
                                     child: Icon(Icons.notes_outlined),
                                   ),
                                 ),
@@ -719,8 +721,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                       snapshot.data?.recurrence?.enabled == true;
 
                                   return Container(
-                                    padding: EdgeInsets.all(16),
-                                    margin: EdgeInsets.only(bottom: 16),
+                                    padding: responsive.padding(all: 16),
+                                    margin: responsive.padding(bottom: 16),
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
                                         colors: [
@@ -728,7 +730,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                           Color(0xFFFFE8A3).withOpacity(0.8),
                                         ],
                                       ),
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                       border: Border.all(color: Color(0xFFFFC107), width: 2),
                                       boxShadow: [
                                         BoxShadow(
@@ -744,12 +746,12 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                         Row(
                                           children: [
                                             Container(
-                                              padding: EdgeInsets.all(8),
+                                              padding: responsive.padding(all: 8),
                                               decoration: BoxDecoration(
                                                 color: Color(0xFFFF9800),
                                                 borderRadius: BorderRadius.circular(8),
                                               ),
-                                              child: Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+                                              child: Icon(Icons.auto_awesome, color: Colors.white, size: responsive.icon20),
                                             ),
                                             SizedBox(width: 12),
                                             Expanded(
@@ -759,7 +761,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                   Text(
                                                     localizations.autoCreatedTransactionTitle,
                                                     style: GoogleFonts.poppins(
-                                                      fontSize: 15,
+                                                      fontSize: responsive.fs14,
                                                       fontWeight: FontWeight.bold,
                                                       color: Color(0xFF333333),
                                                     ),
@@ -792,11 +794,11 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                 backgroundColor: Color(0xFFFF9800),
                                                 padding: EdgeInsets.symmetric(vertical: 12),
                                                 shape: RoundedRectangleBorder(
-                                                  borderRadius: BorderRadius.circular(12),
+                                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                                 ),
                                                 elevation: 2,
                                               ),
-                                              icon: Icon(Icons.stop_circle_outlined, color: Colors.white, size: 20),
+                                              icon: Icon(Icons.stop_circle_outlined, color: Colors.white, size: responsive.icon20),
                                               label: Text(
                                                 localizations.stopFutureAutoCreation,
                                                 style: GoogleFonts.poppins(
@@ -817,11 +819,11 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                             style: OutlinedButton.styleFrom(
                                               padding: EdgeInsets.symmetric(vertical: 12),
                                               shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(12),
+                                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                               ),
                                               side: BorderSide(color: Color(0xFF667eea), width: 2),
                                             ),
-                                            icon: Icon(Icons.repeat, color: Color(0xFF667eea), size: 20),
+                                            icon: Icon(Icons.repeat, color: Color(0xFF667eea), size: responsive.icon20),
                                             label: Text(
                                               localizations.viewParentTransaction,
                                               style: GoogleFonts.poppins(
@@ -836,9 +838,9 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                         // SHOW INFO MESSAGE IF PARENT RECURRENCE IS DISABLED
                                         if (!parentRecurrenceEnabled && snapshot.hasData)
                                           Padding(
-                                            padding: const EdgeInsets.only(top: 12),
+                                            padding: responsive.padding(top: 12),
                                             child: Container(
-                                              padding: EdgeInsets.all(12),
+                                              padding: responsive.padding(all: 12),
                                               decoration: BoxDecoration(
                                                 color: Colors.grey[100],
                                                 borderRadius: BorderRadius.circular(8),
@@ -846,13 +848,13 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                               ),
                                               child: Row(
                                                 children: [
-                                                  Icon(Icons.info_outline, color: Colors.grey[600], size: 16),
+                                                  Icon(Icons.info_outline, color: Colors.grey[600], size: responsive.icon16),
                                                   SizedBox(width: 8),
                                                   Expanded(
                                                     child: Text(
                                                       'The recurring schedule for this transaction has been stopped.',
                                                       style: GoogleFonts.poppins(
-                                                        fontSize: 11,
+                                                        fontSize: responsive.fs11,
                                                         color: Colors.grey[700],
                                                         height: 1.3,
                                                       ),
@@ -883,16 +885,16 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             // Show message if auto-created
                             if (widget.transaction.parentTransactionId != null)
                               Container(
-                                padding: EdgeInsets.all(16),
-                                margin: EdgeInsets.only(bottom: 16),
+                                padding: responsive.padding(all: 16),
+                                margin: responsive.padding(bottom: 16),
                                 decoration: BoxDecoration(
                                   color: Colors.grey[100],
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                   border: Border.all(color: Colors.grey[300]!),
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.info_outline, color: Colors.grey[600], size: 20),
+                                    Icon(Icons.info_outline, color: Colors.grey[600], size: responsive.icon20),
                                     SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
@@ -914,8 +916,8 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               builder: (context, transactionProvider, child) {
                                 if (transactionProvider.error != null) {
                                   return Container(
-                                    padding: EdgeInsets.all(12),
-                                    margin: EdgeInsets.only(bottom: 16),
+                                    padding: responsive.padding(all: 12),
+                                    margin: responsive.padding(bottom: 16),
                                     decoration: BoxDecoration(
                                       color: Colors.red[50],
                                       borderRadius: BorderRadius.circular(8),
@@ -943,7 +945,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               builder: (context, transactionProvider, child) {
                                 return SizedBox(
                                   width: double.infinity,
-                                  height: 56,
+                                  height: responsive.cardHeight(baseHeight: 56),
                                   child: ElevatedButton(
                                     onPressed: transactionProvider.isLoading ? null : _updateTransaction, // Disable if loading
                                     style: ElevatedButton.styleFrom(
@@ -964,7 +966,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                               Text(
                                                 localizations.updateTransactionButton,
                                                 style: GoogleFonts.poppins(
-                                                  fontSize: 16,
+                                                  fontSize: responsive.fs16,
                                                   fontWeight: FontWeight.w600,
                                                   color: Colors.white,
                                                 ),
@@ -992,13 +994,14 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
 
 void _showDisableRecurrenceDialog() {
   final localizations = AppLocalizations.of(context);
+  final responsive = ResponsiveHelper(context);
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           title: Row(
             children: [
@@ -1009,7 +1012,7 @@ void _showDisableRecurrenceDialog() {
                   localizations.stopRecurringDialogTitle,
                   style: GoogleFonts.poppins(
                     fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    fontSize: responsive.fs18,
                   ),
                 ),
               ),
@@ -1025,7 +1028,7 @@ void _showDisableRecurrenceDialog() {
               ),
               SizedBox(height: 12),
               Container(
-                padding: EdgeInsets.all(12),
+                padding: responsive.padding(all: 12),
                 decoration: BoxDecoration(
                   color: Color(0xFFFFF3CD),
                   borderRadius: BorderRadius.circular(8),
@@ -1033,7 +1036,7 @@ void _showDisableRecurrenceDialog() {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Color(0xFFFF9800), size: 20),
+                    Icon(Icons.info_outline, color: Color(0xFFFF9800), size: responsive.icon20),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1070,9 +1073,9 @@ void _showDisableRecurrenceDialog() {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: responsive.padding(horizontal: 16, vertical: 12),
               ),
-              icon: Icon(Icons.stop, color: Colors.white, size: 18),
+              icon: Icon(Icons.stop, color: Colors.white, size: responsive.icon18),
               label: Text(
                 localizations.stopRecurringButton,
                 style: GoogleFonts.poppins(
@@ -1092,6 +1095,7 @@ void _showDisableRecurrenceDialog() {
   final localizations = AppLocalizations.of(context);
   final TextEditingController _rateController = TextEditingController();
   Currency? _targetCurrency;
+  final responsive = ResponsiveHelper(context);
 
   showDialog(
     context: context,
@@ -1100,7 +1104,7 @@ void _showDisableRecurrenceDialog() {
         builder: (context, setDialogState) {
           return AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
             ),
             title: Row(
               children: [
@@ -1111,7 +1115,7 @@ void _showDisableRecurrenceDialog() {
                     'Convert Currency',
                     style: GoogleFonts.poppins(
                       fontWeight: FontWeight.bold,
-                      fontSize: 18,
+                      fontSize: responsive.fs18,
                     ),
                   ),
                 ),
@@ -1124,7 +1128,7 @@ void _showDisableRecurrenceDialog() {
                 children: [
                   // Current Currency Display
                   Container(
-                    padding: EdgeInsets.all(12),
+                    padding: responsive.padding(all: 12),
                     decoration: BoxDecoration(
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(8),
@@ -1168,7 +1172,7 @@ void _showDisableRecurrenceDialog() {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: responsive.padding(horizontal: 12, vertical: 8),
                     ),
                     hint: Text('Select target currency'),
                     value: _targetCurrency,
@@ -1209,7 +1213,7 @@ void _showDisableRecurrenceDialog() {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: responsive.padding(horizontal: 12, vertical: 8),
                       prefixText: '1 ${_selectedCurrency.symbol} = ',
                       suffixText: _targetCurrency != null ? _targetCurrency!.symbol : '',
                     ),
@@ -1220,7 +1224,7 @@ void _showDisableRecurrenceDialog() {
                   // Preview Calculation
                   if (_targetCurrency != null && _rateController.text.isNotEmpty)
                     Container(
-                      padding: EdgeInsets.all(12),
+                      padding: responsive.padding(all: 12),
                       decoration: BoxDecoration(
                         color: Color(0xFF667eea).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -1296,7 +1300,7 @@ void _showDisableRecurrenceDialog() {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: responsive.padding(horizontal: 16, vertical: 12),
                 ),
                 child: Text(
                   'Convert',
@@ -1317,6 +1321,7 @@ void _showDisableRecurrenceDialog() {
 
 void _convertCurrency(Currency targetCurrency, double exchangeRate) {
   final currentAmount = double.tryParse(_amountController.text);
+  final responsive = ResponsiveHelper(context);
   if (currentAmount == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1326,7 +1331,7 @@ void _convertCurrency(Currency targetCurrency, double exchangeRate) {
         ),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
       ),
     );
     return;
@@ -1350,7 +1355,7 @@ void _convertCurrency(Currency targetCurrency, double exchangeRate) {
       ),
       backgroundColor: Color(0xFF4CAF50),
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
       duration: Duration(seconds: 4),
     ),
   );
@@ -1358,6 +1363,7 @@ void _convertCurrency(Currency targetCurrency, double exchangeRate) {
 
 void _disableParentRecurrence() async {
   final localizations = AppLocalizations.of(context);
+  final responsive = ResponsiveHelper(context);
 
     try {
       // Show loading with better styling
@@ -1367,11 +1373,11 @@ void _disableParentRecurrence() async {
         barrierColor: Colors.black54,
         builder: (context) => Center(
           child: Container(
-            margin: EdgeInsets.symmetric(horizontal: 40),
-            padding: EdgeInsets.all(32),
+            margin: responsive.padding(horizontal: 40),
+            padding: responsive.padding(all: 32),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.2),
@@ -1385,7 +1391,7 @@ void _disableParentRecurrence() async {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: EdgeInsets.all(16),
+                  padding: responsive.padding(all: 16),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Color(0xFF667eea), Color(0xFF764ba2)],
@@ -1405,7 +1411,7 @@ void _disableParentRecurrence() async {
                 Text(
                   localizations.stoppingRecurrence,
                   style: GoogleFonts.poppins(
-                    fontSize: 18,
+                    fontSize: responsive.fs18,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF333333),
                   ),
@@ -1434,11 +1440,11 @@ void _disableParentRecurrence() async {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Container(
-              padding: EdgeInsets.symmetric(vertical: 4),
+              padding: responsive.padding(vertical: 4),
               child: Row(
                 children: [
                   Container(
-                    padding: EdgeInsets.all(8),
+                    padding: responsive.padding(all: 8),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(8),
@@ -1446,7 +1452,7 @@ void _disableParentRecurrence() async {
                     child: Icon(
                       Icons.check_circle,
                       color: Colors.white,
-                      size: 24,
+                      size: responsive.icon24,
                     ),
                   ),
                   SizedBox(width: 12),
@@ -1460,7 +1466,7 @@ void _disableParentRecurrence() async {
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 15,
+                            fontSize: responsive.fs14,
                           ),
                         ),
                         Text(
@@ -1478,11 +1484,11 @@ void _disableParentRecurrence() async {
             ),
             backgroundColor: Color(0xFF4CAF50),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             ),
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 3),
-            margin: EdgeInsets.all(16),
+            margin: responsive.padding(all: 16),
             elevation: 6,
           ),
         );
@@ -1503,11 +1509,11 @@ void _disableParentRecurrence() async {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Container(
-              padding: EdgeInsets.symmetric(vertical: 4),
+              padding: responsive.padding(vertical: 4),
               child: Row(
                 children: [
                   Container(
-                    padding: EdgeInsets.all(8),
+                    padding: responsive.padding(all: 8),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(8),
@@ -1515,7 +1521,7 @@ void _disableParentRecurrence() async {
                     child: Icon(
                       Icons.error_outline,
                       color: Colors.white,
-                      size: 24,
+                      size: responsive.icon24,
                     ),
                   ),
                   SizedBox(width: 12),
@@ -1529,7 +1535,7 @@ void _disableParentRecurrence() async {
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 15,
+                            fontSize: responsive.fs14,
                           ),
                         ),
                         Text(
@@ -1549,11 +1555,11 @@ void _disableParentRecurrence() async {
             ),
             backgroundColor: Color(0xFFFF5722),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             ),
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 4),
-            margin: EdgeInsets.all(16),
+            margin: responsive.padding(all: 16),
             elevation: 6,
             action: SnackBarAction(
               label: 'DISMISS',
@@ -1665,13 +1671,14 @@ void _updateTransaction() async {
   // Function to show the delete confirmation dialog
   void _showDeleteDialog() {
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           title: Text(
             localizations.deleteTransactionTitle,

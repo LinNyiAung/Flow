@@ -12,6 +12,7 @@ import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/voice_image_models.dart';
 import 'package:intl/intl.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class VoiceInputScreen extends StatefulWidget {
   @override
@@ -176,6 +177,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
     
     return Scaffold(
       body: Container(
@@ -194,16 +196,16 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
             children: [
               // Header
               Container(
-                padding: EdgeInsets.all(20),
+                padding: responsive.padding(all: 20),
                 child: Row(
                   children: [
                     IconButton(
                       onPressed: _isSaving ? null : () => Navigator.pop(context),
                       icon: Container(
-                        padding: EdgeInsets.all(8),
+                        padding: responsive.padding(all: 8),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.grey.withOpacity(0.1),
@@ -221,14 +223,14 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                         Text(
                           localizations.voiceInputTitle,
                           style: GoogleFonts.poppins(
-                            fontSize: 24,
+                            fontSize: responsive.fs24,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF333333),
                           ),
                         ),
                         SizedBox(width: 8),
                         if (!authProvider.isPremium)
-                          Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                          Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
                           SizedBox(width: 8),
                         if (!authProvider.isPremium)
                           Container(
@@ -255,19 +257,19 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
               Expanded(
                 child: SingleChildScrollView(
-                  padding: EdgeInsets.all(20),
+                  padding: responsive.padding(all: 20),
                   child: Column(
                     children: [
                     if (!authProvider.isPremium)
                       Container(
                         width: double.infinity,
-                        padding: EdgeInsets.all(20),
-                        margin: EdgeInsets.only(bottom: 24),
+                        padding: responsive.padding(all: 20),
+                        margin: responsive.padding(bottom: 24),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                           ),
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                           boxShadow: [
                             BoxShadow(
                               color: Color(0xFFFFD700).withOpacity(0.3),
@@ -278,12 +280,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                         ),
                         child: Column(
                           children: [
-                            Icon(Icons.star, color: Colors.white, size: 48),
+                            Icon(Icons.star, color: Colors.white, size: responsive.icon16),
                             SizedBox(height: 12),
                             Text(
                               localizations.premiumFeatureTitle,
                               style: GoogleFonts.poppins(
-                                fontSize: 20,
+                                fontSize: responsive.fs20,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
@@ -292,7 +294,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             Text(
                               localizations.premiumFeatureUpgradeDescVoice,
                               style: GoogleFonts.poppins(
-                                fontSize: 14,
+                                fontSize: responsive.fs14,
                                 color: Colors.white.withOpacity(0.9),
                               ),
                               textAlign: TextAlign.center,
@@ -303,9 +305,9 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
                                 foregroundColor: Color(0xFFFFD700),
-                                padding: EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                                padding: responsive.padding(horizontal: 32, vertical: 14),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                 ),
                               ),
                               child: Row(
@@ -316,7 +318,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                   Text(
                                     localizations.upgradeNowButton,
                                     style: GoogleFonts.poppins(
-                                      fontSize: 16,
+                                      fontSize: responsive.fs16,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
@@ -372,7 +374,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             ? localizations.recordingStatus
                             : localizations.tapToRecordStatus,
                         style: GoogleFonts.poppins(
-                          fontSize: 16,
+                          fontSize: responsive.fs16,
                           color: Colors.grey[600],
                           fontWeight: FontWeight.w500,
                         ),
@@ -384,10 +386,10 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       if (_transcribedText != null) ...[
                         Container(
                           width: double.infinity,
-                          padding: EdgeInsets.all(20),
+                          padding: responsive.padding(all: 20),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.grey.withOpacity(0.1),
@@ -406,7 +408,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                   Text(
                                     localizations.transcriptionTitle,
                                     style: GoogleFonts.poppins(
-                                      fontSize: 16,
+                                      fontSize: responsive.fs16,
                                       fontWeight: FontWeight.w600,
                                       color: Color(0xFF333333),
                                     ),
@@ -417,7 +419,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               Text(
                                 _transcribedText!,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 14,
+                                  fontSize: responsive.fs14,
                                   color: Colors.grey[700],
                                 ),
                               ),
@@ -430,7 +432,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       // Processing Indicator
                       if (_isProcessing)
                         Container(
-                          padding: EdgeInsets.all(20),
+                          padding: responsive.padding(all: 20),
                           child: Column(
                             children: [
                               CircularProgressIndicator(
@@ -442,7 +444,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               Text(
                                 localizations.analyzingTransactions,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 14,
+                                  fontSize: responsive.fs14,
                                   color: Colors.grey[600],
                                 ),
                               ),
@@ -455,12 +457,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                         // Summary Card
                         Container(
                           width: double.infinity,
-                          padding: EdgeInsets.all(20),
+                          padding: responsive.padding(all: 20),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                             ),
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                             boxShadow: [
                               BoxShadow(
                                 color: Color(0xFF667eea).withOpacity(0.3),
@@ -471,12 +473,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                           ),
                           child: Column(
                             children: [
-                              Icon(Icons.check_circle, color: Colors.white, size: 48),
+                              Icon(Icons.check_circle, color: Colors.white, size: responsive.icon16),
                               SizedBox(height: 12),
                               Text(
                                 'Found ${_extractedData!.totalCount} Transaction${_extractedData!.totalCount > 1 ? 's' : ''}',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 20,
+                                  fontSize: responsive.fs20,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
@@ -485,7 +487,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               Text(
                                 'Confidence: ${(_extractedData!.overallConfidence * 100).toStringAsFixed(0)}%',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 14,
+                                  fontSize: responsive.fs14,
                                   color: Colors.white70,
                                 ),
                               ),
@@ -494,7 +496,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 Text(
                                   _extractedData!.analysis!,
                                   style: GoogleFonts.poppins(
-                                    fontSize: 13,
+                                    fontSize: responsive.fs13,
                                     color: Colors.white70,
                                   ),
                                   textAlign: TextAlign.center,
@@ -511,11 +513,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                           final transaction = entry.value;
                           return Container(
                             width: double.infinity,
-                            margin: EdgeInsets.only(bottom: 16),
-                            padding: EdgeInsets.all(20),
+                            margin: responsive.padding(bottom: 16),
+                            padding: responsive.padding(all: 20),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                               border: Border.all(
                                 color: transaction.type == TransactionType.inflow
                                     ? Colors.green.withOpacity(0.3)
@@ -536,7 +538,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 Row(
                                   children: [
                                     Container(
-                                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      padding: responsive.padding(horizontal: 12, vertical: 6),
                                       decoration: BoxDecoration(
                                         color: transaction.type == TransactionType.inflow
                                             ? Colors.green.withOpacity(0.1)
@@ -549,7 +551,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                             transaction.type == TransactionType.inflow
                                                 ? Icons.arrow_upward
                                                 : Icons.arrow_downward,
-                                            size: 16,
+                                            size: responsive.icon16,
                                             color: transaction.type == TransactionType.inflow
                                                 ? Colors.green
                                                 : Colors.red,
@@ -558,7 +560,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                           Text(
                                             transaction.type.name.toUpperCase(),
                                             style: GoogleFonts.poppins(
-                                              fontSize: 12,
+                                              fontSize: responsive.fs12,
                                               fontWeight: FontWeight.bold,
                                               color: transaction.type == TransactionType.inflow
                                                   ? Colors.green
@@ -572,7 +574,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                     Text(
                                       'Transaction ${index + 1}',
                                       style: GoogleFonts.poppins(
-                                        fontSize: 12,
+                                        fontSize: responsive.fs12,
                                         color: Colors.grey[600],
                                       ),
                                     ),
@@ -582,7 +584,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 Text(
                                   '${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}',  // Use detected currency
                                   style: GoogleFonts.poppins(
-                                    fontSize: 28,
+                                    fontSize: responsive.fs28,
                                     fontWeight: FontWeight.bold,
                                     color: transaction.type == TransactionType.inflow
                                         ? Colors.green
@@ -619,7 +621,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                     Text(
                                       'Confidence: ${(transaction.confidence * 100).toStringAsFixed(0)}%',
                                       style: GoogleFonts.poppins(
-                                        fontSize: 11,
+                                        fontSize: responsive.fs11,
                                         color: Colors.grey[500],
                                       ),
                                     ),
@@ -633,13 +635,13 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                         SizedBox(height: 24),
                         SizedBox(
                           width: double.infinity,
-                          height: 56,
+                          height: responsive.cardHeight(baseHeight: 56),
                           child: ElevatedButton(
                             onPressed: _isSaving ? null : _saveAllTransactions,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Color(0xFF4CAF50),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                               ),
                               disabledBackgroundColor: Colors.grey[400],
                             ),
@@ -653,7 +655,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                       Text(
                                         'Save ${_extractedData!.totalCount} Transaction${_extractedData!.totalCount > 1 ? 's' : ''}',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 16,
+                                          fontSize: responsive.fs16,
                                           fontWeight: FontWeight.w600,
                                           color: Colors.white,
                                         ),
@@ -667,11 +669,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       // Error Display
                       if (_error != null)
                         Container(
-                          padding: EdgeInsets.all(16),
-                          margin: EdgeInsets.only(top: 20),
+                          padding: responsive.padding(all: 16),
+                          margin: responsive.padding(top: 20),
                           decoration: BoxDecoration(
                             color: Colors.red[50],
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           ),
                           child: Row(
                             children: [
@@ -681,7 +683,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 child: Text(
                                   _error!,
                                   style: GoogleFonts.poppins(
-                                    fontSize: 14,
+                                    fontSize: responsive.fs14,
                                     color: Colors.red[700],
                                   ),
                                 ),
@@ -701,12 +703,13 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   }
 
   Widget _buildDetailRow(IconData icon, String label, String value) {
+    final responsive = ResponsiveHelper(context);
   return Padding(
     padding: EdgeInsets.only(bottom: 8),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: Colors.grey[600]),
+        Icon(icon, size: responsive.icon16, color: Colors.grey[600]),
         SizedBox(width: 8),
         Expanded(
           child: Column(
@@ -715,7 +718,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
               Text(
                 label,
                 style: GoogleFonts.poppins(
-                  fontSize: 11,
+                  fontSize: responsive.fs11,
                   color: Colors.grey[500],
                   fontWeight: FontWeight.w500,
                 ),
@@ -723,7 +726,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
               Text(
                 value,
                 style: GoogleFonts.poppins(
-                  fontSize: 13,
+                  fontSize: responsive.fs13,
                   color: Color(0xFF333333),
                   fontWeight: FontWeight.w500,
                 ),

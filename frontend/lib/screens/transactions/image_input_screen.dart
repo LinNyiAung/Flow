@@ -11,6 +11,7 @@ import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/voice_image_models.dart';
 import 'package:intl/intl.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class ImageInputScreen extends StatefulWidget {
   @override
@@ -158,6 +159,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
 
   void _showImageSourceDialog() {
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
     if (_isSaving) return; // Don't show dialog while saving
     
     showModalBottomSheet(
@@ -167,14 +169,14 @@ class _ImageInputScreenState extends State<ImageInputScreen>
       ),
       builder: (BuildContext context) {
         return Container(
-          padding: EdgeInsets.all(20),
+          padding: responsive.padding(all: 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 localizations.chooseImageSourceModalTitle,
                 style: GoogleFonts.poppins(
-                  fontSize: 18,
+                  fontSize: responsive.fs18,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF333333),
                 ),
@@ -182,10 +184,10 @@ class _ImageInputScreenState extends State<ImageInputScreen>
               SizedBox(height: 20),
               ListTile(
                 leading: Container(
-                  padding: EdgeInsets.all(12),
+                  padding: responsive.padding(all: 12),
                   decoration: BoxDecoration(
                     color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                   child: Icon(Icons.camera_alt, color: Color(0xFF667eea)),
                 ),
@@ -195,7 +197,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                 ),
                 subtitle: Text(
                   localizations.cameraListTileSubtitle,
-                  style: GoogleFonts.poppins(fontSize: 12),
+                  style: GoogleFonts.poppins(fontSize: responsive.fs12),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -204,10 +206,10 @@ class _ImageInputScreenState extends State<ImageInputScreen>
               ),
               ListTile(
                 leading: Container(
-                  padding: EdgeInsets.all(12),
+                  padding: responsive.padding(all: 12),
                   decoration: BoxDecoration(
                     color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                   child: Icon(Icons.photo_library, color: Color(0xFF667eea)),
                 ),
@@ -217,7 +219,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                 ),
                 subtitle: Text(
                   localizations.galleryListTileSubtitle,
-                  style: GoogleFonts.poppins(fontSize: 12),
+                  style: GoogleFonts.poppins(fontSize: responsive.fs12),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -242,6 +244,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
     
     return Scaffold(
       body: Container(
@@ -260,16 +263,16 @@ class _ImageInputScreenState extends State<ImageInputScreen>
             children: [
               // Header
               Container(
-                padding: EdgeInsets.all(20),
+                padding: responsive.padding(all: 20),
                 child: Row(
                   children: [
                     IconButton(
                       onPressed: _isSaving ? null : () => Navigator.pop(context), // Disable back button while saving
                       icon: Container(
-                        padding: EdgeInsets.all(8),
+                        padding: responsive.padding(all: 8),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.grey.withOpacity(0.1),
@@ -287,14 +290,14 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                         Text(
                           localizations.imageInputTitle,
                           style: GoogleFonts.poppins(
-                            fontSize: 24,
+                            fontSize: responsive.fs24,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF333333),
                           ),
                         ),
                         SizedBox(width: 8),
                         if (!authProvider.isPremium)
-                          Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                          Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
                           SizedBox(width: 8),
                         if (!authProvider.isPremium)
                           Container(
@@ -325,19 +328,19 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                   child: SlideTransition(
                     position: _slideAnimation,
                     child: SingleChildScrollView(
-                      padding: EdgeInsets.all(20),
+                      padding: responsive.padding(all: 20),
                       child: Column(
                         children: [
                         if (!authProvider.isPremium)
                           Container(
                             width: double.infinity,
-                            padding: EdgeInsets.all(20),
-                            margin: EdgeInsets.only(bottom: 24),
+                            padding: responsive.padding(all: 20),
+                            margin: responsive.padding(bottom: 24),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                               ),
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                               boxShadow: [
                                 BoxShadow(
                                   color: Color(0xFFFFD700).withOpacity(0.3),
@@ -348,12 +351,12 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                             ),
                             child: Column(
                               children: [
-                                Icon(Icons.star, color: Colors.white, size: 48),
+                                Icon(Icons.star, color: Colors.white, size: responsive.iconSize(mobile: 48)),
                                 SizedBox(height: 12),
                                 Text(
                                   localizations.premiumFeatureTitle,
                                   style: GoogleFonts.poppins(
-                                    fontSize: 20,
+                                    fontSize: responsive.fs20,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
                                   ),
@@ -362,7 +365,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                 Text(
                                   localizations.premiumFeatureUpgradeDescImg,
                                   style: GoogleFonts.poppins(
-                                    fontSize: 14,
+                                    fontSize: responsive.fs14,
                                     color: Colors.white.withOpacity(0.9),
                                   ),
                                   textAlign: TextAlign.center,
@@ -373,9 +376,9 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.white,
                                     foregroundColor: Color(0xFFFFD700),
-                                    padding: EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                                    padding: responsive.padding(horizontal: 32, vertical: 14),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                     ),
                                   ),
                                   child: Row(
@@ -386,7 +389,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                       Text(
                                         localizations.upgradeNowButton,
                                         style: GoogleFonts.poppins(
-                                          fontSize: 16,
+                                          fontSize: responsive.fs16,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
@@ -404,12 +407,12 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                               onTap: _isSaving ? null : _showImageSourceDialog, // Disable while saving
                               child: Container(
                                 width: double.infinity,
-                                height: 250,
+                                height: responsive.cardHeight(baseHeight: 250),
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
                                     colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                                   ),
-                                  borderRadius: BorderRadius.circular(20),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Color(0xFF667eea).withOpacity(0.3),
@@ -423,14 +426,14 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   children: [
                                     Icon(
                                       Icons.add_photo_alternate,
-                                      size: 80,
+                                      size: responsive.iconSize(mobile: 80),
                                       color: Colors.white,
                                     ),
                                     SizedBox(height: 16),
                                     Text(
                                       localizations.tapToAddImagePlaceholder,
                                       style: GoogleFonts.poppins(
-                                        fontSize: 16,
+                                        fontSize: responsive.fs16,
                                         color: Colors.white,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -439,7 +442,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                     Text(
                                       localizations.cameraOrGalleryPlaceholder,
                                       style: GoogleFonts.poppins(
-                                        fontSize: 14,
+                                        fontSize: responsive.fs14,
                                         color: Colors.white70,
                                       ),
                                     ),
@@ -451,9 +454,9 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                             // Selected Image Preview
                             Container(
                               width: double.infinity,
-                              height: 300,
+                              height: responsive.cardHeight(baseHeight: 300),
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.2),
@@ -463,7 +466,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                 ],
                               ),
                               child: ClipRRect(
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                                 child: Image.file(
                                   _selectedImage!,
                                   fit: BoxFit.cover,
@@ -481,7 +484,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Color(0xFF667eea),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                 ),
                                 padding: EdgeInsets.symmetric(
                                   horizontal: 20,
@@ -497,7 +500,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                           // Processing Indicator
                           if (_isProcessing)
                             Container(
-                              padding: EdgeInsets.all(20),
+                              padding: responsive.padding(all: 20),
                               child: Column(
                                 children: [
                                   CircularProgressIndicator(
@@ -509,7 +512,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   Text(
                                     localizations.analyzingReceipt,
                                     style: GoogleFonts.poppins(
-                                      fontSize: 14,
+                                      fontSize: responsive.fs14,
                                       color: Colors.grey[600],
                                     ),
                                   ),
@@ -521,12 +524,12 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                           if (_extractedData != null) ...[
                             Container(
                               width: double.infinity,
-                              padding: EdgeInsets.all(20),
+                              padding: responsive.padding(all: 20),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                                 ),
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Color(0xFF667eea).withOpacity(0.3),
@@ -541,7 +544,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   Text(
                                     localizations.extractedTransactionTitle,
                                     style: GoogleFonts.poppins(
-                                      fontSize: 18,
+                                      fontSize: responsive.fs18,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.white,
                                     ),
@@ -557,7 +560,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   if (_extractedData!.reasoning != null) ...[
                                     SizedBox(height: 12),
                                     Container(
-                                      padding: EdgeInsets.all(12),
+                                      padding: responsive.padding(all: 12),
                                       decoration: BoxDecoration(
                                         color: Colors.white.withOpacity(0.2),
                                         borderRadius: BorderRadius.circular(8),
@@ -568,12 +571,12 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                           Row(
                                             children: [
                                               Icon(Icons.lightbulb_outline, 
-                                                color: Colors.white70, size: 16),
+                                                color: Colors.white70, size: responsive.icon16),
                                               SizedBox(width: 8),
                                               Text(
                                                 localizations.aiReasoningLabel,
                                                 style: GoogleFonts.poppins(
-                                                  fontSize: 12,
+                                                  fontSize: responsive.fs12,
                                                   color: Colors.white70,
                                                   fontWeight: FontWeight.w600,
                                                 ),
@@ -584,7 +587,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                           Text(
                                             _extractedData!.reasoning!,
                                             style: GoogleFonts.poppins(
-                                              fontSize: 11,
+                                              fontSize: responsive.fs11,
                                               color: Colors.white70,
                                             ),
                                           ),
@@ -595,12 +598,12 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   SizedBox(height: 12),
                                   Row(
                                     children: [
-                                      Icon(Icons.psychology, color: Colors.white70, size: 16),
+                                      Icon(Icons.psychology, color: Colors.white70, size: responsive.icon16),
                                       SizedBox(width: 8),
                                       Text(
                                         '${localizations.confidenceLabel} ${(_extractedData!.confidence * 100).toStringAsFixed(0)}%',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 12,
+                                          fontSize: responsive.fs12,
                                           color: Colors.white70,
                                         ),
                                       ),
@@ -612,13 +615,13 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                             SizedBox(height: 24),
                             SizedBox(
                               width: double.infinity,
-                              height: 56,
+                              height: responsive.cardHeight(baseHeight: 56),
                               child: ElevatedButton(
                                 onPressed: _isSaving ? null : _saveTransaction, // Disable when saving
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Color(0xFF4CAF50),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
+                                    borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                   ),
                                   disabledBackgroundColor: Colors.grey[400], // Style for disabled state
                                 ),
@@ -632,7 +635,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                           Text(
                                             localizations.saveTransactionButton,
                                             style: GoogleFonts.poppins(
-                                              fontSize: 16,
+                                              fontSize: responsive.fs16,
                                               fontWeight: FontWeight.w600,
                                               color: Colors.white,
                                             ),
@@ -646,11 +649,11 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                           // Error Display
                           if (_error != null)
                             Container(
-                              padding: EdgeInsets.all(16),
-                              margin: EdgeInsets.only(top: 20),
+                              padding: responsive.padding(all: 16),
+                              margin: responsive.padding(top: 20),
                               decoration: BoxDecoration(
                                 color: Colors.red[50],
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                               ),
                               child: Row(
                                 children: [
@@ -660,7 +663,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                     child: Text(
                                       _error!,
                                       style: GoogleFonts.poppins(
-                                        fontSize: 14,
+                                        fontSize: responsive.fs14,
                                         color: Colors.red[700],
                                       ),
                                     ),
@@ -682,6 +685,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   }
 
   Widget _buildDataRow(String label, String value) {
+    final responsive = ResponsiveHelper(context);
     return Padding(
       padding: EdgeInsets.only(bottom: 8),
       child: Row(
@@ -692,7 +696,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
             child: Text(
               label,
               style: GoogleFonts.poppins(
-                fontSize: 13,
+                fontSize: responsive.fs13,
                 color: Colors.white70,
                 fontWeight: FontWeight.w500,
               ),
@@ -702,7 +706,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
             child: Text(
               value,
               style: GoogleFonts.poppins(
-                fontSize: 13,
+                fontSize: responsive.fs13,
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),

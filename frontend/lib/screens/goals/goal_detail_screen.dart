@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class GoalDetailScreen extends StatefulWidget {
   final Goal goal;
@@ -125,13 +126,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       : 0.0;
 
   _isContributionLoading = false;
+  final responsive = ResponsiveHelper(context);
 
   showDialog(
     context: context,
     barrierDismissible: !_isContributionLoading,
     builder: (context) => StatefulBuilder(
       builder: (context, setDialogState) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text('Manage Funds', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -141,20 +143,20 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             Text(
               'Available: ${_currentGoal.currency.symbol}${availableBalance.toStringAsFixed(2)}',
               style: GoogleFonts.poppins(
-                fontSize: 14, 
+                fontSize: responsive.fs14, 
                 color: Color(0xFF667eea), 
                 fontWeight: FontWeight.w600
               ),
             ),
-            SizedBox(height: 4),
+            SizedBox(height: responsive.sp4),
             Text(
               'Currency: ${_currentGoal.currency.displayName}',
               style: GoogleFonts.poppins(
-                fontSize: 12, 
+                fontSize: responsive.fs12, 
                 color: Colors.grey[600],
               ),
             ),
-            SizedBox(height: 16),
+            SizedBox(height: responsive.sp16),
             TextField(
               controller: _contributionController,
               keyboardType: TextInputType.numberWithOptions(decimal: true),
@@ -164,7 +166,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 
                 // UPDATE hint to show currency symbol
                 prefixText: '${_currentGoal.currency.symbol} ',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
               ),
             ),
           ],
@@ -189,12 +191,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFFFF5722),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
                 ),
                 child: _isContributionLoading
                     ? SizedBox(
-                        height: 16,
-                        width: 16,
+                        height: responsive.iconSize(mobile: 16),
+                        width: responsive.iconSize(mobile: 16),
                         child: CircularProgressIndicator(
                           color: Colors.white,
                           strokeWidth: 2,
@@ -217,12 +219,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFF4CAF50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
                 ),
                 child: _isContributionLoading
                     ? SizedBox(
-                        height: 16,
-                        width: 16,
+                        height: responsive.iconSize(mobile: 16),
+                        width: responsive.iconSize(mobile: 16),
                         child: CircularProgressIndicator(
                           color: Colors.white,
                           strokeWidth: 2,
@@ -241,12 +243,13 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     final _targetAmountController = TextEditingController(text: _currentGoal.targetAmount.toString());
     DateTime? _targetDate = _currentGoal.targetDate;
     GoalType _selectedGoalType = _currentGoal.goalType;
+    final responsive = ResponsiveHelper(context);
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
           title: Text('Edit Goal', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: Column(
@@ -258,16 +261,16 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   decoration: InputDecoration(
                     labelText: 'Goal Name',
                     prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
                   ),
                 ),
-                SizedBox(height: 16),
+                SizedBox(height: responsive.sp16),
                 DropdownButtonFormField<GoalType>(
                   value: _selectedGoalType,
                   decoration: InputDecoration(
                     labelText: 'Goal Type',
                     prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
                   ),
                   isExpanded: true, // ADD THIS LINE - prevents overflow
                   items: GoalType.values.map((type) {
@@ -287,12 +290,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       value: type,
                       child: Row(
                         children: [
-                          Icon(icon, size: 20, color: Color(0xFF667eea)),
-                          SizedBox(width: 8),
+                          Icon(icon, size: responsive.icon20, color: Color(0xFF667eea)),
+                          SizedBox(width: responsive.sp8),
                           Flexible( // WRAP Text with Flexible
                             child: Text(
                               type.name.replaceAll('_', ' ').toUpperCase(),
-                              style: GoogleFonts.poppins(fontSize: 14),
+                              style: GoogleFonts.poppins(fontSize: responsive.fs14),
                               overflow: TextOverflow.ellipsis, // Handle long text
                             ),
                           ),
@@ -306,17 +309,17 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     });
                   },
                 ),
-                SizedBox(height: 16),
+                SizedBox(height: responsive.sp16),
                 TextField(
                   controller: _targetAmountController,
                   keyboardType: TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
                     labelText: 'Target Amount',
                     prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
                   ),
                 ),
-                SizedBox(height: 16),
+                SizedBox(height: responsive.sp16),
                 InkWell(
                   onTap: () async {
                     final DateTime? picked = await showDatePicker(
@@ -341,22 +344,22 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     }
                   },
                   child: Container(
-                    padding: EdgeInsets.all(15),
+                    padding: responsive.padding(all: 15),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey[400]!),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                     ),
                     child: Row(
                       children: [
                         Icon(Icons.calendar_today, color: Color(0xFF667eea)),
-                        SizedBox(width: 12),
+                        SizedBox(width: responsive.sp12),
                         Expanded(
                           child: Text(
                             _targetDate == null
                                 ? 'Select target date (Optional)'
                                 : DateFormat('MMM dd, yyyy').format(_targetDate!),
                             style: GoogleFonts.poppins(
-                              fontSize: 14,
+                              fontSize: responsive.fs14,
                               color: _targetDate == null ? Colors.grey[600] : Color(0xFF333333),
                             ),
                           ),
@@ -437,7 +440,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Color(0xFF667eea),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
               ),
               child: Text('Save', style: GoogleFonts.poppins(color: Colors.white)),
             ),
@@ -448,10 +451,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   void _showDeleteDialog() {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text('Delete Goal', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
           'Are you sure you want to delete this goal? The allocated funds will be returned to your balance.',
@@ -469,7 +473,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
             ),
             child: Text('Delete', style: GoogleFonts.poppins(color: Colors.white)),
           ),
@@ -510,6 +514,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   Widget build(BuildContext context) {
     IconData goalIcon;
     Color goalColor;
+    final responsive = ResponsiveHelper(context);
 
     switch (_currentGoal.goalType) {
       case GoalType.savings:
@@ -531,7 +536,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         title: Text(
           'Goal Details',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -569,19 +574,19 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           ),
         ),
         child: SingleChildScrollView(
-          padding: EdgeInsets.all(20),
+          padding: responsive.padding(all: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Goal Header Card
               Container(
                 width: double.infinity,
-                padding: EdgeInsets.all(24),
+                padding: responsive.padding(all: 24),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [goalColor, goalColor.withOpacity(0.7)],
                   ),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                   boxShadow: [
                     BoxShadow(
                       color: goalColor.withOpacity(0.3),
@@ -596,14 +601,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     Row(
                       children: [
                         Container(
-                          padding: EdgeInsets.all(12),
+                          padding: responsive.padding(all: 12),
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           ),
-                          child: Icon(goalIcon, color: Colors.white, size: 32),
+                          child: Icon(goalIcon, color: Colors.white, size: responsive.iconSize(mobile: 32)),
                         ),
-                        SizedBox(width: 16),
+                        SizedBox(width: responsive.sp16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -620,7 +625,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                                 _currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase(),
                                 style: GoogleFonts.poppins(
                                   color: Colors.white.withOpacity(0.8),
-                                  fontSize: 12,
+                                  fontSize: responsive.fs12,
                                 ),
                               ),
                             ],
@@ -628,15 +633,15 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                         ),
                         if (_currentGoal.status == GoalStatus.achieved)
                           Container(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: responsive.padding(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                             ),
                             child: Text(
                               'Achieved',
                               style: GoogleFonts.poppins(
-                                fontSize: 12,
+                                fontSize: responsive.fs12,
                                 fontWeight: FontWeight.w600,
                                 color: goalColor,
                               ),
@@ -644,15 +649,15 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           ),
                       ],
                     ),
-                    SizedBox(height: 24),
+                    SizedBox(height: responsive.sp24),
                     Text(
                       'Current Progress',
                       style: GoogleFonts.poppins(
                         color: Colors.white.withOpacity(0.8),
-                        fontSize: 14,
+                        fontSize: responsive.fs14,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    SizedBox(height: responsive.sp8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -660,7 +665,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           _currentGoal.displayCurrentAmount,  // UPDATED
                           style: GoogleFonts.poppins(
                             color: Colors.white,
-                            fontSize: 32,
+                            fontSize: responsive.fs32,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -668,24 +673,24 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           'of ${_currentGoal.displayTargetAmount}',  // UPDATED
                           style: GoogleFonts.poppins(
                             color: Colors.white.withOpacity(0.8),
-                            fontSize: 16,
+                            fontSize: responsive.fs16,
                           ),
                         ),
                       ],
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
                     LinearProgressIndicator(
                       value: _currentGoal.progressPercentage / 100,
                       backgroundColor: Colors.white.withOpacity(0.3),
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      minHeight: 10,
+                      minHeight: responsive.spacing(mobile: 10),
                     ),
-                    SizedBox(height: 8),
+                    SizedBox(height: responsive.sp8),
                     Text(
                       '${_currentGoal.progressPercentage.toStringAsFixed(1)}% Complete',
                       style: GoogleFonts.poppins(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: responsive.fs16,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -693,14 +698,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 ),
               ),
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               // Goal Details Card
               Container(
-                padding: EdgeInsets.all(20),
+                padding: responsive.padding(all: 20),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.grey.withOpacity(0.1),
@@ -715,12 +720,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     Text(
                       'Goal Information',
                       style: GoogleFonts.poppins(
-                        fontSize: 18,
+                        fontSize: responsive.fs18,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF333333),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
                     _buildInfoRow('Target Amount', _currentGoal.displayTargetAmount),
                     Divider(height: 24),
                     _buildInfoRow('Current Amount', _currentGoal.displayCurrentAmount),
@@ -742,7 +747,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 ),
               ),
 
-              SizedBox(height: 24),
+              SizedBox(height: responsive.sp24),
 
               // Action Button
               if (_currentGoal.status == GoalStatus.active || _currentGoal.currentAmount > 0)
@@ -755,7 +760,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     label: Text(
                       'Manage Funds',
                       style: GoogleFonts.poppins(
-                        fontSize: 16,
+                        fontSize: responsive.fs16,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
@@ -763,7 +768,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _isLoading ? Colors.grey : Color(0xFF667eea),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       ),
                       elevation: 4,
                     ),
@@ -777,20 +782,21 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   Widget _buildInfoRow(String label, String value) {
+    final responsive = ResponsiveHelper(context);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
           style: GoogleFonts.poppins(
-            fontSize: 14,
+            fontSize: responsive.fs14,
             color: Colors.grey[600],
           ),
         ),
         Text(
           value,
           style: GoogleFonts.poppins(
-            fontSize: 14,
+            fontSize: responsive.fs14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF333333),
           ),

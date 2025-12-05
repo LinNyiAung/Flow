@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class AIBudgetSuggestionScreen extends StatefulWidget {
   final BudgetPeriod period;
@@ -74,15 +75,16 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
   void _showAnalysisSummary() {
     if (_suggestion == null) return;
+    final responsive = ResponsiveHelper(context);
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Row(
           children: [
             Icon(Icons.analytics, color: Color(0xFF667eea)),
-            SizedBox(width: 12),
+            SizedBox(width: responsive.sp12),
             Text(
               'Analysis Summary',
               style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
@@ -141,19 +143,20 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
   }
 
   Widget _buildSummaryItem(String label, String value, IconData icon) {
+    final responsive = ResponsiveHelper(context);
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Container(
-            padding: EdgeInsets.all(8),
+            padding: responsive.padding(all: 8),
             decoration: BoxDecoration(
               color: Color(0xFF667eea).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
             ),
-            child: Icon(icon, color: Color(0xFF667eea), size: 20),
+            child: Icon(icon, color: Color(0xFF667eea), size: responsive.icon20),
           ),
-          SizedBox(width: 12),
+          SizedBox(width: responsive.sp12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,14 +164,14 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 Text(
                   label,
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[600],
                   ),
                 ),
                 Text(
                   value,
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
@@ -183,12 +186,13 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'AI Budget Suggestion',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -224,7 +228,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                         Color(0xFF667eea),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
                     Text(
                       'Analyzing your ${widget.currency.displayName} spending patterns...',  // NEW
                       style: GoogleFonts.poppins(color: Colors.grey[600]),
@@ -242,29 +246,30 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
   }
 
   Widget _buildErrorState() {
+    final responsive = ResponsiveHelper(context);
     return Center(
       child: Padding(
-        padding: EdgeInsets.all(32),
+        padding: responsive.padding(all: 32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.red),
-            SizedBox(height: 16),
+            Icon(Icons.error_outline, size: responsive.iconSize(mobile: 64), color: Colors.red),
+            SizedBox(height: responsive.sp16),
             Text(
               'Failed to Generate Suggestion',
               style: GoogleFonts.poppins(
-                fontSize: 18,
+                fontSize: responsive.fs18,
                 fontWeight: FontWeight.bold,
                 color: Colors.red,
               ),
             ),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
             Text(
               _error ?? 'An error occurred',
               style: GoogleFonts.poppins(color: Colors.grey[600]),
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
             ElevatedButton.icon(
               onPressed: _generateSuggestion,
               icon: Icon(Icons.refresh),
@@ -273,7 +278,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 backgroundColor: Color(0xFF667eea),
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 ),
               ),
             ),
@@ -284,12 +289,13 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
   }
 
   Widget _buildSuggestionContent() {
+    final responsive = ResponsiveHelper(context);
     return ListView(
-      padding: EdgeInsets.all(20),
+      padding: responsive.padding(all: 20),
       children: [
         // Confidence Indicator
         Container(
-          padding: EdgeInsets.all(16),
+          padding: responsive.padding(all: 16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: _suggestion!.dataConfidence >= 0.7
@@ -298,7 +304,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   ? [Color(0xFFFF9800), Color(0xFFF57C00)]
                   : [Color(0xFFFF5722), Color(0xFFE64A19)],
             ),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
           ),
           child: Row(
             children: [
@@ -309,9 +315,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     ? Icons.warning
                     : Icons.info,
                 color: Colors.white,
-                size: 32,
+                size: responsive.iconSize(mobile: 32),
               ),
-              SizedBox(width: 16),
+              SizedBox(width: responsive.sp16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -319,14 +325,14 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     Text(
                       'Data Confidence',
                       style: GoogleFonts.poppins(
-                        fontSize: 14,
+                        fontSize: responsive.fs14,
                         color: Colors.white.withOpacity(0.9),
                       ),
                     ),
                     Text(
                       '${(_suggestion!.dataConfidence * 100).toStringAsFixed(0)}%',
                       style: GoogleFonts.poppins(
-                        fontSize: 24,
+                        fontSize: responsive.fs24,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
@@ -338,7 +344,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                           ? 'Moderate confidence - limited data'
                           : 'Low confidence - very limited data',
                       style: GoogleFonts.poppins(
-                        fontSize: 11,
+                        fontSize: responsive.fs11,
                         color: Colors.white.withOpacity(0.8),
                       ),
                     ),
@@ -350,9 +356,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
         ),
 
         if (widget.userContext != null && widget.userContext!.isNotEmpty) ...[
-          SizedBox(height: 16),
+          SizedBox(height: responsive.sp16),
           Container(
-            padding: EdgeInsets.all(16),
+            padding: responsive.padding(all: 16),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -360,7 +366,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   Color(0xFF764ba2).withOpacity(0.1),
                 ],
               ),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
               border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
             ),
             child: Column(
@@ -368,23 +374,23 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.note_alt, color: Color(0xFF667eea), size: 20),
-                    SizedBox(width: 8),
+                    Icon(Icons.note_alt, color: Color(0xFF667eea), size: responsive.icon20),
+                    SizedBox(width: responsive.sp8),
                     Text(
                       'Your Context',
                       style: GoogleFonts.poppins(
-                        fontSize: 14,
+                        fontSize: responsive.fs14,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF333333),
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 Text(
                   widget.userContext!,
                   style: GoogleFonts.poppins(
-                    fontSize: 13,
+                    fontSize: responsive.fs13,
                     color: Color(0xFF333333),
                     fontStyle: FontStyle.italic,
                   ),
@@ -396,12 +402,12 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
         // Warnings
         if (_suggestion!.warnings.isNotEmpty) ...[
-          SizedBox(height: 16),
+          SizedBox(height: responsive.sp16),
           Container(
-            padding: EdgeInsets.all(16),
+            padding: responsive.padding(all: 16),
             decoration: BoxDecoration(
               color: Colors.orange[50],
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
               border: Border.all(color: Colors.orange[200]!),
             ),
             child: Column(
@@ -413,18 +419,18 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                       Icons.warning_amber_rounded,
                       color: Colors.orange[700],
                     ),
-                    SizedBox(width: 8),
+                    SizedBox(width: responsive.sp8),
                     Text(
                       'Important Notes',
                       style: GoogleFonts.poppins(
-                        fontSize: 14,
+                        fontSize: responsive.fs14,
                         fontWeight: FontWeight.w600,
                         color: Colors.orange[900],
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 ..._suggestion!.warnings.map(
                   (warning) => Padding(
                     padding: EdgeInsets.only(top: 4),
@@ -436,7 +442,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                           child: Text(
                             warning,
                             style: GoogleFonts.poppins(
-                              fontSize: 12,
+                              fontSize: responsive.fs12,
                               color: Colors.orange[900],
                             ),
                           ),
@@ -450,14 +456,14 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           ),
         ],
 
-        SizedBox(height: 24),
+        SizedBox(height: responsive.sp24),
 
         // Suggested Budget Info
         Container(
-          padding: EdgeInsets.all(20),
+          padding: responsive.padding(all: 20),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             boxShadow: [
               BoxShadow(
                 color: Colors.grey.withOpacity(0.1),
@@ -472,12 +478,12 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               Text(
                 'Suggested Budget Plan',
                 style: GoogleFonts.poppins(
-                  fontSize: 18,
+                  fontSize: responsive.fs18,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF333333),
                 ),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: responsive.sp12),
               _buildInfoRow(Icons.label, 'Name', _suggestion!.suggestedName),
               _buildInfoRow(
                 Icons.calendar_today,
@@ -503,11 +509,11 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           ),
         ),
 
-        SizedBox(height: 24),
+        SizedBox(height: responsive.sp24),
 
         // AI Reasoning
         Container(
-          padding: EdgeInsets.all(16),
+          padding: responsive.padding(all: 16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -515,7 +521,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 Color(0xFF764ba2).withOpacity(0.1),
               ],
             ),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,22 +529,22 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               Row(
                 children: [
                   Icon(Icons.psychology, color: Color(0xFF667eea)),
-                  SizedBox(width: 8),
+                  SizedBox(width: responsive.sp8),
                   Text(
                     'AI Analysis',
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF333333),
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 12),
+              SizedBox(height: responsive.sp12),
               Text(
                 _suggestion!.reasoning,
                 style: GoogleFonts.poppins(
-                  fontSize: 13,
+                  fontSize: responsive.fs13,
                   color: Color(0xFF333333),
                   height: 1.5,
                 ),
@@ -547,18 +553,18 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           ),
         ),
 
-        SizedBox(height: 24),
+        SizedBox(height: responsive.sp24),
 
         // Category Budgets
         Text(
           'Category Budgets',
           style: GoogleFonts.poppins(
-            fontSize: 18,
+            fontSize: responsive.fs18,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
         ),
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
 
         ..._suggestion!.categoryBudgets.map((catBudget) {
           final percentage = (_suggestion!.totalBudget > 0
@@ -567,10 +573,10 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
           return Container(
             margin: EdgeInsets.only(bottom: 8),
-            padding: EdgeInsets.all(16),
+            padding: responsive.padding(all: 16),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.grey.withOpacity(0.1),
@@ -589,7 +595,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                       child: Text(
                         catBudget.mainCategory,
                         style: GoogleFonts.poppins(
-                          fontSize: 14,
+                          fontSize: responsive.fs14,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF333333),
                         ),
@@ -598,7 +604,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     Text(
                       '${_suggestion!.currency.symbol}${catBudget.allocatedAmount.toStringAsFixed(2)}',  // NEW: use currency symbol
                       style: GoogleFonts.poppins(
-                        fontSize: 16,
+                        fontSize: responsive.fs16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF667eea),
                       ),
@@ -606,18 +612,18 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   
                   ],
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: responsive.sp8),
                 LinearProgressIndicator(
                   value: percentage / 100,
                   backgroundColor: Colors.grey[200],
                   valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-                  minHeight: 6,
+                  minHeight: responsive.spacing(mobile: 6),
                 ),
-                SizedBox(height: 4),
+                SizedBox(height: responsive.sp4),
                 Text(
                   '${percentage.toStringAsFixed(1)}% of total budget',
                   style: GoogleFonts.poppins(
-                    fontSize: 11,
+                    fontSize: responsive.fs11,
                     color: Colors.grey[600],
                   ),
                 ),
@@ -626,7 +632,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           );
         }).toList(),
 
-        SizedBox(height: 32),
+        SizedBox(height: responsive.sp32),
 
         // Action Buttons
         Row(
@@ -635,37 +641,37 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               child: OutlinedButton(
                 onPressed: () => Navigator.pop(context),
                 style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 16),
+                  padding: responsive.padding(vertical: 16),
                   side: BorderSide(color: Color(0xFF667eea)),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                 ),
                 child: Text(
                   'Cancel',
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
+                    fontSize: responsive.fs16,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF667eea),
                   ),
                 ),
               ),
             ),
-            SizedBox(width: 12),
+            SizedBox(width: responsive.sp12),
             Expanded(
               child: ElevatedButton(
                 onPressed: _acceptSuggestion,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Color(0xFF667eea),
-                  padding: EdgeInsets.symmetric(vertical: 16),
+                  padding: responsive.padding(vertical: 16),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
                 ),
                 child: Text(
                   'Use This Budget',
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
+                    fontSize: responsive.fs16,
                     fontWeight: FontWeight.w600,
                     color: Colors.white,
                   ),
@@ -675,28 +681,29 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           ],
         ),
 
-        SizedBox(height: 16),
+        SizedBox(height: responsive.sp16),
       ],
     );
   }
 
   Widget _buildInfoRow(IconData icon, String label, String value) {
+    final responsive = ResponsiveHelper(context);
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, color: Color(0xFF667eea), size: 20),
-          SizedBox(width: 12),
+          Icon(icon, color: Color(0xFF667eea), size: responsive.icon20),
+          SizedBox(width: responsive.sp12),
           Text(
             '$label:',
-            style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600]),
+            style: GoogleFonts.poppins(fontSize: responsive.fs13, color: Colors.grey[600]),
           ),
-          SizedBox(width: 8),
+          SizedBox(width: responsive.sp8),
           Expanded(
             child: Text(
               value,
               style: GoogleFonts.poppins(
-                fontSize: 13,
+                fontSize: responsive.fs13,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF333333),
               ),

@@ -19,6 +19,7 @@ import '../auth/login_screen.dart';
 import '../transactions/add_transaction_screen.dart';
 import '../transactions/edit_transaction_screen.dart'; // Import for editing
 import '../../widgets/app_drawer.dart'; // Import the drawer widget
+import 'package:frontend/services/responsive_helper.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -107,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
 
     return Scaffold(
       key: _scaffoldKey, // Assign the scaffold key to the Scaffold
@@ -117,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(
           localizations.dashboard, // Title for the Home Screen AppBar
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -137,10 +139,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 return Stack(
                   children: [
                     Container(
-                      padding: EdgeInsets.all(8),
+                      padding: responsive.padding(all: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -175,14 +177,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             shape: BoxShape.circle,
                           ),
                           constraints: BoxConstraints(
-                            minWidth: 20,
-                            minHeight: 20,
+                            minWidth: responsive.iconSize(mobile: 20),
+                            minHeight: responsive.iconSize(mobile: 20),
                           ),
                           child: Text(
                             '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
-                              fontSize: 10,
+                              fontSize: responsive.fs10,
                               fontWeight: FontWeight.bold,
                             ),
                             textAlign: TextAlign.center,
@@ -224,7 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Header Section (Welcome message)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.all(20.0),
+                    padding: responsive.padding(all: 20),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -234,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Text(
                               localizations.welcomeBack,
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 color: Colors.grey[600],
                               ),
                             ),
@@ -242,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               authProvider.user?.name ??
                                   'User', // Display user name or 'User' if null
                               style: GoogleFonts.poppins(
-                                fontSize: 24,
+                                fontSize: responsive.fs24,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF333333),
                               ),
@@ -257,20 +259,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Balance Card
                 SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  padding: responsive.padding(horizontal: 20),
                   child: Card(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                     ),
                     elevation: 8,
                     child: Container(
                       width: double.infinity,
-                      padding: EdgeInsets.all(24),
+                      padding: responsive.padding(all: 24),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                         ),
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     localizations.totalBalance,
                                     style: GoogleFonts.poppins(
                                       color: Colors.white.withOpacity(0.8),
-                                      fontSize: 16,
+                                      fontSize: responsive.fs16,
                                     ),
                                   ),
                                   SizedBox(height: 4),
@@ -293,7 +295,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     authProvider.defaultCurrency.displayName,
                                     style: GoogleFonts.poppins(
                                       color: Colors.white.withOpacity(0.6),
-                                      fontSize: 12,
+                                      fontSize: responsive.fs12,
                                     ),
                                   ),
                                 ],
@@ -312,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 : '${authProvider.defaultCurrency.symbol}0.00',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
-                              fontSize: 32,
+                              fontSize: responsive.fs32,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -321,7 +323,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             '${localizations.available}: ${transactionProvider.balance != null ? '${transactionProvider.balance!.currency.symbol}${transactionProvider.balance!.availableBalance.toStringAsFixed(2)}' : '${authProvider.defaultCurrency.symbol}0.00'}',
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.9),
-                              fontSize: 14,
+                              fontSize: responsive.fs14,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -332,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               '${localizations.allocatedToGoals}: ${transactionProvider.balance!.currency.symbol}${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
                               style: GoogleFonts.poppins(
                                 color: Colors.white.withOpacity(0.7),
-                                fontSize: 12,
+                                fontSize: responsive.fs12,
                               ),
                             ),
                           ],
@@ -370,23 +372,23 @@ class _HomeScreenState extends State<HomeScreen> {
                               padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.currency_exchange, color: Colors.white, size: 18),
+                                  Icon(Icons.currency_exchange, color: Colors.white, size: responsive.icon18),
                                   SizedBox(width: 8),
                                   Text(
                                     'View All Currencies',
                                     style: GoogleFonts.poppins(
                                       color: Colors.white,
-                                      fontSize: 14,
+                                      fontSize: responsive.fs14,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                   SizedBox(width: 8),
-                                  Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 18),
+                                  Icon(Icons.keyboard_arrow_down, color: Colors.white, size: responsive.icon18),
                                 ],
                               ),
                             ),
@@ -402,15 +404,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 // AI Assistant Card (Styled consistently)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    padding: responsive.padding(horizontal: 20),
                     child: GestureDetector(
                       onTap: () => Navigator.pushNamed(context, '/ai-chat'),
                       child: Container(
                         width: double.infinity,
-                        padding: EdgeInsets.all(20),
+                        padding: responsive.padding(all: 20),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.grey.withOpacity(0.1),
@@ -422,8 +424,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Row(
                           children: [
                             Container(
-                              width: 50,
-                              height: 50,
+                              width: responsive.icon50,
+                              height: responsive.icon50,
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
@@ -431,12 +433,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                     Color(0xFF764ba2),
                                   ],
                                 ),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                               ),
                               child: Icon(
                                 Icons.smart_toy,
                                 color: Colors.white,
-                                size: 24,
+                                size: responsive.icon24,
                               ),
                             ),
                             SizedBox(width: 16),
@@ -449,14 +451,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                       Text(
                                         localizations.aiAssistant,
                                         style: GoogleFonts.poppins(
-                                          fontSize: 16,
+                                          fontSize: responsive.fs16,
                                           fontWeight: FontWeight.w600,
                                           color: Color(0xFF333333),
                                         ),
                                       ),
                                       SizedBox(width: 8),
                                       if (!authProvider.isPremium)
-                                        Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                                        Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
                                         SizedBox(width: 8),
                                       if (!authProvider.isPremium)
                                         Container(
@@ -469,7 +471,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           child: Text(
                                             localizations.premium,
                                             style: GoogleFonts.poppins(
-                                              fontSize: 10,
+                                              fontSize: responsive.fs10,
                                               fontWeight: FontWeight.bold,
                                               color: Color(0xFFFFD700),
                                             ),
@@ -480,7 +482,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Text(
                                     localizations.getPersonalizedInsights,
                                     style: GoogleFonts.poppins(
-                                      fontSize: 12,
+                                      fontSize: responsive.fs12,
                                       color: Colors.grey[600],
                                     ),
                                   ),
@@ -490,7 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(
                               Icons.arrow_forward_ios,
                               color: Colors.grey[400],
-                              size: 16,
+                              size: responsive.icon16,
                             ),
                           ],
                         ),
@@ -503,15 +505,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 // AI Insights Card
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    padding: responsive.padding(horizontal: 20),
                     child: GestureDetector(
                       onTap: () => Navigator.pushNamed(context, '/insights'),
                       child: Container(
                         width: double.infinity,
-                        padding: EdgeInsets.all(20),
+                        padding: responsive.padding(all: 20),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.grey.withOpacity(0.1),
@@ -532,12 +534,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                     Color(0xFFFF9800),
                                   ],
                                 ),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                               ),
                               child: Icon(
                                 Icons.lightbulb,
                                 color: Colors.white,
-                                size: 24,
+                                size: responsive.icon24,
                               ),
                             ),
                             SizedBox(width: 16),
@@ -550,14 +552,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                       Text(
                                         localizations.aiInsights,
                                         style: GoogleFonts.poppins(
-                                          fontSize: 16,
+                                          fontSize: responsive.fs16,
                                           fontWeight: FontWeight.w600,
                                           color: Color(0xFF333333),
                                         ),
                                       ),
                                       SizedBox(width: 8),
                                       if (!authProvider.isPremium)
-                                        Icon(Icons.lock, size: 16, color: Color(0xFFFFD700)),
+                                        Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
                                         SizedBox(width: 8),
                                       if (!authProvider.isPremium)
                                         Container(
@@ -570,7 +572,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           child: Text(
                                             localizations.premium,
                                             style: GoogleFonts.poppins(
-                                              fontSize: 10,
+                                              fontSize: responsive.fs10,
                                               fontWeight: FontWeight.bold,
                                               color: Color(0xFFFFD700),
                                             ),
@@ -581,7 +583,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Text(
                                     localizations.viewComprehensiveAnalysis,
                                     style: GoogleFonts.poppins(
-                                      fontSize: 12,
+                                      fontSize: responsive.fs12,
                                       color: Colors.grey[600],
                                     ),
                                   ),
@@ -591,7 +593,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(
                               Icons.arrow_forward_ios,
                               color: Colors.grey[400],
-                              size: 16,
+                              size: responsive.icon16,
                             ),
                           ],
                         ),
@@ -604,36 +606,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Recent Transactions Header with "See More" action
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    padding: responsive.padding(horizontal: 20),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Flexible(
-                        flex: 3,
-                          child: Text(
-                            localizations.recentTransactions,
-                            style: GoogleFonts.poppins(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
-                            ),
+                        Text(
+                          localizations.recentTransactions,
+                          style: GoogleFonts.poppins(
+                            fontSize: responsive.fs20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF333333),
                           ),
                         ),
                         // "See More" Text Button
-                        Flexible(
-                        flex: 1,
-                          child: GestureDetector(
-                            onTap:
-                                _navigateToTransactionsList, // Navigate to the full list
-                            child: Text(
-                              localizations.seeMore,
-                              style: GoogleFonts.poppins(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(
-                                  0xFF667eea,
-                                ), // Use primary purple color
-                              ),
+                        GestureDetector(
+                          onTap:
+                              _navigateToTransactionsList, // Navigate to the full list
+                          child: Text(
+                            localizations.seeMore,
+                            style: GoogleFonts.poppins(
+                              fontSize: responsive.fs14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(
+                                0xFF667eea,
+                              ), // Use primary purple color
                             ),
                           ),
                         ),
@@ -670,14 +666,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             Icon(
                               Icons.receipt_long_outlined,
-                              size: 64,
+                              size: responsive.icon64,
                               color: Colors.grey[300],
                             ),
                             SizedBox(height: 16),
                             Text(
                               localizations.noTransactions,
                               style: GoogleFonts.poppins(
-                                fontSize: 18,
+                                fontSize: responsive.fs18,
                                 color: Colors.grey[500],
                                 fontWeight: FontWeight.w500,
                               ),
@@ -685,7 +681,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Text(
                               localizations.tapToAddFirst,
                               style: GoogleFonts.poppins(
-                                fontSize: 14,
+                                fontSize: responsive.fs14,
                                 color: Colors.grey[400],
                               ),
                             ),
@@ -731,7 +727,7 @@ class _HomeScreenState extends State<HomeScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToAddTransaction(),
         backgroundColor: Color(0xFF667eea), // Primary color for FAB
-        child: Icon(Icons.add, color: Colors.white, size: 28),
+        child: Icon(Icons.add, color: Colors.white, size: responsive.icon28),
         elevation: 8,
         tooltip: 'Add New Transaction',
       ),
@@ -746,17 +742,19 @@ class _HomeScreenState extends State<HomeScreen> {
   required Currency currency,
   required Color color,
 }) {
+  final responsive = ResponsiveHelper(context);
+
   return Column(
     children: [
       Row(
         children: [
-          Icon(icon, color: Colors.white, size: 16),
+          Icon(icon, color: Colors.white, size: responsive.icon16),
           SizedBox(width: 4),
           Text(
             label,
             style: GoogleFonts.poppins(
               color: Colors.white.withOpacity(0.8),
-              fontSize: 12,
+              fontSize: responsive.fs12,
             ),
           ),
         ],
@@ -765,7 +763,7 @@ class _HomeScreenState extends State<HomeScreen> {
         '${currency.symbol}${amount.toStringAsFixed(2)}',
         style: GoogleFonts.poppins(
           color: Colors.white,
-          fontSize: 18,
+          fontSize: responsive.fs18,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -776,6 +774,7 @@ class _HomeScreenState extends State<HomeScreen> {
 // ADD this new method to show multi-currency bottom sheet
 void _showMultiCurrencyBottomSheet() async {
   final localizations = AppLocalizations.of(context);
+  final responsive = ResponsiveHelper(context);
   
   // Fetch all balances
   showDialog(
@@ -801,7 +800,7 @@ void _showMultiCurrencyBottomSheet() async {
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-        padding: EdgeInsets.all(24),
+        padding: responsive.padding(all: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -809,20 +808,20 @@ void _showMultiCurrencyBottomSheet() async {
             Row(
               children: [
                 Container(
-                  padding: EdgeInsets.all(8),
+                  padding: responsive.padding(all: 8),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
-                  child: Icon(Icons.currency_exchange, color: Colors.white, size: 20),
+                  child: Icon(Icons.currency_exchange, color: Colors.white, size: responsive.icon20),
                 ),
                 SizedBox(width: 12),
                 Text(
                   'All Currency Balances',
                   style: GoogleFonts.poppins(
-                    fontSize: 20,
+                    fontSize: responsive.fs20,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF333333),
                   ),
@@ -837,13 +836,13 @@ void _showMultiCurrencyBottomSheet() async {
               if (balance == null) return SizedBox.shrink();
               
               return Container(
-                margin: EdgeInsets.only(bottom: 16),
-                padding: EdgeInsets.all(20),
+                margin: responsive.padding(bottom: 16),
+                padding: responsive.padding(all: 20),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Color(0xFF667eea).withOpacity(0.1), Color(0xFF764ba2).withOpacity(0.1)],
                   ),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                   border: Border.all(
                     color: Color(0xFF667eea).withOpacity(0.3),
                     width: 1,
@@ -858,7 +857,7 @@ void _showMultiCurrencyBottomSheet() async {
                         Row(
                           children: [
                             Container(
-                              padding: EdgeInsets.all(8),
+                              padding: responsive.padding(all: 8),
                               decoration: BoxDecoration(
                                 color: Color(0xFF667eea),
                                 borderRadius: BorderRadius.circular(8),
@@ -866,7 +865,7 @@ void _showMultiCurrencyBottomSheet() async {
                               child: Text(
                                 currency.symbol,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 18,
+                                  fontSize: responsive.fs18,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
@@ -876,7 +875,7 @@ void _showMultiCurrencyBottomSheet() async {
                             Text(
                               currency.displayName,
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -884,20 +883,18 @@ void _showMultiCurrencyBottomSheet() async {
                           ],
                         ),
                         if (currency == Provider.of<AuthProvider>(context, listen: false).defaultCurrency)
-                          Expanded(
-                            child: Container(
-                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Color(0xFF4CAF50),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'Default',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Color(0xFF4CAF50),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Default',
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
                               ),
                             ),
                           ),
@@ -907,7 +904,7 @@ void _showMultiCurrencyBottomSheet() async {
                     Text(
                       balance.displayBalance,
                       style: GoogleFonts.poppins(
-                        fontSize: 28,
+                        fontSize: responsive.fs28,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF333333),
                       ),
@@ -922,14 +919,14 @@ void _showMultiCurrencyBottomSheet() async {
                             Text(
                               'Available',
                               style: GoogleFonts.poppins(
-                                fontSize: 12,
+                                fontSize: responsive.fs12,
                                 color: Colors.grey[600],
                               ),
                             ),
                             Text(
                               '${currency.symbol}${balance.availableBalance.toStringAsFixed(2)}',
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -942,14 +939,14 @@ void _showMultiCurrencyBottomSheet() async {
                             Text(
                               'In Goals',
                               style: GoogleFonts.poppins(
-                                fontSize: 12,
+                                fontSize: responsive.fs12,
                                 color: Colors.grey[600],
                               ),
                             ),
                             Text(
                               '${currency.symbol}${balance.allocatedToGoals.toStringAsFixed(2)}',
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFFFF9800),
                               ),
@@ -966,12 +963,12 @@ void _showMultiCurrencyBottomSheet() async {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.arrow_upward, size: 14, color: Colors.green),
+                            Icon(Icons.arrow_upward, size: responsive.icon16, color: Colors.green),
                             SizedBox(width: 4),
                             Text(
                               '${currency.symbol}${balance.totalInflow.toStringAsFixed(2)}',
                               style: GoogleFonts.poppins(
-                                fontSize: 13,
+                                fontSize: responsive.fs13,
                                 color: Colors.green,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -980,12 +977,12 @@ void _showMultiCurrencyBottomSheet() async {
                         ),
                         Row(
                           children: [
-                            Icon(Icons.arrow_downward, size: 14, color: Colors.red),
+                            Icon(Icons.arrow_downward, size: responsive.icon16, color: Colors.red),
                             SizedBox(width: 4),
                             Text(
                               '${currency.symbol}${balance.totalOutflow.toStringAsFixed(2)}',
                               style: GoogleFonts.poppins(
-                                fontSize: 13,
+                                fontSize: responsive.fs13,
                                 color: Colors.red,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -1022,6 +1019,7 @@ void _showMultiCurrencyBottomSheet() async {
   // Widget to build a card for each transaction (consistent with TransactionsListScreen)
   Widget _buildTransactionCard(Transaction transaction) {
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
 
     return GestureDetector(
       onTap: () => _navigateToEditTransaction(
@@ -1029,10 +1027,10 @@ void _showMultiCurrencyBottomSheet() async {
       ), // Navigate to edit screen on tap
       child: Container(
         margin: EdgeInsets.only(bottom: 8),
-        padding: EdgeInsets.all(16),
+        padding: responsive.padding(all: 16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
           boxShadow: [
             BoxShadow(
               color: Colors.grey.withOpacity(0.1),
@@ -1045,13 +1043,13 @@ void _showMultiCurrencyBottomSheet() async {
           children: [
             // Transaction Type Icon
             Container(
-              width: 48,
-              height: 48,
+              width: responsive.icon48,
+              height: responsive.icon48,
               decoration: BoxDecoration(
                 color: transaction.type == TransactionType.inflow
                     ? Color(0xFF4CAF50).withOpacity(0.1) // Light green
                     : Color(0xFFFF5722).withOpacity(0.1), // Light red
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
               ),
               child: Icon(
                 transaction.type == TransactionType.inflow
@@ -1071,7 +1069,7 @@ void _showMultiCurrencyBottomSheet() async {
                   Text(
                     transaction.subCategory, // Display sub-category
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF333333),
                     ),
@@ -1082,14 +1080,14 @@ void _showMultiCurrencyBottomSheet() async {
                       children: [
                         Icon(
                           Icons.repeat,
-                          size: 14,
+                          size: responsive.icon16,
                           color: Color(0xFF667eea),
                         ),
                         SizedBox(width: 4),
                         Text(
                           transaction.recurrence!.config!.getDisplayText(),
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs11,
                             color: Color(0xFF667eea),
                             fontWeight: FontWeight.w500,
                           ),
@@ -1104,14 +1102,14 @@ void _showMultiCurrencyBottomSheet() async {
                       children: [
                         Icon(
                           Icons.auto_awesome,
-                          size: 14,
+                          size: responsive.icon16,
                           color: Color(0xFFFF9800),
                         ),
                         SizedBox(width: 4),
                         Text(
                           localizations.autoCreated,
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs11,
                             color: Color(0xFFFF9800),
                             fontWeight: FontWeight.w500,
                           ),
@@ -1122,7 +1120,7 @@ void _showMultiCurrencyBottomSheet() async {
                   Text(
                     transaction.mainCategory, // Display main category
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       color: Colors.grey[600],
                     ),
                   ),
@@ -1133,7 +1131,7 @@ void _showMultiCurrencyBottomSheet() async {
                     Text(
                       transaction.description!,
                       style: GoogleFonts.poppins(
-                        fontSize: 12,
+                        fontSize: responsive.fs12,
                         color: Colors.grey[500],
                       ),
                       maxLines: 1, // Limit description to one line
@@ -1151,7 +1149,7 @@ void _showMultiCurrencyBottomSheet() async {
                   // Display amount with +/- sign and formatted to 2 decimal places
                   '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}',
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
+                    fontSize: responsive.fs16,
                     fontWeight: FontWeight.bold,
                     color: transaction.type == TransactionType.inflow
                         ? Color(0xFF4CAF50)
@@ -1163,7 +1161,7 @@ void _showMultiCurrencyBottomSheet() async {
                   // Display transaction date formatted
                   DateFormat('yyyy-MM-dd').format(transaction.date),
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[500],
                   ),
                 ),
@@ -1173,7 +1171,7 @@ void _showMultiCurrencyBottomSheet() async {
             Icon(
               // Arrow icon to indicate tappable card
               Icons.arrow_forward_ios,
-              size: 16,
+              size: responsive.icon16,
               color: Colors.grey[400],
             ),
           ],
@@ -1189,6 +1187,7 @@ void _showMultiCurrencyBottomSheet() async {
 
 void _showAddTransactionOptions() {
   final localizations = AppLocalizations.of(context);
+  final responsive = ResponsiveHelper(context);
 
   showModalBottomSheet(
     context: context,
@@ -1197,7 +1196,7 @@ void _showAddTransactionOptions() {
     ),
     builder: (BuildContext context) {
       return Container(
-        padding: EdgeInsets.all(24),
+        padding: responsive.padding(all: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1205,21 +1204,21 @@ void _showAddTransactionOptions() {
             Row(
               children: [
                 Container(
-                  padding: EdgeInsets.all(8),
+                  padding: responsive.padding(all: 8),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   ),
-                  child: Icon(Icons.add, color: Colors.white, size: 20),
+                  child: Icon(Icons.add, color: Colors.white, size: responsive.icon20),
                 ),
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     localizations.addTransaction,
                     style: GoogleFonts.poppins(
-                      fontSize: 20,
+                      fontSize: responsive.fs20,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF333333),
                     ),
@@ -1310,15 +1309,16 @@ Widget _buildAddOption({
   final authProvider = Provider.of<AuthProvider>(context, listen: false);
   final isLocked = isPremiumFeature && !authProvider.isPremium;
   final localizations = AppLocalizations.of(context);
+  final responsive = ResponsiveHelper(context);
 
   return InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
     child: Container(
-      padding: EdgeInsets.all(16),
+      padding: responsive.padding(all: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         border: Border.all(
           color: isLocked 
               ? Color(0xFFFFD700).withOpacity(0.3)
@@ -1338,12 +1338,12 @@ Widget _buildAddOption({
           Stack(
             children: [
               Container(
-                padding: EdgeInsets.all(12),
+                padding: responsive.padding(all: 12),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: gradientColors),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 ),
-                child: Icon(icon, color: Colors.white, size: 24),
+                child: Icon(icon, color: Colors.white, size: responsive.icon24),
               ),
               if (isLocked)
                 Positioned(
@@ -1364,7 +1364,7 @@ Widget _buildAddOption({
                     ),
                     child: Icon(
                       Icons.lock,
-                      size: 12,
+                      size: responsive.fs12,
                       color: Colors.white,
                     ),
                   ),
@@ -1381,7 +1381,7 @@ Widget _buildAddOption({
                     Text(
                       title,
                       style: GoogleFonts.poppins(
-                        fontSize: 16,
+                        fontSize: responsive.fs16,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF333333),
                       ),
@@ -1401,7 +1401,7 @@ Widget _buildAddOption({
                         child: Text(
                           localizations.premium,
                           style: GoogleFonts.poppins(
-                            fontSize: 10,
+                            fontSize: responsive.fs10,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFFFFD700),
                           ),
@@ -1414,7 +1414,7 @@ Widget _buildAddOption({
                 Text(
                   subtitle,
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[600],
                   ),
                 ),
@@ -1423,7 +1423,7 @@ Widget _buildAddOption({
           ),
           Icon(
             Icons.arrow_forward_ios,
-            size: 16,
+            size: responsive.icon16,
             color: Colors.grey[400],
           ),
         ],
@@ -1490,12 +1490,13 @@ void _showSuccessSnackBar(String message) {
 
   // Show logout confirmation dialog
   void _showLogoutDialog(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           title: Text(
             'Logout',

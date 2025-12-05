@@ -8,6 +8,7 @@ import '../../models/notification.dart';
 import '../../providers/notification_provider.dart';
 import '../../providers/goal_provider.dart';
 import '../goals/goal_detail_screen.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class NotificationsScreen extends StatefulWidget {
   @override
@@ -153,13 +154,14 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
   @override
   Widget build(BuildContext context) {
     final notificationProvider = Provider.of<NotificationProvider>(context);
+    final responsive = ResponsiveHelper(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'Notifications',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -184,8 +186,8 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                   ),
                 );
               },
-              icon: Icon(Icons.done_all, size: 18),
-              label: Text('Mark all read', style: GoogleFonts.poppins(fontSize: 12)),
+              icon: Icon(Icons.done_all, size: responsive.icon18),
+              label: Text('Mark all read', style: GoogleFonts.poppins(fontSize: responsive.fs12)),
               style: TextButton.styleFrom(
                 foregroundColor: Color(0xFF667eea),
               ),
@@ -215,7 +217,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
               : notificationProvider.notifications.isEmpty
                   ? _buildEmptyState()
                   : ListView.builder(
-                      padding: EdgeInsets.all(16),
+                      padding: responsive.padding(all: 16),
                       itemCount: notificationProvider.notifications.length,
                       itemBuilder: (context, index) {
                         final notification =
@@ -234,18 +236,19 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
   
   String symbol = currency == 'mmk' ? 'K' : '\$';
   Color color = currency == 'mmk' ? Color(0xFF4CAF50) : Color(0xFF667eea);
+  final responsive = ResponsiveHelper(context);
   
   return Container(
-    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    padding: responsive.padding(horizontal: 6, vertical: 2),
     decoration: BoxDecoration(
       color: color.withOpacity(0.1),
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(responsive.borderRadius(4)),
       border: Border.all(color: color.withOpacity(0.3)),
     ),
     child: Text(
       symbol,
       style: GoogleFonts.poppins(
-        fontSize: 10,
+        fontSize: responsive.fs10,
         fontWeight: FontWeight.bold,
         color: color,
       ),
@@ -256,6 +259,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
   Widget _buildNotificationCard(AppNotification notification) {
     final icon = _getNotificationIcon(notification.type);
     final color = _getNotificationColor(notification.type);
+    final responsive = ResponsiveHelper(context);
 
     return Dismissible(
       key: Key(notification.id),
@@ -265,7 +269,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
         padding: EdgeInsets.only(right: 20),
         decoration: BoxDecoration(
           color: Colors.red,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         ),
         child: Icon(Icons.delete, color: Colors.white),
       ),
@@ -297,12 +301,12 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
         onTap: () => _handleNotificationTap(notification),
         child: Container(
           margin: EdgeInsets.only(bottom: 12),
-          padding: EdgeInsets.all(16),
+          padding: responsive.padding(all: 16),
           decoration: BoxDecoration(
             color: notification.isRead
                 ? Colors.white
                 : Color(0xFF667eea).withOpacity(0.05),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
             border: Border.all(
               color: notification.isRead
                   ? Colors.grey.withOpacity(0.2)
@@ -326,11 +330,11 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                 height: 48,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 ),
-                child: Icon(icon, color: color, size: 24),
+                child: Icon(icon, color: color, size: responsive.icon24),
               ),
-              SizedBox(width: 12),
+              SizedBox(width: responsive.sp12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,7 +345,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                           child: Text(
                             notification.title,
                             style: GoogleFonts.poppins(
-                              fontSize: 15,
+                              fontSize: responsive.fs14,
                               fontWeight: notification.isRead
                                   ? FontWeight.w600
                                   : FontWeight.bold,
@@ -360,44 +364,44 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                           ),
                       ],
                     ),
-                    SizedBox(height: 4),
+                    SizedBox(height: responsive.sp4),
                     Text(
                       notification.message,
                       style: GoogleFonts.poppins(
-                        fontSize: 13,
+                        fontSize: responsive.fs13,
                         color: Colors.grey[700],
                         height: 1.4,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    SizedBox(height: responsive.sp8),
                     Row(
                       children: [
                         Icon(
                           Icons.access_time,
-                          size: 14,
+                          size: responsive.icon16,
                           color: Colors.grey[500],
                         ),
-                        SizedBox(width: 4),
+                        SizedBox(width: responsive.sp4),
                         Text(
                           _formatTimestamp(notification.createdAt),
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs12,
                             color: Colors.grey[500],
                           ),
                         ),
                         if (notification.goalName != null) ...[
-                          SizedBox(width: 12),
+                          SizedBox(width: responsive.sp12),
                           Icon(
                             Icons.flag,
-                            size: 14,
+                            size: responsive.icon16,
                             color: Colors.grey[500],
                           ),
-                          SizedBox(width: 4),
+                          SizedBox(width: responsive.sp4),
                           Expanded(
                             child: Text(
                               notification.goalName!,
                               style: GoogleFonts.poppins(
-                                fontSize: 11,
+                                fontSize: responsive.fs12,
                                 color: Colors.grey[500],
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -406,7 +410,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                         ],
                         // NEW - Currency badge
                         if (notification.currency != null) ...[
-                          SizedBox(width: 8),
+                          SizedBox(width: responsive.sp8),
                           _buildCurrencyBadge(notification.currency),
                         ],
                       ],
@@ -414,11 +418,11 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                   ],
                 ),
               ),
-              SizedBox(width: 8),
+              SizedBox(width: responsive.sp8),
               Icon(
                 Icons.chevron_right,
                 color: Colors.grey[400],
-                size: 20,
+                size: responsive.icon20,
               ),
             ],
           ),
@@ -445,40 +449,41 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
   }
 
   Widget _buildEmptyState() {
+    final responsive = ResponsiveHelper(context);
     return Center(
       child: Container(
-        padding: EdgeInsets.all(32),
+        padding: responsive.padding(all: 32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: EdgeInsets.all(24),
+              padding: responsive.padding(all: 24),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
               ),
               child: Icon(
                 Icons.notifications_none,
-                size: 48,
+                size: responsive.icon48,
                 color: Colors.white,
               ),
             ),
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
             Text(
               'No notifications yet',
               style: GoogleFonts.poppins(
-                fontSize: 18,
+                fontSize: responsive.fs18,
                 color: Color(0xFF333333),
                 fontWeight: FontWeight.w600,
               ),
             ),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
             Text(
               'We\'ll notify you about your financial goals progress',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[500],
               ),
               textAlign: TextAlign.center,

@@ -14,6 +14,7 @@ import '../../widgets/app_drawer.dart';
 import '../../services/api_service.dart';
 import '../transactions/edit_transaction_screen.dart';
 import '../transactions/add_transaction_screen.dart'; // Make sure to import this
+import 'package:frontend/services/responsive_helper.dart';
 
 class TransactionsListScreen extends StatefulWidget {
   @override
@@ -183,6 +184,7 @@ Future<void> _fetchTransactionsWithFilter() async {
 
 void _showAddTransactionOptions() {
   final localizations = AppLocalizations.of(context);
+  final responsive = ResponsiveHelper(context);
   showModalBottomSheet(
     context: context,
     shape: RoundedRectangleBorder(
@@ -190,7 +192,7 @@ void _showAddTransactionOptions() {
     ),
     builder: (BuildContext context) {
       return Container(
-        padding: EdgeInsets.all(24),
+        padding: responsive.padding(all: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -198,21 +200,21 @@ void _showAddTransactionOptions() {
             Row(
               children: [
                 Container(
-                  padding: EdgeInsets.all(8),
+                  padding: responsive.padding(all: 8),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.add, color: Colors.white, size: 20),
+                  child: Icon(Icons.add, color: Colors.white, size: responsive.icon20),
                 ),
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Add Transaction',
                     style: GoogleFonts.poppins(
-                      fontSize: 20,
+                      fontSize: responsive.fs20,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF333333),
                     ),
@@ -339,12 +341,13 @@ Widget _buildAddOption({
   final authProvider = Provider.of<AuthProvider>(context, listen: false);
   final isLocked = isPremiumFeature && !authProvider.isPremium;
   final localizations = AppLocalizations.of(context);
+  final responsive = ResponsiveHelper(context);
 
   return InkWell(
     onTap: onTap,
     borderRadius: BorderRadius.circular(16),
     child: Container(
-      padding: EdgeInsets.all(16),
+      padding: responsive.padding(all: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -367,12 +370,12 @@ Widget _buildAddOption({
           Stack(
             children: [
               Container(
-                padding: EdgeInsets.all(12),
+                padding: responsive.padding(all: 12),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: gradientColors),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: Colors.white, size: 24),
+                child: Icon(icon, color: Colors.white, size: responsive.icon24),
               ),
               if (isLocked)
                 Positioned(
@@ -410,7 +413,7 @@ Widget _buildAddOption({
                     Text(
                       title,
                       style: GoogleFonts.poppins(
-                        fontSize: 16,
+                        fontSize: responsive.fs16,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF333333),
                       ),
@@ -430,7 +433,7 @@ Widget _buildAddOption({
                         child: Text(
                           localizations.premium,
                           style: GoogleFonts.poppins(
-                            fontSize: 10,
+                            fontSize: responsive.fs10,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFFFFD700),
                           ),
@@ -443,7 +446,7 @@ Widget _buildAddOption({
                 Text(
                   subtitle,
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[600],
                   ),
                 ),
@@ -452,7 +455,7 @@ Widget _buildAddOption({
           ),
           Icon(
             Icons.arrow_forward_ios,
-            size: 16,
+            size: responsive.icon16,
             color: Colors.grey[400],
           ),
         ],
@@ -466,6 +469,7 @@ Widget _buildAddOption({
   Widget build(BuildContext context) {
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
     
     return Scaffold(
       key: _scaffoldKey,
@@ -476,7 +480,7 @@ Widget _buildAddOption({
         title: Text(
           localizations.allTransactionsTitle,
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -491,7 +495,7 @@ Widget _buildAddOption({
           if (_selectedFilterType != null || _selectedStartDate != null || _selectedCurrency != null)
             IconButton(
               icon: Container( // Visual representation of the button for consistent styling
-                padding: EdgeInsets.all(8),
+                padding: responsive.padding(all: 8),
                 decoration: BoxDecoration(
                   color: Colors.white, // Keep white background for contrast
                   borderRadius: BorderRadius.circular(12),
@@ -519,7 +523,7 @@ Widget _buildAddOption({
                 return Stack(
                   children: [
                     Container(
-                      padding: EdgeInsets.all(8),
+                      padding: responsive.padding(all: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
@@ -557,14 +561,14 @@ Widget _buildAddOption({
                             shape: BoxShape.circle,
                           ),
                           constraints: BoxConstraints(
-                            minWidth: 20,
-                            minHeight: 20,
+                            minWidth: responsive.iconSize(mobile: 20),
+                            minHeight: responsive.iconSize(mobile: 20),
                           ),
                           child: Text(
                             '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
-                              fontSize: 10,
+                              fontSize: responsive.fs10,
                               fontWeight: FontWeight.bold,
                             ),
                             textAlign: TextAlign.center,
@@ -595,14 +599,14 @@ Widget _buildAddOption({
           children: [
             // Filter Section with toggle functionality and gradient background
             Container(
-              margin: EdgeInsets.all(10.0),
-              padding: EdgeInsets.all(15.0),
+              margin: responsive.padding(all: 10),
+              padding: responsive.padding(all: 15),
               // APPLYING THE GRADIENT BACKGROUND HERE
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF667eea), Color(0xFF764ba2)], // Purple gradient from balance card
                 ),
-                borderRadius: BorderRadius.circular(20), // Matching balance card's border radius
+                borderRadius: BorderRadius.circular(responsive.borderRadius(20)), // Matching balance card's border radius
                 boxShadow: [
                   BoxShadow(
                     color: Colors.grey.withOpacity(0.1),
@@ -620,13 +624,13 @@ Widget _buildAddOption({
                       Icon(
                         Icons.filter_list,
                         color: Colors.white, // Changed icon color to white for contrast on gradient
-                        size: 20,
+                        size: responsive.icon20,
                       ),
                       SizedBox(width: 8),
                       Text(
                         localizations.filtersSectionTitle,
                         style: GoogleFonts.poppins(
-                          fontSize: 18,
+                          fontSize: responsive.fs18,
                           fontWeight: FontWeight.bold,
                           color: Colors.white, // Changed text color to white for contrast
                         ),
@@ -659,7 +663,7 @@ Widget _buildAddOption({
                               Text(
                                 localizations.transactionTypeFilterLabel,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 14,
+                                  fontSize: responsive.fs14,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white.withOpacity(0.9), // Adjusted color for contrast
                                 ),
@@ -703,7 +707,7 @@ Widget _buildAddOption({
                               Text(
                                 'Currency Filter',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 14,
+                                  fontSize: responsive.fs14,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white.withOpacity(0.9),
                                 ),
@@ -741,7 +745,7 @@ Widget _buildAddOption({
                               Text(
                                 localizations.dateRangeFilterLabel,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 14,
+                                  fontSize: responsive.fs14,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white.withOpacity(0.9), // Adjusted color for contrast
                                 ),
@@ -763,7 +767,7 @@ Widget _buildAddOption({
                                       child: ElevatedButton.icon(
                                         icon: Icon(
                                           Icons.calendar_today,
-                                          size: 18,
+                                          size: responsive.icon18,
                                           color: Colors.white,
                                         ),
                                         label: Text(
@@ -773,7 +777,7 @@ Widget _buildAddOption({
                                           overflow: TextOverflow.ellipsis,
                                           maxLines: 1,
                                           style: GoogleFonts.poppins(
-                                            fontSize: 13,
+                                            fontSize: responsive.fs13,
                                             fontWeight: FontWeight.w500,
                                             color: Colors.white,
                                           ),
@@ -782,7 +786,7 @@ Widget _buildAddOption({
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: Colors.transparent, // Transparent to show gradient/color
                                           shadowColor: Colors.transparent,
-                                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                          padding: responsive.padding(horizontal: 16, vertical: 14),
                                           shape: RoundedRectangleBorder(
                                             borderRadius: BorderRadius.circular(12),
                                           ),
@@ -800,7 +804,7 @@ Widget _buildAddOption({
                                           borderRadius: BorderRadius.circular(8),
                                         ),
                                         child: IconButton(
-                                          icon: Icon(Icons.clear, color: Colors.red.shade400, size: 20),
+                                          icon: Icon(Icons.clear, color: Colors.red.shade400, size: responsive.icon20),
                                           tooltip: localizations.clearDateFilterTooltip,
                                           onPressed: _clearDateFilter,
                                           splashRadius: 20,
@@ -821,13 +825,13 @@ Widget _buildAddOption({
                       child: Center(
                         child: TextButton.icon(
                           onPressed: _clearAllFilters,
-                          icon: Icon(Icons.refresh, color: Colors.white, size: 18), // White icon on gradient
+                          icon: Icon(Icons.refresh, color: Colors.white, size: responsive.icon18), // White icon on gradient
                           label: Text(
                             'Clear All Filters',
                             style: GoogleFonts.poppins(
                               color: Colors.white, // White text on gradient
                               fontWeight: FontWeight.w500,
-                              fontSize: 13,
+                              fontSize: responsive.fs13,
                             ),
                           ),
                         ),
@@ -858,13 +862,13 @@ Widget _buildAddOption({
                               // ADD LOADING INDICATOR AT THE END
                               if (index == transactionProvider.transactions.length) {
                                 return Container(
-                                  padding: EdgeInsets.symmetric(vertical: 24),
+                                  padding: responsive.padding(vertical: 24),
                                   child: Center(
                                     child: Column(
                                       children: [
                                         SizedBox(
-                                          width: 24,
-                                          height: 24,
+                                          width: responsive.iconSize(mobile: 24),
+                                          height: responsive.iconSize(mobile: 24),
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
                                             valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
@@ -874,7 +878,7 @@ Widget _buildAddOption({
                                         Text(
                                           localizations.loadingMoreIndicator,
                                           style: GoogleFonts.poppins(
-                                            fontSize: 12,
+                                            fontSize: responsive.fs12,
                                             color: Colors.grey[500],
                                             fontWeight: FontWeight.w500,
                                           ),
@@ -898,7 +902,7 @@ Widget _buildAddOption({
       floatingActionButton: FloatingActionButton(
         onPressed: _navigateToAddTransaction, // Call the new function to add transaction
         backgroundColor: Color(0xFF667eea), // Primary color for FAB
-        child: Icon(Icons.add, color: Colors.white, size: 28),
+        child: Icon(Icons.add, color: Colors.white, size: responsive.icon28),
         elevation: 8,
         tooltip: localizations.addTransactionFabTooltip,
       ),
@@ -907,24 +911,25 @@ Widget _buildAddOption({
 
   Widget _buildEmptyState() {
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
 
     return Center(
       child: Container(
-        padding: EdgeInsets.all(32),
+        padding: responsive.padding(all: 32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: EdgeInsets.all(24),
+              padding: responsive.padding(all: 24),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
               ),
               child: Icon(
                 Icons.receipt_long_outlined,
-                size: 48,
+                size: responsive.icon48,
                 color: Colors.white,
               ),
             ),
@@ -932,7 +937,7 @@ Widget _buildAddOption({
             Text(
               localizations.emptyStateTitle,
               style: GoogleFonts.poppins(
-                fontSize: 18,
+                fontSize: responsive.fs18,
                 color: Color(0xFF333333),
                 fontWeight: FontWeight.w600,
               ),
@@ -941,7 +946,7 @@ Widget _buildAddOption({
             Text(
               localizations.emptyStateSubtitle,
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[500],
               ),
               textAlign: TextAlign.center,
@@ -961,6 +966,7 @@ Widget _buildAddOption({
 }) {
   Color chipColor;
   Color labelColor;
+  final responsive = ResponsiveHelper(context);
 
   if (isSelected) {
     chipColor = Color(0xFF667eea); // Primary purple color for selected
@@ -974,7 +980,7 @@ Widget _buildAddOption({
     label: Text(
       label,
       style: GoogleFonts.poppins(
-        fontSize: 13,
+        fontSize: responsive.fs13,
         fontWeight: FontWeight.w500,
         color: labelColor,
       ),
@@ -983,9 +989,9 @@ Widget _buildAddOption({
     onSelected: onSelected,
     selectedColor: chipColor,
     backgroundColor: chipColor,
-    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    padding: responsive.padding(horizontal: 16, vertical: 8),
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
       side: BorderSide(
         color: isSelected ? chipColor : Colors.transparent,
         width: 1,
@@ -1004,6 +1010,7 @@ Widget _buildAddOption({
   }) {
     Color chipColor;
     Color labelColor;
+    final responsive = ResponsiveHelper(context);
 
     if (isSelected) {
       if (type == TransactionType.inflow) {
@@ -1026,7 +1033,7 @@ Widget _buildAddOption({
       label: Text(
         label,
         style: GoogleFonts.poppins(
-          fontSize: 13,
+          fontSize: responsive.fs13,
           fontWeight: FontWeight.w500,
           color: labelColor,
         ),
@@ -1035,9 +1042,9 @@ Widget _buildAddOption({
       onSelected: onSelected,
       selectedColor: chipColor,
       backgroundColor: chipColor, // Use selected color as background for consistency
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: responsive.padding(horizontal: 16, vertical: 8),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
         side: BorderSide(
           // Use slightly darker border color when selected for definition, or match chip color
           color: isSelected ? chipColor : Colors.transparent, // Changed border logic for consistency
@@ -1050,11 +1057,12 @@ Widget _buildAddOption({
   }
 
   Widget _buildTransactionCard(Transaction transaction) {
+    final responsive = ResponsiveHelper(context);
     return GestureDetector(
       onTap: () => _navigateToEditTransaction(transaction),
       child: Container(
         margin: EdgeInsets.only(bottom: 12),
-        padding: EdgeInsets.all(16),
+        padding: responsive.padding(all: 16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -1098,7 +1106,7 @@ Widget _buildAddOption({
                   Text(
                     transaction.subCategory,
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF333333),
                     ),
@@ -1116,7 +1124,7 @@ Widget _buildAddOption({
                         Text(
                           transaction.recurrence!.config!.getDisplayText(),
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs11,
                             color: Color(0xFF667eea),
                             fontWeight: FontWeight.w500,
                           ),
@@ -1138,7 +1146,7 @@ Widget _buildAddOption({
                         Text(
                           'Auto-created',
                           style: GoogleFonts.poppins(
-                            fontSize: 11,
+                            fontSize: responsive.fs11,
                             color: Color(0xFFFF9800),
                             fontWeight: FontWeight.w500,
                           ),
@@ -1149,7 +1157,7 @@ Widget _buildAddOption({
                   Text(
                     transaction.mainCategory,
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: responsive.fs12,
                       color: Colors.grey[600],
                     ),
                   ),
@@ -1158,7 +1166,7 @@ Widget _buildAddOption({
                     Text(
                       transaction.description!,
                       style: GoogleFonts.poppins(
-                        fontSize: 12,
+                        fontSize: responsive.fs12,
                         color: Colors.grey[500],
                       ),
                       maxLines: 1,
@@ -1174,7 +1182,7 @@ Widget _buildAddOption({
                 Text(
                   '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}', // UPDATED to include currency
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
+                    fontSize: responsive.fs16,
                     fontWeight: FontWeight.bold,
                     color: transaction.type == TransactionType.inflow ? Color(0xFF4CAF50) : Color(0xFFFF5722),
                   ),
@@ -1183,7 +1191,7 @@ Widget _buildAddOption({
                 Text(
                   DateFormat('MMM dd, yyyy').format(transaction.date),
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[500],
                   ),
                 ),
@@ -1192,7 +1200,7 @@ Widget _buildAddOption({
             SizedBox(width: 8),
             Icon(
               Icons.arrow_forward_ios,
-              size: 16,
+              size: responsive.icon16,
               color: Color(0xFF667eea).withOpacity(0.6), // Purple arrow
             ),
           ],

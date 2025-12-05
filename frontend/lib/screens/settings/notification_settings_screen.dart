@@ -5,6 +5,7 @@ import 'package:frontend/services/api_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../services/notification_service.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   @override
@@ -106,6 +107,7 @@ class _NotificationSettingsScreenState
   }
 
   Future<void> _toggleNotifications(bool value) async {
+    final responsive = ResponsiveHelper(context);
     if (value) {
       final granted = await _notificationService.requestPermissions();
       if (granted) {
@@ -120,7 +122,7 @@ class _NotificationSettingsScreenState
             ),
             backgroundColor: Color(0xFF4CAF50),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
           ),
         );
       } else {
@@ -133,32 +135,33 @@ class _NotificationSettingsScreenState
   }
 
   void _showSettingsDialog() {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Row(
           children: [
             Container(
-              padding: EdgeInsets.all(8),
+              padding: responsive.padding(all: 8),
               decoration: BoxDecoration(
                 color: Color(0xFF667eea).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
               ),
               child: Icon(Icons.settings, color: Color(0xFF667eea)),
             ),
-            SizedBox(width: 12),
+            SizedBox(width: responsive.sp12),
             Expanded(
               child: Text(
                 'Notification Settings',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
+                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: responsive.fs18),
               ),
             ),
           ],
         ),
         content: Text(
           'To change notification settings, please go to your device settings.',
-          style: GoogleFonts.poppins(fontSize: 14),
+          style: GoogleFonts.poppins(fontSize: responsive.fs14),
         ),
         actions: [
           TextButton(
@@ -172,7 +175,7 @@ class _NotificationSettingsScreenState
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Color(0xFF667eea),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
               elevation: 0,
             ),
             child: Text('Open Settings', style: GoogleFonts.poppins(color: Colors.white)),
@@ -183,6 +186,7 @@ class _NotificationSettingsScreenState
   }
 
   Future<void> _testNotification() async {
+    final responsive = ResponsiveHelper(context);
     await _notificationService.showNotification(
       id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title: 'Test Notification 🎉',
@@ -198,16 +202,17 @@ class _NotificationSettingsScreenState
         ),
         backgroundColor: Color(0xFF4CAF50),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
       ),
     );
   }
 
   Future<void> _resetToDefaults() async {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text(
           'Reset to Defaults?',
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
@@ -253,7 +258,7 @@ class _NotificationSettingsScreenState
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Color(0xFF667eea),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
             ),
             child: Text('Reset', style: GoogleFonts.poppins(color: Colors.white)),
           ),
@@ -264,12 +269,13 @@ class _NotificationSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'Notification Settings',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -302,14 +308,14 @@ class _NotificationSettingsScreenState
                 ),
               ),
               child: ListView(
-                padding: EdgeInsets.all(20),
+                padding: responsive.padding(all: 20),
                 children: [
                   // Main Toggle Card
                   Container(
-                    padding: EdgeInsets.all(20),
+                    padding: responsive.padding(all: 20),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.grey.withOpacity(0.1),
@@ -324,20 +330,20 @@ class _NotificationSettingsScreenState
                         Row(
                           children: [
                             Container(
-                              padding: EdgeInsets.all(12),
+                              padding: responsive.padding(all: 12),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                                 ),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                               ),
                               child: Icon(
                                 Icons.notifications_active,
                                 color: Colors.white,
-                                size: 24,
+                                size: responsive.icon24,
                               ),
                             ),
-                            SizedBox(width: 16),
+                            SizedBox(width: responsive.sp16),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -345,7 +351,7 @@ class _NotificationSettingsScreenState
                                   Text(
                                     'Push Notifications',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 16,
+                                      fontSize: responsive.fs16,
                                       fontWeight: FontWeight.bold,
                                       color: Color(0xFF333333),
                                     ),
@@ -354,7 +360,7 @@ class _NotificationSettingsScreenState
                                   Text(
                                     'Receive updates about your finances',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 13,
+                                      fontSize: responsive.fs13,
                                       color: Colors.grey[600],
                                     ),
                                   ),
@@ -370,24 +376,24 @@ class _NotificationSettingsScreenState
                         ),
                         
                         if (_notificationsEnabled) ...[
-                          SizedBox(height: 20),
+                          SizedBox(height: responsive.sp20),
                           Divider(),
-                          SizedBox(height: 20),
+                          SizedBox(height: responsive.sp20),
                           
                           // Test Notification Button
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton.icon(
                               onPressed: _testNotification,
-                              icon: Icon(Icons.send, size: 18),
+                              icon: Icon(Icons.send, size: responsive.icon18),
                               label: Text('Send Test Notification'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Color(0xFF667eea),
                                 side: BorderSide(color: Color(0xFF667eea)),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                 ),
-                                padding: EdgeInsets.symmetric(vertical: 12),
+                                padding: responsive.padding(vertical: 12),
                               ),
                             ),
                           ),
@@ -397,14 +403,14 @@ class _NotificationSettingsScreenState
                   ),
 
                   if (_notificationsEnabled && _preferences != null) ...[
-                    SizedBox(height: 24),
+                    SizedBox(height: responsive.sp24),
                     
                     // Info Card
                     Container(
-                      padding: EdgeInsets.all(16),
+                      padding: responsive.padding(all: 16),
                       decoration: BoxDecoration(
                         color: Color(0xFF2196F3).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         border: Border.all(
                           color: Color(0xFF2196F3).withOpacity(0.3),
                           width: 1,
@@ -412,13 +418,13 @@ class _NotificationSettingsScreenState
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.info_outline, color: Color(0xFF2196F3), size: 24),
-                          SizedBox(width: 12),
+                          Icon(Icons.info_outline, color: Color(0xFF2196F3), size: responsive.icon24),
+                          SizedBox(width: responsive.sp12),
                           Expanded(
                             child: Text(
                               'Customize which notifications you want to receive',
                               style: GoogleFonts.poppins(
-                                fontSize: 13,
+                                fontSize: responsive.fs13,
                                 color: Color(0xFF2196F3),
                               ),
                             ),
@@ -427,7 +433,7 @@ class _NotificationSettingsScreenState
                       ),
                     ),
 
-                    SizedBox(height: 24),
+                    SizedBox(height: responsive.sp24),
 
                     // Notification Types Header
                     Padding(
@@ -435,7 +441,7 @@ class _NotificationSettingsScreenState
                       child: Text(
                         'Notification Types',
                         style: GoogleFonts.poppins(
-                          fontSize: 18,
+                          fontSize: responsive.fs18,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF333333),
                         ),
@@ -483,7 +489,7 @@ class _NotificationSettingsScreenState
                       ],
                     ),
 
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
 
                     // Budget Notifications Section
                     _buildNotificationSection(
@@ -542,7 +548,7 @@ class _NotificationSettingsScreenState
                       ],
                     ),
 
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
 
                     // Transaction Notifications Section
                     _buildNotificationSection(
@@ -601,7 +607,7 @@ class _NotificationSettingsScreenState
                       ],
                     ),
 
-                    SizedBox(height: 32),
+                    SizedBox(height: responsive.sp32),
                   ],
                 ],
               ),
@@ -615,10 +621,11 @@ class _NotificationSettingsScreenState
     required Color color,
     required List<_NotificationToggleInfo> notifications,
   }) {
+    final responsive = ResponsiveHelper(context);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -631,7 +638,7 @@ class _NotificationSettingsScreenState
         children: [
           // Section Header
           Container(
-            padding: EdgeInsets.all(16),
+            padding: responsive.padding(all: 16),
             decoration: BoxDecoration(
               color: color.withOpacity(0.1),
               borderRadius: BorderRadius.only(
@@ -641,12 +648,12 @@ class _NotificationSettingsScreenState
             ),
             child: Row(
               children: [
-                Icon(icon, color: color, size: 20),
-                SizedBox(width: 12),
+                Icon(icon, color: color, size: responsive.icon20),
+                SizedBox(width: responsive.sp12),
                 Text(
                   title,
                   style: GoogleFonts.poppins(
-                    fontSize: 15,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),
@@ -668,8 +675,9 @@ class _NotificationSettingsScreenState
     required _NotificationToggleInfo notif,
     bool isLast = false,
   }) {
+    final responsive = ResponsiveHelper(context);
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: responsive.padding(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         border: isLast
             ? null
@@ -683,15 +691,15 @@ class _NotificationSettingsScreenState
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: responsive.iconSize(mobile: 40),
+            height: responsive.iconSize(mobile: 40),
             decoration: BoxDecoration(
               color: notif.color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(notif.icon, color: notif.color, size: 20),
+            child: Icon(notif.icon, color: notif.color, size: responsive.icon20),
           ),
-          SizedBox(width: 16),
+          SizedBox(width: responsive.sp16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -699,7 +707,7 @@ class _NotificationSettingsScreenState
                 Text(
                   notif.title,
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
@@ -708,7 +716,7 @@ class _NotificationSettingsScreenState
                 Text(
                   notif.description,
                   style: GoogleFonts.poppins(
-                    fontSize: 12,
+                    fontSize: responsive.fs12,
                     color: Colors.grey[600],
                     height: 1.3,
                   ),
@@ -716,7 +724,7 @@ class _NotificationSettingsScreenState
               ],
             ),
           ),
-          SizedBox(width: 12),
+          SizedBox(width: responsive.sp12),
           Switch(
             value: notif.value,
             onChanged: (value) => _updatePreference(notif.key, value),

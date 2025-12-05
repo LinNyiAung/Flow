@@ -10,6 +10,7 @@ import 'package:intl/intl.dart'; // Import for date formatting
 import '../../models/transaction.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 // Extension for safely finding an element in a list
 extension FirstWhereOrNullExtension<E> on Iterable<E> {
@@ -147,6 +148,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
     // Access the TransactionProvider for state management
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
+    final responsive = ResponsiveHelper(context);
     
     return Scaffold(
       body: Container(
@@ -168,17 +170,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
             children: [
               // Header Section
               Container(
-                padding: EdgeInsets.all(20),
+                padding: responsive.padding(all: 20),
                 child: Row(
                   children: [
                     // Back Button
                     IconButton(
                       onPressed: () => Navigator.pop(context), // Go back to previous screen
                       icon: Container(
-                        padding: EdgeInsets.all(8),
+                        padding: responsive.padding(all: 8),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.grey.withOpacity(0.1),
@@ -196,7 +198,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                       child: Text(
                         localizations.addTransactionTitle,
                         style: GoogleFonts.poppins(
-                          fontSize: 24,
+                          fontSize: responsive.fs24,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF333333),
                         ),
@@ -213,7 +215,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                   child: SlideTransition( // Apply slide animation
                     position: _slideAnimation,
                     child: SingleChildScrollView( // Allow scrolling for form content
-                      padding: EdgeInsets.all(20),
+                      padding: responsive.padding(all: 20),
                       child: Form(
                         key: _formKey, // Assign form key for validation
                         child: Column(
@@ -223,7 +225,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -248,12 +250,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                         }
                                       },
                                       child: Container(
-                                        padding: EdgeInsets.symmetric(vertical: 16),
+                                        padding: responsive.padding(vertical: 16),
                                         decoration: BoxDecoration(
                                           color: _selectedType == TransactionType.outflow
                                               ? Color(0xFFFF5722) // Red for outflow
                                               : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -293,12 +295,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                         }
                                       },
                                       child: Container(
-                                        padding: EdgeInsets.symmetric(vertical: 16),
+                                        padding: responsive.padding(vertical: 16),
                                         decoration: BoxDecoration(
                                           color: _selectedType == TransactionType.inflow
                                               ? Color(0xFF4CAF50) // Green for inflow
                                               : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -333,7 +335,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                           Text(
                             'Currency',
                             style: GoogleFonts.poppins(
-                              fontSize: 16,
+                              fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
                               color: Color(0xFF333333),
                             ),
@@ -342,7 +344,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.grey.withOpacity(0.1),
@@ -355,7 +357,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               decoration: InputDecoration(
                                 hintText: 'Select currency',
                                 border: InputBorder.none,
-                                contentPadding: EdgeInsets.all(20),
+                                contentPadding: responsive.padding(all: 20),
                                 
                               ),
                               value: _selectedCurrency,
@@ -384,7 +386,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                           SizedBox(height: 8),
                           Container(
                             width: double.infinity,
-                            margin: EdgeInsets.only(bottom: 24),
+                            margin: responsive.padding(bottom: 24),
                             child: OutlinedButton.icon(
                               onPressed: () {
                                 if (_amountController.text.isEmpty) {
@@ -397,7 +399,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                       backgroundColor: Colors.orange,
                                       behavior: SnackBarBehavior.floating,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                       ),
                                     ),
                                   );
@@ -405,17 +407,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                 }
                                 _showCurrencyConversionDialog();
                               },
-                              icon: Icon(Icons.currency_exchange, size: 18),
+                              icon: Icon(Icons.currency_exchange, size: responsive.icon18),
                               label: Text(
                                 'Convert Currency',
-                                style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+                                style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w600),
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Color(0xFF667eea),
                                 side: BorderSide(color: Color(0xFF667eea), width: 1.5),
-                                padding: EdgeInsets.symmetric(vertical: 14),
+                                padding: responsive.padding(vertical: 14),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                 ),
                               ),
                             ),
@@ -426,7 +428,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Text(
                               localizations.amountLabel,
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -435,7 +437,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -451,17 +453,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                   hintText: '0.00',
                                   prefixText: '${_selectedCurrency.symbol} ', // Currency symbol
                                   prefixStyle: GoogleFonts.poppins(
-                                    fontSize: 24,
+                                    fontSize: responsive.fs24,
                                     fontWeight: FontWeight.bold,
                                     color: _selectedType == TransactionType.inflow
                                         ? Color(0xFF4CAF50)
                                         : Color(0xFFFF5722),
                                   ),
                                   border: InputBorder.none, // Remove default border
-                                  contentPadding: EdgeInsets.all(20),
+                                  contentPadding: responsive.padding(all: 20),
                                 ),
                                 style: GoogleFonts.poppins(
-                                  fontSize: 24,
+                                  fontSize: responsive.fs24,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF333333),
                                 ),
@@ -488,7 +490,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Text(
                               localizations.dateLabel,
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -499,7 +501,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               child: Container(
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.grey.withOpacity(0.1),
@@ -509,7 +511,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                   ],
                                 ),
                                 child: Padding(
-                                  padding: EdgeInsets.all(20),
+                                  padding: responsive.padding(all: 20),
                                   child: Row(
                                     children: [
                                       Icon(Icons.calendar_today_outlined), // Calendar icon
@@ -518,7 +520,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                         child: Text(
                                           DateFormat('yyyy-MM-dd').format(_selectedDate), // Display selected date
                                           style: GoogleFonts.poppins(
-                                            fontSize: 16,
+                                            fontSize: responsive.fs16,
                                             color: Color(0xFF333333),
                                           ),
                                         ),
@@ -535,7 +537,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Text(
                               localizations.categoryLabel,
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -544,7 +546,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -556,14 +558,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               // Show loading indicator while fetching categories
                               child: _isLoadingCategories
                                   ? Container(
-                                      padding: EdgeInsets.all(20),
+                                      padding: responsive.padding(all: 20),
                                       child: Center(child: CircularProgressIndicator()),
                                     )
                                   : DropdownButtonFormField<String>(
                                       decoration: InputDecoration(
                                         hintText: localizations.selectMainCategoryHint,
                                         border: InputBorder.none,
-                                        contentPadding: EdgeInsets.all(20),
+                                        contentPadding: responsive.padding(all: 20),
                                         prefixIcon: Icon(Icons.category_outlined),
                                       ),
                                       value: _selectedMainCategory, // Current selected value
@@ -599,7 +601,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               Container(
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.grey.withOpacity(0.1),
@@ -612,7 +614,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                   decoration: InputDecoration(
                                     hintText: localizations.selectSubCategoryHint,
                                     border: InputBorder.none,
-                                    contentPadding: EdgeInsets.all(20),
+                                    contentPadding: responsive.padding(all: 20),
                                     prefixIcon: Icon(Icons.list_outlined),
                                   ),
                                   value: _selectedSubCategory, // Current selected value
@@ -654,7 +656,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Text(
                               localizations.descriptionLabel,
                               style: GoogleFonts.poppins(
-                                fontSize: 16,
+                                fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
                                 color: Color(0xFF333333),
                               ),
@@ -663,7 +665,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             Container(
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.grey.withOpacity(0.1),
@@ -678,9 +680,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                 decoration: InputDecoration(
                                   hintText: localizations.descriptionHint,
                                   border: InputBorder.none,
-                                  contentPadding: EdgeInsets.all(20),
+                                  contentPadding: responsive.padding(all: 20),
                                   prefixIcon: Padding( // Icon padding for alignment
-                                    padding: EdgeInsets.only(top: 12),
+                                    padding: responsive.padding(top: 12),
                                     child: Icon(Icons.notes_outlined),
                                   ),
                                 ),
@@ -706,8 +708,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               builder: (context, transactionProvider, child) {
                                 if (transactionProvider.error != null) {
                                   return Container(
-                                    padding: EdgeInsets.all(12),
-                                    margin: EdgeInsets.only(bottom: 16),
+                                    padding: responsive.padding(all: 12),
+                                    margin: responsive.padding(bottom: 16),
                                     decoration: BoxDecoration(
                                       color: Colors.red[50],
                                       borderRadius: BorderRadius.circular(8),
@@ -735,7 +737,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               builder: (context, transactionProvider, child) {
                                 return SizedBox(
                                   width: double.infinity,
-                                  height: 56,
+                                  height: responsive.cardHeight(baseHeight: 56),
                                   child: ElevatedButton(
                                     onPressed: transactionProvider.isLoading ? null : _addTransaction, // Disable button if loading
                                     style: ElevatedButton.styleFrom(
@@ -758,7 +760,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                               Text(
                                                 'Add ${_selectedType == TransactionType.inflow ? 'Inflow' : 'Outflow'}',
                                                 style: GoogleFonts.poppins(
-                                                  fontSize: 16,
+                                                  fontSize: responsive.fs16,
                                                   fontWeight: FontWeight.w600,
                                                   color: Colors.white,
                                                 ),
@@ -788,6 +790,7 @@ void _showCurrencyConversionDialog() {
   final localizations = AppLocalizations.of(context);
   final TextEditingController _rateController = TextEditingController();
   Currency? _targetCurrency;
+  final responsive = ResponsiveHelper(context);
 
   showDialog(
     context: context,
@@ -796,7 +799,7 @@ void _showCurrencyConversionDialog() {
         builder: (context, setDialogState) {
           return AlertDialog(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
             ),
             title: Row(
               children: [
@@ -807,7 +810,7 @@ void _showCurrencyConversionDialog() {
                     'Convert Currency',
                     style: GoogleFonts.poppins(
                       fontWeight: FontWeight.bold,
-                      fontSize: 18,
+                      fontSize: responsive.fs18,
                     ),
                   ),
                 ),
@@ -820,7 +823,7 @@ void _showCurrencyConversionDialog() {
                 children: [
                   // Current Currency Display
                   Container(
-                    padding: EdgeInsets.all(12),
+                    padding: responsive.padding(all: 12),
                     decoration: BoxDecoration(
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(8),
@@ -830,7 +833,7 @@ void _showCurrencyConversionDialog() {
                         Text(
                           'Current: ',
                           style: GoogleFonts.poppins(
-                            fontSize: 14,
+                            fontSize: responsive.fs14,
                             color: Colors.grey[600],
                           ),
                         ),
@@ -838,7 +841,7 @@ void _showCurrencyConversionDialog() {
                           child: Text(
                             '${_selectedCurrency.symbol} ${_selectedCurrency.displayName}',
                             style: GoogleFonts.poppins(
-                              fontSize: 14,
+                              fontSize: responsive.fs14,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF333333),
                             ),
@@ -853,7 +856,7 @@ void _showCurrencyConversionDialog() {
                   Text(
                     'Convert To:',
                     style: GoogleFonts.poppins(
-                      fontSize: 14,
+                      fontSize: responsive.fs14,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF333333),
                     ),
@@ -864,7 +867,7 @@ void _showCurrencyConversionDialog() {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: responsive.padding(horizontal: 12, vertical: 8),
                     ),
                     hint: Text('Select target currency'),
                     value: _targetCurrency,
@@ -875,7 +878,7 @@ void _showCurrencyConversionDialog() {
                         value: currency,
                         child: Text(
                           '${currency.symbol} - ${currency.displayName}',
-                          style: GoogleFonts.poppins(fontSize: 14),
+                          style: GoogleFonts.poppins(fontSize: responsive.fs14),
                         ),
                       );
                     }).toList(),
@@ -891,7 +894,7 @@ void _showCurrencyConversionDialog() {
                   Text(
                     'Exchange Rate:',
                     style: GoogleFonts.poppins(
-                      fontSize: 14,
+                      fontSize: responsive.fs14,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF333333),
                     ),
@@ -905,11 +908,11 @@ void _showCurrencyConversionDialog() {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: responsive.padding(horizontal: 12, vertical: 8),
                       prefixText: '1 ${_selectedCurrency.symbol} = ',
                       suffixText: _targetCurrency != null ? _targetCurrency!.symbol : '',
                     ),
-                    style: GoogleFonts.poppins(fontSize: 14),
+                    style: GoogleFonts.poppins(fontSize: responsive.fs14),
                   ),
                   SizedBox(height: 12),
 
@@ -918,7 +921,7 @@ void _showCurrencyConversionDialog() {
                       _rateController.text.isNotEmpty && 
                       _amountController.text.isNotEmpty)
                     Container(
-                      padding: EdgeInsets.all(12),
+                      padding: responsive.padding(all: 12),
                       decoration: BoxDecoration(
                         color: Color(0xFF667eea).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -932,7 +935,7 @@ void _showCurrencyConversionDialog() {
                           Text(
                             'Preview:',
                             style: GoogleFonts.poppins(
-                              fontSize: 12,
+                              fontSize: responsive.fs12,
                               fontWeight: FontWeight.w600,
                               color: Color(0xFF667eea),
                             ),
@@ -941,7 +944,7 @@ void _showCurrencyConversionDialog() {
                           Text(
                             '${_selectedCurrency.symbol}${double.parse(_amountController.text).toStringAsFixed(2)} → ${_targetCurrency!.symbol}${(double.parse(_amountController.text) * (double.tryParse(_rateController.text) ?? 1)).toStringAsFixed(2)}',
                             style: GoogleFonts.poppins(
-                              fontSize: 14,
+                              fontSize: responsive.fs14,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF333333),
                             ),
@@ -1009,7 +1012,7 @@ void _showCurrencyConversionDialog() {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: responsive.padding(horizontal: 16, vertical: 12),
                 ),
                 child: Text(
                   'Convert',
@@ -1029,6 +1032,7 @@ void _showCurrencyConversionDialog() {
 
 void _applyConversion(Currency targetCurrency, double exchangeRate) {
   final currentAmount = double.tryParse(_amountController.text);
+  final responsive = ResponsiveHelper(context);
   if (currentAmount == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1055,7 +1059,7 @@ void _applyConversion(Currency targetCurrency, double exchangeRate) {
       ),
       backgroundColor: Color(0xFF4CAF50),
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
       duration: Duration(seconds: 3),
     ),
   );
