@@ -509,11 +509,13 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   }
 
   Widget _buildEmptyState() {
-    final responsive = ResponsiveHelper(context);
-    return Center(
+  final responsive = ResponsiveHelper(context);
+  return SingleChildScrollView(  // Wrap with SingleChildScrollView
+    child: Center(
       child: Padding(
         padding: responsive.padding(all: 32),
         child: Column(
+          mainAxisSize: MainAxisSize.min,  // Change from max to min
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
@@ -558,8 +560,9 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildQuickSuggestion(String suggestion, ChatProvider chatProvider) {
   final authProvider = Provider.of<AuthProvider>(context);
