@@ -363,7 +363,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
                 // Save Button
                 SizedBox(
-                  height: 50,
+                  height: responsive.cardHeight(baseHeight: 50),
                   child: ElevatedButton(
                     onPressed: _isLoading || !_hasChanges ? null : _saveProfile,
                     style: ElevatedButton.styleFrom(
@@ -376,8 +376,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                     child: _isLoading
                         ? SizedBox(
-                            height: 20,
-                            width: 20,
+                            height: responsive.sp20,
+                            width: responsive.sp20,
                             child: CircularProgressIndicator(
                               color: Colors.white,
                               strokeWidth: 2,

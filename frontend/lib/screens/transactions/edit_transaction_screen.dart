@@ -303,7 +303,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                   ? Colors.white
                                                   : Colors.grey[600],
                                             ),
-                                            SizedBox(width: 8),
+                                            SizedBox(width: responsive.sp8),
                                             Text(
                                               'Outflow',
                                               style: GoogleFonts.poppins(
@@ -349,7 +349,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                   ? Colors.white
                                                   : Colors.grey[600],
                                             ),
-                                            SizedBox(width: 8),
+                                            SizedBox(width: responsive.sp8),
                                             Text(
                                               'Inflow',
                                               style: GoogleFonts.poppins(
@@ -434,7 +434,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Color(0xFF667eea),
                                 side: BorderSide(color: Color(0xFF667eea), width: 1.5),
-                                padding: EdgeInsets.symmetric(vertical: 12),
+                                padding: responsive.padding(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                 ),
@@ -792,7 +792,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                               onPressed: () => _showDisableRecurrenceDialog(),
                                               style: ElevatedButton.styleFrom(
                                                 backgroundColor: Color(0xFFFF9800),
-                                                padding: EdgeInsets.symmetric(vertical: 12),
+                                                padding: responsive.padding(vertical: 12),
                                                 shape: RoundedRectangleBorder(
                                                   borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                                 ),
@@ -817,7 +817,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                           child: OutlinedButton.icon(
                                             onPressed: () => _viewParentTransaction(),
                                             style: OutlinedButton.styleFrom(
-                                              padding: EdgeInsets.symmetric(vertical: 12),
+                                              padding: responsive.padding(vertical: 12),
                                               shape: RoundedRectangleBorder(
                                                 borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                                               ),
@@ -849,7 +849,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                               child: Row(
                                                 children: [
                                                   Icon(Icons.info_outline, color: Colors.grey[600], size: responsive.icon16),
-                                                  SizedBox(width: 8),
+                                                  SizedBox(width: responsive.sp8),
                                                   Expanded(
                                                     child: Text(
                                                       'The recurring schedule for this transaction has been stopped.',
@@ -925,7 +925,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                     child: Row(
                                       children: [
                                         Icon(Icons.error_outline, color: Colors.red),
-                                        SizedBox(width: 8),
+                                        SizedBox(width: responsive.sp8),
                                         Expanded(
                                           child: Text(
                                             transactionProvider.error!,
@@ -962,7 +962,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                 Icons.update_outlined,
                                                 color: Colors.white,
                                               ),
-                                              SizedBox(width: 8),
+                                              SizedBox(width: responsive.sp8),
                                               Text(
                                                 localizations.updateTransactionButton,
                                                 style: GoogleFonts.poppins(
@@ -1037,7 +1037,7 @@ void _showDisableRecurrenceDialog() {
                 child: Row(
                   children: [
                     Icon(Icons.info_outline, color: Color(0xFFFF9800), size: responsive.icon20),
-                    SizedBox(width: 8),
+                    SizedBox(width: responsive.sp8),
                     Expanded(
                       child: Text(
                         localizations.stopRecurringDialogInfo,

@@ -419,9 +419,9 @@ Widget _buildAddOption({
                       ),
                     ),
                     if (isLocked) ...[
-                      SizedBox(width: 8),
+                      SizedBox(width: responsive.sp8),
                       Container(
-                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: responsive.padding(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: Color(0xFFFFD700).withOpacity(0.2),
                           borderRadius: BorderRadius.circular(8),
@@ -626,7 +626,7 @@ Widget _buildAddOption({
                         color: Colors.white, // Changed icon color to white for contrast on gradient
                         size: responsive.icon20,
                       ),
-                      SizedBox(width: 8),
+                      SizedBox(width: responsive.sp8),
                       Text(
                         localizations.filtersSectionTitle,
                         style: GoogleFonts.poppins(
@@ -856,7 +856,7 @@ Widget _buildAddOption({
                         ? _buildEmptyState()
                         : ListView.builder(
                             controller: _scrollController, // ADD THIS
-                            padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            padding: responsive.padding(horizontal: 16, vertical: 8),
                             itemCount: transactionProvider.transactions.length + (_hasMoreData ? 1 : 0), // MODIFIED
                             itemBuilder: (context, index) {
                               // ADD LOADING INDICATOR AT THE END
@@ -1197,7 +1197,7 @@ Widget _buildAddOption({
                 ),
               ],
             ),
-            SizedBox(width: 8),
+            SizedBox(width: responsive.sp8),
             Icon(
               Icons.arrow_forward_ios,
               size: responsive.icon16,

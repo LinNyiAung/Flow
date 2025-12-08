@@ -425,7 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // Logout Button
             Container(
               width: double.infinity,
-              height: 50,
+              height: responsive.cardHeight(baseHeight: 50),
               child: ElevatedButton.icon(
                 onPressed: () => _showLogoutDialog(context),
                 icon: Icon(Icons.logout, color: Colors.white),

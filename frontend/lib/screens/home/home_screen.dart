@@ -378,7 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.currency_exchange, color: Colors.white, size: responsive.icon18),
-                                  SizedBox(width: 8),
+                                  SizedBox(width: responsive.sp8),
                                   Text(
                                     'View All Currencies',
                                     style: GoogleFonts.poppins(
@@ -387,7 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  SizedBox(width: 8),
+                                  SizedBox(width: responsive.sp8),
                                   Icon(Icons.keyboard_arrow_down, color: Colors.white, size: responsive.icon18),
                                 ],
                               ),
@@ -456,10 +456,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                           color: Color(0xFF333333),
                                         ),
                                       ),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: responsive.sp8),
                                       if (!authProvider.isPremium)
                                         Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
-                                        SizedBox(width: 8),
+                                        SizedBox(width: responsive.sp8),
                                       if (!authProvider.isPremium)
                                         Container(
                                           padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -525,8 +525,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Row(
                           children: [
                             Container(
-                              width: 50,
-                              height: 50,
+                              width: responsive.icon50,
+                              height: responsive.icon50,
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
@@ -557,10 +557,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                           color: Color(0xFF333333),
                                         ),
                                       ),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: responsive.sp8),
                                       if (!authProvider.isPremium)
                                         Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
-                                        SizedBox(width: 8),
+                                        SizedBox(width: responsive.sp8),
                                       if (!authProvider.isPremium)
                                         Container(
                                           padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1167,7 +1167,7 @@ void _showMultiCurrencyBottomSheet() async {
                 ),
               ],
             ),
-            SizedBox(width: 8),
+            SizedBox(width: responsive.sp8),
             Icon(
               // Arrow icon to indicate tappable card
               Icons.arrow_forward_ios,
@@ -1387,7 +1387,7 @@ Widget _buildAddOption({
                       ),
                     ),
                     if (isLocked) ...[
-                      SizedBox(width: 8),
+                      SizedBox(width: responsive.sp8),
                       Container(
                         padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(

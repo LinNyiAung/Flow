@@ -710,7 +710,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 
               // Save Button
               SizedBox(
-                height: 50,
+                height: responsive.cardHeight(baseHeight: 50),
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _saveBudget,
                   style: ElevatedButton.styleFrom(
@@ -788,8 +788,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: responsive.iconSize(mobile: 40),
+            height: responsive.iconSize(mobile: 40),
             decoration: BoxDecoration(
               color: Color(0xFF667eea).withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
@@ -965,10 +965,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         decoration: InputDecoration(
                           hintText: 'Select main category',
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
+                          contentPadding: responsive.padding(horizontal: 16, vertical: 12),
                           prefixIcon: Icon(
                             Icons.category,
                             color: Color(0xFF667eea),
@@ -1014,10 +1011,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                     decoration: InputDecoration(
                       hintText: 'Sub category (optional)',
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
+                      contentPadding: responsive.padding(horizontal: 16, vertical: 12),
                       prefixIcon: Icon(
                         Icons.list_outlined,
                         color: Color(0xFF667eea),
@@ -1195,7 +1189,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
             ),
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            padding: responsive.padding(horizontal: 24, vertical: 12),
           ),
           child: Text(
             'Save',

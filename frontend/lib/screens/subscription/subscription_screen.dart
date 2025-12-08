@@ -4,6 +4,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   @override
@@ -48,37 +49,38 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   void _showSuccessDialog() {
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: EdgeInsets.all(16),
+              padding: responsive.padding(all: 16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                 ),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.star, color: Colors.white, size: 48),
+              child: Icon(Icons.star, color: Colors.white, size: responsive.iconSize(mobile: 48)),
             ),
-            SizedBox(height: 24),
+            SizedBox(height: responsive.sp24),
             Text(
               'Welcome to Premium!',
               style: GoogleFonts.poppins(
-                fontSize: 24,
+                fontSize: responsive.fs24,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
             Text(
               'You now have access to all premium features.',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 color: Colors.grey[600],
               ),
               textAlign: TextAlign.center,
@@ -95,7 +97,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               backgroundColor: Color(0xFF667eea),
               minimumSize: Size(double.infinity, 48),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
               ),
             ),
             child: Text(
@@ -113,6 +115,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -134,16 +137,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 children: [
                   // Header
                   Padding(
-                    padding: EdgeInsets.all(20),
+                    padding: responsive.padding(all: 20),
                     child: Row(
                       children: [
                         IconButton(
                           onPressed: () => Navigator.pop(context),
                           icon: Container(
-                            padding: EdgeInsets.all(8),
+                            padding: responsive.padding(all: 8),
                             decoration: BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.grey.withOpacity(0.1),
@@ -155,11 +158,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             child: Icon(Icons.arrow_back, color: Color(0xFF333333)),
                           ),
                         ),
-                        SizedBox(width: 16),
+                        SizedBox(width: responsive.sp16),
                         Text(
                           isPremium ? 'Premium Status' : 'Upgrade to Premium',
                           style: GoogleFonts.poppins(
-                            fontSize: 24,
+                            fontSize: responsive.fs24,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF333333),
                           ),
@@ -170,19 +173,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
                   Expanded(
                     child: SingleChildScrollView(
-                      padding: EdgeInsets.all(20),
+                      padding: responsive.padding(all: 20),
                       child: Column(
                         children: [
                           // Current Status Card (if premium)
                           if (isPremium) ...[
                             Container(
                               width: double.infinity,
-                              padding: EdgeInsets.all(24),
+                              padding: responsive.padding(all: 24),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
                                 ),
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Color(0xFFFFD700).withOpacity(0.3),
@@ -193,12 +196,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                               ),
                               child: Column(
                                 children: [
-                                  Icon(Icons.star, color: Colors.white, size: 48),
-                                  SizedBox(height: 16),
+                                  Icon(Icons.star, color: Colors.white, size: responsive.iconSize(mobile: 48)),
+                                  SizedBox(height: responsive.sp16),
                                   Text(
                                     'Premium Active',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 24,
+                                      fontSize: responsive.fs24,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.white,
                                     ),
@@ -208,7 +211,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                     Text(
                                       'Expires: ${DateFormat('MMM dd, yyyy').format(authProvider.subscriptionExpiresAt!)}',
                                       style: GoogleFonts.poppins(
-                                        fontSize: 14,
+                                        fontSize: responsive.fs14,
                                         color: Colors.white.withOpacity(0.9),
                                       ),
                                     ),
@@ -216,19 +219,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                 ],
                               ),
                             ),
-                            SizedBox(height: 32),
+                            SizedBox(height: responsive.sp32),
                           ],
 
                           // Premium Features
                           Text(
                             'Premium Features',
                             style: GoogleFonts.poppins(
-                              fontSize: 20,
+                              fontSize: responsive.fs20,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF333333),
                             ),
                           ),
-                          SizedBox(height: 20),
+                          SizedBox(height: responsive.sp20),
 
                           _buildFeatureCard(
                             icon: Icons.auto_awesome,
@@ -262,16 +265,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           ),
                           
 
-                          SizedBox(height: 32),
+                          SizedBox(height: responsive.sp32),
 
                           // Pricing Card (if not premium)
                           if (!isPremium) ...[
                             Container(
                               width: double.infinity,
-                              padding: EdgeInsets.all(24),
+                              padding: responsive.padding(all: 24),
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                                 border: Border.all(
                                   color: Color(0xFFFFD700),
                                   width: 2,
@@ -289,7 +292,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                   Text(
                                     'Premium Plan',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 24,
+                                      fontSize: responsive.fs24,
                                       fontWeight: FontWeight.bold,
                                       color: Color(0xFF333333),
                                     ),
@@ -302,7 +305,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                       Text(
                                         '\$',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 24,
+                                          fontSize: responsive.fs24,
                                           fontWeight: FontWeight.bold,
                                           color: Color(0xFFFFD700),
                                         ),
@@ -310,24 +313,24 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                       Text(
                                         '9.99',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 48,
+                                          fontSize: responsive.iconSize(mobile: 48),
                                           fontWeight: FontWeight.bold,
                                           color: Color(0xFFFFD700),
                                         ),
                                       ),
                                       Padding(
-                                        padding: EdgeInsets.only(top: 20),
+                                        padding: responsive.padding(top: 20),
                                         child: Text(
                                           '/month',
                                           style: GoogleFonts.poppins(
-                                            fontSize: 16,
+                                            fontSize: responsive.fs16,
                                             color: Colors.grey[600],
                                           ),
                                         ),
                                       ),
                                     ],
                                   ),
-                                  SizedBox(height: 24),
+                                  SizedBox(height: responsive.sp24),
                                   SizedBox(
                                     width: double.infinity,
                                     height: 56,
@@ -336,7 +339,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Color(0xFFFFD700),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                                         ),
                                       ),
                                       child: _isLoading
@@ -345,11 +348,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                               mainAxisAlignment: MainAxisAlignment.center,
                                               children: [
                                                 Icon(Icons.star, color: Colors.black),
-                                                SizedBox(width: 8),
+                                                SizedBox(width: responsive.sp8),
                                                 Text(
                                                   'Upgrade Now',
                                                   style: GoogleFonts.poppins(
-                                                    fontSize: 18,
+                                                    fontSize: responsive.fs18,
                                                     fontWeight: FontWeight.bold,
                                                     color: Colors.black,
                                                   ),
@@ -358,11 +361,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                             ),
                                     ),
                                   ),
-                                  SizedBox(height: 12),
+                                  SizedBox(height: responsive.sp12),
                                   Text(
                                     'Try 30 days • Cancel anytime',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 12,
+                                      fontSize: responsive.fs12,
                                       color: Colors.grey[600],
                                     ),
                                   ),
@@ -391,12 +394,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     required String description,
     required List<Color> gradient,
   }) {
+    final responsive = ResponsiveHelper(context);
     return Container(
-      margin: EdgeInsets.only(bottom: 16),
-      padding: EdgeInsets.all(20),
+      margin: responsive.padding(bottom: 16),
+      padding: responsive.padding(all: 20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -408,14 +412,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       child: Row(
         children: [
           Container(
-            padding: EdgeInsets.all(12),
+            padding: responsive.padding(all: 12),
             decoration: BoxDecoration(
               gradient: LinearGradient(colors: gradient),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             ),
-            child: Icon(icon, color: Colors.white, size: 24),
+            child: Icon(icon, color: Colors.white, size: responsive.icon24),
           ),
-          SizedBox(width: 16),
+          SizedBox(width: responsive.sp16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -423,16 +427,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 Text(
                   title,
                   style: GoogleFonts.poppins(
-                    fontSize: 16,
+                    fontSize: responsive.fs16,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 4),
+                SizedBox(height: responsive.sp4),
                 Text(
                   description,
                   style: GoogleFonts.poppins(
-                    fontSize: 13,
+                    fontSize: responsive.fs13,
                     color: Colors.grey[600],
                   ),
                 ),

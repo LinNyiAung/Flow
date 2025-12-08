@@ -284,7 +284,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                             Text(
                               _budget.name,
                               style: GoogleFonts.poppins(
-                                fontSize: 22,
+                                fontSize: responsive.fs22,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/recurring_transaction.dart';
 import '../services/api_service.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 class RecurrenceSettings extends StatefulWidget {
   final TransactionRecurrence? initialRecurrence;
@@ -116,10 +117,11 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = ResponsiveHelper(context);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         boxShadow: [
           BoxShadow(
             color: Colors.grey.withOpacity(0.1),
@@ -128,7 +130,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
           ),
         ],
       ),
-      padding: EdgeInsets.all(20),
+      padding: responsive.padding(all: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -136,16 +138,16 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
           Row(
             children: [
               Container(
-                padding: EdgeInsets.all(8),
+                padding: responsive.padding(all: 8),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                   ),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 ),
-                child: Icon(Icons.repeat, color: Colors.white, size: 20),
+                child: Icon(Icons.repeat, color: Colors.white, size: responsive.icon20),
               ),
-              SizedBox(width: 12),
+              SizedBox(width: responsive.sp12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,7 +155,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                     Text(
                       'Recurring Transaction',
                       style: GoogleFonts.poppins(
-                        fontSize: 16,
+                        fontSize: responsive.fs16,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF333333),
                       ),
@@ -161,7 +163,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                     Text(
                       'Automatically create this transaction',
                       style: GoogleFonts.poppins(
-                        fontSize: 12,
+                        fontSize: responsive.fs12,
                         color: Colors.grey[600],
                       ),
                     ),
@@ -185,20 +187,20 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
           ),
 
           if (_isEnabled) ...[
-            SizedBox(height: 20),
+            SizedBox(height: responsive.sp20),
             Divider(),
-            SizedBox(height: 20),
+            SizedBox(height: responsive.sp20),
 
             // Frequency selector
             Text(
               'Repeat Frequency',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF333333),
               ),
             ),
-            SizedBox(height: 12),
+            SizedBox(height: responsive.sp12),
             ...RecurrenceFrequency.values.map((freq) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
@@ -210,14 +212,14 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                     _loadPreview();
                     _notifyChange();
                   },
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   child: Container(
-                    padding: EdgeInsets.all(16),
+                    padding: responsive.padding(all: 16),
                     decoration: BoxDecoration(
                       color: _selectedFrequency == freq
                           ? Color(0xFF667eea).withOpacity(0.1)
                           : Colors.grey[50],
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       border: Border.all(
                         color: _selectedFrequency == freq
                             ? Color(0xFF667eea)
@@ -235,7 +237,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                               ? Color(0xFF667eea)
                               : Colors.grey[400],
                         ),
-                        SizedBox(width: 12),
+                        SizedBox(width: responsive.sp12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -243,7 +245,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                               Text(
                                 freq.displayName,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 15,
+                                  fontSize: responsive.fs14,
                                   fontWeight: FontWeight.w600,
                                   color: Color(0xFF333333),
                                 ),
@@ -252,7 +254,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                               Text(
                                 freq.description,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 12,
+                                  fontSize: responsive.fs12,
                                   color: Colors.grey[600],
                                 ),
                               ),
@@ -266,7 +268,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
               );
             }).toList(),
 
-            SizedBox(height: 20),
+            SizedBox(height: responsive.sp20),
 
             // Frequency-specific settings
             if (_selectedFrequency == RecurrenceFrequency.weekly)
@@ -276,18 +278,18 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
             if (_selectedFrequency == RecurrenceFrequency.annually)
               _buildAnnuallySettings(),
 
-            SizedBox(height: 20),
+            SizedBox(height: responsive.sp20),
 
             // End date (optional)
             Text(
               'End Date (Optional)',
               style: GoogleFonts.poppins(
-                fontSize: 14,
+                fontSize: responsive.fs14,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF333333),
               ),
             ),
-            SizedBox(height: 8),
+            SizedBox(height: responsive.sp8),
             InkWell(
               onTap: () async {
                 final picked = await showDatePicker(
@@ -316,23 +318,23 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                 }
               },
               child: Container(
-                padding: EdgeInsets.all(16),
+                padding: responsive.padding(all: 16),
                 decoration: BoxDecoration(
                   color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   border: Border.all(color: Colors.grey[300]!),
                 ),
                 child: Row(
                   children: [
                     Icon(Icons.calendar_today, color: Color(0xFF667eea)),
-                    SizedBox(width: 12),
+                    SizedBox(width: responsive.sp12),
                     Expanded(
                       child: Text(
                         _endDate != null
                             ? DateFormat('MMM dd, yyyy').format(_endDate!)
                             : 'Never ends',
                         style: GoogleFonts.poppins(
-                          fontSize: 14,
+                          fontSize: responsive.fs14,
                           color: _endDate != null
                               ? Color(0xFF333333)
                               : Colors.grey[600],
@@ -355,11 +357,11 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
               ),
             ),
 
-            SizedBox(height: 20),
+            SizedBox(height: responsive.sp20),
 
             // Preview section
             Container(
-              padding: EdgeInsets.all(16),
+              padding: responsive.padding(all: 16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -367,33 +369,33 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                     Color(0xFF764ba2).withOpacity(0.1),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.preview, color: Color(0xFF667eea), size: 20),
-                      SizedBox(width: 8),
+                      Icon(Icons.preview, color: Color(0xFF667eea), size: responsive.icon20),
+                      SizedBox(width: responsive.sp8),
                       Text(
                         'Next 5 Occurrences',
                         style: GoogleFonts.poppins(
-                          fontSize: 14,
+                          fontSize: responsive.fs14,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF333333),
                         ),
                       ),
                     ],
                   ),
-                  SizedBox(height: 12),
+                  SizedBox(height: responsive.sp12),
                   if (_isLoadingPreview)
                     Center(child: CircularProgressIndicator())
                   else if (_previewDates.isEmpty)
                     Text(
                       'No upcoming occurrences',
                       style: GoogleFonts.poppins(
-                        fontSize: 12,
+                        fontSize: responsive.fs12,
                         color: Colors.grey[600],
                       ),
                     )
@@ -404,11 +406,11 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                         child: Row(
                           children: [
                             Icon(Icons.circle, size: 8, color: Color(0xFF667eea)),
-                            SizedBox(width: 8),
+                            SizedBox(width: responsive.sp8),
                             Text(
                               DateFormat('MMM dd, yyyy').format(date),
                               style: GoogleFonts.poppins(
-                                fontSize: 13,
+                                fontSize: responsive.fs13,
                                 color: Color(0xFF333333),
                               ),
                             ),
@@ -427,18 +429,19 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
 
   Widget _buildWeeklySettings() {
     final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final responsive = ResponsiveHelper(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Repeat On',
           style: GoogleFonts.poppins(
-            fontSize: 14,
+            fontSize: responsive.fs14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF333333),
           ),
         ),
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -453,11 +456,11 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                 _notifyChange();
               },
               child: Container(
-                width: 44,
-                height: 44,
+                width: responsive.iconSize(mobile: 44),
+                height: responsive.iconSize(mobile: 44),
                 decoration: BoxDecoration(
                   color: isSelected ? Color(0xFF667eea) : Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                   border: Border.all(
                     color: isSelected ? Color(0xFF667eea) : Colors.grey[300]!,
                   ),
@@ -466,7 +469,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                   child: Text(
                     days[index],
                     style: GoogleFonts.poppins(
-                      fontSize: 13,
+                      fontSize: responsive.fs13,
                       fontWeight: FontWeight.w600,
                       color: isSelected ? Colors.white : Colors.grey[700],
                     ),
@@ -481,23 +484,24 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
   }
 
   Widget _buildMonthlySettings() {
+    final responsive = ResponsiveHelper(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Day of Month',
           style: GoogleFonts.poppins(
-            fontSize: 14,
+            fontSize: responsive.fs14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF333333),
           ),
         ),
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
         Container(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+          padding: responsive.padding(horizontal: 16),
           decoration: BoxDecoration(
             color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             border: Border.all(color: Colors.grey[300]!),
           ),
           child: DropdownButton<int>(
@@ -532,6 +536,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
+    final responsive = ResponsiveHelper(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -539,17 +544,17 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
         Text(
           'Month',
           style: GoogleFonts.poppins(
-            fontSize: 14,
+            fontSize: responsive.fs14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF333333),
           ),
         ),
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
         Container(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+          padding: responsive.padding(horizontal: 16),
           decoration: BoxDecoration(
             color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             border: Border.all(color: Colors.grey[300]!),
           ),
           child: DropdownButton<int>(
@@ -575,21 +580,21 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
             },
           ),
         ),
-        SizedBox(height: 16),
+        SizedBox(height: responsive.sp16),
         Text(
           'Day',
           style: GoogleFonts.poppins(
-            fontSize: 14,
+            fontSize: responsive.fs14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF333333),
           ),
         ),
-        SizedBox(height: 12),
+        SizedBox(height: responsive.sp12),
         Container(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+          padding: responsive.padding(horizontal: 16),
           decoration: BoxDecoration(
             color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
             border: Border.all(color: Colors.grey[300]!),
           ),
           child: DropdownButton<int>(

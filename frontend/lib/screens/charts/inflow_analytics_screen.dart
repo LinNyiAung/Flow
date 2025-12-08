@@ -1,7 +1,3 @@
-// NOTE: You need to add fl_chart to pubspec.yaml:
-// dependencies:
-//   fl_chart: ^0.68.0
-
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -13,6 +9,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/transaction.dart';
 import '../../widgets/app_drawer.dart';
+import 'package:frontend/services/responsive_helper.dart';
 
 enum TimePeriod { daily, monthly, yearly, custom }
 
@@ -256,6 +253,7 @@ void initState() {
     final categoryData = _getCategoryData();
     final timeSeriesData = _getTimeSeriesData();
     final totalIncome = categoryData.values.fold(0.0, (sum, amount) => sum + amount);
+    final responsive = ResponsiveHelper(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -266,7 +264,7 @@ void initState() {
         title: Text(
           'Inflow Analytics',
           style: GoogleFonts.poppins(
-            fontSize: 20,
+            fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
             color: Color(0xFF333333),
           ),
@@ -279,16 +277,16 @@ void initState() {
         actions: [
           // Notification Icon with Badge
           Padding(
-            padding: const EdgeInsets.only(right: 16.0),
+            padding: responsive.padding(right: 16),
             child: Consumer<NotificationProvider>(
               builder: (context, notificationProvider, child) {
                 return Stack(
                   children: [
                     Container(
-                      padding: EdgeInsets.all(8),
+                      padding: responsive.padding(all: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -317,7 +315,7 @@ void initState() {
                         right: 0,
                         top: 0,
                         child: Container(
-                          padding: EdgeInsets.all(4),
+                          padding: responsive.padding(all: 4),
                           decoration: BoxDecoration(
                             color: Colors.red,
                             shape: BoxShape.circle,
@@ -330,7 +328,7 @@ void initState() {
                             '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
-                              fontSize: 10,
+                              fontSize: responsive.fs10,
                               fontWeight: FontWeight.bold,
                             ),
                             textAlign: TextAlign.center,
@@ -362,16 +360,16 @@ void initState() {
             physics: AlwaysScrollableScrollPhysics(),
             child: Column(
               children: [
-                SizedBox(height: 20),
+                SizedBox(height: responsive.sp20),
 
                 // Period Selector
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  padding: responsive.padding(horizontal: 20),
                   child: Container(
-                    padding: EdgeInsets.all(4),
+                    padding: responsive.padding(all: 4),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.grey.withOpacity(0.1),
@@ -393,7 +391,7 @@ void initState() {
 
                 if (_selectedPeriod == TimePeriod.custom)
                 Padding(
-                  padding: EdgeInsets.all(20),
+                  padding: responsive.padding(all: 20),
                   child: Row(
                     children: [
                       Expanded(
@@ -406,7 +404,7 @@ void initState() {
                           },
                         ),
                       ),
-                      SizedBox(width: 12),
+                      SizedBox(width: responsive.sp12),
                       Expanded(
                         child: _buildDateSelector(
                           'End Date',
@@ -421,28 +419,28 @@ void initState() {
                   ),
                 ),
 
-                SizedBox(height: 20),
+                SizedBox(height: responsive.sp20),
 
               // ADD THIS CURRENCY FILTER SECTION HERE
               Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
+                padding: responsive.padding(horizontal: 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Currency',
                       style: GoogleFonts.poppins(
-                        fontSize: 14,
+                        fontSize: responsive.fs14,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF333333),
                       ),
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: responsive.sp12),
                     Container(
-                      padding: EdgeInsets.all(4),
+                      padding: responsive.padding(all: 4),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -464,7 +462,7 @@ void initState() {
                 ),
               ),
 
-              SizedBox(height: 20),
+              SizedBox(height: responsive.sp20),
 
                 // Loading Indicator
                 if (_isLoading)
@@ -479,15 +477,15 @@ void initState() {
                 else ...[
                   // Total Income Card
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    padding: responsive.padding(horizontal: 20),
                     child: Container(
                       width: double.infinity,
-                      padding: EdgeInsets.all(20),
+                      padding: responsive.padding(all: 20),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                         ),
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                         boxShadow: [
                           BoxShadow(
                             color: Color(0xFF667eea).withOpacity(0.3),
@@ -503,15 +501,15 @@ void initState() {
                             'Total Income',
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.8),
-                              fontSize: 14,
+                              fontSize: responsive.fs14,
                             ),
                           ),
-                          SizedBox(height: 8),
+                          SizedBox(height: responsive.sp8),
                           Text(
                             '${_selectedCurrency?.symbol ?? '\$'}${totalIncome.toStringAsFixed(2)}',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
-                              fontSize: 32,
+                              fontSize: responsive.fs32,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -519,7 +517,7 @@ void initState() {
                             _getPeriodLabel(),
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.7),
-                              fontSize: 12,
+                              fontSize: responsive.fs12,
                             ),
                           ),
                         ],
@@ -527,20 +525,20 @@ void initState() {
                     ),
                   ),
 
-                  SizedBox(height: 30),
+                  SizedBox(height: responsive.sp30),
 
                   // Pie Chart Section
                   if (categoryData.isNotEmpty) ...[
                     Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      padding: responsive.padding(horizontal: 20),
                       child: Row(
                         children: [
-                          Icon(Icons.pie_chart, color: Color(0xFF667eea), size: 24),
-                          SizedBox(width: 8),
+                          Icon(Icons.pie_chart, color: Color(0xFF667eea), size: responsive.icon24),
+                          SizedBox(width: responsive.sp8),
                           Text(
                             'Income by Category',
                             style: GoogleFonts.poppins(
-                              fontSize: 18,
+                              fontSize: responsive.fs18,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF333333),
                             ),
@@ -548,13 +546,13 @@ void initState() {
                         ],
                       ),
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
                     Container(
-                      margin: EdgeInsets.symmetric(horizontal: 20),
-                      padding: EdgeInsets.all(25),
+                      margin: responsive.padding(horizontal: 20),
+                      padding: responsive.padding(all: 25),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -589,27 +587,27 @@ void initState() {
                               ),
                             ),
                           ),
-                          SizedBox(height: 20),
+                          SizedBox(height: responsive.sp20),
                           _buildLegend(categoryData, totalIncome),
                         ],
                       ),
                     ),
-                    SizedBox(height: 30),
+                    SizedBox(height: responsive.sp30),
                   ],
 
                   // Bar Chart Section
                   if (timeSeriesData.isNotEmpty) ...[
                     Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      padding: responsive.padding(horizontal: 20),
                       child: Row(
                         children: [
-                          Icon(Icons.bar_chart, color: Color(0xFF667eea), size: 24),
-                          SizedBox(width: 8),
+                          Icon(Icons.bar_chart, color: Color(0xFF667eea), size: responsive.icon24),
+                          SizedBox(width: responsive.sp8),
                           Expanded(
                             child: Text(
                               _getBarChartTitle(),
                               style: GoogleFonts.poppins(
-                                fontSize: 18,
+                                fontSize: responsive.fs18,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF333333),
                               ),
@@ -618,13 +616,13 @@ void initState() {
                         ],
                       ),
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: responsive.sp16),
                     Container(
-                      margin: EdgeInsets.symmetric(horizontal: 20),
-                      padding: EdgeInsets.all(20),
+                      margin: responsive.padding(horizontal: 20),
+                      padding: responsive.padding(all: 20),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -660,7 +658,7 @@ void initState() {
                                     GoogleFonts.poppins(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 12,
+                                      fontSize: responsive.fs12,
                                     ),
                                   );
                                 },
@@ -689,7 +687,7 @@ void initState() {
                                             child: Text(
                                               '$dayName\n$date',
                                               style: GoogleFonts.poppins(
-                                                fontSize: 9,
+                                                fontSize: responsive.fs10,
                                                 color: Colors.grey[600],
                                               ),
                                               textAlign: TextAlign.center,
@@ -704,7 +702,7 @@ void initState() {
                                         child: Text(
                                           label,
                                           style: GoogleFonts.poppins(
-                                            fontSize: 10,
+                                            fontSize: responsive.fs10,
                                             color: Colors.grey[600],
                                           ),
                                         ),
@@ -722,7 +720,7 @@ void initState() {
                                     return Text(
                                       '${_selectedCurrency?.symbol ?? '\$'}${value.toInt()}',
                                       style: GoogleFonts.poppins(
-                                        fontSize: 10,
+                                        fontSize: responsive.fs10,
                                         color: Colors.grey[600],
                                       ),
                                     );
@@ -755,34 +753,34 @@ void initState() {
                   // Empty State
                   if (categoryData.isEmpty && timeSeriesData.isEmpty)
                     Container(
-                      padding: EdgeInsets.all(40),
+                      padding: responsive.padding(all: 40),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Container(
-                            padding: EdgeInsets.all(24),
+                            padding: responsive.padding(all: 24),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                               ),
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                             ),
                             child: Icon(Icons.analytics, size: 48, color: Colors.white),
                           ),
-                          SizedBox(height: 24),
+                          SizedBox(height: responsive.sp24),
                           Text(
                             'No data available',
                             style: GoogleFonts.poppins(
-                              fontSize: 18,
+                              fontSize: responsive.fs18,
                               color: Color(0xFF333333),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          SizedBox(height: 8),
+                          SizedBox(height: responsive.sp8),
                           Text(
                             'Add some income transactions to see your analytics',
                             style: GoogleFonts.poppins(
-                              fontSize: 14,
+                              fontSize: responsive.fs14,
                               color: Colors.grey[500],
                             ),
                             textAlign: TextAlign.center,
@@ -804,6 +802,7 @@ void initState() {
 
   Widget _buildCurrencyFilterButton(String label, Currency currency) {
   bool isSelected = _selectedCurrency == currency;
+  final responsive = ResponsiveHelper(context);
   return Expanded(
     child: GestureDetector(
       onTap: () {
@@ -811,19 +810,19 @@ void initState() {
         _loadTransactions();
       },
       child: Container(
-        padding: EdgeInsets.symmetric(vertical: 10),
+        padding: responsive.padding(vertical: 10),
         decoration: BoxDecoration(
           gradient: isSelected
               ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
               : null,
           color: isSelected ? null : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
         ),
         child: Text(
           label,
           textAlign: TextAlign.center,
           style: GoogleFonts.poppins(
-            fontSize: 12,
+            fontSize: responsive.fs12,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             color: isSelected ? Colors.white : Colors.grey[600],
           ),
@@ -835,6 +834,7 @@ void initState() {
 
   Widget _buildPeriodButton(String label, TimePeriod period) {
     bool isSelected = _selectedPeriod == period;
+    final responsive = ResponsiveHelper(context);
     return Expanded(
       child: GestureDetector(
         onTap: () {
@@ -844,19 +844,19 @@ void initState() {
           }
         },
         child: Container(
-          padding: EdgeInsets.symmetric(vertical: 10),
+          padding: responsive.padding(vertical: 10),
           decoration: BoxDecoration(
             gradient: isSelected
                 ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
                 : null,
             color: isSelected ? null : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
           ),
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-              fontSize: 12,
+              fontSize: responsive.fs12,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
               color: isSelected ? Colors.white : Colors.grey[600],
             ),
@@ -867,6 +867,7 @@ void initState() {
   }
 
   Widget _buildDateSelector(String label, DateTime? date, Function(DateTime) onDateSelected) {
+    final responsive = ResponsiveHelper(context);
     return GestureDetector(
       onTap: () async {
         final picked = await showDatePicker(
@@ -886,10 +887,10 @@ void initState() {
         if (picked != null) onDateSelected(picked);
       },
       child: Container(
-        padding: EdgeInsets.all(12),
+        padding: responsive.padding(all: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
           border: Border.all(color: Colors.grey[300]!),
         ),
         child: Column(
@@ -897,12 +898,12 @@ void initState() {
           children: [
             Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey[600]),
+              style: GoogleFonts.poppins(fontSize: responsive.fs10, color: Colors.grey[600]),
             ),
-            SizedBox(height: 4),
+            SizedBox(height: responsive.sp4),
             Text(
               date != null ? DateFormat('MMM d, yyyy').format(date) : 'Select',
-              style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500),
+              style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -936,6 +937,7 @@ void initState() {
 
   Widget _buildLegend(Map<String, double> data, double total) {
     List<String> categories = data.keys.toList();
+    final responsive = ResponsiveHelper(context);
 
     return Wrap(
       spacing: 12,
@@ -943,10 +945,10 @@ void initState() {
       children: List.generate(categories.length, (i) {
         double percentage = (data[categories[i]]! / total) * 100;
         return Container(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: responsive.padding(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: _getColorForIndex(i).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -963,7 +965,7 @@ void initState() {
               Text(
                 '${categories[i]} (${percentage.toStringAsFixed(1)}%)',
                 style: GoogleFonts.poppins(
-                  fontSize: 11,
+                  fontSize: responsive.fs11,
                   color: Color(0xFF333333),
                 ),
               ),
@@ -975,6 +977,7 @@ void initState() {
   }
 
   List<BarChartGroupData> _buildBarChartGroups(Map<String, double> data) {
+    final responsive = ResponsiveHelper(context);
     List<String> keys = data.keys.toList();
 
     return List.generate(keys.length, (i) {
@@ -989,7 +992,7 @@ void initState() {
               colors: [Color(0xFF667eea), Color(0xFF764ba2)],
             ),
             width: isTouched ? 18 : 16,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(4)),
           ),
         ],
       );

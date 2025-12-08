@@ -228,10 +228,10 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             color: Color(0xFF333333),
                           ),
                         ),
-                        SizedBox(width: 8),
+                        SizedBox(width: responsive.sp8),
                         if (!authProvider.isPremium)
                           Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
-                          SizedBox(width: 8),
+                          SizedBox(width: responsive.sp8),
                         if (!authProvider.isPremium)
                           Container(
                             padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -314,7 +314,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.upgrade),
-                                  SizedBox(width: 8),
+                                  SizedBox(width: responsive.sp8),
                                   Text(
                                     localizations.upgradeNowButton,
                                     style: GoogleFonts.poppins(
@@ -339,8 +339,8 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             return Transform.scale(
                               scale: _isRecording ? _pulseAnimation.value : 1.0,
                               child: Container(
-                                width: 150,
-                                height: 150,
+                                width: responsive.iconSize(mobile: 150),
+                                height: responsive.iconSize(mobile: 150),
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   gradient: LinearGradient(
@@ -359,7 +359,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 ),
                                 child: Icon(
                                   _isRecording ? Icons.stop : Icons.mic,
-                                  size: 60,
+                                  size: responsive.iconSize(mobile: 60),
                                   color: Colors.white,
                                 ),
                               ),
@@ -404,7 +404,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               Row(
                                 children: [
                                   Icon(Icons.transcribe, color: Color(0xFF667eea)),
-                                  SizedBox(width: 8),
+                                  SizedBox(width: responsive.sp8),
                                   Text(
                                     localizations.transcriptionTitle,
                                     style: GoogleFonts.poppins(
@@ -651,7 +651,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Icon(Icons.check_circle, color: Colors.white),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: responsive.sp8),
                                       Text(
                                         'Save ${_extractedData!.totalCount} Transaction${_extractedData!.totalCount > 1 ? 's' : ''}',
                                         style: GoogleFonts.poppins(
@@ -710,7 +710,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, size: responsive.icon16, color: Colors.grey[600]),
-        SizedBox(width: 8),
+        SizedBox(width: responsive.sp8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

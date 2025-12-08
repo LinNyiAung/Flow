@@ -295,10 +295,10 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                             color: Color(0xFF333333),
                           ),
                         ),
-                        SizedBox(width: 8),
+                        SizedBox(width: responsive.sp8),
                         if (!authProvider.isPremium)
                           Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
-                          SizedBox(width: 8),
+                          SizedBox(width: responsive.sp8),
                         if (!authProvider.isPremium)
                           Container(
                             padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -385,7 +385,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(Icons.upgrade),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: responsive.sp8),
                                       Text(
                                         localizations.upgradeNowButton,
                                         style: GoogleFonts.poppins(
@@ -572,7 +572,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                             children: [
                                               Icon(Icons.lightbulb_outline, 
                                                 color: Colors.white70, size: responsive.icon16),
-                                              SizedBox(width: 8),
+                                              SizedBox(width: responsive.sp8),
                                               Text(
                                                 localizations.aiReasoningLabel,
                                                 style: GoogleFonts.poppins(
@@ -599,7 +599,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   Row(
                                     children: [
                                       Icon(Icons.psychology, color: Colors.white70, size: responsive.icon16),
-                                      SizedBox(width: 8),
+                                      SizedBox(width: responsive.sp8),
                                       Text(
                                         '${localizations.confidenceLabel} ${(_extractedData!.confidence * 100).toStringAsFixed(0)}%',
                                         style: GoogleFonts.poppins(
@@ -631,7 +631,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           Icon(Icons.check_circle, color: Colors.white),
-                                          SizedBox(width: 8),
+                                          SizedBox(width: responsive.sp8),
                                           Text(
                                             localizations.saveTransactionButton,
                                             style: GoogleFonts.poppins(

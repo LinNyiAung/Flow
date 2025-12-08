@@ -266,7 +266,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                                   ? Colors.white
                                                   : Colors.grey[600],
                                             ),
-                                            SizedBox(width: 8),
+                                            SizedBox(width: responsive.sp8),
                                             Text(
                                               localizations.outflow, // Label changed from Expense
                                               style: GoogleFonts.poppins(
@@ -311,7 +311,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                                   ? Colors.white
                                                   : Colors.grey[600],
                                             ),
-                                            SizedBox(width: 8),
+                                            SizedBox(width: responsive.sp8),
                                             Text(
                                               localizations.inflow, // Label changed from Income
                                               style: GoogleFonts.poppins(
@@ -717,7 +717,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                     child: Row(
                                       children: [
                                         Icon(Icons.error_outline, color: Colors.red),
-                                        SizedBox(width: 8),
+                                        SizedBox(width: responsive.sp8),
                                         Expanded(
                                           child: Text(
                                             transactionProvider.error!,
@@ -756,7 +756,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                                     : Icons.remove_circle_outline,
                                                 color: Colors.white,
                                               ),
-                                              SizedBox(width: 8),
+                                              SizedBox(width: responsive.sp8),
                                               Text(
                                                 'Add ${_selectedType == TransactionType.inflow ? 'Inflow' : 'Outflow'}',
                                                 style: GoogleFonts.poppins(

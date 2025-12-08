@@ -62,12 +62,12 @@ class AppDrawer extends StatelessWidget {
                         ),
                         // NEW: Show premium badge if user is premium
                         if (authProvider.isPremium) ...[
-                          SizedBox(width: 8),
+                          SizedBox(width: responsive.sp8),
                           PremiumBadge(small: true),
                         ],
                       ],
                     ),
-                    SizedBox(height: 12),
+                    SizedBox(height: responsive.sp12),
                     Text(
                       user?.name ?? localizations.takeUploadPhoto,
                       style: GoogleFonts.poppins(
@@ -269,7 +269,7 @@ class AppDrawer extends StatelessWidget {
                           ),
                         ),
                         if (!authProvider.isPremium) ...[
-                          SizedBox(width: 8),
+                          SizedBox(width: responsive.sp8),
                           Icon(Icons.lock, size: responsive.icon20, color: Color(0xFFFFD700)),
                         ],
                       ],
@@ -279,7 +279,7 @@ class AppDrawer extends StatelessWidget {
                             padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: Color(0xFFFFD700).withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                               border: Border.all(color: Color(0xFFFFD700), width: 1),
                             ),
                             child: Text(
@@ -318,7 +318,7 @@ class AppDrawer extends StatelessWidget {
                         ),
                         
                         if (!authProvider.isPremium) ...[
-                          SizedBox(width: 8),
+                          SizedBox(width: responsive.sp8),
                           Icon(Icons.lock, size: responsive.icon20, color: Color(0xFFFFD700)),
                         ]
                       ],
@@ -328,7 +328,7 @@ class AppDrawer extends StatelessWidget {
                             padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: Color(0xFFFFD700).withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                               border: Border.all(color: Color(0xFFFFD700), width: 1),
                             ),
                             child: Text(
@@ -399,7 +399,7 @@ class AppDrawer extends StatelessWidget {
             
             // Logout button at bottom
             Container(
-              padding: const EdgeInsets.all(16.0),
+              padding: responsive.padding(all: 16),
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -418,7 +418,7 @@ class AppDrawer extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                     ),
                     padding: responsive.padding(vertical: 12, horizontal: 16),
                   ),
@@ -437,13 +437,13 @@ class AppDrawer extends StatelessWidget {
 
   void _showLogoutDialog(BuildContext context) {
     final localizations = AppLocalizations.of(context);
-
+    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           title: Text(
             localizations.drawerLogout,
@@ -478,7 +478,7 @@ class AppDrawer extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                 ),
               ),
               child: Text(

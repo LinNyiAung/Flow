@@ -355,7 +355,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
               // Change Password Button
               SizedBox(
-                height: 50,
+                height: responsive.cardHeight(baseHeight: 50),
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _changePassword,
                   style: ElevatedButton.styleFrom(
@@ -368,8 +368,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   ),
                   child: _isLoading
                       ? SizedBox(
-                          height: 20,
-                          width: 20,
+                          height: responsive.sp20,
+                          width: responsive.sp20,
                           child: CircularProgressIndicator(
                             color: Colors.white,
                             strokeWidth: 2,
@@ -390,7 +390,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
               // Cancel Button
               SizedBox(
-                height: 50,
+                height: responsive.cardHeight(baseHeight: 50),
                 child: OutlinedButton(
                   onPressed: _isLoading ? null : () => Navigator.pop(context),
                   style: OutlinedButton.styleFrom(

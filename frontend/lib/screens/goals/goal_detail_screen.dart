@@ -617,7 +617,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                                 _currentGoal.name,
                                 style: GoogleFonts.poppins(
                                   color: Colors.white,
-                                  fontSize: 22,
+                                  fontSize: responsive.fs22,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -753,7 +753,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               if (_currentGoal.status == GoalStatus.active || _currentGoal.currentAmount > 0)
                 SizedBox(
                   width: double.infinity,
-                  height: 52,
+                  height: responsive.cardHeight(baseHeight: 52),
                   child: ElevatedButton.icon(
                     onPressed: _isLoading ? null : _showContributionDialog, // NEW: Disable while loading
                     icon: Icon(Icons.account_balance_wallet, color: Colors.white),

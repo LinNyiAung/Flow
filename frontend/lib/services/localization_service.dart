@@ -176,7 +176,7 @@ class AppLocalizations {
       'aiInsights': 'AI ထိုးထွင်းသိမြင်မှု',
       'viewComprehensiveAnalysis': 'ပြည့်စုံသောဘဏ္ဍာရေးခွဲခြမ်းစိတ်ဖြာမှုကြည့်ရှုပါ',
       'recentTransactions': 'ငွေသွင်းထုတ်မှတ်တမ်းများ',
-      'seeMore': 'နောက်ထပ်ကြည့်ရန်',
+      'seeMore': 'ထပ်ကြည့်ရန်',
       'noTransactions': 'ငွေသွင်းထုတ်မှတ်တမ်းမရှိသေးပါ',
       'tapToAddFirst': 'သင့်ရဲ့ပထမဆုံးငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန် + ခလုတ်ကိုနှိပ်ပါ',
       'addTransaction': 'ငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန်',

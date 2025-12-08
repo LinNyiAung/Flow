@@ -46,6 +46,7 @@ class ResponsiveHelper {
   double get fs16 => fontSize(mobile: 16);
   double get fs18 => fontSize(mobile: 18);
   double get fs20 => fontSize(mobile: 20);
+  double get fs22 => fontSize(mobile: 22);
   double get fs24 => fontSize(mobile: 24);
   double get fs28 => fontSize(mobile: 28);
   double get fs32 => fontSize(mobile: 32);
@@ -57,9 +58,9 @@ class ResponsiveHelper {
     double? desktop,
   }) {
     if (screenWidth < 360) {
-      return mobile * 0.85;
+      return mobile * 0.5;
     } else if (screenWidth < 400) {
-      return mobile;
+      return mobile * 0.85;
     } else if (screenWidth < 600) {
       return tablet ?? mobile * 1.1;
     } else {
@@ -84,9 +85,9 @@ class ResponsiveHelper {
     double? desktop,
   }) {
     if (screenWidth < 360) {
-      return mobile * 0.9;
+      return mobile * 0.6;
     } else if (screenWidth < 400) {
-      return mobile;
+      return mobile * 0.9;
     } else if (screenWidth < 600) {
       return tablet ?? mobile * 1.1;
     } else {
@@ -114,7 +115,7 @@ class ResponsiveHelper {
     double? right,
     double? bottom,
   }) {
-    final multiplier = screenWidth < 360 ? 0.85 : 1.0;
+    final multiplier = screenWidth < 400 ? 0.85 : 1.0;
     
     if (all != null) {
       return EdgeInsets.all(all * multiplier);
@@ -130,7 +131,7 @@ class ResponsiveHelper {
   
   // Responsive border radius
   double borderRadius(double mobile) {
-    if (screenWidth < 360) {
+    if (screenWidth < 400) {
       return mobile * 0.9;
     }
     return mobile;
@@ -138,7 +139,7 @@ class ResponsiveHelper {
   
   // Card height based on content
   double cardHeight({required double baseHeight}) {
-    if (screenWidth < 360) {
+    if (screenWidth < 400) {
       return baseHeight * 0.9;
     }
     return baseHeight;
