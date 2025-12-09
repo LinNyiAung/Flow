@@ -31,7 +31,7 @@ class ResponsiveHelper {
     } else if (screenWidth < 400) {
       return mobile * 0.85;
     } else if (screenWidth < 600) {
-      return tablet ?? mobile * 1.1;
+      return tablet ?? mobile * 1;
     } else {
       return desktop ?? tablet ?? mobile * 1.2;
     }
@@ -62,7 +62,7 @@ class ResponsiveHelper {
     } else if (screenWidth < 400) {
       return mobile * 0.85;
     } else if (screenWidth < 600) {
-      return tablet ?? mobile * 1.1;
+      return tablet ?? mobile * 1;
     } else {
       return desktop ?? tablet ?? mobile * 1.2;
     }
@@ -89,7 +89,7 @@ class ResponsiveHelper {
     } else if (screenWidth < 400) {
       return mobile * 0.9;
     } else if (screenWidth < 600) {
-      return tablet ?? mobile * 1.1;
+      return tablet ?? mobile * 1;
     } else {
       return desktop ?? tablet ?? mobile * 1.2;
     }
