@@ -380,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Icon(Icons.currency_exchange, color: Colors.white, size: responsive.icon18),
                                   SizedBox(width: responsive.sp8),
                                   Text(
-                                    'View All Currencies',
+                                    localizations.viewAllCurrencies,
                                     style: GoogleFonts.poppins(
                                       color: Colors.white,
                                       fontSize: responsive.fs14,
@@ -819,7 +819,7 @@ void _showMultiCurrencyBottomSheet() async {
                 ),
                 SizedBox(width: 12),
                 Text(
-                  'All Currency Balances',
+                  localizations.allCurrencyBalances,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs20,
                     fontWeight: FontWeight.bold,
@@ -890,7 +890,7 @@ void _showMultiCurrencyBottomSheet() async {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              'Default',
+                              localizations.defaultBalance,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs11,
                                 fontWeight: FontWeight.bold,
@@ -917,7 +917,7 @@ void _showMultiCurrencyBottomSheet() async {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Available',
+                              localizations.available,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs12,
                                 color: Colors.grey[600],
@@ -937,7 +937,7 @@ void _showMultiCurrencyBottomSheet() async {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              'In Goals',
+                              localizations.allocatedToGoals,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs12,
                                 color: Colors.grey[600],

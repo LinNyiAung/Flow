@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/recurring_transaction.dart';
+import 'package:frontend/services/localization_service.dart';
 import '../services/api_service.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -118,6 +119,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -153,7 +155,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Recurring Transaction',
+                      localizations.recurringTransaction,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs16,
                         fontWeight: FontWeight.w600,
@@ -161,7 +163,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                       ),
                     ),
                     Text(
-                      'Automatically create this transaction',
+                      localizations.recurringTransactionDes,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs12,
                         color: Colors.grey[600],
@@ -193,7 +195,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
 
             // Frequency selector
             Text(
-              'Repeat Frequency',
+              localizations.repeatFrequency,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 fontWeight: FontWeight.w600,
@@ -243,7 +245,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                freq.displayName,
+                                freq.getDisplayName(context),
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs14,
                                   fontWeight: FontWeight.w600,
@@ -252,7 +254,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                               ),
                               SizedBox(height: 2),
                               Text(
-                                freq.description,
+                                freq.getDescription(context),
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs12,
                                   color: Colors.grey[600],
@@ -282,7 +284,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
 
             // End date (optional)
             Text(
-              'End Date (Optional)',
+              localizations.endDate,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 fontWeight: FontWeight.w600,
@@ -379,7 +381,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                       Icon(Icons.preview, color: Color(0xFF667eea), size: responsive.icon20),
                       SizedBox(width: responsive.sp8),
                       Text(
-                        'Next 5 Occurrences',
+                        localizations.next5Occurrences,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs14,
                           fontWeight: FontWeight.w600,
@@ -485,11 +487,12 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
 
   Widget _buildMonthlySettings() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Day of Month',
+          localizations.dayOfMonth,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs14,
             fontWeight: FontWeight.w600,

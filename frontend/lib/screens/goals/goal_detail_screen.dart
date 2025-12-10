@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -45,10 +46,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   Future<void> _contributeToGoal(bool isAdd) async {
+    final localizations = AppLocalizations.of(context);
     if (_contributionController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please enter an amount', style: GoogleFonts.poppins(color: Colors.white)),
+          content: Text(localizations.pleaseEnterAnAmount, style: GoogleFonts.poppins(color: Colors.white)),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -60,7 +62,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     if (amount == null || amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please enter a valid amount', style: GoogleFonts.poppins(color: Colors.white)),
+          content: Text(localizations.pleaseEnterAValidAmount, style: GoogleFonts.poppins(color: Colors.white)),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -92,7 +94,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isAdd ? 'Funds added successfully!' : 'Funds withdrawn successfully!',
+            isAdd ? localizations.fundsAddedSuccessfully : localizations.fundsWithdrawnSuccessfully,
             style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Color(0xFF4CAF50),
@@ -127,14 +129,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
   _isContributionLoading = false;
   final responsive = ResponsiveHelper(context);
-
+  final localizations = AppLocalizations.of(context);
   showDialog(
     context: context,
     barrierDismissible: !_isContributionLoading,
     builder: (context) => StatefulBuilder(
       builder: (context, setDialogState) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
-        title: Text('Manage Funds', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(localizations.manageFunds, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -162,7 +164,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               keyboardType: TextInputType.numberWithOptions(decimal: true),
               enabled: !_isContributionLoading,
               decoration: InputDecoration(
-                labelText: 'Amount',
+                labelText: localizations.amountLabel,
                 
                 // UPDATE hint to show currency symbol
                 prefixText: '${_currentGoal.currency.symbol} ',
@@ -174,7 +176,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         actions: [
             TextButton(
               onPressed: _isContributionLoading ? null : () => Navigator.pop(context), // NEW: Disable while loading
-              child: Text('Cancel', style: GoogleFonts.poppins(color: _isContributionLoading ? Colors.grey : Colors.grey[600])),
+              child: Text(localizations.dialogCancel, style: GoogleFonts.poppins(color: _isContributionLoading ? Colors.grey : Colors.grey[600])),
             ),
             if (_currentGoal.currentAmount > 0)
               ElevatedButton(
@@ -202,7 +204,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           strokeWidth: 2,
                         ),
                       )
-                    : Text('Withdraw', style: GoogleFonts.poppins(color: Colors.white)),
+                    : Text(localizations.withdraw, style: GoogleFonts.poppins(color: Colors.white)),
               ),
             if (_currentGoal.status == GoalStatus.active)
               ElevatedButton(
@@ -230,7 +232,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           strokeWidth: 2,
                         ),
                       )
-                    : Text('Add', style: GoogleFonts.poppins(color: Colors.white)),
+                    : Text(localizations.add, style: GoogleFonts.poppins(color: Colors.white)),
               ),
           ],
       ),
@@ -244,13 +246,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     DateTime? _targetDate = _currentGoal.targetDate;
     GoalType _selectedGoalType = _currentGoal.goalType;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
-          title: Text('Edit Goal', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          title: Text(localizations.editGoal, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -259,7 +262,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 TextField(
                   controller: _nameController,
                   decoration: InputDecoration(
-                    labelText: 'Goal Name',
+                    labelText: localizations.goalName,
                     prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
                   ),
@@ -268,7 +271,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 DropdownButtonFormField<GoalType>(
                   value: _selectedGoalType,
                   decoration: InputDecoration(
-                    labelText: 'Goal Type',
+                    labelText: localizations.goalType,
                     prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
                   ),
@@ -314,7 +317,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   controller: _targetAmountController,
                   keyboardType: TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
-                    labelText: 'Target Amount',
+                    labelText: localizations.targetAmount,
                     prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
                   ),
@@ -356,7 +359,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                         Expanded(
                           child: Text(
                             _targetDate == null
-                                ? 'Select target date (Optional)'
+                                ? localizations.selectTargetDate
                                 : DateFormat('MMM dd, yyyy').format(_targetDate!),
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs14,
@@ -374,14 +377,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.grey[600])),
+              child: Text(localizations.dialogCancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
             ),
             ElevatedButton(
               onPressed: () async {
                 if (_nameController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Please enter a goal name', style: GoogleFonts.poppins(color: Colors.white)),
+                      content: Text(localizations.enterAGoalName, style: GoogleFonts.poppins(color: Colors.white)),
                       backgroundColor: Colors.red,
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -393,7 +396,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 if (targetAmount == null || targetAmount <= 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Please enter a valid target amount', style: GoogleFonts.poppins(color: Colors.white)),
+                      content: Text(localizations.pleaseEnterAValidAmount, style: GoogleFonts.poppins(color: Colors.white)),
                       backgroundColor: Colors.red,
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -423,7 +426,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   await _refreshGoalData();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Goal updated successfully!', style: GoogleFonts.poppins(color: Colors.white)),
+                      content: Text(localizations.goalUpdatedSuccessfully, style: GoogleFonts.poppins(color: Colors.white)),
                       backgroundColor: Color(0xFF4CAF50),
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -431,7 +434,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(goalProvider.error ?? 'Failed to update goal', style: GoogleFonts.poppins(color: Colors.white)),
+                      content: Text(goalProvider.error ?? localizations.failedToUpdateGoal, style: GoogleFonts.poppins(color: Colors.white)),
                       backgroundColor: Colors.red,
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -442,7 +445,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 backgroundColor: Color(0xFF667eea),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
               ),
-              child: Text('Save', style: GoogleFonts.poppins(color: Colors.white)),
+              child: Text(localizations.save, style: GoogleFonts.poppins(color: Colors.white)),
             ),
           ],
         ),
@@ -452,19 +455,20 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
   void _showDeleteDialog() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
-        title: Text('Delete Goal', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(localizations.deleteGoal, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
-          'Are you sure you want to delete this goal? The allocated funds will be returned to your balance.',
+          localizations.deleteGoalConfirmation,
           style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.grey[600])),
+            child: Text(localizations.dialogCancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
           ),
           ElevatedButton(
             onPressed: () {
@@ -475,7 +479,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               backgroundColor: Colors.red,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
             ),
-            child: Text('Delete', style: GoogleFonts.poppins(color: Colors.white)),
+            child: Text(localizations.delete, style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
@@ -489,7 +493,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
     final goalProvider = Provider.of<GoalProvider>(context, listen: false);
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-
+    final localizations = AppLocalizations.of(context);
     final success = await goalProvider.deleteGoal(_currentGoal.id);
 
     if (success) {
@@ -502,7 +506,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(goalProvider.error ?? 'Failed to delete goal', style: GoogleFonts.poppins(color: Colors.white)),
+          content: Text(goalProvider.error ?? localizations.failedToDeleteGoal, style: GoogleFonts.poppins(color: Colors.white)),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -515,6 +519,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     IconData goalIcon;
     Color goalColor;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     switch (_currentGoal.goalType) {
       case GoalType.savings:
@@ -534,7 +539,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Goal Details',
+          localizations.goalDetails,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -639,7 +644,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                               borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                             ),
                             child: Text(
-                              'Achieved',
+                              localizations.achieved,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs12,
                                 fontWeight: FontWeight.w600,
@@ -651,7 +656,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     ),
                     SizedBox(height: responsive.sp24),
                     Text(
-                      'Current Progress',
+                      localizations.currentProgress,
                       style: GoogleFonts.poppins(
                         color: Colors.white.withOpacity(0.8),
                         fontSize: responsive.fs14,
@@ -718,7 +723,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Goal Information',
+                      localizations.goalInformation,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs18,
                         fontWeight: FontWeight.bold,
@@ -726,22 +731,22 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       ),
                     ),
                     SizedBox(height: responsive.sp16),
-                    _buildInfoRow('Target Amount', _currentGoal.displayTargetAmount),
+                    _buildInfoRow(localizations.targetAmount, _currentGoal.displayTargetAmount),
                     Divider(height: 24),
-                    _buildInfoRow('Current Amount', _currentGoal.displayCurrentAmount),
+                    _buildInfoRow(localizations.currentAmount, _currentGoal.displayCurrentAmount),
                     Divider(height: 24),
-                    _buildInfoRow('Remaining', _currentGoal.displayRemainingAmount),
+                    _buildInfoRow(localizations.remaining, _currentGoal.displayRemainingAmount),
                     Divider(height: 24),
-                    _buildInfoRow('Currency', _currentGoal.currency.displayName),
+                    _buildInfoRow(localizations.currency, _currentGoal.currency.displayName),
                     if (_currentGoal.targetDate != null) ...[
                       Divider(height: 24),
-                      _buildInfoRow('Target Date', DateFormat('MMMM dd, yyyy').format(_currentGoal.targetDate!)),
+                      _buildInfoRow(localizations.targetDateDetail, DateFormat('MMMM dd, yyyy').format(_currentGoal.targetDate!)),
                     ],
                     Divider(height: 24),
-                    _buildInfoRow('Created', DateFormat('MMMM dd, yyyy').format(_currentGoal.createdAt)),
+                    _buildInfoRow(localizations.created, DateFormat('MMMM dd, yyyy').format(_currentGoal.createdAt)),
                     if (_currentGoal.achievedAt != null) ...[
                       Divider(height: 24),
-                      _buildInfoRow('Achieved', DateFormat('MMMM dd, yyyy').format(_currentGoal.achievedAt!)),
+                      _buildInfoRow(localizations.achieved, DateFormat('MMMM dd, yyyy').format(_currentGoal.achievedAt!)),
                     ],
                   ],
                 ),
@@ -758,7 +763,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     onPressed: _isLoading ? null : _showContributionDialog, // NEW: Disable while loading
                     icon: Icon(Icons.account_balance_wallet, color: Colors.white),
                     label: Text(
-                      'Manage Funds',
+                      localizations.manageFunds,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs16,
                         fontWeight: FontWeight.w600,

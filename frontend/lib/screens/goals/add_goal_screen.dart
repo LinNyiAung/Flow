@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -83,6 +84,7 @@ void initState() {
   final goalProvider = Provider.of<GoalProvider>(context, listen: false);
   final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
   final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
 
   final success = await goalProvider.createGoal(
     name: _nameController.text.trim(),
@@ -106,7 +108,7 @@ void initState() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          goalProvider.error ?? 'Failed to create goal',
+          goalProvider.error ?? localizations.failedToCreateGoal,
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Colors.red,
@@ -122,11 +124,12 @@ void initState() {
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final availableBalance = transactionProvider.balance?.availableBalance ?? 0.0;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Create New Goal',
+          localizations.createNewGoal,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -172,7 +175,7 @@ void initState() {
                       Row(
                         children: [
                           Text(
-                            'Available for Goals',
+                            localizations.availableForGoals,
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: responsive.fs14,
@@ -207,7 +210,7 @@ void initState() {
 
                 // Currency Selector
                 Text(
-                  'Currency',
+                  localizations.currency,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -251,7 +254,7 @@ void initState() {
 
                 // Goal Name
                 Text(
-                  'Goal Name',
+                  localizations.goalName,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -267,7 +270,7 @@ void initState() {
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Please enter a goal name';
+                      return localizations.pleaseEnterAGoalName;
                     }
                     return null;
                   },
@@ -277,7 +280,7 @@ void initState() {
 
                 // Goal Type
                 Text(
-                  'Goal Type',
+                  localizations.goalType,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -336,7 +339,7 @@ void initState() {
 
                 // Target Amount
                 Text(
-                  'Target Amount',
+                  localizations.targetAmount,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -353,11 +356,11 @@ void initState() {
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter target amount';
+                      return localizations.pleaseEnterTargetAmount;
                     }
                     final amount = double.tryParse(value);
                     if (amount == null || amount <= 0) {
-                      return 'Please enter a valid amount';
+                      return localizations.pleaseEnterAValidAmount;
                     }
                     return null;
                   },
@@ -367,7 +370,7 @@ void initState() {
 
                 // Initial Contribution
                 Text(
-                  'Initial Contribution (Optional)',
+                  localizations.initialContribution,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -386,10 +389,10 @@ void initState() {
                     if (value != null && value.isNotEmpty) {
                       final amount = double.tryParse(value);
                       if (amount == null || amount < 0) {
-                        return 'Please enter a valid amount';
+                        return localizations.pleaseEnterAValidAmount;
                       }
                       if (amount > availableBalance) {
-                        return 'Insufficient balance';
+                        return localizations.insufficientBalance;
                       }
                     }
                     return null;
@@ -400,7 +403,7 @@ void initState() {
 
                 // Target Date
                 Text(
-                  'Target Date (Optional)',
+                  localizations.targetDate,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -422,7 +425,7 @@ void initState() {
                         SizedBox(width: responsive.sp12),
                         Text(
                           _targetDate == null
-                              ? 'Select target date'
+                              ? localizations.selectTargetDate
                               : DateFormat('MMM dd, yyyy').format(_targetDate!),
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
@@ -459,7 +462,7 @@ void initState() {
                             ),
                           )
                         : Text(
-                            'Create Goal',
+                            localizations.createGoal,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,

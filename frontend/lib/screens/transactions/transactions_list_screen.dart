@@ -212,7 +212,7 @@ void _showAddTransactionOptions() {
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Add Transaction',
+                    localizations.addTransaction,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs20,
                       fontWeight: FontWeight.bold,

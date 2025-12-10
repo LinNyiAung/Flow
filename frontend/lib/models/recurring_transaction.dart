@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+
+import '../services/localization_service.dart';
+
 enum RecurrenceFrequency {
   daily,
   weekly,
@@ -6,29 +10,32 @@ enum RecurrenceFrequency {
 }
 
 extension RecurrenceFrequencyExtension on RecurrenceFrequency {
-  String get displayName {
+  String getDisplayName(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     switch (this) {
       case RecurrenceFrequency.daily:
-        return 'Daily';
+        return localizations.daily;
       case RecurrenceFrequency.weekly:
-        return 'Weekly';
+        return localizations.weekly;
       case RecurrenceFrequency.monthly:
-        return 'Monthly';
+        return localizations.monthly;
       case RecurrenceFrequency.annually:
-        return 'Annually';
+        return localizations.annually;
     }
   }
 
-  String get description {
+
+  String getDescription(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     switch (this) {
       case RecurrenceFrequency.daily:
-        return 'Repeats every day';
+        return localizations.dailyDes;
       case RecurrenceFrequency.weekly:
-        return 'Repeats on a selected day of the week';
+        return localizations.weeklyDes;
       case RecurrenceFrequency.monthly:
-        return 'Repeats on a selected date of the month';
+        return localizations.monthlyDes;
       case RecurrenceFrequency.annually:
-        return 'Repeats on a selected date of the year';
+        return localizations.annuallyDes;
     }
   }
 }

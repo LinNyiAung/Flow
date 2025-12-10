@@ -3,6 +3,7 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -91,6 +92,7 @@ void initState() {
     final goalProvider = Provider.of<GoalProvider>(context);
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -99,7 +101,7 @@ void initState() {
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
-          'Financial Goals',
+          localizations.financialGoals,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -209,7 +211,7 @@ actions: [
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'Goals Summary',
+                                  localizations.goalsSummary,
                                   style: GoogleFonts.poppins(
                                     color: Colors.white.withOpacity(0.8),
                                     fontSize: responsive.fs16,
@@ -225,17 +227,17 @@ actions: [
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
                                 _buildSummaryItem(
-                                  'Active',
+                                  localizations.active,
                                   goalProvider.multiCurrencySummary!.activeGoals.toString(),
                                 ),
                                 Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
                                 _buildSummaryItem(
-                                  'Achieved',
+                                  localizations.achieved,
                                   goalProvider.multiCurrencySummary!.achievedGoals.toString(),
                                 ),
                                 Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
                                 _buildSummaryItem(
-                                  'Total',
+                                  localizations.total,
                                   goalProvider.multiCurrencySummary!.totalGoals.toString(),
                                 ),
                               ],
@@ -247,7 +249,7 @@ actions: [
                             
                             // Per-currency breakdown
                             Text(
-                              'By Currency',
+                              localizations.byCurrency,
                               style: GoogleFonts.poppins(
                                 color: Colors.white.withOpacity(0.8),
                                 fontSize: responsive.fs14,
@@ -375,7 +377,7 @@ actions: [
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Available Balance',
+                                          localizations.availableBalance,
                                           style: GoogleFonts.poppins(
                                             fontSize: responsive.fs14,
                                             color: Colors.grey[600],
@@ -429,7 +431,7 @@ actions: [
                                         ),
                                       ),
                                       Text(
-                                        'for goals',
+                                        localizations.forGoals,
                                         style: GoogleFonts.poppins(
                                           fontSize: responsive.fs11,
                                           color: Colors.grey[500],
@@ -456,7 +458,7 @@ actions: [
                                       Icon(Icons.currency_exchange, size: responsive.icon16, color: Color(0xFF667eea)),
                                       SizedBox(width: responsive.sp8),
                                       Text(
-                                        'View All Currencies',
+                                        localizations.viewAllCurrencies,
                                         style: GoogleFonts.poppins(
                                           fontSize: responsive.fs13,
                                           fontWeight: FontWeight.w600,
@@ -485,11 +487,11 @@ actions: [
                   padding: responsive.padding(horizontal: 20),
                   child: Row(
                     children: [
-                      _buildFilterChip('All', null),
+                      _buildFilterChip(localizations.filterChipAll, null),
                       SizedBox(width: responsive.sp8),
-                      _buildFilterChip('Active', GoalStatus.active),
+                      _buildFilterChip(localizations.active, GoalStatus.active),
                       SizedBox(width: responsive.sp8),
-                      _buildFilterChip('Achieved', GoalStatus.achieved),
+                      _buildFilterChip(localizations.achieved, GoalStatus.achieved),
                     ],
                   ),
                 ),
@@ -543,6 +545,7 @@ actions: [
 
   void _showAllCurrencyBalancesBottomSheet() async {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
   showDialog(
     context: context,
     barrierDismissible: false,
@@ -585,7 +588,7 @@ actions: [
                 ),
                 SizedBox(width: responsive.sp12),
                 Text(
-                  'All Currency Balances',
+                  localizations.allCurrencyBalances,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs20,
                     fontWeight: FontWeight.bold,
@@ -672,7 +675,7 @@ actions: [
                                 borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                               ),
                               child: Text(
-                                'Selected',
+                                localizations.selected,
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs11,
                                   fontWeight: FontWeight.bold,
@@ -684,7 +687,7 @@ actions: [
                       ),
                       SizedBox(height: responsive.sp16),
                       Text(
-                        'Available for Goals',
+                        localizations.availableForGoals,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: Colors.grey[600],
@@ -709,7 +712,7 @@ actions: [
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Total Balance',
+                                localizations.totalBalance,
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs11,
                                   color: Colors.grey[600],
@@ -729,7 +732,7 @@ actions: [
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
-                                'In Goals',
+                                localizations.allocatedToGoals,
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs11,
                                   color: Colors.grey[600],
@@ -829,6 +832,7 @@ actions: [
   IconData goalIcon;
   Color goalColor;
   final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
 
   switch (goal.goalType) {
     case GoalType.savings:
@@ -906,7 +910,7 @@ actions: [
                               borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                             ),
                             child: Text(
-                              'Achieved',
+                              localizations.achieved,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs10,
                                 fontWeight: FontWeight.w600,

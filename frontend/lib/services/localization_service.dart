@@ -56,6 +56,10 @@ class AppLocalizations {
       'transactionDeleted': 'Transaction deleted successfully!',
       'dashboard': 'Dashboard',
       'autoCreated': 'Auto-created',
+      'viewAllCurrencies':'View All Currencies',
+      'allCurrencyBalances':'All Currency Balances',
+      'default':'Default',
+
 
       // Additions for Drawer Navigation
       'drawerWelcome': 'Welcome',
@@ -73,6 +77,13 @@ class AppLocalizations {
 
       // Additions for Add Transaction Screen
       'addTransactionTitle': 'Add Transaction',
+      'currency': 'Currency',
+      'convertCurrency': 'Convert Currency',
+      'current': 'Current: ',
+      'convertTo': 'Convert To: ',
+      'exchangeRate': 'Exchange Rate:',
+      'convert': 'Convert',
+      'selectTargetCurrency': 'Select target currency',
       'amountLabel': 'Amount',
       'dateLabel': 'Date',
       'categoryLabel': 'Category',
@@ -87,6 +98,20 @@ class AppLocalizations {
       'validationAmountPositive': 'Amount must be greater than 0',
       'validationMainCategoryRequired': 'Please select a main category',
       'validationSubCategoryRequired': 'Please select a sub category',
+      'recurringTransaction': 'Recurring Transaction',
+      'recurringTransactionDes': 'Automatically create this transaction',
+      'repeatFrequency': 'Repeat Frequency',
+      'dayOfMonth': 'Day of Month',
+      'daily': 'Daily',
+      'weekly': 'Weekly',
+      'monthly': 'Monthly',
+      'annually': 'Annually',
+      'dailyDes':'Repeats every day',
+      'weeklyDes': 'Repeats on a selected day of the week',
+      'monthlyDes': 'Repeats on a selected date of the month',
+      'annuallyDes': 'Repeats on a selected date of the year',
+      'endDate': 'End Date (Optional)',
+      'next5Occurrences': 'Next 5 Occurrences',
 
       // Additions for Edit Transaction Screen
       'editTransactionTitle': 'Edit Transaction',
@@ -162,6 +187,59 @@ class AppLocalizations {
       'clearAllFiltersButton': 'Clear All Filters',
       'clearDateFilterTooltip': 'Clear Date Filter',
       'addTransactionFabTooltip': 'Add New Transaction',
+
+      //Goals screen
+      'financialGoals': 'Financial Goals',
+      'goalsSummary': 'Goals Summary',
+      'active': 'Active',
+      'achieved': 'Achieved',
+      'total': 'Total',
+      'byCurrency': 'By Currency',
+      'availableBalance': 'Available Balance',
+      'forGoals': 'for goals',
+      'availableForGoals': 'Available for Goals',
+      'selected': 'Selected',
+
+
+      //Add goal screen
+      'createNewGoal': 'Create New Goal',
+      'goalName': 'Goal Name',
+      'goalType': 'Goal Type',
+      'targetAmount': 'Target Amount',
+      'initialContribution': 'Initial Contribution (Optional)',
+      'targetDate': 'Target Date (Optional)',
+      'createGoal': 'Create Goal',
+      'failedToCreateGoal': 'Failed to create goal',
+      'pleaseEnterAGoalName': 'Please enter a goal name',
+      'pleaseEnterTargetAmount': 'Please enter target amount',
+      'pleaseEnterAValidAmount': 'Please enter a valid amount',
+      'insufficientBalance': 'Insufficient balance',
+      'selectTargetDate': 'Select target date (Optional)',
+      'pleaseEnterAnAmount': 'Please enter an amount',
+
+
+      // goal detail screen
+      'goalInformation': 'Goal Information',
+      'fundsAddedSuccessfully': 'Funds added successfully!',
+      'fundsWithdrawnSuccessfully': 'Funds withdrawn successfully!',
+      'manageFunds': 'Manage Funds',
+      'currentProgress': 'Current Progress',
+      'currentAmount': 'Current Amount',
+      'remaining': 'Remaining',
+      'targetDateDetail': 'Target Date',
+      'created': 'Created',
+      'withdraw': 'Withdraw',
+      'add': 'Add',
+      'editGoal': 'Edit Goal',
+      'enterAGoalName': 'Please enter a goal name',
+      'goalUpdatedSuccessfully': 'Goal updated successfully!',
+      'failedToUpdateGoal': 'Failed to update goal',
+      'save': 'Save',
+      'deleteGoal': 'Delete Goal',
+      'deleteGoalConfirmation': 'Are you sure you want to delete this goal? The allocated funds will be returned to your balance.',
+      'delete': 'Delete',
+      'failedToDeleteGoal': 'Failed to delete goal',
+      'goalDetails': 'Goal Details',
     },
     'my': {
       // Home Screen
@@ -174,7 +252,7 @@ class AppLocalizations {
       'aiAssistant': 'AI လက်ထောက်',
       'getPersonalizedInsights': 'ကိုယ်ပိုင်ထိုးထွင်းသိမြင်မှုများရယူပါ',
       'aiInsights': 'AI ထိုးထွင်းသိမြင်မှု',
-      'viewComprehensiveAnalysis': 'ပြည့်စုံသောဘဏ္ဍာရေးခွဲခြမ်းစိတ်ဖြာမှုကြည့်ရှုပါ',
+      'viewComprehensiveAnalysis': 'ဘဏ္ဍာရေးခွဲခြမ်းစိတ်ဖြာမှုကြည့်ရှုပါ',
       'recentTransactions': 'ငွေသွင်းထုတ်မှတ်တမ်းများ',
       'seeMore': 'ထပ်ကြည့်ရန်',
       'noTransactions': 'ငွေသွင်းထုတ်မှတ်တမ်းမရှိသေးပါ',
@@ -192,13 +270,16 @@ class AppLocalizations {
       'transactionDeleted': 'ငွေသွင်းထုတ်မှတ်တမ်းအောင်မြင်စွာဖျက်ပြီးပါပြီ!',
       'dashboard': 'ဒက်ရှ်ဘုတ်',
       'autoCreated': 'အလိုအလျောက်ဖန်တီးထားသည်',
+      'viewAllCurrencies':'View All Currencies',
+      'allCurrencyBalances':'All Currency Balances',
+      'default':'Default',
 
 
       // Drawer Navigation
       'drawerWelcome': 'ကြိုဆိုပါသည်',
       'drawerLogout': 'ထွက်ရန်',
       'dialogCancel': 'ပယ်ဖျက်ပါ',
-      'dialogLogoutConfirm': 'သင်ထွက်ရန်သေချာပါသလား?',
+      'dialogLogoutConfirm': 'ထွက်ရန်သေချာပါသလား?',
       'transactions': 'ငွေသွင်းထုတ်မှတ်တမ်းများ',
       'goals': 'ရည်မှန်းချက်များ',
       'budgets': 'ဘတ်ဂျက်များ',
@@ -211,29 +292,50 @@ class AppLocalizations {
       // Add Transaction Screen
       'addTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းထည့်ရန်',
       'amountLabel': 'ပမာဏ',
+      'currency': 'Currency',
+      'convertCurrency': 'Convert Currency',
+      'current': 'Current: ',
+      'convertTo': 'Convert To: ',
+      'exchangeRate': 'Exchange Rate:',
+      'convert': 'Convert',
+      'selectTargetCurrency': 'Select target currency',
       'dateLabel': 'ရက်စွဲ',
       'categoryLabel': 'အမျိုးအစား',
       'selectMainCategoryHint': 'အဓိကအမျိုးအစားရွေးပါ',
       'selectSubCategoryHint': 'အသေးစားအမျိုးအစားရွေးပါ',
-      'descriptionLabel': 'ဖော်ပြချက် (အလကား)',
+      'descriptionLabel': 'ဖော်ပြချက် (optional)',
       'descriptionHint': 'ဤငွေလွှဲပြောင်းမှုအတွက် မှတ်ချက်ထည့်ပါ...',
       'addOutflowButton': 'ထွက်ငွေထည့်ပါ',
       'addInflowButton': 'ဝင်ငွေထည့်ပါ',
-      'validationAmountRequired': 'ပမာဏကို ကျေးဇူးပြု၍ ထည့်ပါ',
-      'validationAmountInvalid': 'မှန်ကန်သော ပမာဏကို ကျေးဇူးပြု၍ ထည့်ပါ',
-      'validationAmountPositive': 'ပမာဏသည် ၀ ထက်ပိုရမည်',
-      'validationMainCategoryRequired': 'အဓိကအမျိုးအစားကို ကျေးဇူးပြု၍ ရွေးချယ်ပါ',
-      'validationSubCategoryRequired': 'အသေးစားအမျိုးအစားကို ကျေးဇူးပြု၍ ရွေးချယ်ပါ',
+      'validationAmountRequired': 'ကျေးဇူးပြု၍ ပမာဏကို ထည့်ပါ',
+      'validationAmountInvalid': 'ကျေးဇူးပြု၍ မှန်ကန်သော ပမာဏကို ထည့်ပါ',
+      'validationAmountPositive': 'ပမာဏသည် 0 ထက်ပိုရမည်',
+      'validationMainCategoryRequired': 'ကျေးဇူးပြု၍ အဓိကအမျိုးအစားကို ရွေးချယ်ပါ',
+      'validationSubCategoryRequired': 'ကျေးဇူးပြု၍ အသေးစားအမျိုးအစားကို ရွေးချယ်ပါ',
+      'recurringTransaction': 'Recurring Transaction',
+      'recurringTransactionDes': 'Automatically create this transaction',
+      'repeatFrequency': 'Repeat Frequency',
+      'dayOfMonth': 'Day of Month',
+      'daily': 'နေ့စဉ်',
+      'weekly': 'အပတ်စဉ်',
+      'monthly': 'လစဉ်',
+      'annually': 'နှစ်စဉ်',
+      'dailyDes':'Repeats every day',
+      'weeklyDes': 'Repeats on a selected day of the week',
+      'monthlyDes': 'Repeats on a selected date of the month',
+      'annuallyDes': 'Repeats on a selected date of the year',
+      'endDate': 'End Date (Optional)',
+      'next5Occurrences': 'Next 5 Occurrences',
       
       // Edit Transaction Screen
       'editTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းကို ပြင်ဆင်ပါ',
       'deleteTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းကို ဖျက်ပါ',
-      'deleteConfirmMessage': 'ဤငွေသွင်းထုတ်မှတ်တမ်းကို ဖျက်လိုကြောင်း သေချာပါသလား? ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြုပြင်၍မရပါ။',
+      'deleteConfirmMessage': 'ဤငွေသွင်းထုတ်မှတ်တမ်းကို ဖျက်မှာ သေချာပါသလား? ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြုပြင်၍မရပါ။',
       'autoCreatedTransactionTitle': 'အလိုအလျောက်ဖန်တီးထားသော ငွေသွင်းထုတ်မှတ်တမ်း',
       'autoCreatedDescriptionRecurring': 'ဤသည်မှာ ပုံမှန်ငွေသွင်းထုတ်မှုမှ အလိုအလျောက်ဖန်တီးထားခြင်းဖြစ်ပါသည်။',
       'autoCreatedDescriptionDisabled': 'ဤသည်မှာ ပုံမှန်ငွေသွင်းထုတ်မှုမှ အလိုအလျောက်ဖန်တီးထားခြင်းဖြစ်ပါသည်။ (ယခုပိတ်ထားပါသည်။)',
-      'stopFutureAutoCreation': 'အနာဂတ် အလိုအလျောက်ဖန်တီးခြင်းကို ရပ်တန့်ပါ',
-      'viewParentTransaction': 'မိဘငွေသွင်းထုတ်မှတ်တမ်းကို ကြည့်ပါ',
+      'stopFutureAutoCreation': 'အလိုအလျောက်ဖန်တီးခြင်းကို ရပ်တန့်ပါ',
+      'viewParentTransaction': 'မူရင်းငွေသွင်းထုတ်မှတ်တမ်းကို ကြည့်ပါ',
       'stopRecurringDialogTitle': 'ပုံမှန်ငွေသွင်းထုတ်မှုကို ရပ်တန့်မည်လား?',
       'stopRecurringDialogContent': 'ဤသည်မှာ အနာဂတ် ငွေသွင်းထုတ်မှုများကို အလိုအလျောက် ဖန်တီးခြင်းကို ရပ်တန့်ပါမည်။',
       'stopRecurringDialogInfo': 'ယခင်ငွေသွင်းထုတ်မှုများမှာ ထိခိုက်မည်မဟုတ်ပါ။',
@@ -241,9 +343,9 @@ class AppLocalizations {
       'stoppingRecurrence': 'ပုံမှန်ရပ်တန့်နေသည်',
       'pleaseWait': 'ကျေးဇူးပြု၍ စောင့်ဆိုင်းပါ...',
       'successTitle': 'အောင်မြင်ပါပြီ!',
-      'successAutoCreationStopped': 'အနာဂတ် အလိုအလျောက်ဖန်တီးခြင်းကို ရပ်တန့်လိုက်ပါပြီ',
+      'successAutoCreationStopped': 'အလိုအလျောက်ဖန်တီးခြင်းကို ရပ်တန့်လိုက်ပါပြီ',
       'errorTitle': 'အမှား',
-      'errorLoadParentFailed': 'မိဘငွေသွင်းထုတ်မှတ်တမ်းကို တင်ဆောင်ရန် ပျက်ကွက်သည်:',
+      'errorLoadParentFailed': 'မူရင်းငွေသွင်းထုတ်မှတ်တမ်းကို တင်ဆောင်ရန် ပျက်ကွက်သည်:',
       'updateTransactionButton': 'ငွေသွင်းထုတ်မှတ်တမ်းကို အပ်ဒိတ်လုပ်ပါ',
       
       // Image Input Screen
@@ -299,6 +401,61 @@ class AppLocalizations {
       'clearAllFiltersButton': 'စစ်ထုတ်မှုများအားလုံးကို ရှင်းလင်းပါ',
       'clearDateFilterTooltip': 'ရက်စွဲ စစ်ထုတ်မှုကို ရှင်းလင်းပါ',
       'addTransactionFabTooltip': 'ငွေသွင်းထုတ်မှတ်တမ်းအသစ်ထည့်ရန်',
+
+
+      //Goals screen
+      'financialGoals': 'Financial Goals',
+      'goalsSummary': 'Goals Summary',
+      'active': 'Active',
+      'achieved': 'Achieved',
+      'total': 'Total',
+      'byCurrency': 'By Currency',
+      'availableBalance': 'Available Balance',
+      'forGoals': 'for goals',
+      'availableForGoals': 'Available for Goals',
+      'selected': 'Selected',
+
+
+
+      //Add goal screen
+      'createNewGoal': 'Create New Goal',
+      'goalName': 'Goal Name',
+      'goalType': 'Goal Type',
+      'targetAmount': 'Target Amount',
+      'initialContribution': 'Initial Contribution (Optional)',
+      'targetDate': 'Target Date (Optional)',
+      'createGoal': 'Create Goal',
+      'failedToCreateGoal': 'Failed to create goal',
+      'pleaseEnterAGoalName': 'Please enter a goal name',
+      'pleaseEnterTargetAmount': 'Please enter target amount',
+      'pleaseEnterAValidAmount': 'Please enter a valid amount',
+      'insufficientBalance': 'Insufficient balance',
+      'selectTargetDate': 'Select target date',
+      'pleaseEnterAnAmount': 'Please enter an amount',
+
+
+      // goal detail screen
+      'goalInformation': 'Goal Information',
+      'fundsAddedSuccessfully': 'Funds added successfully!',
+      'fundsWithdrawnSuccessfully': 'Funds withdrawn successfully!',
+      'manageFunds': 'Manage Funds',
+      'currentProgress': 'Current Progress',
+      'currentAmount': 'Current Amount',
+      'remaining': 'Remaining',
+      'targetDateDetail': 'Target Date',
+      'created': 'Created',
+      'withdraw': 'Withdraw',
+      'add': 'Add',
+      'editGoal': 'Edit Goal',
+      'enterAGoalName': 'Please enter a goal name',
+      'goalUpdatedSuccessfully': 'Goal updated successfully!',
+      'failedToUpdateGoal': 'Failed to update goal',
+      'save': 'Save',
+      'deleteGoal': 'Delete Goal',
+      'deleteGoalConfirmation': 'Are you sure you want to delete this goal? The allocated funds will be returned to your balance.',
+      'delete': 'Delete',
+      'failedToDeleteGoal': 'Failed to delete goal',
+      'goalDetails': 'Goal Details',
     },
   };
   
@@ -333,6 +490,10 @@ class AppLocalizations {
   String get transactionDeleted => translate('transactionDeleted');
   String get dashboard => translate('dashboard');
   String get autoCreated => translate('autoCreated');
+  String get viewAllCurrencies => translate('viewAllCurrencies');
+  String get allCurrencyBalances => translate('allCurrencyBalances');
+  String get defaultBalance => translate('Default');
+
 
 
   // Drawer Navigation Getters
@@ -352,6 +513,13 @@ class AppLocalizations {
   // Add Transaction Screen Getters
   String get addTransactionTitle => translate('addTransactionTitle');
   String get amountLabel => translate('amountLabel');
+  String get currency => translate('currency');
+  String get convertCurrency => translate('Convert Currency');
+  String get current => translate('current');
+  String get selectTargetCurrency => translate('selectTargetCurrency');
+  String get convertTo => translate('convertTo');
+  String get exchangeRate => translate('exchangeRate');
+  String get convert => translate('convert');
   String get dateLabel => translate('dateLabel');
   String get categoryLabel => translate('categoryLabel');
   String get selectMainCategoryHint => translate('selectMainCategoryHint');
@@ -365,6 +533,24 @@ class AppLocalizations {
   String get validationAmountPositive => translate('validationAmountPositive');
   String get validationMainCategoryRequired => translate('validationMainCategoryRequired');
   String get validationSubCategoryRequired => translate('validationSubCategoryRequired');
+  String get recurringTransaction => translate('recurringTransaction');
+  String get recurringTransactionDes => translate('recurringTransactionDes');
+  String get repeatFrequency => translate('repeatFrequency');
+  String get dayOfMonth => translate('dayOfMonth');
+  String get daily => translate('daily');
+  String get weekly => translate('weekly');
+  String get monthly => translate('monthly');
+  String get annually => translate('annually');
+  String get dailyDes => translate('dailyDes');
+  String get weeklyDes => translate('weeklyDes');
+  String get monthlyDes => translate('monthlyDes');
+  String get annuallyDes => translate('annuallyDes');
+  String get endDate => translate('endDate');
+  String get next5Occurrences => translate('next5Occurrences');
+
+
+
+
 
   // Edit Transaction Screen Getters
   String get editTransactionTitle => translate('editTransactionTitle');
@@ -437,6 +623,60 @@ class AppLocalizations {
   String get clearAllFiltersButton => translate('clearAllFiltersButton');
   String get clearDateFilterTooltip => translate('clearDateFilterTooltip');
   String get addTransactionFabTooltip => translate('addTransactionFabTooltip');
+
+
+  //Goals screen getters
+  String get financialGoals => translate('financialGoals');
+  String get goalsSummary => translate('goalsSummary');
+  String get active => translate('active');
+  String get achieved => translate('achieved');
+  String get total => translate('total');
+  String get byCurrency => translate('byCurrency');
+  String get availableBalance => translate('availableBalance');
+  String get forGoals => translate('forGoals');
+  String get availableForGoals => translate('availableForGoals');
+  String get selected => translate('Selected');
+
+
+  //Add goal screen getters
+  String get createNewGoal => translate('createNewGoal');
+  String get goalName => translate('goalName');
+  String get goalType => translate('goalType');
+  String get targetAmount => translate('targetAmount');
+  String get initialContribution => translate('initialContribution');
+  String get targetDate => translate('targetDate');
+  String get createGoal => translate('createGoal');
+  String get failedToCreateGoal => translate('failedToCreateGoal');
+  String get pleaseEnterAGoalName => translate('pleaseEnterAGoalName');
+  String get pleaseEnterTargetAmount => translate('pleaseEnterTargetAmount');
+  String get pleaseEnterAValidAmount => translate('pleaseEnterAValidAmount');
+  String get insufficientBalance => translate('insufficientBalance');
+  String get selectTargetDate => translate('selectTargetDate');
+  String get pleaseEnterAnAmount => translate('pleaseEnterAnAmount');
+
+  //Goal detail screen getters
+  String get fundsAddedSuccessfully => translate('fundsAddedSuccessfully');
+  String get fundsWithdrawnSuccessfully => translate('fundsWithdrawnSuccessfully');
+  String get manageFunds => translate('manageFunds');
+  String get currentProgress => translate('currentProgress');
+  String get currentAmount => translate('currentAmount');
+  String get remaining => translate('remaining');
+  String get targetDateDetail => translate('targetDateDetail');
+  String get created => translate('created');
+  String get withdraw => translate('withdraw');
+  String get add => translate('add');
+  String get editGoal => translate('editGoal');
+  String get enterAGoalName => translate('enterAGoalName');
+  String get goalUpdatedSuccessfully => translate('goalUpdatedSuccessfully');
+  String get failedToUpdateGoal => translate('failedToUpdateGoal');
+  String get save => translate('save');
+  String get deleteGoal => translate('deleteGoal');
+  String get deleteGoalConfirmation => translate('deleteGoalConfirmation');
+  String get delete => translate('delete');
+  String get failedToDeleteGoal => translate('failedToDeleteGoal');
+  String get goalDetails => translate('goalDetails');
+  String get goalInformation => translate('goalInformation');
+
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

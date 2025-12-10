@@ -333,7 +333,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
 
                           // ADD CURRENCY SELECTOR HERE
                           Text(
-                            'Currency',
+                            localizations.currency,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
@@ -409,7 +409,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               },
                               icon: Icon(Icons.currency_exchange, size: responsive.icon18),
                               label: Text(
-                                'Convert Currency',
+                                localizations.convertCurrency,
                                 style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w600),
                               ),
                               style: OutlinedButton.styleFrom(
@@ -807,7 +807,7 @@ void _showCurrencyConversionDialog() {
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Convert Currency',
+                    localizations.convertCurrency,
                     style: GoogleFonts.poppins(
                       fontWeight: FontWeight.bold,
                       fontSize: responsive.fs18,
@@ -831,7 +831,7 @@ void _showCurrencyConversionDialog() {
                     child: Row(
                       children: [
                         Text(
-                          'Current: ',
+                          localizations.current,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
                             color: Colors.grey[600],
@@ -854,7 +854,7 @@ void _showCurrencyConversionDialog() {
 
                   // Target Currency Selector
                   Text(
-                    'Convert To:',
+                    localizations.convertTo,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs14,
                       fontWeight: FontWeight.w600,
@@ -869,7 +869,7 @@ void _showCurrencyConversionDialog() {
                       ),
                       contentPadding: responsive.padding(horizontal: 12, vertical: 8),
                     ),
-                    hint: Text('Select target currency'),
+                    hint: Text(localizations.selectTargetCurrency),
                     value: _targetCurrency,
                     items: Currency.values
                         .where((c) => c != _selectedCurrency)
@@ -892,7 +892,7 @@ void _showCurrencyConversionDialog() {
 
                   // Exchange Rate Input
                   Text(
-                    'Exchange Rate:',
+                    localizations.exchangeRate,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs14,
                       fontWeight: FontWeight.w600,
@@ -961,7 +961,7 @@ void _showCurrencyConversionDialog() {
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
                 child: Text(
-                  'Cancel',
+                  localizations.dialogCancel,
                   style: GoogleFonts.poppins(
                     color: Colors.grey[600],
                     fontWeight: FontWeight.w500,
@@ -1015,7 +1015,7 @@ void _showCurrencyConversionDialog() {
                   padding: responsive.padding(horizontal: 16, vertical: 12),
                 ),
                 child: Text(
-                  'Convert',
+                  localizations.convert,
                   style: GoogleFonts.poppins(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
