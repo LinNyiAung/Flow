@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -40,6 +41,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   final locale = Localizations.localeOf(context);
   final language = locale.languageCode == 'my' ? 'mm' : 'en';
   final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
   
   // Show loading dialog
   showDialog(
@@ -61,7 +63,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
               SizedBox(height: responsive.sp16),
               Text(
-                'Generating insights...',
+                localizations.generatingInsights,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs16,
                   fontWeight: FontWeight.w500,
@@ -82,7 +84,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Insights regenerated successfully!',
+          localizations.insightsRegeneratedSuccessfully,
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Color(0xFF4CAF50),
@@ -94,7 +96,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          insightProvider.error ?? 'Failed to regenerate insights',
+          insightProvider.error ?? localizations.failedToRegenerateInsights,
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Colors.red,
@@ -110,6 +112,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final insightProvider = Provider.of<InsightProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -120,7 +123,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         title: Row(
           children: [
             Text(
-              'AI Insights',
+              localizations.aiInsights,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs20,
                 fontWeight: FontWeight.bold,
@@ -140,7 +143,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   border: Border.all(color: Color(0xFFFFD700), width: 1),
                 ),
                 child: Text(
-                  'PREMIUM',
+                  localizations.premium,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs10,
                     fontWeight: FontWeight.bold,
@@ -291,6 +294,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Widget _buildBody(InsightProvider insightProvider) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
       if (!Provider.of<AuthProvider>(context).isPremium) {
     return SingleChildScrollView(
       child: Padding(
@@ -319,7 +323,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   Icon(Icons.lightbulb, color: Colors.white, size: responsive.icon64),
                   SizedBox(height: responsive.sp16),
                   Text(
-                    'AI Insights',
+                    localizations.aiInsights,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs24,
                       fontWeight: FontWeight.bold,
@@ -328,7 +332,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                   SizedBox(height: responsive.sp8),
                   Text(
-                    'Premium Feature',
+                    localizations.premiumFeatureTitle,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs14,
                       color: Colors.white.withOpacity(0.9),
@@ -343,11 +347,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     ),
                     child: Column(
                       children: [
-                        _buildFeatureItem('Deep spending analysis'),
-                        _buildFeatureItem('Personalized recommendations'),
-                        _buildFeatureItem('Financial health score'),
-                        _buildFeatureItem('Savings opportunities'),
-                        _buildFeatureItem('Budget optimization tips'),
+                        _buildFeatureItem(localizations.deepSpendingAnalysis),
+                        _buildFeatureItem(localizations.personalizedRecommendations),
+                        _buildFeatureItem(localizations.financialHealthScore),
+                        _buildFeatureItem(localizations.savingsOpportunities),
+                        _buildFeatureItem(localizations.budgetOptimizationTips),
                       ],
                     ),
                   ),
@@ -371,7 +375,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                           Icon(Icons.upgrade, size: responsive.icon24),
                           SizedBox(width: responsive.sp12),
                           Text(
-                            'Upgrade to Premium',
+                            localizations.upgradeToPremium,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs18,
                               fontWeight: FontWeight.bold,
@@ -399,7 +403,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ),
             SizedBox(height: responsive.sp24),
             Text(
-              'Analyzing your financial data...',
+              localizations.analyzingYourFinancialData,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs16,
                 color: Colors.grey[600],
@@ -407,7 +411,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ),
             SizedBox(height: responsive.sp8),
             Text(
-              'This may take a few seconds',
+              localizations.thisMayTakeFewSeconds,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[500],
@@ -439,7 +443,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
               SizedBox(height: responsive.sp24),
               Text(
-                'Failed to load insights',
+                localizations.failedToLoadInsights,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs18,
                   color: Color(0xFF333333),
@@ -460,7 +464,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 onPressed: _fetchInsights,
                 icon: Icon(Icons.refresh, color: Colors.white),
                 label: Text(
-                  'Try Again',
+                  localizations.tryAgain,
                   style: GoogleFonts.poppins(
                     color: Colors.white,
                     fontWeight: FontWeight.w500,
@@ -503,7 +507,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
               SizedBox(height: responsive.sp24),
               Text(
-                'No insights available',
+                localizations.noInsightsAvailable,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs18,
                   color: Color(0xFF333333),
@@ -512,7 +516,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
               SizedBox(height: responsive.sp8),
               Text(
-                'Add transactions and goals to generate insights',
+                localizations.addTransactionsGoalsToGenerateInsights,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs14,
                   color: Colors.grey[500],
@@ -569,7 +573,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 Flexible(
                   flex: 5,
                   child: Text(
-                    'AI-Generated Insights',
+                    localizations.aiGeneratedInsights,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
@@ -86,11 +87,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
 }
 
   Future<void> _downloadReport() async {
+    final localizations = AppLocalizations.of(context);
     if (_selectedPeriod == ReportPeriod.custom &&
         (_customStartDate == null || _customEndDate == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please select both start and end dates'),
+          content: Text(localizations.selectStartEndDates),
           backgroundColor: Colors.red,
         ),
       );
@@ -111,10 +113,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Report downloaded successfully!'),
+          content: Text(localizations.reportDownloadedSuccessfully),
           backgroundColor: Color(0xFF4CAF50),
           action: SnackBarAction(
-            label: 'Open',
+            label: localizations.open,
             textColor: Colors.white,
             onPressed: () => OpenFilex.open(filePath),
           ),
@@ -134,13 +136,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
-          'Financial Reports',
+          localizations.financialReports,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -170,7 +173,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   : IconButton(
                 icon: Icon(Icons.download),
                 color: Color(0xFF667eea),
-                tooltip: 'Download PDF',
+                tooltip: localizations.downloadPDF,
                 onPressed: _downloadReport,
               ),
             ),
@@ -213,10 +216,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                     child: Row(
                       children: [
-                        _buildPeriodButton('Week', ReportPeriod.week),
-                        _buildPeriodButton('Month', ReportPeriod.month),
-                        _buildPeriodButton('Year', ReportPeriod.year),
-                        _buildPeriodButton('Custom', ReportPeriod.custom),
+                        _buildPeriodButton(localizations.week, ReportPeriod.week),
+                        _buildPeriodButton(localizations.month, ReportPeriod.month),
+                        _buildPeriodButton(localizations.year, ReportPeriod.year),
+                        _buildPeriodButton(localizations.custom, ReportPeriod.custom),
                       ],
                     ),
                   ),
@@ -243,7 +246,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         Icon(Icons.attach_money, color: Color(0xFF667eea), size: responsive.icon20),
                         SizedBox(width: responsive.sp12),
                         Text(
-                          'Currency:',
+                          localizations.currencyR,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
                             fontWeight: FontWeight.w500,
@@ -260,7 +263,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 DropdownMenuItem<Currency?>(
                                   value: null,
                                   child: Text(
-                                    'All Currencies',
+                                    localizations.allCurrencies,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs14,
                                       fontWeight: FontWeight.w600,
@@ -298,7 +301,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       children: [
                         Expanded(
                           child: _buildDateSelector(
-                            'Start Date',
+                            localizations.startDate,
                             _customStartDate,
                                 (date) {
                               setState(() => _customStartDate = date);
@@ -312,7 +315,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         SizedBox(width: responsive.sp12),
                         Expanded(
                           child: _buildDateSelector(
-                            'End Date',
+                            localizations.endDateNoOp,
                             _customEndDate,
                                 (date) {
                               setState(() => _customEndDate = date);
@@ -340,7 +343,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                           SizedBox(height: responsive.sp16),
                           Text(
-                            'Generating report...',
+                            localizations.generatingReport,
                             style: GoogleFonts.poppins(color: Colors.grey[600]),
                           ),
                         ],
@@ -354,7 +357,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           Icon(Icons.error_outline, size: responsive.icon64, color: Colors.red),
                           SizedBox(height: responsive.sp16),
                           Text(
-                            'Error',
+                            localizations.errorTitle,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs18,
                               fontWeight: FontWeight.bold,
@@ -387,7 +390,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 ),
                                 SizedBox(height: responsive.sp16),
                                 Text(
-                                  'Select both dates to generate report',
+                                  localizations.selectDatesToGenerateReport,
                                   style: GoogleFonts.poppins(
                                     color: Colors.grey[600],
                                     fontSize: responsive.fs16,
@@ -452,6 +455,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _buildDateSelector(String label, DateTime? date, Function(DateTime) onDateSelected) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return GestureDetector(
       onTap: () async {
         final picked = await showDatePicker(
@@ -493,7 +497,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
             SizedBox(height: responsive.sp4),
             Text(
-              date != null ? DateFormat('MMM d, yyyy').format(date) : 'Select',
+              date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
               style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w500),
             ),
           ],
@@ -504,6 +508,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _buildReportContent(FinancialReport report) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -526,7 +531,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Report Period',
+                localizations.reportPeriod,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs12,
                   color: Colors.grey[600],
@@ -549,7 +554,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
         // Summary Cards
         _buildSummaryCard(
-          'Net Balance',
+          localizations.netBalance,
           report.netBalance,
           report.netBalance >= 0 ? Color(0xFF4CAF50) : Color(0xFFFF5722),
           Icons.account_balance_wallet,
@@ -562,7 +567,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             Expanded(
               child: _buildSmallSummaryCard(
-                'Income',
+                localizations.income,
                 report.totalInflow,
                 Color(0xFF4CAF50),
                 Icons.arrow_upward,
@@ -572,7 +577,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             SizedBox(width: responsive.sp12),
             Expanded(
               child: _buildSmallSummaryCard(
-                'Expenses',
+                localizations.expenses,
                 report.totalOutflow,
                 Color(0xFFFF5722),
                 Icons.arrow_downward,
@@ -588,7 +593,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             Expanded(
               child: _buildInfoCard(
-                'Transactions',
+                localizations.transactions,
                 report.totalTransactions.toString(),
                 Icons.receipt_long,
               ),
@@ -596,7 +601,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             SizedBox(width: responsive.sp12),
             Expanded(
               child: _buildInfoCard(
-                'Goals Allocated',
+                localizations.goalsAllocated,
                 '${report.currency.symbol}${report.totalAllocatedToGoals.toStringAsFixed(0)}',
                 Icons.flag,
               ),
@@ -608,7 +613,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
         // Daily Averages
         Text(
-          'Daily Averages',
+          localizations.dailyAverages,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs18,
             fontWeight: FontWeight.bold,
@@ -634,14 +639,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: Column(
             children: [
               _buildAverageRow(
-                'Average Daily Income',
+                localizations.averageDailyIncome,
                 report.averageDailyInflow,
                 Color(0xFF4CAF50),
                 report,
               ),
               Divider(height: 24),
               _buildAverageRow(
-                'Average Daily Expenses',
+                localizations.averageDailyExpenses,
                 report.averageDailyOutflow,
                 Color(0xFFFF5722),
                 report,
@@ -655,7 +660,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // Income Breakdown
         if (report.inflowByCategory.isNotEmpty) ...[
           Text(
-            'Income by Category',
+            localizations.incomeByCategory,
             style: GoogleFonts.poppins(
               fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
@@ -676,7 +681,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // Expense Breakdown
         if (report.outflowByCategory.isNotEmpty) ...[
           Text(
-            'Expenses by Category',
+            localizations.expensesByCategory,
             style: GoogleFonts.poppins(
               fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
@@ -697,7 +702,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // Goals Progress
         if (report.goals.isNotEmpty) ...[
           Text(
-            'Goals Progress',
+            localizations.goalsProgress,
             style: GoogleFonts.poppins(
               fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
@@ -816,6 +821,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _buildMultiCurrencyReportContent(MultiCurrencyFinancialReport report) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -842,7 +848,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 Icon(Icons.public, color: Color(0xFF667eea), size: responsive.icon20),
                 SizedBox(width: responsive.sp8),
                 Text(
-                  'Multi-Currency Report',
+                  localizations.multiCurrencyReport,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -888,7 +894,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Overview',
+              localizations.overview,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs16,
                 fontWeight: FontWeight.bold,
@@ -900,7 +906,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Total Transactions',
+                  localizations.totalTransactions,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     color: Colors.white.withOpacity(0.9),
@@ -921,7 +927,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Currencies',
+                  localizations.currencies,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     color: Colors.white.withOpacity(0.9),
@@ -945,7 +951,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       // Currency Reports
       Text(
-        'By Currency',
+        localizations.byCurrency,
         style: GoogleFonts.poppins(
           fontSize: responsive.fs18,
           fontWeight: FontWeight.bold,
@@ -964,7 +970,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       // All Goals
       if (report.goals.isNotEmpty) ...[
         Text(
-          'All Goals',
+          localizations.allGoals,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs18,
             fontWeight: FontWeight.bold,
@@ -985,6 +991,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
   final netBalance = currencyReport.netBalance;
   final balanceColor = netBalance >= 0 ? Color(0xFF4CAF50) : Color(0xFFFF5722);
   final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
 
   return Container(
     margin: responsive.padding(bottom: 16),
@@ -1054,7 +1061,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Net Balance',
+              localizations.netBalance,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[600],
@@ -1085,7 +1092,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                       Icon(Icons.arrow_upward, color: Color(0xFF4CAF50), size: responsive.icon16),
                       SizedBox(width: responsive.sp4),
                       Text(
-                        'Income',
+                        localizations.income,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: Colors.grey[600],
@@ -1127,7 +1134,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                       Icon(Icons.arrow_downward, color: Color(0xFFFF5722), size: responsive.icon16),
                       SizedBox(width: responsive.sp4),
                       Text(
-                        'Expenses',
+                        localizations.expenses,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: Colors.grey[600],
@@ -1172,7 +1179,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Avg. Daily Income',
+                    localizations.avgDailyIncome,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs12,
                       color: Colors.grey[600],
@@ -1193,7 +1200,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Avg. Daily Expenses',
+                    localizations.avgDailyExpenses,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs12,
                       color: Colors.grey[600],
@@ -1219,7 +1226,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: Text(
-              'View Categories',
+              localizations.viewCategories,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs13,
                 fontWeight: FontWeight.w600,
@@ -1231,7 +1238,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text(
-                    'Top Income Categories',
+                    localizations.topIncomeCategories,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs12,
                       fontWeight: FontWeight.w600,
@@ -1268,7 +1275,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 Padding(
                   padding: responsive.padding(top: 12),
                   child: Text(
-                    'Top Expense Categories',
+                    localizations.topExpenseCategories,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs12,
                       fontWeight: FontWeight.w600,
@@ -1439,6 +1446,8 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
 
   Widget _buildGoalCard(GoalProgressReport goal) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
+
     return Container(
       margin: EdgeInsets.only(bottom: 8),
       padding: responsive.padding(all: 16),
@@ -1483,7 +1492,7 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
                     borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   ),
                   child: Text(
-                    'ACHIEVED',
+                    localizations.achieved,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs10,
                       fontWeight: FontWeight.w600,

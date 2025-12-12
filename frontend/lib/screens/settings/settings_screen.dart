@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/screens/settings/change_password_screen.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -21,6 +22,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
+
 
     return Scaffold(
       key: _scaffoldKey,
@@ -29,7 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
-          'Settings',
+          localizations.settings,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -245,13 +248,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(height: responsive.sp24),
 
             // Account Settings Section
-            _buildSectionHeader('Account'),
+            _buildSectionHeader(localizations.account),
             SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: Icons.person_outline,
-              title: 'Edit Profile',
-              subtitle: 'Update your name',
+              title: localizations.editProfile,
+              subtitle: localizations.updateYourName,
               gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
               onTap: () async {
                 final result = await Navigator.push(
@@ -263,7 +266,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Profile updated successfully!',
+                        localizations.profileUpdatedSuccessfully,
                         style: GoogleFonts.poppins(color: Colors.white),
                       ),
                       backgroundColor: Color(0xFF4CAF50),
@@ -278,8 +281,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             _buildSettingCard(
               icon: Icons.lock_outline,
-              title: 'Change Password',
-              subtitle: 'Update your password',
+              title: localizations.changePassword,
+              subtitle: localizations.updateYourPassword,
               gradientColors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
               onTap: () async {
                 final result = await Navigator.push(
@@ -290,7 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Password changed successfully!',
+                        localizations.passwordChangedSuccessfully,
                         style: GoogleFonts.poppins(color: Colors.white),
                       ),
                       backgroundColor: Color(0xFF4CAF50),
@@ -307,8 +310,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             _buildSettingCard(
               icon: Icons.language,
-              title: 'Language',
-              subtitle: 'Change app language',
+              title: localizations.language,
+              subtitle: localizations.changeAppLanguage,
               gradientColors: [Color(0xFF00BCD4), Color(0xFF0097A7)],
               onTap: () {
                 Navigator.pushNamed(context, '/language-settings');
@@ -320,8 +323,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             _buildSettingCard(
               icon: Icons.attach_money,
-              title: 'Currency',
-              subtitle: 'Change default currency',
+              title: localizations.currency,
+              subtitle: localizations.changeDefaultCurrency,
               gradientColors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
               onTap: () {
                 Navigator.pushNamed(context, '/currency-settings');
@@ -330,13 +333,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             SizedBox(height: responsive.sp24),
 
-            _buildSectionHeader('Notifications'),
+            _buildSectionHeader(localizations.notifications),
             SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: Icons.notifications_outlined,
-              title: 'Notification Settings',
-              subtitle: 'Manage notification preferences',
+              title: localizations.notificationSettings,
+              subtitle: localizations.manageNotificationPreferences,
               gradientColors: [Color(0xFFFF6B6B), Color(0xFFEE5A6F)],
               onTap: () {
                 Navigator.pushNamed(context, '/notification-settings');
@@ -347,15 +350,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(height: responsive.sp24),
 
             // Subscription Section
-            _buildSectionHeader('Subscription'),
+            _buildSectionHeader(localizations.subscription),
             SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: authProvider.isPremium ? Icons.star : Icons.upgrade,
-              title: authProvider.isPremium ? 'Manage Subscription' : 'Upgrade to Premium',
+              title: authProvider.isPremium ? localizations.manageSubscription : localizations.upgradeToPremium,
               subtitle: authProvider.isPremium
-                  ? 'View and manage your subscription'
-                  : 'Unlock all premium features',
+                  ? localizations.viewManageSubscription
+                  : localizations.unlockPremiumFeatures,
               gradientColors: [Color(0xFFFFD700), Color(0xFFFFA500)],
               onTap: () {
                 Navigator.pushNamed(context, '/subscription');
@@ -365,12 +368,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(height: responsive.sp24),
 
             // About Section
-            _buildSectionHeader('About'),
+            _buildSectionHeader(localizations.about),
             SizedBox(height: responsive.sp12),
 
             _buildSettingCard(
               icon: Icons.info_outline,
-              title: 'About Flow Finance',
+              title: localizations.aboutFlowFinance,
               subtitle: 'Version 1.0.0',
               gradientColors: [Color(0xFF2196F3), Color(0xFF1976D2)],
               onTap: () {
@@ -430,7 +433,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: () => _showLogoutDialog(context),
                 icon: Icon(Icons.logout, color: Colors.white),
                 label: Text(
-                  'Logout',
+                  localizations.drawerLogout,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs16,
                     fontWeight: FontWeight.w600,
@@ -544,6 +547,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showAboutDialog(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -599,7 +604,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'Close',
+              localizations.close,
               style: GoogleFonts.poppins(
                 color: Color(0xFF667eea),
                 fontWeight: FontWeight.w600,
@@ -613,6 +618,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showLogoutDialog(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -621,21 +628,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           title: Text(
-            'Logout',
+            localizations.drawerLogout,
             style: GoogleFonts.poppins(
               fontWeight: FontWeight.bold,
               color: Colors.red,
             ),
           ),
           content: Text(
-            'Are you sure you want to logout?',
+            localizations.dialogLogoutConfirm,
             style: GoogleFonts.poppins(),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                'Cancel',
+                localizations.dialogCancel,
                 style: GoogleFonts.poppins(
                   color: Colors.grey[600],
                 ),
@@ -654,7 +661,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               child: Text(
-                'Logout',
+                localizations.drawerLogout,
                 style: GoogleFonts.poppins(color: Colors.white),
               ),
             ),

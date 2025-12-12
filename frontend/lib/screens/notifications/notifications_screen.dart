@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/screens/budgets/budget_detail_screen.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -155,11 +156,12 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
   Widget build(BuildContext context) {
     final notificationProvider = Provider.of<NotificationProvider>(context);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Notifications',
+          localizations.notifications,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -178,7 +180,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      'All notifications marked as read',
+                      localizations.markedAsRead,
                       style: GoogleFonts.poppins(color: Colors.white),
                     ),
                     backgroundColor: Color(0xFF4CAF50),
@@ -187,7 +189,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
                 );
               },
               icon: Icon(Icons.done_all, size: responsive.icon18),
-              label: Text('Mark all read', style: GoogleFonts.poppins(fontSize: responsive.fs12)),
+              label: Text(localizations.markAllRead, style: GoogleFonts.poppins(fontSize: responsive.fs12)),
               style: TextButton.styleFrom(
                 foregroundColor: Color(0xFF667eea),
               ),
@@ -260,6 +262,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
     final icon = _getNotificationIcon(notification.type);
     final color = _getNotificationColor(notification.type);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Dismissible(
       key: Key(notification.id),
@@ -281,13 +284,13 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Notification deleted',
+              localizations.notificationDeleted,
               style: GoogleFonts.poppins(color: Colors.white),
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             action: SnackBarAction(
-              label: 'UNDO',
+              label: localizations.undo,
               textColor: Colors.white,
               onPressed: () {
                 // Refresh to restore
@@ -450,6 +453,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
 
   Widget _buildEmptyState() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Center(
       child: Container(
         padding: responsive.padding(all: 32),
@@ -472,7 +476,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
             ),
             SizedBox(height: responsive.sp24),
             Text(
-              'No notifications yet',
+              localizations.noNotificationsYet,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs18,
                 color: Color(0xFF333333),
@@ -481,7 +485,7 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
             ),
             SizedBox(height: responsive.sp8),
             Text(
-              'We\'ll notify you about your financial goals progress',
+              localizations.notifyGoalsProgress,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[500],

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -89,6 +90,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   // NEW: Show response style selector
   void _showStyleSelector(ChatProvider chatProvider) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showModalBottomSheet(
       context: context,
       shape: RoundedRectangleBorder(
@@ -105,7 +107,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 Icon(Icons.tune, color: Color(0xFF667eea)),
                 SizedBox(width: responsive.sp12),
                 Text(
-                  'Response Style',
+                  localizations.responseStyle,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs20,
                     fontWeight: FontWeight.bold,
@@ -116,7 +118,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             ),
             SizedBox(height: responsive.sp8),
             Text(
-              'Choose how detailed you want the AI responses',
+              localizations.chooseAiResponses,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[600],
@@ -217,6 +219,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     
     return Scaffold(
       key: _scaffoldKey,
@@ -248,7 +251,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'AI Assistant',
+                    localizations.aiAssistant,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
@@ -259,7 +262,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   Consumer<ChatProvider>(
                     builder: (context, chatProvider, child) {
                       return Text(
-                        chatProvider.isStreaming ? 'Thinking...' : 'Financial advisor',
+                        chatProvider.isStreaming ? localizations.thinking : localizations.financialAdvisor,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: chatProvider.isStreaming ? Colors.green[600] : Colors.grey[600],
@@ -283,7 +286,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   border: Border.all(color: Color(0xFFFFD700), width: 1),
                 ),
                 child: Text(
-                  'PREMIUM',
+                  localizations.premium,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs10,
                     fontWeight: FontWeight.bold,
@@ -301,7 +304,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                 return IconButton(
                   onPressed: () => chatProvider.stopStreaming(),
                   icon: Icon(Icons.stop_circle, color: Colors.red),
-                  tooltip: 'Stop response',
+                  tooltip: localizations.stopResponse,
                 );
               }
               return Container();
@@ -313,7 +316,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               return IconButton(
                 onPressed: () => _showStyleSelector(chatProvider),
                 icon: Icon(chatProvider.responseStyle.icon),
-                tooltip: 'Change response style',
+                tooltip: localizations.changeResponseStyle,
                 color: Color(0xFF667eea),
               );
             },
@@ -331,7 +334,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                   children: [
                     Icon(Icons.clear_all, size: responsive.icon20, color: Colors.red),
                     SizedBox(width: responsive.sp8),
-                    Text('Clear History'),
+                    Text(localizations.clearHistory),
                   ],
                 ),
               ),
@@ -357,7 +360,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
               ),
               SizedBox(height: responsive.sp16),
               Text(
-                'Loading chat history...',
+                localizations.loadingChatHistory,
                 style: GoogleFonts.poppins(color: Colors.grey[600]),
               ),
             ],
@@ -395,7 +398,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Upgrade to Premium',
+                          localizations.upgradeToPremium,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
                             fontWeight: FontWeight.bold,
@@ -403,7 +406,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                           ),
                         ),
                         Text(
-                          'Unlock full AI chat capabilities',
+                          localizations.unlockFullCapabilities,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs12,
                             color: Colors.white.withOpacity(0.9),
@@ -423,7 +426,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     ),
                     child: Text(
-                      'Upgrade',
+                      localizations.upgrade,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs12,
                         fontWeight: FontWeight.bold,
@@ -510,6 +513,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 
   Widget _buildEmptyState() {
   final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
   return SingleChildScrollView(  // Wrap with SingleChildScrollView
     child: Center(
       child: Padding(
@@ -531,7 +535,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             ),
             SizedBox(height: responsive.sp24),
             Text(
-              'Hello! I\'m your AI financial assistant',
+              localizations.helloAi,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs20,
                 fontWeight: FontWeight.bold,
@@ -541,7 +545,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             ),
             SizedBox(height: responsive.sp12),
             Text(
-              'I can help you analyze your spending, provide insights, and answer questions about your finances.',
+              localizations.aiChatDes,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[600],
@@ -550,7 +554,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
             ),
             SizedBox(height: responsive.sp32),
             Text(
-              'Try asking me something like:',
+              localizations.tryAskingMeSomething,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs16,
                 fontWeight: FontWeight.w600,
@@ -622,6 +626,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
   Widget _buildMessageBubble(ChatMessage message, {bool isStreamingMessage = false}) {
     final isUser = message.role == MessageRole.user;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Container(
       margin: responsive.padding(vertical: 4),
       child: Row(
@@ -679,7 +684,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                             _buildTypingIndicator(),
                             SizedBox(width: responsive.sp8),
                             Text(
-                              'AI is typing...',
+                              localizations.aiIsTyping,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs12,
                                 color: Colors.grey[600],
@@ -751,6 +756,7 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
   final authProvider = Provider.of<AuthProvider>(context);
   final isLocked = !authProvider.isPremium;
   final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
   
   return Container(
     padding: responsive.padding(all: 16),
@@ -774,10 +780,10 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
               enabled: !chatProvider.isStreaming && !isLocked,
               decoration: InputDecoration(
                 hintText: isLocked
-                    ? 'Upgrade to Premium to chat'
+                    ? localizations.upgradeToPremiumToChat
                     : (chatProvider.isStreaming 
-                        ? 'AI is responding...' 
-                        : 'Ask me about your finances...'),
+                        ? localizations.aiIsResponding
+                        : localizations.askAboutFinances),
                 hintStyle: GoogleFonts.poppins(
                   fontSize: responsive.fs14,
                   color: isLocked ? Colors.grey[400] : Colors.grey[500],
@@ -879,23 +885,24 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
 
   void _showClearHistoryDialog() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text(
-          'Clear Chat History',
+          localizations.clearChatHistory,
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
         content: Text(
-          'Are you sure you want to clear all chat history? This action cannot be undone.',
+          localizations.clearChatHistoryAlert,
           style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'Cancel',
+              localizations.dialogCancel,
               style: GoogleFonts.poppins(color: Colors.grey[600]),
             ),
           ),
@@ -909,7 +916,7 @@ Widget _buildMessageInput(ChatProvider chatProvider) {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
             ),
             child: Text(
-              'Clear',
+              localizations.clear,
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),

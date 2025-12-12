@@ -357,6 +357,104 @@ class AppLocalizations {
       'name': 'Name',
       'aiAnalysis': 'AI Analysis',
       'useThisBudget': 'Use This Budget',
+
+
+      //ai chat screen
+      'responseStyle': 'Response Style',
+      'chooseAiResponses': 'Choose how detailed you want the AI responses',
+      'thinking': 'Thinking...',
+      'financialAdvisor': 'Financial advisor',
+      'stopResponse': 'Stop response',
+      'changeResponseStyle': 'Change response style',
+      'clearHistory': 'Clear History',
+      'loadingChatHistory': 'Loading chat history...',
+      'upgradeToPremium': 'Upgrade to Premium',
+      'unlockFullCapabilities': 'Unlock full AI chat capabilities',
+      'upgrade': 'Upgrade',
+      'helloAi': 'Hello! I\'m your AI financial assistant',
+      'aiChatDes': 'I can help you analyze your spending, provide insights, and answer questions about your finances.',
+      'tryAskingMeSomething': 'Try asking me something like:',
+      'aiIsTyping': 'AI is typing...',
+      'upgradeToPremiumToChat': 'Upgrade to Premium to chat',
+      'aiIsResponding': 'AI is responding...',
+      'askAboutFinances': 'Ask me about your finances...',
+      'clearChatHistory': 'Clear Chat History',
+      'clearChatHistoryAlert': 'Are you sure you want to clear all chat history? This action cannot be undone.',
+      'clear': 'Clear',
+      'generatingInsights': 'Generating insights...',
+      'insightsRegeneratedSuccessfully': 'Insights regenerated successfully!',
+      'failedToRegenerateInsights': 'Failed to regenerate insights',
+      'deepSpendingAnalysis': 'Deep spending analysis',
+      'personalizedRecommendations': 'Personalized recommendations',
+      'financialHealthScore': 'Financial health score',
+      'savingsOpportunities': 'Savings opportunities',
+      'budgetOptimizationTips': 'Budget optimization tips',
+      'analyzingYourFinancialData': 'Analyzing your financial data...',
+      'thisMayTakeFewSeconds': 'This may take a few seconds',
+      'failedToLoadInsights': 'Failed to load insights',
+      'noInsightsAvailable': 'No insights available',
+      'addTransactionsGoalsToGenerateInsights': 'Add transactions and goals to generate insights',
+      'aiGeneratedInsights': 'AI-Generated Insights',
+
+
+      //notification screen
+      'notifications': 'Notifications',
+      'markedAsRead': 'All notifications marked as read',
+      'markAllRead': 'Mark all read',
+      'notificationDeleted': 'Notification deleted',
+      'undo': 'UNDO',
+      'noNotificationsYet': 'No notifications yet',
+      'notifyGoalsProgress': 'We\'ll notify you about your financial goals progress',
+
+
+      //reports screen
+      'selectStartEndDates': 'Please select both start and end dates',
+      'reportDownloadedSuccessfully': 'Report downloaded successfully!',
+      'open': 'Open',
+      'downloadPDF': 'Download PDF',
+      'currencyR': 'Currency:',
+      'generatingReport': 'Generating report...',
+      'selectDatesToGenerateReport': 'Select both dates to generate report',
+      'select': 'Select',
+      'reportPeriod': 'Report Period',
+      'netBalance': 'Net Balance',
+      'income': 'Income',
+      'expenses': 'Expenses',
+      'goalsAllocated': 'Goals Allocated',
+      'dailyAverages': 'Daily Averages',
+      'averageDailyIncome': 'Average Daily Income',
+      'averageDailyExpenses': 'Average Daily Expenses',
+      'incomeByCategory': 'Income by Category',
+      'expensesByCategory': 'Expenses by Category',
+      'goalsProgress': 'Goals Progress',
+      'multiCurrencyReport': 'Multi-Currency Report',
+      'overview': 'Overview',
+      'totalTransactions': 'Total Transactions',
+      'currencies': 'Currencies',
+      'allGoals': 'All Goals',
+      'avgDailyIncome': 'Avg. Daily Income',
+      'avgDailyExpenses': 'Avg. Daily Expenses',
+      'viewCategories': 'View Categories',
+      'topIncomeCategories': 'Top Income Categories',
+      'topExpenseCategories': 'Top Expense Categories',
+      'account': 'Account',
+      'editProfile': 'Edit Profile',
+      'updateYourName': 'Update your name',
+      'profileUpdatedSuccessfully': 'Profile updated successfully!',
+      'changePassword': 'Change Password',
+      'updateYourPassword': 'Update your password',
+      'passwordChangedSuccessfully': 'Password changed successfully!',
+      'language': 'Language',
+      'changeAppLanguage': 'Change app language',
+      'changeDefaultCurrency': 'Change default currency',
+      'notificationSettings': 'Notification Settings',
+      'manageNotificationPreferences': 'Manage notification preferences',
+      'subscription': 'Subscription',
+      'manageSubscription': 'Manage Subscription',
+      'viewManageSubscription': 'View and manage your subscription',
+      'unlockPremiumFeatures': 'Unlock all premium features',
+      'about': 'About',
+      'aboutFlowFinance': 'About Flow Finance',
     },
     'my': {
       // Home Screen
@@ -691,6 +789,104 @@ class AppLocalizations {
       'name': 'Name',
       'aiAnalysis': 'AI Analysis',
       'useThisBudget': 'Use This Budget',
+
+
+      //ai chat screen
+      'responseStyle': 'Response Style',
+      'chooseAiResponses': 'Choose how detailed you want the AI responses',
+      'thinking': 'Thinking...',
+      'financialAdvisor': 'Financial advisor',
+      'stopResponse': 'Stop response',
+      'changeResponseStyle': 'Change response style',
+      'clearHistory': 'Clear History',
+      'loadingChatHistory': 'Loading chat history...',
+      'upgradeToPremium': 'Upgrade to Premium',
+      'unlockFullCapabilities': 'Unlock full AI chat capabilities',
+      'upgrade': 'Upgrade',
+      'helloAi': 'Hello! I\'m your AI financial assistant',
+      'aiChatDes': 'I can help you analyze your spending, provide insights, and answer questions about your finances.',
+      'tryAskingMeSomething': 'Try asking me something like:',
+      'aiIsTyping': 'AI is typing...',
+      'upgradeToPremiumToChat': 'Upgrade to Premium to chat',
+      'aiIsResponding': 'AI is responding...',
+      'askAboutFinances': 'Ask me about your finances...',
+      'clearChatHistory': 'Clear Chat History',
+      'clearChatHistoryAlert': 'Are you sure you want to clear all chat history? This action cannot be undone.',
+      'clear': 'Clear',
+      'generatingInsights': 'Generating insights...',
+      'insightsRegeneratedSuccessfully': 'Insights regenerated successfully!',
+      'failedToRegenerateInsights': 'Failed to regenerate insights',
+      'deepSpendingAnalysis': 'Deep spending analysis',
+      'personalizedRecommendations': 'Personalized recommendations',
+      'financialHealthScore': 'Financial health score',
+      'savingsOpportunities': 'Savings opportunities',
+      'budgetOptimizationTips': 'Budget optimization tips',
+      'analyzingYourFinancialData': 'Analyzing your financial data...',
+      'thisMayTakeFewSeconds': 'This may take a few seconds',
+      'failedToLoadInsights': 'Failed to load insights',
+      'noInsightsAvailable': 'No insights available',
+      'addTransactionsGoalsToGenerateInsights': 'Add transactions and goals to generate insights',
+      'aiGeneratedInsights': 'AI-Generated Insights',
+
+
+      //notification screen
+      'notifications': 'Notifications',
+      'markedAsRead': 'All notifications marked as read',
+      'markAllRead': 'Mark all read',
+      'notificationDeleted': 'Notification deleted',
+      'undo': 'UNDO',
+      'noNotificationsYet': 'No notifications yet',
+      'notifyGoalsProgress': 'We\'ll notify you about your financial goals progress',
+
+
+      //reports screen
+      'selectStartEndDates': 'Please select both start and end dates',
+      'reportDownloadedSuccessfully': 'Report downloaded successfully!',
+      'open': 'Open',
+      'downloadPDF': 'Download PDF',
+      'currencyR': 'Currency:',
+      'generatingReport': 'Generating report...',
+      'selectDatesToGenerateReport': 'Select both dates to generate report',
+      'select': 'Select',
+      'reportPeriod': 'Report Period',
+      'netBalance': 'Net Balance',
+      'income': 'Income',
+      'expenses': 'Expenses',
+      'goalsAllocated': 'Goals Allocated',
+      'dailyAverages': 'Daily Averages',
+      'averageDailyIncome': 'Average Daily Income',
+      'averageDailyExpenses': 'Average Daily Expenses',
+      'incomeByCategory': 'Income by Category',
+      'expensesByCategory': 'Expenses by Category',
+      'goalsProgress': 'Goals Progress',
+      'multiCurrencyReport': 'Multi-Currency Report',
+      'overview': 'Overview',
+      'totalTransactions': 'Total Transactions',
+      'currencies': 'Currencies',
+      'allGoals': 'All Goals',
+      'avgDailyIncome': 'Avg. Daily Income',
+      'avgDailyExpenses': 'Avg. Daily Expenses',
+      'viewCategories': 'View Categories',
+      'topIncomeCategories': 'Top Income Categories',
+      'topExpenseCategories': 'Top Expense Categories',
+      'account': 'Account',
+      'editProfile': 'Edit Profile',
+      'updateYourName': 'Update your name',
+      'profileUpdatedSuccessfully': 'Profile updated successfully!',
+      'changePassword': 'Change Password',
+      'updateYourPassword': 'Update your password',
+      'passwordChangedSuccessfully': 'Password changed successfully!',
+      'language': 'Language',
+      'changeAppLanguage': 'Change app language',
+      'changeDefaultCurrency': 'Change default currency',
+      'notificationSettings': 'Notification Settings',
+      'manageNotificationPreferences': 'Manage notification preferences',
+      'subscription': 'Subscription',
+      'manageSubscription': 'Manage Subscription',
+      'viewManageSubscription': 'View and manage your subscription',
+      'unlockPremiumFeatures': 'Unlock all premium features',
+      'about': 'About',
+      'aboutFlowFinance': 'About Flow Finance',
     },
   };
   
@@ -1031,6 +1227,106 @@ class AppLocalizations {
   String get name => translate('name');
   String get aiAnalysis => translate('aiAnalysis');
   String get useThisBudget => translate('useThisBudget');
+
+
+
+  //ai chat screen getters
+  String get responseStyle => translate('responseStyle');
+  String get chooseAiResponses => translate('chooseAiResponses');
+  String get thinking => translate('thinking');
+  String get financialAdvisor => translate('financialAdvisor');
+  String get stopResponse => translate('stopResponse');
+  String get changeResponseStyle => translate('changeResponseStyle');
+  String get clearHistory => translate('clearHistory');
+  String get loadingChatHistory => translate('loadingChatHistory');
+  String get upgradeToPremium => translate('upgradeToPremium');
+  String get unlockFullCapabilities => translate('unlockFullCapabilities');
+  String get upgrade => translate('upgrade');
+  String get helloAi => translate('helloAi');
+  String get aiChatDes => translate('AiChatDes');
+  String get tryAskingMeSomething => translate('tryAskingMeSomething');
+  String get aiIsTyping => translate('aiIsTyping');
+  String get upgradeToPremiumToChat => translate('upgradeToPremiumToChat');
+  String get aiIsResponding => translate('aiIsResponding');
+  String get askAboutFinances => translate('askAboutFinances');
+  String get clearChatHistory => translate('clearChatHistory');
+  String get clearChatHistoryAlert => translate('clearChatHistoryAlert');
+  String get clear => translate('clear');
+  String get generatingInsights => translate('generatingInsights');
+  String get insightsRegeneratedSuccessfully => translate('insightsRegeneratedSuccessfully');
+  String get failedToRegenerateInsights => translate('failedToRegenerateInsights');
+  String get deepSpendingAnalysis => translate('deepSpendingAnalysis');
+  String get personalizedRecommendations => translate('personalizedRecommendations');
+  String get financialHealthScore => translate('financialHealthScore');
+  String get savingsOpportunities => translate('savingsOpportunities');
+  String get budgetOptimizationTips => translate('budgetOptimizationTips');
+  String get analyzingYourFinancialData => translate('analyzingYourFinancialData');
+  String get thisMayTakeFewSeconds => translate('thisMayTakeFewSeconds');
+  String get failedToLoadInsights => translate('failedToLoadInsights');
+  String get noInsightsAvailable => translate('noInsightsAvailable');
+  String get addTransactionsGoalsToGenerateInsights => translate('addTransactionsGoalsToGenerateInsights');
+  String get aiGeneratedInsights => translate('aiGeneratedInsights');
+
+
+
+  //notification screen getters
+  String get notifications => translate('notifications');
+  String get markedAsRead => translate('markedAsRead');
+  String get markAllRead => translate('markAllRead');
+  String get notificationDeleted => translate('notificationDeleted');
+  String get undo => translate('undo');
+  String get noNotificationsYet => translate('noNotificationsYet');
+  String get notifyGoalsProgress => translate('notifyGoalsProgress');
+
+
+  //reports screen getters
+  String get selectStartEndDates => translate('selectStartEndDates');
+  String get reportDownloadedSuccessfully => translate('reportDownloadedSuccessfully');
+  String get open => translate('open');
+  String get downloadPDF => translate('downloadPDF');
+  String get currencyR => translate('currencyR');
+  String get generatingReport => translate('generatingReport');
+  String get selectDatesToGenerateReport => translate('selectDatesToGenerateReport');
+  String get select => translate('select');
+  String get reportPeriod => translate('reportPeriod');
+  String get netBalance => translate('netBalance');
+  String get income => translate('income');
+  String get expenses => translate('expenses');
+  String get goalsAllocated => translate('goalsAllocated');
+  String get dailyAverages => translate('dailyAverages');
+  String get averageDailyIncome => translate('averageDailyIncome');
+  String get averageDailyExpenses => translate('averageDailyExpenses');
+  String get incomeByCategory => translate('incomeByCategory');
+  String get expensesByCategory => translate('expensesByCategory');
+  String get goalsProgress => translate('goalsProgress');
+  String get multiCurrencyReport => translate('multiCurrencyReport');
+  String get overview => translate('overview');
+  String get totalTransactions => translate('totalTransactions');
+  String get currencies => translate('currencies');
+  String get allGoals => translate('allGoals');
+  String get avgDailyIncome => translate('avgDailyIncome');
+  String get avgDailyExpenses => translate('avgDailyExpenses');
+  String get viewCategories => translate('viewCategories');
+  String get topIncomeCategories => translate('topIncomeCategories');
+  String get topExpenseCategories => translate('topExpenseCategories');
+  String get account => translate('account');
+  String get editProfile => translate('editProfile');
+  String get updateYourName => translate('updateYourName');
+  String get profileUpdatedSuccessfully => translate('profileUpdatedSuccessfully');
+  String get changePassword => translate('changePassword');
+  String get updateYourPassword => translate('updateYourPassword');
+  String get passwordChangedSuccessfully => translate('passwordChangedSuccessfully');
+  String get language => translate('language');
+  String get changeAppLanguage => translate('changeAppLanguage');
+  String get changeDefaultCurrency => translate('changeDefaultCurrency');
+  String get notificationSettings => translate('notificationSettings');
+  String get manageNotificationPreferences => translate('manageNotificationPreferences');
+  String get subscription => translate('subscription');
+  String get manageSubscription => translate('manageSubscription');
+  String get viewManageSubscription => translate('viewManageSubscription');
+  String get unlockPremiumFeatures => translate('unlockPremiumFeatures');
+  String get about => translate('about');
+  String get aboutFlowFinance => translate('aboutFlowFinance');
 
 }
 
