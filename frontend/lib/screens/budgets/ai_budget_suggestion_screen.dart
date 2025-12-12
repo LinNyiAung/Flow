@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -76,6 +77,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
   void _showAnalysisSummary() {
     if (_suggestion == null) return;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     showDialog(
       context: context,
@@ -86,7 +88,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             Icon(Icons.analytics, color: Color(0xFF667eea)),
             SizedBox(width: responsive.sp12),
             Text(
-              'Analysis Summary',
+              localizations.analysisSummary,
               style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
             ),
           ],
@@ -97,32 +99,32 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildSummaryItem(
-                'Transactions Analyzed',
+                localizations.transactionsAnalyzed,
                 _suggestion!.analysisSummary['transaction_count'].toString(),
                 Icons.receipt_long,
               ),
               _buildSummaryItem(
-                'Analysis Period',
+                localizations.analysisPeriod,
                 '${_suggestion!.analysisSummary['analysis_months']} months',
                 Icons.calendar_today,
               ),
               _buildSummaryItem(
-                'Categories Found',
+                localizations.categoriesFound,
                 _suggestion!.analysisSummary['categories_analyzed'].toString(),
                 Icons.category,
               ),
               _buildSummaryItem(
-                'Avg Monthly Income',
+                localizations.avgMonthlyIncome,
                 '\$${_suggestion!.analysisSummary['average_monthly_income'].toStringAsFixed(2)}',
                 Icons.trending_up,
               ),
               _buildSummaryItem(
-                'Avg Monthly Expenses',
+                localizations.avgMonthlyExpenses,
                 '\$${_suggestion!.analysisSummary['average_monthly_expenses'].toStringAsFixed(2)}',
                 Icons.trending_down,
               ),
               _buildSummaryItem(
-                'Active Goals',
+                localizations.activeGoals,
                 _suggestion!.analysisSummary['active_goals'].toString(),
                 Icons.flag,
               ),
@@ -133,7 +135,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'Close',
+              localizations.close,
               style: GoogleFonts.poppins(color: Color(0xFF667eea)),
             ),
           ),
@@ -187,10 +189,11 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'AI Budget Suggestion',
+          localizations.aiBudgetSuggestion,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -205,7 +208,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           if (_suggestion != null)
             IconButton(
               icon: Icon(Icons.info_outline, color: Color(0xFF667eea)),
-              tooltip: 'Analysis Details',
+              tooltip: localizations.analysisDetails,
               onPressed: _showAnalysisSummary,
             ),
         ],
@@ -247,6 +250,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
   Widget _buildErrorState() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Center(
       child: Padding(
         padding: responsive.padding(all: 32),
@@ -256,7 +260,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             Icon(Icons.error_outline, size: responsive.iconSize(mobile: 64), color: Colors.red),
             SizedBox(height: responsive.sp16),
             Text(
-              'Failed to Generate Suggestion',
+              localizations.failedToGenerateSuggestion,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs18,
                 fontWeight: FontWeight.bold,
@@ -273,7 +277,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             ElevatedButton.icon(
               onPressed: _generateSuggestion,
               icon: Icon(Icons.refresh),
-              label: Text('Try Again'),
+              label: Text(localizations.tryAgain),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Color(0xFF667eea),
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -290,6 +294,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
   Widget _buildSuggestionContent() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return ListView(
       padding: responsive.padding(all: 20),
       children: [
@@ -323,7 +328,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Data Confidence',
+                      localizations.dataConfidence,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs14,
                         color: Colors.white.withOpacity(0.9),
@@ -339,10 +344,10 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     ),
                     Text(
                       _suggestion!.dataConfidence >= 0.7
-                          ? 'High confidence based on your data'
+                          ? localizations.highConfidence
                           : _suggestion!.dataConfidence >= 0.5
-                          ? 'Moderate confidence - limited data'
-                          : 'Low confidence - very limited data',
+                          ? localizations.moderateConfidence
+                          : localizations.lowConfidence,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs11,
                         color: Colors.white.withOpacity(0.8),
@@ -377,7 +382,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     Icon(Icons.note_alt, color: Color(0xFF667eea), size: responsive.icon20),
                     SizedBox(width: responsive.sp8),
                     Text(
-                      'Your Context',
+                      localizations.yourContext,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs14,
                         fontWeight: FontWeight.w600,
@@ -421,7 +426,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     ),
                     SizedBox(width: responsive.sp8),
                     Text(
-                      'Important Notes',
+                      localizations.importantNotes,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs14,
                         fontWeight: FontWeight.w600,
@@ -476,7 +481,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Suggested Budget Plan',
+                localizations.suggestedBudgetPlan,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs18,
                   fontWeight: FontWeight.bold,
@@ -484,25 +489,25 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                 ),
               ),
               SizedBox(height: responsive.sp12),
-              _buildInfoRow(Icons.label, 'Name', _suggestion!.suggestedName),
+              _buildInfoRow(Icons.label, localizations.name, _suggestion!.suggestedName),
               _buildInfoRow(
                 Icons.calendar_today,
-                'Period',
+                localizations.period,
                 widget.period.name.toUpperCase(),
               ),
               _buildInfoRow(
                 Icons.date_range,
-                'Duration',
+                localizations.duration,
                 '${DateFormat('MMM d').format(_suggestion!.startDate)} - ${DateFormat('MMM d, yyyy').format(_suggestion!.endDate)}',
               ),
               _buildInfoRow(
                 Icons.attach_money,
-                'Currency',
+                localizations.currency,
                 _suggestion!.currency.displayName,  // NEW
               ),
               _buildInfoRow(
                 Icons.attach_money,
-                'Total Budget',
+                localizations.totalBudget,
                 '\$${_suggestion!.totalBudget.toStringAsFixed(2)}',
               ),
             ],
@@ -531,7 +536,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   Icon(Icons.psychology, color: Color(0xFF667eea)),
                   SizedBox(width: responsive.sp8),
                   Text(
-                    'AI Analysis',
+                    localizations.aiAnalysis,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,
@@ -557,7 +562,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
         // Category Budgets
         Text(
-          'Category Budgets',
+          localizations.categoryBudgets,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs18,
             fontWeight: FontWeight.bold,
@@ -648,7 +653,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   ),
                 ),
                 child: Text(
-                  'Cancel',
+                  localizations.dialogCancel,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs16,
                     fontWeight: FontWeight.w600,
@@ -669,7 +674,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   ),
                 ),
                 child: Text(
-                  'Use This Budget',
+                  localizations.useThisBudget,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs16,
                     fontWeight: FontWeight.w600,

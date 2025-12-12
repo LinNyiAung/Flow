@@ -3,6 +3,7 @@ import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -203,6 +204,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   }
 
   String? _validateDuplicateCategory(String mainCategory, String? subCategory) {
+    final localizations = AppLocalizations.of(context);
     // Check for exact duplicates
     for (var existingCat in _categoryBudgets) {
       String existingMain = existingCat.mainCategory;
@@ -219,12 +221,12 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
       if (existingMain == mainCategory) {
         if ((subCategory == null || subCategory == 'All') &&
             existingSubStr == null) {
-          return 'This category already exists';
+          return localizations.createYourFirstBudget;
         }
         if (subCategory != null &&
             subCategory != 'All' &&
             existingSubStr == subCategory) {
-          return 'This category already exists';
+          return localizations.createYourFirstBudget;
         }
       }
     }
@@ -300,7 +302,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
 void _navigateToAISuggestion() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
+    final localizations = AppLocalizations.of(context);
+
     if (!authProvider.isPremium) {
       Navigator.pushNamed(context, '/subscription');
       return;
@@ -309,7 +312,7 @@ void _navigateToAISuggestion() async {
     if (_selectedPeriod == BudgetPeriod.custom && _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please select end date for custom period'),
+          content: Text(localizations.selectEndDate),
           backgroundColor: Colors.red,
         ),
       );
@@ -343,12 +346,13 @@ void _navigateToAISuggestion() async {
   }
 
   Future<void> _saveBudget() async {
+    final localizations = AppLocalizations.of(context);
     if (!_formKey.currentState!.validate()) return;
 
     if (_categoryBudgets.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please add at least one category budget'),
+          content: Text(localizations.addOneCategoryBudget),
           backgroundColor: Colors.red,
         ),
       );
@@ -358,7 +362,7 @@ void _navigateToAISuggestion() async {
     if (_selectedPeriod == BudgetPeriod.custom && _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please select end date for custom period'),
+          content: Text(localizations.addOneCategoryBudget),
           backgroundColor: Colors.red,
         ),
       );
@@ -393,7 +397,7 @@ void _navigateToAISuggestion() async {
       final error = Provider.of<BudgetProvider>(context, listen: false).error;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error ?? 'Failed to create budget'),
+          content: Text(error ?? localizations.failedToCreateBudget),
           backgroundColor: Colors.red,
         ),
       );
@@ -407,11 +411,12 @@ void _navigateToAISuggestion() async {
     final totalBudget = _calculateTotalBudget();
     final authProvider = Provider.of<AuthProvider>(context);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Create Budget',
+          localizations.createBudget,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -438,7 +443,7 @@ void _navigateToAISuggestion() async {
             children: [
               // NEW: Currency Selector (Add this BEFORE the AI Features section)
               Text(
-                'Currency',
+                localizations.currency,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs16,
                   fontWeight: FontWeight.w600,
@@ -460,7 +465,7 @@ void _navigateToAISuggestion() async {
                 ),
                 child: DropdownButtonFormField<Currency>(
                   decoration: InputDecoration(
-                    hintText: 'Select currency for this budget',
+                    hintText: localizations.selectCurrency,
                     border: InputBorder.none,
                     contentPadding: responsive.padding(all: 15),
                     prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
@@ -482,7 +487,7 @@ void _navigateToAISuggestion() async {
                   },
                   validator: (value) {
                     if (value == null) {
-                      return 'Please select a currency';
+                      return localizations.pleaseSelectCurrency;
                     }
                     return null;
                   },
@@ -571,7 +576,7 @@ void _navigateToAISuggestion() async {
                                   Row(
                                     children: [
                                       Text(
-                                        'AI Features',
+                                        localizations.aiFeatures,
                                         style: GoogleFonts.poppins(
                                           fontSize: responsive.fs16,
                                           fontWeight: FontWeight.w600,
@@ -591,7 +596,7 @@ void _navigateToAISuggestion() async {
                                           border: Border.all(color: Color(0xFFFFD700), width: 1),
                                         ),
                                         child: Text(
-                                          'PREMIUM',
+                                          localizations.premium,
                                           style: GoogleFonts.poppins(
                                             fontSize: responsive.fs10,
                                             fontWeight: FontWeight.bold,
@@ -603,8 +608,8 @@ void _navigateToAISuggestion() async {
                                   ),
                                   Text(
                                     _showAiFeatures
-                                        ? 'Get AI-powered budget suggestions'
-                                        : 'Tap to use AI budget suggestions',
+                                        ? localizations.getAiPoweredBudgetSuggestions
+                                        : localizations.tapToUseAiBudgetSuggestions,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs12,
                                       color: Colors.grey[600],
@@ -654,7 +659,7 @@ void _navigateToAISuggestion() async {
                                       ),
                                       SizedBox(width: responsive.sp8),
                                       Text(
-                                        'Context (Optional)',
+                                        localizations.context,
                                         style: GoogleFonts.poppins(
                                           fontSize: responsive.fs14,
                                           fontWeight: FontWeight.w600,
@@ -665,7 +670,7 @@ void _navigateToAISuggestion() async {
                                   ),
                                   SizedBox(height: responsive.sp8),
                                   Text(
-                                    'Add context to help AI create better budgets',
+                                    localizations.addContext,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs12,
                                       color: Colors.grey[600],
@@ -739,7 +744,7 @@ void _navigateToAISuggestion() async {
                                     ),
                                     SizedBox(width: responsive.sp8),
                                     Text(
-                                      'Generate AI Budget',
+                                      localizations.generateAiBudget,
                                       style: GoogleFonts.poppins(
                                         fontSize: responsive.fs14,
                                         fontWeight: FontWeight.w600,
@@ -764,7 +769,7 @@ void _navigateToAISuggestion() async {
                                 SizedBox(width: responsive.sp4),
                                 Expanded(
                                   child: Text(
-                                    'AI will analyze your spending and suggest category budgets',
+                                    localizations.aiWillAnalyzeAndSuggestBudgets,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs11,
                                       color: Color(0xFF667eea),
@@ -785,13 +790,13 @@ void _navigateToAISuggestion() async {
               TextFormField(
                 controller: _nameController,
                 decoration: InputDecoration(
-                  labelText: 'Budget Name',
+                  labelText: localizations.budgetName,
                   hintText: 'e.g., Monthly Expenses',
                   prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter budget name';
+                    return localizations.enterBudgetName;
                   }
                   return null;
                 },
@@ -801,7 +806,7 @@ void _navigateToAISuggestion() async {
 
               // Period Selector
               Text(
-                'Budget Period',
+                localizations.budgetPeriod,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
@@ -824,10 +829,10 @@ void _navigateToAISuggestion() async {
                 ),
                 child: Row(
                   children: [
-                    _buildPeriodButton('Week', BudgetPeriod.weekly),
-                    _buildPeriodButton('Month', BudgetPeriod.monthly),
-                    _buildPeriodButton('Year', BudgetPeriod.yearly),
-                    _buildPeriodButton('Custom', BudgetPeriod.custom),
+                    _buildPeriodButton(localizations.week, BudgetPeriod.weekly),
+                    _buildPeriodButton(localizations.month, BudgetPeriod.monthly),
+                    _buildPeriodButton(localizations.year, BudgetPeriod.yearly),
+                    _buildPeriodButton(localizations.custom, BudgetPeriod.custom),
                   ],
                 ),
               ),
@@ -851,7 +856,7 @@ void _navigateToAISuggestion() async {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Start Date',
+                              localizations.startDate,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs10,
                                 color: Colors.grey[600],
@@ -889,7 +894,7 @@ void _navigateToAISuggestion() async {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'End Date',
+                              localizations.endDateNoOp,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs10,
                                 color: Colors.grey[600],
@@ -899,7 +904,7 @@ void _navigateToAISuggestion() async {
                             Text(
                               _endDate != null
                                   ? DateFormat('MMM d, yyyy').format(_endDate!)
-                                  : 'Auto',
+                                  : localizations.auto,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs14,
                                 fontWeight: FontWeight.w500,
@@ -919,7 +924,7 @@ void _navigateToAISuggestion() async {
               TextFormField(
                 controller: _descriptionController,
                 decoration: InputDecoration(
-                  labelText: 'Description (Optional)',
+                  labelText: localizations.descriptionLabel,
                   hintText: 'Notes about this budget',
                   prefixIcon: Icon(Icons.note, color: Color(0xFF667eea)),
                 ),
@@ -952,7 +957,7 @@ void _navigateToAISuggestion() async {
                           Icon(Icons.autorenew, color: Color(0xFF667eea)),
                           SizedBox(width: responsive.sp8),
                           Text(
-                            'Auto-Create Next Budget',
+                            localizations.autoCreateNextBudget,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
@@ -963,7 +968,7 @@ void _navigateToAISuggestion() async {
                       ),
                       SizedBox(height: responsive.sp8),
                       Text(
-                        'Automatically create a new budget when this one ends',
+                        localizations.automaticallyCreateNewBudget,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: Colors.grey[600],
@@ -981,7 +986,7 @@ void _navigateToAISuggestion() async {
                           });
                         },
                         title: Text(
-                          'Enable Auto-Create',
+                          localizations.enableAutoCreate,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
                             fontWeight: FontWeight.w500,
@@ -993,7 +998,7 @@ void _navigateToAISuggestion() async {
                       if (_autoCreateEnabled) ...[
                         Divider(),
                         Text(
-                          'Choose how to create the next budget:',
+                         localizations.chooseHowToCreateNextBudget,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs13,
                             fontWeight: FontWeight.w500,
@@ -1010,11 +1015,11 @@ void _navigateToAISuggestion() async {
                             });
                           },
                           title: Text(
-                            'Use Current Categories',
+                            localizations.useCurrentCategories,
                             style: GoogleFonts.poppins(fontSize: responsive.fs13),
                           ),
                           subtitle: Text(
-                            'Keep the same budget amounts for all categories',
+                            localizations.keepTheSameBudgetAmounts,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs11,
                               color: Colors.grey[600],
@@ -1040,13 +1045,13 @@ void _navigateToAISuggestion() async {
                               ),
                               SizedBox(width: responsive.sp4),
                               Text(
-                                'AI-Optimized Budget',
+                                localizations.aiOptimizedBudget,
                                 style: GoogleFonts.poppins(fontSize: responsive.fs13),
                               ),
                             ],
                           ),
                           subtitle: Text(
-                            'AI analyzes your spending and suggests optimized amounts',
+                            localizations.aiAnalyzesSpendingAndSuggestsAmounts,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs11,
                               color: Colors.grey[600],
@@ -1068,7 +1073,7 @@ void _navigateToAISuggestion() async {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Category Budgets',
+                    localizations.categoryBudgets,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs18,
                       fontWeight: FontWeight.bold,
@@ -1079,7 +1084,7 @@ void _navigateToAISuggestion() async {
                     onPressed: _addCategoryBudget,
                     icon: Icon(Icons.add_circle, color: Color(0xFF667eea)),
                     label: Text(
-                      'Add',
+                      localizations.add,
                       style: GoogleFonts.poppins(color: Color(0xFF667eea)),
                     ),
                   ),
@@ -1098,7 +1103,7 @@ void _navigateToAISuggestion() async {
                   ),
                   child: Center(
                     child: Text(
-                      'No categories added yet',
+                      localizations.noCategoriesAddedYet,
                       style: GoogleFonts.poppins(color: Colors.grey[500]),
                     ),
                   ),
@@ -1125,7 +1130,7 @@ void _navigateToAISuggestion() async {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Total Budget',
+                      localizations.totalBudget,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs18,
                         fontWeight: FontWeight.bold,
@@ -1160,7 +1165,7 @@ void _navigateToAISuggestion() async {
                   child: _isLoading
                       ? CircularProgressIndicator(color: Colors.white)
                       : Text(
-                          'Create Budget',
+                          localizations.createBudget,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs16,
                             fontWeight: FontWeight.w600,
@@ -1370,12 +1375,13 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
       title: Text(
         widget.initialCategory == null
-            ? 'Add Category Budget'
-            : 'Edit Category Budget',
+            ? localizations.addCategoryBudget
+            : localizations.editCategoryBudget,
         style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
       ),
       content: SingleChildScrollView(
@@ -1404,7 +1410,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       )
                     : DropdownButtonFormField<String>(
                         decoration: InputDecoration(
-                          hintText: 'Select main category',
+                          hintText: localizations.selectMainCategoryHint,
                           border: InputBorder.none,
                           contentPadding: responsive.padding(horizontal: 16, vertical: 12),
                           prefixIcon: Icon(
@@ -1432,7 +1438,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         },
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Please select a main category';
+                            return localizations.validationMainCategoryRequired;
                           }
                           return null;
                         },
@@ -1450,7 +1456,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                   ),
                   child: DropdownButtonFormField<String?>(
                     decoration: InputDecoration(
-                      hintText: 'Sub category (optional)',
+                      hintText: localizations.subCategory,
                       border: InputBorder.none,
                       contentPadding: responsive.padding(horizontal: 16, vertical: 12),
                       prefixIcon: Icon(
@@ -1465,7 +1471,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       DropdownMenuItem<String?>(
                         value: null,
                         child: Text(
-                          'All (no filter)',
+                          localizations.allNoFilter,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
                             fontStyle: FontStyle.italic,
@@ -1509,7 +1515,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
               TextFormField(
                 controller: _amountController,
                 decoration: InputDecoration(
-                  labelText: 'Budget Amount',
+                  labelText: localizations.budgetAmount,
                   hintText: '0.00',
                   prefixIcon: Icon(
                     Icons.attach_money,
@@ -1527,11 +1533,11 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                 keyboardType: TextInputType.numberWithOptions(decimal: true),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter amount';
+                    return localizations.enterAmount;
                   }
                   if (double.tryParse(value) == null ||
                       double.parse(value) <= 0) {
-                    return 'Please enter valid amount';
+                    return localizations.enterValidAmount;
                   }
                   return null;
                 },
@@ -1577,7 +1583,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: Text(
-            'Cancel',
+            localizations.dialogCancel,
             style: GoogleFonts.poppins(color: Colors.grey[600]),
           ),
         ),
@@ -1633,7 +1639,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
             padding: responsive.padding(horizontal: 24, vertical: 12),
           ),
           child: Text(
-            'Save',
+            localizations.save,
             style: GoogleFonts.poppins(
               color: Colors.white,
               fontWeight: FontWeight.w600,

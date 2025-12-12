@@ -240,6 +240,123 @@ class AppLocalizations {
       'delete': 'Delete',
       'failedToDeleteGoal': 'Failed to delete goal',
       'goalDetails': 'Goal Details',
+
+
+      //budgets screen
+      'budgetCreatedSuccessfully':'Budget created successfully!',
+      'budgetDeletedSuccessfully': 'Budget deleted successfully!',
+      'budgetSummary': 'Budget Summary',
+      'exceeded': 'Exceeded',
+      'allCurrencies': 'All Currencies',
+      'createNewBudget': 'Create New Budget',
+      'upcoming': 'UPCOMING',
+      'exceededCap': 'EXCEEDED',
+      'completed': 'COMPLETED',
+      'activeCap': 'ACTIVE',
+      'auto': 'AUTO',
+      'noBudgetsYet': 'No budgets yet',
+      'createYourFirstBudget': 'Create your first budget to track spending!',
+
+      //create budget screen
+      'categoryAlreadyExists':'This category already exists',
+      'selectEndDate': 'Please select end date for custom period',
+      'addOneCategoryBudget': 'Please add at least one category budget',
+      'failedToCreateBudget': 'Failed to create budget',
+      'createBudget': 'Create Budget',
+      'selectCurrency': 'Select currency for this budget',
+      'pleaseSelectCurrency': 'Please select a currency',
+      'aiFeatures': 'AI Features',
+      'getAiPoweredBudgetSuggestions': 'Get AI-powered budget suggestions',
+      'tapToUseAiBudgetSuggestions': 'Tap to use AI budget suggestions',
+      'context': 'Context (Optional)',
+      'addContext': 'Add context to help AI create better budgets',
+      'generateAiBudget': 'Generate AI Budget',
+      'aiWillAnalyzeAndSuggestBudgets' : 'AI will analyze your spending and suggest category budgets',
+      'budgetName': 'Budget Name',
+      'enterBudgetName': 'Please enter budget name',
+      'budgetPeriod': 'Budget Period',
+      'week': 'Week',
+      'month': 'Month',
+      'year': 'Year',
+      'custom': 'Custom',
+      'startDate': 'Start Date',
+      'endDateNoOp': 'End Date',
+      'autoCreateNextBudget':  'Auto-Create Next Budget',
+      'automaticallyCreateNewBudget': 'Automatically create a new budget when this one ends',
+      'enableAutoCreate': 'Enable Auto-Create',
+      'chooseHowToCreateNextBudget': 'Choose how to create the next budget:',
+      'useCurrentCategories': 'Use Current Categories',
+      'keepTheSameBudgetAmounts': 'Keep the same budget amounts for all categories',
+      'aiOptimizedBudget': 'AI-Optimized Budget',
+      'aiAnalyzesSpendingAndSuggestsAmounts': 'AI analyzes your spending and suggests optimized amounts',
+      'categoryBudgets': 'Category Budgets',
+      'noCategoriesAddedYet': 'No categories added yet',
+      'totalBudget': 'Total Budget',
+      'addCategoryBudget': 'Add Category Budget',
+      'editCategoryBudget': 'Edit Category Budget',
+      'subCategory': 'Sub category (optional)',
+      'allNoFilter': 'All (no filter)',
+      'budgetAmount': 'Budget Amount',
+      'enterAmount': 'Please enter amount',
+      'enterValidAmount': 'Please enter valid amount',
+
+
+      //edit budget screen
+      'budgetUpdatedSuccessfully': 'Budget updated successfully',
+      'failedToUpdateBudget': 'Failed to update budget',
+      'editBudget': 'Edit Budget',
+      'budgetPeriodC': 'Budget Period (Cannot be changed)',
+      'period': 'Period',
+      'duration': 'Duration',
+      'currencyC': 'Currency (Cannot be changed)',
+      'editingCategoriesRecalculateAlert': 'Editing categories will reset their spent amounts. Current spending will be recalculated.',
+      'newTotalBudget': 'New Total Budget',
+      'currentTotal': 'Current Total',
+      'saveChanges': 'Save Changes',
+
+
+      //budget detail screen
+      'deleteBudget': 'Delete Budget',
+      'deleteBudgetAlert': 'Are you sure you want to delete this budget? This action cannot be undone.',
+      'deleted': 'deleted',
+      'failedToDeleteBudget': 'Failed to delete budget',
+      'startsIn': 'Starts In',
+      'ended': 'Ended',
+      'daysRemaining': 'Days Remaining',
+      'budgetDetails': 'Budget Details',
+      'budgetWasAutomaticallyCreatedAi': 'This budget was automatically created with AI optimization',
+      'budgetWasAutomaticallyCreatedPrevious': 'This budget was automatically created from the previous budget',
+      'autoCreateEnabled': 'Auto-Create Enabled',
+      'nextBudgetWillBeAiOptimized': 'Next budget will be AI-optimized based on your spending',
+      'nextBudgetWillUseSameAmounts': 'Next budget will use the same category amounts',
+      'budgetExceeded': 'Budget Exceeded',
+      'budgetExceededAlert': 'You\'ve spent more than your allocated budget. Consider reducing spending in exceeded categories.',
+      'approachingBudgetLimit': 'Approaching Budget Limit',
+
+
+      //ai budget suggestion screen
+      'analysisSummary': 'Analysis Summary',
+      'transactionsAnalyzed': 'Transactions Analyzed',
+      'analysisPeriod': 'Analysis Period',
+      'categoriesFound': 'Categories Found',
+      'avgMonthlyIncome': 'Avg Monthly Income',
+      'avgMonthlyExpenses': 'Avg Monthly Expenses',
+      'activeGoals': 'Active Goals',
+      'close': 'Close',
+      'aiBudgetSuggestion': 'AI Budget Suggestion',
+      'analysisDetails': 'Analysis Details',
+      'failedToGenerateSuggestion': 'Failed to Generate Suggestion',
+      'tryAgain': 'Try Again',
+      'dataConfidence': 'Data Confidence',
+      'highConfidence': 'High confidence based on your data',
+      'moderateConfidence': 'Moderate confidence - limited data',
+      'lowConfidence': 'Low confidence - very limited data',
+      'yourContext': 'Your Context',
+      'importantNotes': 'Important Notes',
+      'suggestedBudgetPlan': 'Suggested Budget Plan',
+      'name': 'Name',
+      'aiAnalysis': 'AI Analysis',
+      'useThisBudget': 'Use This Budget',
     },
     'my': {
       // Home Screen
@@ -456,6 +573,124 @@ class AppLocalizations {
       'delete': 'Delete',
       'failedToDeleteGoal': 'Failed to delete goal',
       'goalDetails': 'Goal Details',
+
+
+      //budgets screen
+      'budgetCreatedSuccessfully':'Budget created successfully!',
+      'budgetDeletedSuccessfully': 'Budget deleted successfully!',
+      'budgetSummary': 'Budget Summary',
+      'exceeded': 'Exceeded',
+      'allCurrencies': 'All Currencies',
+      'createNewBudget': 'Create New Budget',
+      'upcoming':'UPCOMING',
+      'exceededCap': 'EXCEEDED',
+      'completed': 'COMPLETED',
+      'activeCap': 'ACTIVE',
+      'auto': 'AUTO',
+      'noBudgetsYet': 'No budgets yet',
+      'createYourFirstBudget': 'Create your first budget to track spending!',
+
+
+      //create budget screen
+      'categoryAlreadyExists':'This category already exists',
+      'selectEndDate': 'Please select end date for custom period',
+      'addOneCategoryBudget': 'Please add at least one category budget',
+      'failedToCreateBudget': 'Failed to create budget',
+      'createBudget': 'Create Budget',
+      'selectCurrency': 'Select currency for this budget',
+      'pleaseSelectCurrency': 'Please select a currency',
+      'aiFeatures': 'AI Features',
+      'getAiPoweredBudgetSuggestions': 'Get AI-powered budget suggestions',
+      'tapToUseAiBudgetSuggestions': 'Tap to use AI budget suggestions',
+      'context': 'Context (Optional)',
+      'addContext': 'Add context to help AI create better budgets',
+      'generateAiBudget': 'Generate AI Budget',
+      'aiWillAnalyzeAndSuggestBudgets' : 'AI will analyze your spending and suggest category budgets',
+      'budgetName': 'Budget Name',
+      'enterBudgetName': 'Please enter budget name',
+      'budgetPeriod': 'Budget Period',
+      'week': 'Week',
+      'month': 'Month',
+      'year': 'Year',
+      'custom': 'Custom',
+      'startDate': 'Start Date',
+      'endDateNoOp': 'End Date',
+      'autoCreateNextBudget':  'Auto-Create Next Budget',
+      'automaticallyCreateNewBudget': 'Automatically create a new budget when this one ends',
+      'enableAutoCreate': 'Enable Auto-Create',
+      'chooseHowToCreateNextBudget': 'Choose how to create the next budget:',
+      'useCurrentCategories': 'Use Current Categories',
+      'keepTheSameBudgetAmounts': 'Keep the same budget amounts for all categories',
+      'aiOptimizedBudget': 'AI-Optimized Budget',
+      'aiAnalyzesSpendingAndSuggestsAmounts': 'AI analyzes your spending and suggests optimized amounts',
+      'categoryBudgets': 'Category Budgets',
+      'noCategoriesAddedYet': 'No categories added yet',
+      'totalBudget': 'Total Budget',
+      'addCategoryBudget': 'Add Category Budget',
+      'editCategoryBudget': 'Edit Category Budget',
+      'subCategory': 'Sub category (optional)',
+      'allNoFilter': 'All (no filter)',
+      'budgetAmount': 'Budget Amount',
+      'enterAmount': 'Please enter amount',
+      'enterValidAmount': 'Please enter valid amount',
+
+
+      //edit budget screen
+      'budgetUpdatedSuccessfully': 'Budget updated successfully',
+      'failedToUpdateBudget': 'Failed to update budget',
+      'editBudget': 'Edit Budget',
+      'budgetPeriodC': 'Budget Period (Cannot be changed)',
+      'period': 'Period',
+      'duration': 'Duration',
+      'currencyC': 'Currency (Cannot be changed)',
+      'editingCategoriesRecalculateAlert': 'Editing categories will reset their spent amounts. Current spending will be recalculated.',
+      'newTotalBudget': 'New Total Budget',
+      'currentTotal': 'Current Total',
+      'saveChanges': 'Save Changes',
+
+
+      //budget detail screen
+      'deleteBudget': 'Delete Budget',
+      'deleteBudgetAlert': 'Are you sure you want to delete this budget? This action cannot be undone.',
+      'deleted': 'deleted',
+      'failedToDeleteBudget': 'Failed to delete budget',
+      'startsIn': 'Starts In',
+      'ended': 'Ended',
+      'daysRemaining': 'Days Remaining',
+      'budgetDetails': 'Budget Details',
+      'budgetWasAutomaticallyCreatedAi': 'This budget was automatically created with AI optimization',
+      'budgetWasAutomaticallyCreatedPrevious': 'This budget was automatically created from the previous budget',
+      'autoCreateEnabled': 'Auto-Create Enabled',
+      'nextBudgetWillBeAiOptimized': 'Next budget will be AI-optimized based on your spending',
+      'nextBudgetWillUseSameAmounts': 'Next budget will use the same category amounts',
+      'budgetExceeded': 'Budget Exceeded',
+      'budgetExceededAlert': 'You\'ve spent more than your allocated budget. Consider reducing spending in exceeded categories.',
+      'approachingBudgetLimit': 'Approaching Budget Limit',
+
+
+      //ai budget suggestion screen
+      'analysisSummary': 'Analysis Summary',
+      'transactionsAnalyzed': 'Transactions Analyzed',
+      'analysisPeriod': 'Analysis Period',
+      'categoriesFound': 'Categories Found',
+      'avgMonthlyIncome': 'Avg Monthly Income',
+      'avgMonthlyExpenses': 'Avg Monthly Expenses',
+      'activeGoals': 'Active Goals',
+      'close': 'Close',
+      'aiBudgetSuggestion': 'AI Budget Suggestion',
+      'analysisDetails': 'Analysis Details',
+      'failedToGenerateSuggestion': 'Failed to Generate Suggestion',
+      'tryAgain': 'Try Again',
+      'dataConfidence': 'Data Confidence',
+      'highConfidence': 'High confidence based on your data',
+      'moderateConfidence': 'Moderate confidence - limited data',
+      'lowConfidence': 'Low confidence - very limited data',
+      'yourContext': 'Your Context',
+      'importantNotes': 'Important Notes',
+      'suggestedBudgetPlan': 'Suggested Budget Plan',
+      'name': 'Name',
+      'aiAnalysis': 'AI Analysis',
+      'useThisBudget': 'Use This Budget',
     },
   };
   
@@ -676,6 +911,126 @@ class AppLocalizations {
   String get failedToDeleteGoal => translate('failedToDeleteGoal');
   String get goalDetails => translate('goalDetails');
   String get goalInformation => translate('goalInformation');
+
+
+  //budgets screen getter
+  String get budgetCreatedSuccessfully => translate('budgetCreatedSuccessfully');
+  String get budgetDeletedSuccessfully => translate('budgetDeletedSuccessfully');
+  String get budgetSummary => translate('budgetSummary');
+  String get exceeded => translate('exceeded');
+  String get allCurrencies => translate('allCurrencies');
+  String get createNewBudget => translate('createNewBudget');
+  String get upcoming => translate('upcoming');
+  String get exceededCap => translate('exceededCap');
+  String get completed => translate('completed');
+  String get activeCap => translate('activeCap');
+  String get auto => translate('auto');
+  String get noBudgetsYet => translate('noBudgetsYet');
+  String get createYourFirstBudget => translate('createYourFirstBudget');
+
+
+
+  //create budget screen getters
+  String get categoryAlreadyExists => translate('categoryAlreadyExists');
+  String get selectEndDate => translate('selectEndDate');
+  String get addOneCategoryBudget => translate('addOneCategoryBudget');
+  String get failedToCreateBudget => translate('failedToCreateBudget');
+  String get createBudget => translate('createBudget');
+  String get selectCurrency => translate('selectCurrency');
+  String get pleaseSelectCurrency => translate('pleaseSelectCurrency');
+  String get aiFeatures => translate('aiFeatures');
+  String get getAiPoweredBudgetSuggestions => translate('getAiPoweredBudgetSuggestions');
+  String get tapToUseAiBudgetSuggestions => translate('tapToUseAiBudgetSuggestions');
+  String get context => translate('context');
+  String get addContext => translate('addContext');
+  String get generateAiBudget => translate('generateAiBudget');
+  String get aiWillAnalyzeAndSuggestBudgets => translate('aiWillAnalyzeAndSuggestBudgets');
+  String get budgetName => translate('budgetName');
+  String get enterBudgetName => translate('enterBudgetName');
+  String get budgetPeriod => translate('budgetPeriod');
+  String get week => translate('week');
+  String get month => translate('month');
+  String get year => translate('year');
+  String get custom => translate('custom');
+  String get startDate => translate('startDate');
+  String get endDateNoOp => translate('endDateNoOp');
+  String get autoCreateNextBudget => translate('autoCreateNextBudget');
+  String get automaticallyCreateNewBudget => translate('automaticallyCreateNewBudget');
+  String get enableAutoCreate => translate('enableAutoCreate');
+  String get chooseHowToCreateNextBudget => translate('chooseHowToCreateNextBudget');
+  String get useCurrentCategories => translate('useCurrentCategories');
+  String get keepTheSameBudgetAmounts => translate('useCurrentCategories');
+  String get aiOptimizedBudget => translate('aiOptimizedBudget');
+  String get aiAnalyzesSpendingAndSuggestsAmounts => translate('aiAnalyzesSpendingAndSuggestsAmounts');
+  String get categoryBudgets => translate('categoryBudgets');
+  String get noCategoriesAddedYet => translate('noCategoriesAddedYet');
+  String get totalBudget => translate('totalBudget');
+  String get addCategoryBudget => translate('addCategoryBudget');
+  String get editCategoryBudget => translate('editCategoryBudget');
+  String get subCategory => translate('subCategory');
+  String get allNoFilter => translate('allNoFilter');
+  String get budgetAmount => translate('budgetAmount');
+  String get enterAmount => translate('enterAmount');
+  String get enterValidAmount => translate('enterValidAmount');
+
+
+  //edit budget screen getters
+  String get budgetUpdatedSuccessfully => translate('budgetUpdatedSuccessfully');
+  String get failedToUpdateBudget => translate('failedToUpdateBudget');
+  String get editBudget => translate('editBudget');
+  String get budgetPeriodC => translate('budgetPeriodC');
+  String get period => translate('period');
+  String get duration => translate('duration');
+  String get currencyC => translate('currencyC');
+  String get editingCategoriesRecalculateAlert => translate('editingCategoriesRecalculateAlert');
+  String get newTotalBudget => translate('newTotalBudget');
+  String get currentTotal => translate('currentTotal');
+  String get saveChanges => translate('saveChanges');
+
+
+
+  //budget detail screen getters
+  String get deleteBudget => translate('deleteBudget');
+  String get deleteBudgetAlert => translate('deleteBudgetAlert');
+  String get deleted => translate('deleted');
+  String get failedToDeleteBudget => translate('failedToDeleteBudget');
+  String get startsIn => translate('startsIn');
+  String get ended => translate('ended');
+  String get daysRemaining => translate('daysRemaining');
+  String get budgetDetails => translate('budgetDetails');
+  String get budgetWasAutomaticallyCreatedAi => translate('budgetWasAutomaticallyCreatedAi');
+  String get budgetWasAutomaticallyCreatedPrevious => translate('budgetWasAutomaticallyCreatedPrevious');
+  String get autoCreateEnabled => translate('autoCreateEnabled');
+  String get nextBudgetWillBeAiOptimized => translate('nextBudgetWillBeAiOptimized');
+  String get nextBudgetWillUseSameAmounts => translate('nextBudgetWillUseSameAmounts');
+  String get budgetExceeded => translate('budgetExceeded');
+  String get budgetExceededAlert => translate('budgetExceededAlert');
+  String get approachingBudgetLimit => translate('approachingBudgetLimit');
+
+
+  //ai budget suggestion screen getters
+  String get analysisSummary => translate('analysisSummary');
+  String get transactionsAnalyzed => translate('transactionsAnalyzed');
+  String get analysisPeriod => translate('analysisPeriod');
+  String get categoriesFound => translate('categoriesFound');
+  String get avgMonthlyIncome => translate('avgMonthlyIncome');
+  String get avgMonthlyExpenses => translate('avgMonthlyExpenses');
+  String get activeGoals => translate('activeGoals');
+  String get close => translate('close');
+  String get aiBudgetSuggestion => translate('aiBudgetSuggestion');
+  String get analysisDetails => translate('analysisDetails');
+  String get failedToGenerateSuggestion => translate('failedToGenerateSuggestion');
+  String get tryAgain => translate('tryAgain');
+  String get dataConfidence => translate('dataConfidence');
+  String get highConfidence => translate('highConfidence');
+  String get moderateConfidence => translate('moderateConfidence');
+  String get lowConfidence => translate('lowConfidence');
+  String get yourContext => translate('yourContext');
+  String get importantNotes => translate('importantNotes');
+  String get suggestedBudgetPlan => translate('suggestedBudgetPlan');
+  String get name => translate('name');
+  String get aiAnalysis => translate('aiAnalysis');
+  String get useThisBudget => translate('useThisBudget');
 
 }
 

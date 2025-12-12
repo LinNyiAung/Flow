@@ -8,6 +8,8 @@ import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
+import '../../services/localization_service.dart';
+
 class EditBudgetScreen extends StatefulWidget {
   final Budget budget;
 
@@ -53,6 +55,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     String? subCategory, {
     int? excludeIndex,
   }) {
+    final localizations = AppLocalizations.of(context);
     // Check for exact duplicates
     for (int i = 0; i < _categoryBudgets.length; i++) {
       // Skip the category being edited
@@ -73,12 +76,12 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       if (existingMain == mainCategory) {
         if ((subCategory == null || subCategory == 'All') &&
             existingSubStr == null) {
-          return 'This category already exists';
+          return localizations.categoryAlreadyExists;
         }
         if (subCategory != null &&
             subCategory != 'All' &&
             existingSubStr == subCategory) {
-          return 'This category already exists';
+          return localizations.categoryAlreadyExists;
         }
       }
     }
@@ -154,12 +157,13 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
   }
 
     Future<void> _saveBudget() async {
+    final localizations = AppLocalizations.of(context);
     if (!_formKey.currentState!.validate()) return;
 
     if (_categoryBudgets.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please add at least one category budget'),
+          content: Text(localizations.addOneCategoryBudget),
           backgroundColor: Colors.red,
         ),
       );
@@ -191,7 +195,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Budget updated successfully',
+            localizations.budgetUpdatedSuccessfully,
             style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Colors.green,
@@ -203,7 +207,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       final error = Provider.of<BudgetProvider>(context, listen: false).error;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error ?? 'Failed to update budget'),
+          content: Text(error ?? localizations.failedToUpdateBudget),
           backgroundColor: Colors.red,
         ),
       );
@@ -215,11 +219,12 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
   Widget build(BuildContext context) {
     final totalBudget = _calculateTotalBudget();
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Edit Budget',
+          localizations.editBudget,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -266,7 +271,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                         SizedBox(width: responsive.sp8),
                         Expanded(
                           child: Text(
-                            'Budget Period (Cannot be changed)',
+                            localizations.budgetPeriodC,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs14,
                               fontWeight: FontWeight.w600,
@@ -279,12 +284,12 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                     SizedBox(height: responsive.sp12),
                     _buildInfoRow(
                       Icons.calendar_today,
-                      'Period',
+                      localizations.period,
                       widget.budget.period.name.toUpperCase(),
                     ),
                     _buildInfoRow(
                       Icons.date_range,
-                      'Duration',
+                      localizations.duration,
                       '${DateFormat('MMM d').format(widget.budget.startDate)} - ${DateFormat('MMM d, yyyy').format(widget.budget.endDate)}',
                     ),
                   ],
@@ -314,7 +319,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           Icon(Icons.info_outline, color: Colors.grey[600], size: responsive.icon20),
                           SizedBox(width: responsive.sp8),
                           Text(
-                            'Currency (Cannot be changed)',
+                            localizations.currencyC,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs14,
                               fontWeight: FontWeight.w600,
@@ -373,13 +378,13 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
               TextFormField(
                 controller: _nameController,
                 decoration: InputDecoration(
-                  labelText: 'Budget Name',
+                  labelText: localizations.budgetName,
                   hintText: 'e.g., Monthly Expenses',
                   prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter budget name';
+                    return localizations.enterBudgetName;
                   }
                   return null;
                 },
@@ -391,7 +396,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
               TextFormField(
                 controller: _descriptionController,
                 decoration: InputDecoration(
-                  labelText: 'Description (Optional)',
+                  labelText: localizations.descriptionLabel,
                   hintText: 'Notes about this budget',
                   prefixIcon: Icon(Icons.note, color: Color(0xFF667eea)),
                 ),
@@ -423,7 +428,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           Icon(Icons.autorenew, color: Color(0xFF667eea)),
                           SizedBox(width: responsive.sp8),
                           Text(
-                            'Auto-Create Next Budget',
+                            localizations.autoCreateNextBudget,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
@@ -434,7 +439,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       ),
                       SizedBox(height: responsive.sp8),
                       Text(
-                        'Automatically create a new budget when this one ends',
+                        localizations.automaticallyCreateNewBudget,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: Colors.grey[600],
@@ -452,7 +457,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           });
                         },
                         title: Text(
-                          'Enable Auto-Create',
+                          localizations.enableAutoCreate,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
                             fontWeight: FontWeight.w500,
@@ -464,7 +469,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       if (_autoCreateEnabled) ...[
                         Divider(),
                         Text(
-                          'Choose how to create the next budget:',
+                          localizations.chooseHowToCreateNextBudget,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs13,
                             fontWeight: FontWeight.w500,
@@ -481,11 +486,11 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                             });
                           },
                           title: Text(
-                            'Use Current Categories',
+                            localizations.useCurrentCategories,
                             style: GoogleFonts.poppins(fontSize: responsive.fs13),
                           ),
                           subtitle: Text(
-                            'Keep the same budget amounts for all categories',
+                            localizations.keepTheSameBudgetAmounts,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs11,
                               color: Colors.grey[600],
@@ -511,13 +516,13 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                               ),
                               SizedBox(width: responsive.sp4),
                               Text(
-                                'AI-Optimized Budget',
+                                localizations.aiOptimizedBudget,
                                 style: GoogleFonts.poppins(fontSize: responsive.fs13),
                               ),
                             ],
                           ),
                           subtitle: Text(
-                            'AI analyzes your spending and suggests optimized amounts',
+                            localizations.aiAnalyzesSpendingAndSuggestsAmounts,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs11,
                               color: Colors.grey[600],
@@ -539,7 +544,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Category Budgets',
+                    localizations.categoryBudgets,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs18,
                       fontWeight: FontWeight.bold,
@@ -550,7 +555,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                     onPressed: _addCategoryBudget,
                     icon: Icon(Icons.add_circle, color: Color(0xFF667eea)),
                     label: Text(
-                      'Add',
+                      localizations.add,
                       style: GoogleFonts.poppins(color: Color(0xFF667eea)),
                     ),
                   ),
@@ -577,7 +582,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                     SizedBox(width: responsive.sp8),
                     Expanded(
                       child: Text(
-                        'Editing categories will reset their spent amounts. Current spending will be recalculated.',
+                        localizations.editingCategoriesRecalculateAlert,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs11,
                           color: Colors.orange[900],
@@ -600,7 +605,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      'No categories added yet',
+                      localizations.noCategoriesAddedYet,
                       style: GoogleFonts.poppins(color: Colors.grey[500]),
                     ),
                   ),
@@ -632,7 +637,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'New Total Budget',
+                              localizations.newTotalBudget,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs14,
                                 color: Colors.white.withOpacity(0.9),
@@ -653,7 +658,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              'Current Total',
+                              localizations.currentTotal,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs14,
                                 color: Colors.white.withOpacity(0.9),
@@ -722,7 +727,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   child: _isLoading
                       ? CircularProgressIndicator(color: Colors.white)
                       : Text(
-                          'Save Changes',
+                          localizations.saveChanges,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs16,
                             fontWeight: FontWeight.w600,
@@ -929,12 +934,13 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
       title: Text(
         widget.initialCategory == null
-            ? 'Add Category Budget'
-            : 'Edit Category Budget',
+            ? localizations.addCategoryBudget
+            : localizations.editCategoryBudget,
         style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
       ),
       content: SingleChildScrollView(
@@ -963,7 +969,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       )
                     : DropdownButtonFormField<String>(
                         decoration: InputDecoration(
-                          hintText: 'Select main category',
+                          hintText: localizations.selectMainCategoryHint,
                           border: InputBorder.none,
                           contentPadding: responsive.padding(horizontal: 16, vertical: 12),
                           prefixIcon: Icon(
@@ -991,7 +997,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         },
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Please select a main category';
+                            return localizations.validationMainCategoryRequired;
                           }
                           return null;
                         },
@@ -1009,7 +1015,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                   ),
                   child: DropdownButtonFormField<String?>(
                     decoration: InputDecoration(
-                      hintText: 'Sub category (optional)',
+                      hintText: localizations.subCategory,
                       border: InputBorder.none,
                       contentPadding: responsive.padding(horizontal: 16, vertical: 12),
                       prefixIcon: Icon(
@@ -1024,7 +1030,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                       DropdownMenuItem<String?>(
                         value: null,
                         child: Text(
-                          'All (no filter)',
+                          localizations.allNoFilter,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs14,
                             fontStyle: FontStyle.italic,
@@ -1068,7 +1074,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
               TextFormField(
                 controller: _amountController,
                 decoration: InputDecoration(
-                  labelText: 'Budget Amount',
+                  labelText: localizations.budgetAmount,
                   hintText: '0.00',
                   prefixIcon: Icon(
                     Icons.attach_money,
@@ -1086,11 +1092,11 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                 keyboardType: TextInputType.numberWithOptions(decimal: true),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter amount';
+                    return localizations.enterAmount;
                   }
                   if (double.tryParse(value) == null ||
                       double.parse(value) <= 0) {
-                    return 'Please enter valid amount';
+                    return localizations.enterValidAmount;
                   }
                   return null;
                 },
@@ -1136,7 +1142,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: Text(
-            'Cancel',
+            localizations.dialogCancel,
             style: GoogleFonts.poppins(color: Colors.grey[600]),
           ),
         ),
@@ -1192,7 +1198,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
             padding: responsive.padding(horizontal: 24, vertical: 12),
           ),
           child: Text(
-            'Save',
+            localizations.save,
             style: GoogleFonts.poppins(
               color: Colors.white,
               fontWeight: FontWeight.w600,

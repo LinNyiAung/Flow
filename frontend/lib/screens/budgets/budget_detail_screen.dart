@@ -7,6 +7,8 @@ import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
+import '../../services/localization_service.dart';
+
 class BudgetDetailScreen extends StatefulWidget {
   final Budget budget;
 
@@ -44,26 +46,27 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
 
   void _showDeleteConfirmation() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text(
-          'Delete Budget',
+          localizations.deleteBudget,
           style: GoogleFonts.poppins(
             fontWeight: FontWeight.bold,
             color: Colors.red,
           ),
         ),
         content: Text(
-          'Are you sure you want to delete this budget? This action cannot be undone.',
+          localizations.deleteBudgetAlert,
           style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'Cancel',
+              localizations.dialogCancel,
               style: GoogleFonts.poppins(color: Colors.grey[600]),
             ),
           ),
@@ -79,7 +82,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               ),
             ),
             child: Text(
-              'Delete',
+              localizations.delete,
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
@@ -91,14 +94,15 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   Future<void> _deleteBudget() async {
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
     final success = await budgetProvider.deleteBudget(_budget.id);
+    final localizations = AppLocalizations.of(context);
 
     if (success) {
-      Navigator.pop(context, 'deleted');
+      Navigator.pop(context, localizations.deleted);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            budgetProvider.error ?? 'Failed to delete budget',
+            budgetProvider.error ?? localizations.failedToDeleteBudget,
             style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Colors.red,
@@ -141,13 +145,14 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final now = DateTime.now().toUtc();
     final startDate = _budget.startDate.toUtc();
     final endDate = _budget.endDate.toUtc();
+    final localizations = AppLocalizations.of(context);
 
     if (now.isBefore(startDate)) {
-      return 'Starts In';
+      return localizations.startsIn;
     } else if (now.isAfter(endDate)) {
-      return 'Ended';
+      return localizations.ended;
     } else {
-      return 'Days Remaining';
+      return localizations.daysRemaining;
     }
   }
 
@@ -197,8 +202,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   }
 
   String _getStatusLabel() {
+    final localizations = AppLocalizations.of(context);
     if (_budget.isUpcoming) {
-      return 'UPCOMING';
+      return localizations.upcoming;
     }
 
     return _budget.status.name.toUpperCase();
@@ -208,11 +214,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   Widget build(BuildContext context) {
     final statusColor = _getStatusColor();
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Budget Details',
+          localizations.budgetDetails,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -409,8 +416,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                     Expanded(
                       child: Text(
                         _budget.autoCreateWithAi
-                            ? 'This budget was automatically created with AI optimization'
-                            : 'This budget was automatically created from the previous budget',
+                            ? localizations.budgetWasAutomaticallyCreatedAi
+                            : localizations.budgetWasAutomaticallyCreatedPrevious,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: Color(0xFF667eea),
@@ -446,7 +453,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Auto-Create Enabled',
+                            localizations.autoCreateEnabled,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs13,
                               fontWeight: FontWeight.w600,
@@ -456,8 +463,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                           SizedBox(height: 2),
                           Text(
                             _budget.autoCreateWithAi
-                                ? 'Next budget will be AI-optimized based on your spending'
-                                : 'Next budget will use the same category amounts',
+                                ? localizations.nextBudgetWillBeAiOptimized
+                                : localizations.nextBudgetWillUseSameAmounts,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs11,
                               color: Colors.green[800],
@@ -555,13 +562,13 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                   children: [
                     _buildInfoRow(
                       Icons.calendar_today,
-                      'Start Date',
+                      localizations.startDate,
                       DateFormat('MMMM dd, yyyy').format(_budget.startDate),
                     ),
                     Divider(height: 24),
                     _buildInfoRow(
                       Icons.event,
-                      'End Date',
+                      localizations.endDateNoOp,
                       DateFormat('MMMM dd, yyyy').format(_budget.endDate),
                     ),
                     Divider(height: 24),
@@ -581,7 +588,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Category Budgets',
+                    localizations.categoryBudgets,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs18,
                       fontWeight: FontWeight.bold,
@@ -623,7 +630,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Budget Exceeded',
+                              localizations.budgetExceeded,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs14,
                                 fontWeight: FontWeight.w600,
@@ -631,7 +638,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                               ),
                             ),
                             Text(
-                              'You\'ve spent more than your allocated budget. Consider reducing spending in exceeded categories.',
+                              localizations.budgetExceededAlert,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs12,
                                 color: Colors.red[800],
@@ -660,7 +667,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Approaching Budget Limit',
+                              localizations.approachingBudgetLimit,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs14,
                                 fontWeight: FontWeight.w600,
@@ -720,6 +727,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         : Color(0xFF4CAF50);
 
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Container(
       margin: EdgeInsets.only(bottom: 8),
@@ -777,7 +785,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                     borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
                   ),
                   child: Text(
-                    'EXCEEDED',
+                    localizations.exceeded,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs10,
                       fontWeight: FontWeight.w600,

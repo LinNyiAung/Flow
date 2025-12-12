@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -50,13 +51,14 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
       MaterialPageRoute(builder: (_) => CreateBudgetScreen()),
     );
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     if (result == true) {
       _refreshData();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Budget created successfully!',
+            localizations.budgetCreatedSuccessfully,
             style: GoogleFonts.poppins(color: Colors.white),
           ),
           backgroundColor: Color(0xFF4CAF50),
@@ -72,6 +74,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
       context,
       MaterialPageRoute(builder: (_) => BudgetDetailScreen(budget: budget)),
     );
+    final localizations = AppLocalizations.of(context);
 
     if (result != null) {
       _refreshData();
@@ -79,7 +82,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Budget deleted successfully!',
+              localizations.budgetDeletedSuccessfully,
               style: GoogleFonts.poppins(color: Colors.white),
             ),
             backgroundColor: Colors.red,
@@ -94,6 +97,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
   Widget build(BuildContext context) {
     final budgetProvider = Provider.of<BudgetProvider>(context);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -102,7 +106,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
-          'Budgets',
+          localizations.budgets,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -218,7 +222,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'Budget Summary',
+                                  localizations.budgetSummary,
                                   style: GoogleFonts.poppins(
                                     color: Colors.white.withOpacity(0.8),
                                     fontSize: responsive.fs16,
@@ -234,17 +238,17 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
                                 _buildSummaryItem(
-                                  'Active',
+                                  localizations.active,
                                   budgetProvider.multiCurrencySummary!.activeBudgets.toString(),
                                 ),
                                 Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
                                 _buildSummaryItem(
-                                  'Exceeded',
+                                  localizations.exceeded,
                                   budgetProvider.multiCurrencySummary!.exceededBudgets.toString(),
                                 ),
                                 Container(height: 40, width: 1, color: Colors.white.withOpacity(0.3)),
                                 _buildSummaryItem(
-                                  'Total',
+                                  localizations.total,
                                   budgetProvider.multiCurrencySummary!.totalBudgets.toString(),
                                 ),
                               ],
@@ -256,7 +260,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                             
                             // Per-currency breakdown
                             Text(
-                              'By Currency',
+                              localizations.byCurrency,
                               style: GoogleFonts.poppins(
                                 color: Colors.white.withOpacity(0.8),
                                 fontSize: responsive.fs14,
@@ -361,7 +365,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Currency',
+                        localizations.currency,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs14,
                           fontWeight: FontWeight.w600,
@@ -376,7 +380,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                           // 'All' chip
                           ChoiceChip(
                             label: Text(
-                              'All Currencies',
+                              localizations.allCurrencies,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs12,
                                 fontWeight: FontWeight.w500,
@@ -441,9 +445,9 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                   padding: responsive.padding(horizontal: 20),
                   child: Row(
                     children: [
-                      _buildFilterChip('Active', true),
+                      _buildFilterChip(localizations.active, true),
                       SizedBox(width: responsive.sp8),
-                      _buildFilterChip('All', false),
+                      _buildFilterChip(localizations.filterChipAll, false),
                     ],
                   ),
                 ),
@@ -491,7 +495,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         backgroundColor: Color(0xFF667eea),
         child: Icon(Icons.add, color: Colors.white, size: responsive.icon28),
         elevation: 8,
-        tooltip: 'Create New Budget',
+        tooltip: localizations.createNewBudget,
       ),
     );
   }
@@ -553,28 +557,29 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
     IconData statusIcon;
     String statusLabel;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     // Determine status based on upcoming, exceeded, completed, or active
     if (budget.isUpcoming || budget.status == BudgetStatus.upcoming) {
       statusColor = Color(0xFF2196F3); // Blue for upcoming
       statusIcon = Icons.schedule;
-      statusLabel = 'UPCOMING';
+      statusLabel = localizations.upcoming;
     } else {
       switch (budget.status) {
         case BudgetStatus.exceeded:
           statusColor = Color(0xFFFF5722);
           statusIcon = Icons.warning;
-          statusLabel = 'EXCEEDED';
+          statusLabel = localizations.exceededCap;
           break;
         case BudgetStatus.completed:
           statusColor = Colors.grey;
           statusIcon = Icons.check_circle;
-          statusLabel = 'COMPLETED';
+          statusLabel = localizations.completed;
           break;
         default:
           statusColor = Color(0xFF4CAF50);
           statusIcon = Icons.trending_up;
-          statusLabel = 'ACTIVE';
+          statusLabel = localizations.activeCap;
       }
     }
 
@@ -698,7 +703,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                                 ),
                                 SizedBox(width: 2),
                                 Text(
-                                  'AUTO',
+                                  localizations.auto,
                                   style: GoogleFonts.poppins(
                                     fontSize: responsive.fs10,
                                     fontWeight: FontWeight.w600,
@@ -811,6 +816,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
 
   Widget _buildEmptyState() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Center(
       child: Container(
         padding: responsive.padding(all: 32),
@@ -833,7 +839,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
             ),
             SizedBox(height: responsive.sp24),
             Text(
-              'No budgets yet',
+              localizations.noBudgetsYet,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs18,
                 color: Color(0xFF333333),
@@ -842,7 +848,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
             ),
             SizedBox(height: responsive.sp8),
             Text(
-              'Create your first budget to track spending!',
+              localizations.createYourFirstBudget,
               style: GoogleFonts.poppins(fontSize: responsive.fs14, color: Colors.grey[500]),
               textAlign: TextAlign.center,
             ),
