@@ -272,31 +272,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         SizedBox(height: responsive.sp16),
 
                         // Login Link
-                        Wrap(
-                          alignment: WrapAlignment
-                              .center, // Centers the items when they wrap
-                          spacing:
-                              8.0, // Adds horizontal space between children
-                          runSpacing:
-                              4.0, // Adds vertical space between lines if they wrap
-                          children: [
-                            Text(
-                              "Already have an account? ",
-                              style: GoogleFonts.poppins(
-                                color: Colors.grey[600],
-                              ),
+                        Text(
+                          "Already have an account? ",
+                          style: GoogleFonts.poppins(
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: Text(
+                            'Sign In',
+                            style: GoogleFonts.poppins(
+                              color: Color(0xFF667eea),
+                              fontWeight: FontWeight.w600,
                             ),
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: Text(
-                                'Sign In',
-                                style: GoogleFonts.poppins(
-                                  color: Color(0xFF667eea),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       ],
                     ),

@@ -312,9 +312,11 @@ class AppDrawer extends StatelessWidget {
                     ),
                     title: Row(
                       children: [
-                        Text(
-                          localizations.aiAssistant,
-                          style: GoogleFonts.poppins(fontSize: responsive.fs16),
+                        Expanded(
+                          child: Text(
+                            localizations.aiAssistant,
+                            style: GoogleFonts.poppins(fontSize: responsive.fs16),
+                          ),
                         ),
                         
                         if (!authProvider.isPremium) ...[
@@ -460,7 +462,7 @@ class AppDrawer extends StatelessWidget {
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                'Cancel',
+                localizations.dialogCancel,
                 style: GoogleFonts.poppins(
                   color: Colors.grey[600],
                 ),
@@ -482,7 +484,7 @@ class AppDrawer extends StatelessWidget {
                 ),
               ),
               child: Text(
-                'Logout',
+                localizations.drawerLogout,
                 style: GoogleFonts.poppins(color: Colors.white),
               ),
             ),

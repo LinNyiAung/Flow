@@ -201,31 +201,24 @@ class _LoginScreenState extends State<LoginScreen> {
                         SizedBox(height: responsive.sp16),
 
                         // Register Link
-                        Wrap(
-                          alignment: WrapAlignment.center, // Centers the items when they wrap
-                          spacing: 8.0, // Adds horizontal space between children
-                          runSpacing: 4.0, // Adds vertical space between lines if they wrap
-                          children: [
-                            Text(
-                              "Don't have an account? ",
-                              style: GoogleFonts.poppins(color: Colors.grey[600]),
+                        Text(
+                          "Don't have an account? ",
+                          style: GoogleFonts.poppins(color: Colors.grey[600]),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => RegisterScreen()),
+                            );
+                          },
+                          child: Text(
+                            'Sign Up',
+                            style: GoogleFonts.poppins(
+                              color: Color(0xFF667eea),
+                              fontWeight: FontWeight.w600,
                             ),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => RegisterScreen()),
-                                );
-                              },
-                              child: Text(
-                                'Sign Up',
-                                style: GoogleFonts.poppins(
-                                  color: Color(0xFF667eea),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
