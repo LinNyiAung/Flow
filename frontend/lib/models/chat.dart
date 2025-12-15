@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../services/localization_service.dart';
+
 enum MessageRole { user, assistant }
 
 // NEW: Response style enum
@@ -10,25 +12,27 @@ enum ResponseStyle {
   concise, 
   explanatory;
   
-  String get displayName {
+  String getDisplayName(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     switch (this) {
       case ResponseStyle.normal:
-        return 'Normal';
+        return localizations.normal;
       case ResponseStyle.concise:
-        return 'Concise';
+        return localizations.concise;
       case ResponseStyle.explanatory:
-        return 'Detailed';
+        return localizations.detailed;
     }
   }
   
-  String get description {
+  String getDescription (BuildContext context){
+    final localizations = AppLocalizations.of(context);
     switch (this) {
       case ResponseStyle.normal:
-        return 'Balanced responses';
+        return localizations.balancedResponses;
       case ResponseStyle.concise:
-        return 'Brief & direct';
+        return localizations.briefDirect;
       case ResponseStyle.explanatory:
-        return 'Thorough explanations';
+        return localizations.thoroughExplanations;
     }
   }
   

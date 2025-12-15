@@ -174,7 +174,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  style.displayName,
+                                  style.getDisplayName(context),
                                   style: GoogleFonts.poppins(
                                     fontSize: responsive.fs16,
                                     fontWeight: FontWeight.w600,
@@ -185,7 +185,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
                                 ),
                                 SizedBox(height: responsive.sp4),
                                 Text(
-                                  style.description,
+                                  style.getDescription(context),
                                   style: GoogleFonts.poppins(
                                     fontSize: responsive.fs14,
                                     color: Colors.grey[600],

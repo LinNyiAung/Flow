@@ -334,7 +334,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                       child: Text(
                         _endDate != null
                             ? DateFormat('MMM dd, yyyy').format(_endDate!)
-                            : 'Never ends',
+                            : localizations.neverEnds,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs14,
                           color: _endDate != null
