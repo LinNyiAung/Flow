@@ -681,7 +681,7 @@ void _navigateToAISuggestion() async {
                                     controller: _contextController,
                                     decoration: InputDecoration(
                                       hintText:
-                                          'e.g., "Traveling this week" or "Holiday season"',
+                                          localizations.egTravelingHolidaySeason,
                                       hintStyle: GoogleFonts.poppins(
                                         fontSize: responsive.fs12,
                                         color: Colors.grey[400],
@@ -791,7 +791,7 @@ void _navigateToAISuggestion() async {
                 controller: _nameController,
                 decoration: InputDecoration(
                   labelText: localizations.budgetName,
-                  hintText: 'e.g., Monthly Expenses',
+                  hintText: localizations.egMonthlyExpenses,
                   prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
                 ),
                 validator: (value) {
@@ -925,7 +925,7 @@ void _navigateToAISuggestion() async {
                 controller: _descriptionController,
                 decoration: InputDecoration(
                   labelText: localizations.descriptionLabel,
-                  hintText: 'Notes about this budget',
+                  hintText: localizations.notesThisBudget,
                   prefixIcon: Icon(Icons.note, color: Color(0xFF667eea)),
                 ),
                 maxLines: 2,

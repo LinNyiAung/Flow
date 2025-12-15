@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/transaction.dart';
+import '../../services/localization_service.dart';
 import '../../widgets/app_drawer.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -254,6 +255,7 @@ void initState() {
     final timeSeriesData = _getTimeSeriesData();
     final totalIncome = categoryData.values.fold(0.0, (sum, amount) => sum + amount);
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -262,7 +264,7 @@ void initState() {
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Text(
-          'Inflow Analytics',
+          localizations.inflowAnalytics,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -380,10 +382,10 @@ void initState() {
                     ),
                     child: Row(
                       children: [
-                        _buildPeriodButton('Daily', TimePeriod.daily),
-                        _buildPeriodButton('Monthly', TimePeriod.monthly),
-                        _buildPeriodButton('Yearly', TimePeriod.yearly),
-                        _buildPeriodButton('Custom', TimePeriod.custom),
+                        _buildPeriodButton(localizations.daily, TimePeriod.daily),
+                        _buildPeriodButton(localizations.monthly, TimePeriod.monthly),
+                        _buildPeriodButton(localizations.yearly, TimePeriod.yearly),
+                        _buildPeriodButton(localizations.custom, TimePeriod.custom),
                       ],
                     ),
                   ),
@@ -396,7 +398,7 @@ void initState() {
                     children: [
                       Expanded(
                         child: _buildDateSelector(
-                          'Start Date',
+                          localizations.startDate,
                           _customStartDate,
                               (date) {
                             setState(() => _customStartDate = date);
@@ -407,7 +409,7 @@ void initState() {
                       SizedBox(width: responsive.sp12),
                       Expanded(
                         child: _buildDateSelector(
-                          'End Date',
+                          localizations.endDateNoOp,
                           _customEndDate,
                               (date) {
                             setState(() => _customEndDate = date);
@@ -428,7 +430,7 @@ void initState() {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Currency',
+                      localizations.currency,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs14,
                         fontWeight: FontWeight.w600,
@@ -498,7 +500,7 @@ void initState() {
                       child: Column(
                         children: [
                           Text(
-                            'Total Income',
+                            localizations.totalIncome,
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: responsive.fs14,
@@ -536,7 +538,7 @@ void initState() {
                           Icon(Icons.pie_chart, color: Color(0xFF667eea), size: responsive.icon24),
                           SizedBox(width: responsive.sp8),
                           Text(
-                            'Income by Category',
+                            localizations.incomeByCategory,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs18,
                               fontWeight: FontWeight.bold,
@@ -769,7 +771,7 @@ void initState() {
                           ),
                           SizedBox(height: responsive.sp24),
                           Text(
-                            'No data available',
+                            localizations.noDataAvailable,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs18,
                               color: Color(0xFF333333),
@@ -778,7 +780,7 @@ void initState() {
                           ),
                           SizedBox(height: responsive.sp8),
                           Text(
-                            'Add some income transactions to see your analytics',
+                            localizations.addIncomeSeeAnalytics,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs14,
                               color: Colors.grey[500],
@@ -868,6 +870,7 @@ void initState() {
 
   Widget _buildDateSelector(String label, DateTime? date, Function(DateTime) onDateSelected) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return GestureDetector(
       onTap: () async {
         final picked = await showDatePicker(
@@ -902,7 +905,7 @@ void initState() {
             ),
             SizedBox(height: responsive.sp4),
             Text(
-              date != null ? DateFormat('MMM d, yyyy').format(date) : 'Select',
+              date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
               style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w500),
             ),
           ],
@@ -1000,31 +1003,33 @@ void initState() {
   }
 
   String _getPeriodLabel() {
+    final localizations = AppLocalizations.of(context);
     switch (_selectedPeriod) {
       case TimePeriod.daily:
-        return 'By Day of Week';
+        return localizations.byDayOfWeek;
       case TimePeriod.monthly:
-        return 'By Month';
+        return localizations.byMonth;
       case TimePeriod.yearly:
-        return 'By Year';
+        return localizations.byYear;
       case TimePeriod.custom:
         if (_customStartDate != null && _customEndDate != null) {
           return '${DateFormat('MMM d').format(_customStartDate!)} - ${DateFormat('MMM d, yyyy').format(_customEndDate!)}';
         }
-        return 'Custom Period';
+        return localizations.customPeriod;
     }
   }
 
   String _getBarChartTitle() {
+    final localizations = AppLocalizations.of(context);
     switch (_selectedPeriod) {
       case TimePeriod.daily:
-        return 'Income by Day of Week';
+        return localizations.incomeDayOfWeek;
       case TimePeriod.monthly:
-        return 'Income by Month';
+        return localizations.incomeByMonth;
       case TimePeriod.yearly:
-        return 'Income by Year';
+        return localizations.incomeByYear;
       case TimePeriod.custom:
-        return 'Income Over Time';
+        return localizations.incomeOverTime;
     }
   }
 }

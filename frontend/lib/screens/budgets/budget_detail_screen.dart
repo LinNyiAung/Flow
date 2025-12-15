@@ -116,22 +116,17 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final startDate = _budget.startDate.toUtc();
     final endDate = _budget.endDate.toUtc();
 
-    print('\n=== DAYS REMAINING CALCULATION ===');
-    print('Current time (UTC): $now');
-    print('Budget start (UTC): $startDate');
-    print('Budget end (UTC): $endDate');
-
     // Budget hasn't started yet
     if (now.isBefore(startDate)) {
       final daysUntilStart = startDate.difference(now).inDays;
-      print('Budget not started. Days until start: $daysUntilStart');
+
       return 'Starts in $daysUntilStart days';
     }
 
     // Budget has ended
     if (now.isAfter(endDate)) {
       final daysEnded = now.difference(endDate).inDays;
-      print('Budget ended. Days since end: $daysEnded');
+
       return 'Ended $daysEnded days ago';
     }
 

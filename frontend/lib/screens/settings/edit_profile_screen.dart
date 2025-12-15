@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
+import '../../services/localization_service.dart';
+
 class EditProfileScreen extends StatefulWidget {
   @override
   _EditProfileScreenState createState() => _EditProfileScreenState();
@@ -40,6 +42,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
+    final localizations = AppLocalizations.of(context);
     if (!_formKey.currentState!.validate()) return;
     if (!_hasChanges) {
       Navigator.pop(context);
@@ -62,7 +65,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              authProvider.error ?? 'Failed to update profile',
+              authProvider.error ?? localizations.failedUpdateProfile,
               style: GoogleFonts.poppins(color: Colors.white),
             ),
             backgroundColor: Colors.red,
@@ -88,7 +91,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<bool> _onWillPop() async {
     if (!_hasChanges) return true;
     final responsive = ResponsiveHelper(context);
-    
+    final localizations = AppLocalizations.of(context);
+
     return await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -96,18 +100,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
         ),
         title: Text(
-          'Discard Changes?',
+          localizations.discardChanges,
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
         content: Text(
-          'You have unsaved changes. Are you sure you want to discard them?',
+          localizations.discardChangesAlert,
           style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: Text(
-              'Keep Editing',
+              localizations.keepEditing,
               style: GoogleFonts.poppins(color: Colors.grey[600]),
             ),
           ),
@@ -120,7 +124,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
             ),
             child: Text(
-              'Discard',
+              localizations.discard,
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
@@ -134,13 +138,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            'Edit Profile',
+            localizations.editProfile,
             style: GoogleFonts.poppins(
               fontSize: responsive.fs20,
               fontWeight: FontWeight.bold,
@@ -247,7 +252,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 SizedBox(height: responsive.sp12),
                 Center(
                   child: Text(
-                    'Tap icon to change avatar',
+                    localizations.tapIconChangeAvatar,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs12,
                       color: Colors.grey[600],
@@ -260,7 +265,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
                 // Name Field
                 Text(
-                  'Full Name',
+                  localizations.fullName,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -271,7 +276,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 TextFormField(
                   controller: _nameController,
                   decoration: InputDecoration(
-                    hintText: 'Enter your full name',
+                    hintText: localizations.enterFullName,
                     prefixIcon: Icon(Icons.person_outline, color: Color(0xFF667eea)),
                     filled: true,
                     fillColor: Colors.white,
@@ -294,10 +299,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Please enter your name';
+                      return localizations.pleaseEnterName;
                     }
                     if (value.trim().length < 2) {
-                      return 'Name must be at least 2 characters';
+                      return localizations.nameTwoCharacters;
                     }
                     return null;
                   },
@@ -307,7 +312,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
                 // Email Field (Read-only)
                 Text(
-                  'Email Address',
+                  localizations.emailAddress,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -350,7 +355,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 Padding(
                   padding: const EdgeInsets.only(left: 4),
                   child: Text(
-                    'Email cannot be changed',
+                    localizations.emailCannotChanged,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs11,
                       color: Colors.grey[600],
@@ -384,7 +389,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                           )
                         : Text(
-                            'Save Changes',
+                            localizations.saveChanges,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
@@ -398,7 +403,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   SizedBox(height: responsive.sp12),
                   Center(
                     child: Text(
-                      'You have unsaved changes',
+                      localizations.haveUnsavedChanges,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs12,
                         color: Color(0xFFFF9800),

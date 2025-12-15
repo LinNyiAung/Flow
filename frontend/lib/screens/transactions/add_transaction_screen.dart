@@ -355,7 +355,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             ),
                             child: DropdownButtonFormField<Currency>(
                               decoration: InputDecoration(
-                                hintText: 'Select currency',
+                                hintText: localizations.selectCurrency,
                                 border: InputBorder.none,
                                 contentPadding: responsive.padding(all: 20),
                                 
@@ -377,7 +377,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                               },
                               validator: (value) {
                                 if (value == null) {
-                                  return 'Please select a currency';
+                                  return localizations.pleaseSelectCurrency;
                                 }
                                 return null;
                               },
@@ -393,7 +393,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                        'Please enter amount first before converting',
+                                        localizations.enterAmountBeforeConverting,
                                         style: GoogleFonts.poppins(color: Colors.white),
                                       ),
                                       backgroundColor: Colors.orange,
@@ -933,7 +933,7 @@ void _showCurrencyConversionDialog() {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Preview:',
+                            localizations.preview,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs12,
                               fontWeight: FontWeight.w600,
@@ -973,7 +973,7 @@ void _showCurrencyConversionDialog() {
                   if (_targetCurrency == null || _rateController.text.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Please fill all fields'),
+                        content: Text(localizations.pleaseFillAllFields),
                         backgroundColor: Colors.red,
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -984,7 +984,7 @@ void _showCurrencyConversionDialog() {
                   if (_amountController.text.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Please enter amount first'),
+                        content: Text(localizations.pleaseEnterAmountFirst),
                         backgroundColor: Colors.red,
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -996,7 +996,7 @@ void _showCurrencyConversionDialog() {
                   if (rate == null || rate <= 0) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Please enter a valid exchange rate'),
+                        content: Text(localizations.pleaseEnterValidExchangeRate),
                         backgroundColor: Colors.red,
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -1032,11 +1032,12 @@ void _showCurrencyConversionDialog() {
 
 void _applyConversion(Currency targetCurrency, double exchangeRate) {
   final currentAmount = double.tryParse(_amountController.text);
+  final localizations = AppLocalizations.of(context);
   final responsive = ResponsiveHelper(context);
   if (currentAmount == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Please enter a valid amount first'),
+        content: Text(localizations.pleaseEnterValidAmount),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
       ),

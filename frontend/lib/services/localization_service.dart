@@ -3,12 +3,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalizationService {
   static const String _languageKey = 'selected_language';
-  
+
   static Future<String> getSelectedLanguage() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_languageKey) ?? 'en';
   }
-  
+
   static Future<void> setSelectedLanguage(String languageCode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_languageKey, languageCode);
@@ -17,15 +17,15 @@ class LocalizationService {
 
 class AppLocalizations {
   final Locale locale;
-  
+
   AppLocalizations(this.locale);
-  
+
   static AppLocalizations of(BuildContext context) {
     return Localizations.of<AppLocalizations>(context, AppLocalizations)!;
   }
-  
+
   static const LocalizationsDelegate<AppLocalizations> delegate = _AppLocalizationsDelegate();
-  
+
   static final Map<String, Map<String, String>> _localizedValues = {
     'en': {
       // Home Screen
@@ -93,7 +93,6 @@ class AppLocalizations {
       'descriptionHint': 'Add a note about this transaction...',
       'addOutflowButton': 'Add Outflow',
       'addInflowButton': 'Add Inflow',
-      'validationAmountRequired': 'Please enter an amount',
       'validationAmountInvalid': 'Please enter a valid amount',
       'validationAmountPositive': 'Amount must be greater than 0',
       'validationMainCategoryRequired': 'Please select a main category',
@@ -112,6 +111,12 @@ class AppLocalizations {
       'annuallyDes': 'Repeats on a selected date of the year',
       'endDate': 'End Date (Optional)',
       'next5Occurrences': 'Next 5 Occurrences',
+      'enterAmountBeforeConverting': 'Please enter amount first before converting',
+      'preview': 'Preview:',
+      'pleaseFillAllFields': 'Please fill all fields',
+      'pleaseEnterAmountFirst': 'Please enter amount first',
+      'pleaseEnterValidExchangeRate': 'Please enter a valid exchange rate',
+      'pleaseEnterValidAmount': 'Please enter a valid amount first',
 
       // Additions for Edit Transaction Screen
       'editTransactionTitle': 'Edit Transaction',
@@ -133,6 +138,10 @@ class AppLocalizations {
       'errorTitle': 'Error',
       'errorLoadParentFailed': 'Failed to load parent transaction:',
       'updateTransactionButton': 'Update Transaction',
+      'selectCurrencyT': 'Select currency',
+      'recurringScheduleStopped': 'The recurring schedule for this transaction has been stopped.',
+      'recurringSettingsStopDes': 'Recurring settings are managed by the parent transaction. Use the button above to stop future auto-creation.',
+      'dismiss': 'DISMISS',
 
       // Additions for Image Input Screen
       'imageInputTitle': 'Image Input',
@@ -187,6 +196,7 @@ class AppLocalizations {
       'clearAllFiltersButton': 'Clear All Filters',
       'clearDateFilterTooltip': 'Clear Date Filter',
       'addTransactionFabTooltip': 'Add New Transaction',
+      'currencyFilter': 'Currency Filter',
 
       //Goals screen
       'financialGoals': 'Financial Goals',
@@ -199,6 +209,10 @@ class AppLocalizations {
       'forGoals': 'for goals',
       'availableForGoals': 'Available for Goals',
       'selected': 'Selected',
+      'goalCreatedSuccessfully': 'Goal created successfully!',
+      'goalDeletedSuccessfully': 'Goal deleted successfully!',
+      'noGoalsYet': 'No goals yet',
+      'createGoalGetStarted': 'Create your first financial goal to get started!',
 
 
       //Add goal screen
@@ -215,7 +229,7 @@ class AppLocalizations {
       'pleaseEnterAValidAmount': 'Please enter a valid amount',
       'insufficientBalance': 'Insufficient balance',
       'selectTargetDate': 'Select target date (Optional)',
-      'pleaseEnterAnAmount': 'Please enter an amount',
+      'egEmergencyFund': 'e.g., Emergency Fund',
 
 
       // goal detail screen
@@ -299,6 +313,9 @@ class AppLocalizations {
       'budgetAmount': 'Budget Amount',
       'enterAmount': 'Please enter amount',
       'enterValidAmount': 'Please enter valid amount',
+      'notesThisBudget': 'Notes about this budget',
+      'egMonthlyExpenses': 'e.g., Monthly Expenses',
+      'egTravelingHolidaySeason': 'e.g., "Traveling this week" or "Holiday season"',
 
 
       //edit budget screen
@@ -455,6 +472,140 @@ class AppLocalizations {
       'unlockPremiumFeatures': 'Unlock all premium features',
       'about': 'About',
       'aboutFlowFinance': 'About Flow Finance',
+
+
+      //notification settings screen
+      'notificationsEnabled': 'Notifications enabled! 🔔',
+      'changeNotificationSettingsDes': 'To change notification settings, please go to your device settings.',
+      'openSettings': 'Open Settings',
+      'testNotification': 'Test Notification 🎉',
+      'testNotificationDes': 'This is a test notification from Flow Finance!',
+      'testNotificationMsg': 'Test notification sent! Check your notification tray.',
+      'resetToDefaults': 'Reset to Defaults?',
+      'enableAllNotificationTypes': 'This will enable all notification types. Are you sure?',
+      'notificationPreferencesReset': 'Notification preferences reset to defaults',
+      'failedToResetPreferences': 'Failed to reset preferences',
+      'reset': 'Reset',
+      'resetToDefaultsWQ': 'Reset to defaults',
+      'pushNotifications': 'Push Notifications',
+      'receiveUpdatesAboutFinances': 'Receive updates about your finances',
+      'sendTestNotification': 'Send Test Notification',
+      'customizeNotificationsReceive': 'Customize which notifications you want to receive',
+      'notificationTypes': 'Notification Types',
+      'progressUpdates': 'Progress Updates',
+      'notifiedMilestones': 'Notified at 25%, 50%, 75% milestones',
+      'milestoneReached': 'Milestone Reached',
+      'thousandSavedTowardsGoal': 'Every \$1,000 saved towards goal',
+      'deadlineApproaching': 'Deadline Approaching',
+      'reminders': 'Reminders at 14, 7, and 3 days before',
+      'goalAchieved': 'Goal Achieved',
+      'celebrate': 'Celebrate when you reach your target!',
+      'budgetStarted': 'Budget Started',
+      'whenNewBudgetBegins': 'When a new budget period begins',
+      'periodEndingSoon': 'Period Ending Soon',
+      'reminderBudgets': 'Reminder 3 days before period ends',
+      'budgetThreshold': 'Budget Threshold',
+      'alertBudget': 'Alert when 80% of budget is spent',
+      'whenOverBudgetLimit': 'When you go over your budget limit',
+      'autoCreatedBudget': 'Auto-Created Budget',
+      'budgetCreatedAutomatically': 'New budget created automatically',
+      'budgetNowActive': 'Budget Now Active',
+      'whenBudgetBecomesActive': 'When an upcoming budget becomes active',
+      'largeTransaction': 'Large Transaction',
+      'alertsLargeExpenses': 'Alerts for unusually large expenses',
+      'unusualSpending': 'Unusual Spending',
+      'whenSpendingPatternsChange': 'When spending patterns change',
+      'paymentReminders': 'Payment Reminders',
+      'upcomingPayments': 'Upcoming recurring payments',
+      'recurringCreated': 'Recurring Created',
+      'recurringEnded': 'Recurring Ended',
+      'whenRecurringEnds': 'When recurring series ends',
+      'recurringDisabled': 'Recurring Disabled',
+      'whenRecurrenceDisabled': 'When recurrence is disabled',
+      'whenRecurringTransactionsCreated': 'When recurring transactions are created',
+
+
+      //edit profile screen
+      'failedUpdateProfile': 'Failed to update profile',
+      'discardChanges': 'Discard Changes?',
+      'discardChangesAlert': 'You have unsaved changes. Are you sure you want to discard them?',
+      'keepEditing': 'Keep Editing',
+      'discard': 'Discard',
+      'tapIconChangeAvatar': 'Tap icon to change avatar',
+      'fullName': 'Full Name',
+      'enterFullName': 'Enter your full name',
+      'pleaseEnterName': 'Please enter your name',
+      'nameTwoCharacters': 'Name must be at least 2 characters',
+      'emailAddress': 'Email Address',
+      'emailCannotChanged':  'Email cannot be changed',
+      'haveUnsavedChanges': 'You have unsaved changes',
+
+
+      //currency settings screen
+      'currencySettings': 'Currency Settings',
+      'selectDefaultCurrency': 'Select Default Currency',
+      'preferredCurrency': 'Choose your preferred currency',
+      'eachCurrencyOwnBalance': 'You can add transactions in any currency. Each currency has its own balance.',
+
+
+      //change password screen
+      'passwordSixCharacters': 'Password must be at least 6 characters long',
+      'currentPassword': 'Current Password',
+      'enterCurrentPassword': 'Enter your current password',
+      'pleaseEnterCurrentPassword': 'Please enter your current password',
+      'newPassword': 'New Password',
+      'enterNewPassword': 'Enter your new password',
+      'pleaseEnterNewPassword': 'Please enter a new password',
+      'newPasswordDifferentCurrentPassword': 'New password must be different from current password',
+      'confirmNewPassword': 'Confirm New Password',
+      'confirmYourNewPassword': 'Confirm your new password',
+      'pleaseConfirmNewPassword': 'Please confirm your new password',
+      'passwordsNotMatch': 'Passwords do not match',
+
+
+      //outflow analytics screen
+      'yearly': 'Yearly',
+      'totalSpending': 'Total Spending',
+      'spendingByCategory': 'Spending by Category',
+      'noDataAvailable': 'No data available',
+      'addTransactionsSeeSpendingAnalytics': 'Add some transactions to see your spending analytics',
+      'byDayOfWeek': 'By Day of Week',
+      'byMonth': 'By Month',
+      'byYear': 'By Year',
+      'customPeriod': 'Custom Period',
+      'spendingDayOfWeek': 'Spending by Day of Week',
+      'spendingMonth': 'Spending by Month',
+      'spendingYear': 'Spending by Year',
+      'spendingOverTime': 'Spending Over Time',
+
+
+      //inflow analytics screen
+      'totalIncome': 'Total Income',
+      'addIncomeSeeAnalytics': 'Add some income transactions to see your analytics',
+      'incomeDayOfWeek': 'Income by Day of Week',
+      'incomeByMonth': 'Income by Month',
+      'incomeByYear': 'Income by Year',
+      'incomeOverTime': 'Income Over Time',
+
+
+
+      //subscription screen
+      'welcomeToPremium': 'Welcome to Premium!',
+      'accessAllPremiumFeatures': 'You now have access to all premium features.',
+      'getStarted': 'Get Started',
+      'premiumStatus': 'Premium Status',
+      'premiumActive': 'Premium Active',
+      'premiumFeatures': 'Premium Features',
+      'aiBudgetSuggestions': 'AI Budget Suggestions',
+      'aiBudgetSuggestionsDes': 'Get smart budget recommendations based on your spending patterns',
+      'voiceInputDes': 'Add transactions by simply speaking',
+      'receiptScanning': 'Receipt Scanning',
+      'receiptScanningDes': 'Scan receipts and auto-extract transaction details',
+      'aiFinancialAssistant': 'AI Financial Assistant',
+      'aiFinancialAssistantDes': 'Chat with AI for personalized financial advice',
+      'aiInsightsDes': 'Get deep insights into your spending habits',
+      'premiumPlan': 'Premium Plan',
+      'tryCancelAnytime': 'Try 30 days • Cancel anytime',
     },
     'my': {
       // Home Screen
@@ -541,7 +692,13 @@ class AppLocalizations {
       'annuallyDes': 'Repeats on a selected date of the year',
       'endDate': 'End Date (Optional)',
       'next5Occurrences': 'Next 5 Occurrences',
-      
+      'enterAmountBeforeConverting': 'Please enter amount first before converting',
+      'preview': 'Preview:',
+      'pleaseFillAllFields': 'Please fill all fields',
+      'pleaseEnterAmountFirst': 'Please enter amount first',
+      'pleaseEnterValidExchangeRate': 'Please enter a valid exchange rate',
+      'pleaseEnterValidAmount': 'Please enter a valid amount first',
+
       // Edit Transaction Screen
       'editTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းကို ပြင်ဆင်ပါ',
       'deleteTransactionTitle': 'ငွေသွင်းထုတ်မှတ်တမ်းကို ဖျက်ပါ',
@@ -562,7 +719,11 @@ class AppLocalizations {
       'errorTitle': 'အမှား',
       'errorLoadParentFailed': 'မူရင်းငွေသွင်းထုတ်မှတ်တမ်းကို တင်ဆောင်ရန် ပျက်ကွက်သည်:',
       'updateTransactionButton': 'ငွေသွင်းထုတ်မှတ်တမ်းကို အပ်ဒိတ်လုပ်ပါ',
-      
+      'selectCurrencyT': 'Select currency',
+      'recurringScheduleStopped': 'The recurring schedule for this transaction has been stopped.',
+      'recurringSettingsStopDes': 'Recurring settings are managed by the parent transaction. Use the button above to stop future auto-creation.',
+      'dismiss': 'DISMISS',
+
       // Image Input Screen
       'imageInputTitle': 'ပုံထည့်သွင်းခြင်း',
       'premiumFeatureTitle': 'ပရီမီယံ အင်္ဂါရပ်',
@@ -588,7 +749,7 @@ class AppLocalizations {
       'cameraListTileSubtitle': 'လက်ခံပုံ၏ ဓာတ်ပုံရိုက်ပါ',
       'galleryListTileTitle': 'ပြခန်း',
       'galleryListTileSubtitle': 'ပြခန်းမှ ရွေးချယ်ပါ',
-      
+
       // Voice Input Screen
       'voiceInputTitle': 'အသံထည့်သွင်းခြင်း', // Adjusted from 'Voice Input' in the code snippet to match title
       'premiumFeatureUpgradeDescVoice': 'အသံမှ ငွေသွင်းထုတ်မှုများရယူရန် အဆင့်မြှင့်တင်ပါ',
@@ -602,7 +763,7 @@ class AppLocalizations {
       'errorStopRecording': 'အသံဖမ်းရပ်တန့်ရန် ပျက်ကွက်သည်:',
       'analyzingTransactions': 'ငွေသွင်းထုတ်မှုများကို ခွဲခြမ်းစိတ်ဖြာနေသည်...',
       'success_save_transactions': '%d ငွေသွင်းထုတ်မှတ်တမ်း(များ)ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ', // Placeholder for count
-      
+
       // Transactions List Screen
       'allTransactionsTitle': 'အားလုံးသော ငွေသွင်းထုတ်မှတ်တမ်းများ',
       'filtersSectionTitle': 'စစ်ထုတ်မှုများ',
@@ -616,6 +777,7 @@ class AppLocalizations {
       'clearAllFiltersButton': 'စစ်ထုတ်မှုများအားလုံးကို ရှင်းလင်းပါ',
       'clearDateFilterTooltip': 'ရက်စွဲ စစ်ထုတ်မှုကို ရှင်းလင်းပါ',
       'addTransactionFabTooltip': 'ငွေသွင်းထုတ်မှတ်တမ်းအသစ်ထည့်ရန်',
+      'currencyFilter': 'Currency Filter',
 
 
       //Goals screen
@@ -629,6 +791,10 @@ class AppLocalizations {
       'forGoals': 'for goals',
       'availableForGoals': 'Available for Goals',
       'selected': 'Selected',
+      'goalCreatedSuccessfully': 'Goal created successfully!',
+      'goalDeletedSuccessfully': 'Goal deleted successfully!',
+      'noGoalsYet': 'No goals yet',
+      'createGoalGetStarted': 'Create your first financial goal to get started!',
 
 
 
@@ -646,7 +812,7 @@ class AppLocalizations {
       'pleaseEnterAValidAmount': 'Please enter a valid amount',
       'insufficientBalance': 'Insufficient balance',
       'selectTargetDate': 'Select target date',
-      'pleaseEnterAnAmount': 'Please enter an amount',
+      'egEmergencyFund': 'e.g., Emergency Fund',
 
 
       // goal detail screen
@@ -731,6 +897,9 @@ class AppLocalizations {
       'budgetAmount': 'Budget Amount',
       'enterAmount': 'Please enter amount',
       'enterValidAmount': 'Please enter valid amount',
+      'notesThisBudget': 'Notes about this budget',
+      'egMonthlyExpenses': 'e.g., Monthly Expenses',
+      'egTravelingHolidaySeason': 'e.g., "Traveling this week" or "Holiday season"',
 
 
       //edit budget screen
@@ -887,13 +1056,148 @@ class AppLocalizations {
       'unlockPremiumFeatures': 'Unlock all premium features',
       'about': 'About',
       'aboutFlowFinance': 'About Flow Finance',
+
+
+      //notification settings screen
+      'notificationsEnabled': 'Notifications enabled! 🔔',
+      'changeNotificationSettingsDes': 'To change notification settings, please go to your device settings.',
+      'openSettings': 'Open Settings',
+      'testNotification': 'Test Notification 🎉',
+      'testNotificationDes': 'This is a test notification from Flow Finance!',
+      'testNotificationMsg': 'Test notification sent! Check your notification tray.',
+      'resetToDefaults': 'Reset to Defaults?',
+      'enableAllNotificationTypes': 'This will enable all notification types. Are you sure?',
+      'notificationPreferencesReset': 'Notification preferences reset to defaults',
+      'failedToResetPreferences': 'Failed to reset preferences',
+      'reset': 'Reset',
+      'resetToDefaultsWQ': 'Reset to defaults',
+      'pushNotifications': 'Push Notifications',
+      'receiveUpdatesAboutFinances': 'Receive updates about your finances',
+      'sendTestNotification': 'Send Test Notification',
+      'customizeNotificationsReceive': 'Customize which notifications you want to receive',
+      'notificationTypes': 'Notification Types',
+      'progressUpdates': 'Progress Updates',
+      'notifiedMilestones': 'Notified at 25%, 50%, 75% milestones',
+      'milestoneReached': 'Milestone Reached',
+      'thousandSavedTowardsGoal': 'Every \$1,000 saved towards goal',
+      'deadlineApproaching': 'Deadline Approaching',
+      'reminders': 'Reminders at 14, 7, and 3 days before',
+      'goalAchieved': 'Goal Achieved',
+      'celebrate': 'Celebrate when you reach your target!',
+      'budgetStarted': 'Budget Started',
+      'whenNewBudgetBegins': 'When a new budget period begins',
+      'periodEndingSoon': 'Period Ending Soon',
+      'reminderBudgets': 'Reminder 3 days before period ends',
+      'budgetThreshold': 'Budget Threshold',
+      'alertBudget': 'Alert when 80% of budget is spent',
+      'whenOverBudgetLimit': 'When you go over your budget limit',
+      'autoCreatedBudget': 'Auto-Created Budget',
+      'budgetCreatedAutomatically': 'New budget created automatically',
+      'budgetNowActive': 'Budget Now Active',
+      'whenBudgetBecomesActive': 'When an upcoming budget becomes active',
+      'largeTransaction': 'Large Transaction',
+      'alertsLargeExpenses': 'Alerts for unusually large expenses',
+      'unusualSpending': 'Unusual Spending',
+      'whenSpendingPatternsChange': 'When spending patterns change',
+      'paymentReminders': 'Payment Reminders',
+      'upcomingPayments': 'Upcoming recurring payments',
+      'recurringCreated': 'Recurring Created',
+      'recurringEnded': 'Recurring Ended',
+      'whenRecurringEnds': 'When recurring series ends',
+      'recurringDisabled': 'Recurring Disabled',
+      'whenRecurrenceDisabled': 'When recurrence is disabled',
+      'whenRecurringTransactionsCreated': 'When recurring transactions are created',
+
+
+      //edit profile screen
+      'failedUpdateProfile': 'Failed to update profile',
+      'discardChanges': 'Discard Changes?',
+      'discardChangesAlert': 'You have unsaved changes. Are you sure you want to discard them?',
+      'keepEditing': 'Keep Editing',
+      'discard': 'Discard',
+      'tapIconChangeAvatar': 'Tap icon to change avatar',
+      'fullName': 'Full Name',
+      'enterFullName': 'Enter your full name',
+      'pleaseEnterName': 'Please enter your name',
+      'nameTwoCharacters': 'Name must be at least 2 characters',
+      'emailAddress': 'Email Address',
+      'emailCannotChanged':  'Email cannot be changed',
+      'haveUnsavedChanges': 'You have unsaved changes',
+
+
+
+      //currency settings screen
+      'currencySettings': 'Currency Settings',
+      'selectDefaultCurrency': 'Select Default Currency',
+      'preferredCurrency': 'Choose your preferred currency',
+      'eachCurrencyOwnBalance': 'You can add transactions in any currency. Each currency has its own balance.',
+
+
+      //change password screen
+      'passwordSixCharacters': 'Password must be at least 6 characters long',
+      'currentPassword': 'Current Password',
+      'enterCurrentPassword': 'Enter your current password',
+      'pleaseEnterCurrentPassword': 'Please enter your current password',
+      'newPassword': 'New Password',
+      'enterNewPassword': 'Enter your new password',
+      'pleaseEnterNewPassword': 'Please enter a new password',
+      'newPasswordDifferentCurrentPassword': 'New password must be different from current password',
+      'confirmNewPassword': 'Confirm New Password',
+      'confirmYourNewPassword': 'Confirm your new password',
+      'pleaseConfirmNewPassword': 'Please confirm your new password',
+      'passwordsNotMatch': 'Passwords do not match',
+
+
+
+      //outflow analytics screen
+      'yearly': 'Yearly',
+      'totalSpending': 'Total Spending',
+      'spendingByCategory': 'Spending by Category',
+      'noDataAvailable': 'No data available',
+      'addTransactionsSeeSpendingAnalytics': 'Add some transactions to see your spending analytics',
+      'byDayOfWeek': 'By Day of Week',
+      'byMonth': 'By Month',
+      'byYear': 'By Year',
+      'customPeriod': 'Custom Period',
+      'spendingDayOfWeek': 'Spending by Day of Week',
+      'spendingMonth': 'Spending by Month',
+      'spendingYear': 'Spending by Year',
+      'spendingOverTime': 'Spending Over Time',
+
+
+      //inflow analytics screen
+      'totalIncome': 'Total Income',
+      'addIncomeSeeAnalytics': 'Add some income transactions to see your analytics',
+      'incomeDayOfWeek': 'Income by Day of Week',
+      'incomeByMonth': 'Income by Month',
+      'incomeByYear': 'Income by Year',
+      'incomeOverTime': 'Income Over Time',
+
+
+      //subscription screen
+      'welcomeToPremium': 'Welcome to Premium!',
+      'accessAllPremiumFeatures': 'You now have access to all premium features.',
+      'getStarted': 'Get Started',
+      'premiumStatus': 'Premium Status',
+      'premiumActive': 'Premium Active',
+      'premiumFeatures': 'Premium Features',
+      'aiBudgetSuggestions': 'AI Budget Suggestions',
+      'aiBudgetSuggestionsDes': 'Get smart budget recommendations based on your spending patterns',
+      'voiceInputDes': 'Add transactions by simply speaking',
+      'receiptScanning': 'Receipt Scanning',
+      'receiptScanningDes': 'Scan receipts and auto-extract transaction details',
+      'aiFinancialAssistant': 'AI Financial Assistant',
+      'aiFinancialAssistantDes': 'Chat with AI for personalized financial advice',
+      'aiInsightsDes': 'Get deep insights into your spending habits',
+      'premiumPlan': 'Premium Plan',
+      'tryCancelAnytime': 'Try 30 days • Cancel anytime',
     },
   };
-  
+
   String translate(String key) {
     return _localizedValues[locale.languageCode]?[key] ?? key;
   }
-  
+
   String get welcomeBack => translate('welcomeBack');
   String get totalBalance => translate('totalBalance');
   String get available => translate('available');
@@ -945,7 +1249,7 @@ class AppLocalizations {
   String get addTransactionTitle => translate('addTransactionTitle');
   String get amountLabel => translate('amountLabel');
   String get currency => translate('currency');
-  String get convertCurrency => translate('Convert Currency');
+  String get convertCurrency => translate('convertCurrency');
   String get current => translate('current');
   String get selectTargetCurrency => translate('selectTargetCurrency');
   String get convertTo => translate('convertTo');
@@ -978,6 +1282,12 @@ class AppLocalizations {
   String get annuallyDes => translate('annuallyDes');
   String get endDate => translate('endDate');
   String get next5Occurrences => translate('next5Occurrences');
+  String get enterAmountBeforeConverting => translate('enterAmountBeforeConverting');
+  String get preview => translate('preview');
+  String get pleaseFillAllFields => translate('pleaseFillAllFields');
+  String get pleaseEnterAmountFirst => translate('pleaseEnterAmountFirst');
+  String get pleaseEnterValidExchangeRate => translate('pleaseEnterValidExchangeRate');
+  String get pleaseEnterValidAmount => translate('pleaseEnterValidAmount');
 
 
 
@@ -1003,6 +1313,11 @@ class AppLocalizations {
   String get errorTitle => translate('errorTitle');
   String get errorLoadParentFailed => translate('errorLoadParentFailed');
   String get updateTransactionButton => translate('updateTransactionButton');
+  String get selectCurrencyT => translate('selectCurrencyT');
+  String get recurringScheduleStopped => translate('recurringScheduleStopped');
+  String get recurringSettingsStopDes => translate('recurringSettingsStopDes');
+  String get dismiss => translate('dismiss');
+
 
   // Image Input Screen Getters
   String get imageInputTitle => translate('imageInputTitle');
@@ -1054,6 +1369,7 @@ class AppLocalizations {
   String get clearAllFiltersButton => translate('clearAllFiltersButton');
   String get clearDateFilterTooltip => translate('clearDateFilterTooltip');
   String get addTransactionFabTooltip => translate('addTransactionFabTooltip');
+  String get currencyFilter => translate('currencyFilter');
 
 
   //Goals screen getters
@@ -1067,6 +1383,12 @@ class AppLocalizations {
   String get forGoals => translate('forGoals');
   String get availableForGoals => translate('availableForGoals');
   String get selected => translate('Selected');
+  String get goalCreatedSuccessfully => translate('goalCreatedSuccessfully');
+  String get goalDeletedSuccessfully => translate('goalDeletedSuccessfully');
+  String get noGoalsYet => translate('noGoalsYet');
+  String get createGoalGetStarted => translate('createGoalGetStarted');
+
+
 
 
   //Add goal screen getters
@@ -1083,7 +1405,8 @@ class AppLocalizations {
   String get pleaseEnterAValidAmount => translate('pleaseEnterAValidAmount');
   String get insufficientBalance => translate('insufficientBalance');
   String get selectTargetDate => translate('selectTargetDate');
-  String get pleaseEnterAnAmount => translate('pleaseEnterAnAmount');
+  String get egEmergencyFund => translate('egEmergencyFund');
+
 
   //Goal detail screen getters
   String get fundsAddedSuccessfully => translate('fundsAddedSuccessfully');
@@ -1168,6 +1491,11 @@ class AppLocalizations {
   String get budgetAmount => translate('budgetAmount');
   String get enterAmount => translate('enterAmount');
   String get enterValidAmount => translate('enterValidAmount');
+  String get notesThisBudget => translate('notesThisBudget');
+  String get egMonthlyExpenses => translate('egMonthlyExpenses');
+  String get egTravelingHolidaySeason => translate('egTravelingHolidaySeason');
+
+
 
 
   //edit budget screen getters
@@ -1328,21 +1656,161 @@ class AppLocalizations {
   String get about => translate('about');
   String get aboutFlowFinance => translate('aboutFlowFinance');
 
+
+
+  //notification settings screen getters
+  String get notificationsEnabled => translate('notificationsEnabled');
+  String get changeNotificationSettingsDes => translate('changeNotificationSettingsDes');
+  String get openSettings => translate('openSettings');
+  String get testNotification => translate('testNotification');
+  String get testNotificationDes => translate('testNotificationDes');
+  String get testNotificationMsg => translate('testNotificationMsg');
+  String get resetToDefaults => translate('resetToDefaults');
+  String get enableAllNotificationTypes => translate('enableAllNotificationTypes');
+  String get notificationPreferencesReset => translate('notificationPreferencesReset');
+  String get failedToResetPreferences => translate('failedToResetPreferences');
+  String get reset => translate('reset');
+  String get resetToDefaultsWQ => translate('resetToDefaultsWQ');
+  String get pushNotifications => translate('pushNotifications');
+  String get receiveUpdatesAboutFinances => translate('receiveUpdatesAboutFinances');
+  String get sendTestNotification => translate('sendTestNotification');
+  String get customizeNotificationsReceive => translate('customizeNotificationsReceive');
+  String get notificationTypes => translate('notificationTypes');
+  String get progressUpdates => translate('progressUpdates');
+  String get notifiedMilestones => translate('notifiedMilestones');
+  String get milestoneReached => translate('milestoneReached');
+  String get thousandSavedTowardsGoal => translate('thousandSavedTowardsGoal');
+  String get deadlineApproaching => translate('deadlineApproaching');
+  String get reminders => translate('reminders');
+  String get goalAchieved => translate('goalAchieved');
+  String get celebrate => translate('celebrate');
+  String get budgetStarted => translate('budgetStarted');
+  String get whenNewBudgetBegins => translate('whenNewBudgetBegins');
+  String get periodEndingSoon => translate('periodEndingSoon');
+  String get reminderBudgets => translate('reminderBudgets');
+  String get budgetThreshold => translate('budgetThreshold');
+  String get alertBudget => translate('alertBudget');
+  String get whenOverBudgetLimit => translate('whenOverBudgetLimit');
+  String get autoCreatedBudget => translate('autoCreatedBudget');
+  String get budgetCreatedAutomatically => translate('budgetCreatedAutomatically');
+  String get budgetNowActive => translate('budgetNowActive');
+  String get whenBudgetBecomesActive => translate('whenBudgetBecomesActive');
+  String get largeTransaction => translate('largeTransaction');
+  String get alertsLargeExpenses => translate('alertsLargeExpenses');
+  String get unusualSpending => translate('unusualSpending');
+  String get whenSpendingPatternsChange => translate('whenSpendingPatternsChange');
+  String get paymentReminders => translate('paymentReminders');
+  String get upcomingPayments => translate('upcomingPayments');
+  String get recurringCreated => translate('recurringCreated');
+  String get recurringEnded => translate('recurringEnded');
+  String get whenRecurringEnds => translate('whenRecurringEnds');
+  String get recurringDisabled => translate('recurringDisabled');
+  String get whenRecurrenceDisabled => translate('whenRecurrenceDisabled');
+  String get whenRecurringTransactionsCreated => translate('whenRecurringTransactionsCreated');
+
+
+
+  //edit profile screen getters
+  String get failedUpdateProfile => translate('failedUpdateProfile');
+  String get discardChanges => translate('discardChanges');
+  String get discardChangesAlert => translate('discardChangesAlert');
+  String get keepEditing => translate('keepEditing');
+  String get discard => translate('discard');
+  String get tapIconChangeAvatar => translate('tapIconChangeAvatar');
+  String get fullName => translate('fullName');
+  String get enterFullName => translate('enterFullName');
+  String get pleaseEnterName => translate('pleaseEnterName');
+  String get nameTwoCharacters => translate('nameTwoCharacters');
+  String get emailAddress => translate('emailAddress');
+  String get emailCannotChanged => translate('emailCannotChanged');
+  String get haveUnsavedChanges => translate('haveUnsavedChanges');
+
+
+
+  //currency settings screen getters
+  String get currencySettings => translate('currencySettings');
+  String get selectDefaultCurrency => translate('selectDefaultCurrency');
+  String get preferredCurrency => translate('preferredCurrency');
+  String get eachCurrencyOwnBalance => translate('eachCurrencyOwnBalance');
+
+
+
+  //change password screen getters
+  String get passwordSixCharacters => translate('passwordSixCharacters');
+  String get currentPassword => translate('currentPassword');
+  String get enterCurrentPassword => translate('enterCurrentPassword');
+  String get pleaseEnterCurrentPassword => translate('pleaseEnterCurrentPassword');
+  String get newPassword => translate('newPassword');
+  String get enterNewPassword => translate('enterNewPassword');
+  String get pleaseEnterNewPassword => translate('pleaseEnterNewPassword');
+  String get newPasswordDifferentCurrentPassword => translate('newPasswordDifferentCurrentPassword');
+  String get confirmNewPassword => translate('confirmNewPassword');
+  String get confirmYourNewPassword => translate('confirmYourNewPassword');
+  String get pleaseConfirmNewPassword => translate('pleaseConfirmNewPassword');
+  String get passwordsNotMatch => translate('passwordsNotMatch');
+
+
+
+  //outflow analytics screen getters
+  String get yearly => translate('yearly');
+  String get totalSpending => translate('totalSpending');
+  String get spendingByCategory => translate('spendingByCategory');
+  String get noDataAvailable => translate('noDataAvailable');
+  String get addTransactionsSeeSpendingAnalytics => translate('addTransactionsSeeSpendingAnalytics');
+  String get byDayOfWeek => translate('byDayOfWeek');
+  String get byMonth => translate('byMonth');
+  String get byYear => translate('byYear');
+  String get customPeriod => translate('customPeriod');
+  String get spendingDayOfWeek => translate('spendingDayOfWeek');
+  String get spendingMonth => translate('spendingMonth');
+  String get spendingYear => translate('spendingYear');
+  String get spendingOverTime => translate('spendingOverTime');
+
+
+
+  //inflow analytics screen getters
+  String get totalIncome => translate('totalIncome');
+  String get addIncomeSeeAnalytics => translate('addIncomeSeeAnalytics');
+  String get incomeDayOfWeek => translate('incomeDayOfWeek');
+  String get incomeByMonth => translate('incomeByMonth');
+  String get incomeByYear => translate('incomeByYear');
+  String get incomeOverTime => translate('incomeOverTim');
+
+
+
+  //subscription screen getters
+  String get welcomeToPremium => translate('welcomeToPremium');
+  String get accessAllPremiumFeatures => translate('accessAllPremiumFeatures');
+  String get getStarted => translate('getStarted');
+  String get premiumStatus => translate('premiumStatus');
+  String get premiumActive => translate('premiumActive');
+  String get premiumFeatures => translate('premiumFeatures');
+  String get aiBudgetSuggestions => translate('aiBudgetSuggestions');
+  String get aiBudgetSuggestionsDes => translate('aiBudgetSuggestionsDes');
+  String get voiceInputDes => translate('voiceInputDes');
+  String get receiptScanning => translate('receiptScanning');
+  String get receiptScanningDes => translate('receiptScanningDes');
+  String get aiFinancialAssistant => translate('aiFinancialAssistant');
+  String get aiFinancialAssistantDes => translate('aiFinancialAssistantDes');
+  String get aiInsightsDes => translate('aiInsightsDes');
+  String get premiumPlan => translate('premiumPlan');
+  String get tryCancelAnytime => translate('tryCancelAnytime');
+
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();
-  
+
   @override
   bool isSupported(Locale locale) {
     return ['en', 'my'].contains(locale.languageCode);
   }
-  
+
   @override
   Future<AppLocalizations> load(Locale locale) async {
     return AppLocalizations(locale);
   }
-  
+
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }

@@ -729,7 +729,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Color(0xFF667eea), // Primary color for FAB
         child: Icon(Icons.add, color: Colors.white, size: responsive.icon28),
         elevation: 8,
-        tooltip: 'Add New Transaction',
+        tooltip: localizations.addTransactionFabTooltip,
       ),
     );
   }
@@ -1491,6 +1491,7 @@ void _showSuccessSnackBar(String message) {
   // Show logout confirmation dialog
   void _showLogoutDialog(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1499,18 +1500,18 @@ void _showSuccessSnackBar(String message) {
             borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
           title: Text(
-            'Logout',
+            localizations.drawerLogout,
             style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
           ),
           content: Text(
-            'Are you sure you want to logout?',
+            localizations.dialogLogoutConfirm,
             style: GoogleFonts.poppins(),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context), // Close dialog
               child: Text(
-                'Cancel',
+                localizations.dialogCancel,
                 style: GoogleFonts.poppins(color: Colors.grey[600]),
               ),
             ),
@@ -1534,7 +1535,7 @@ void _showSuccessSnackBar(String message) {
                 ),
               ),
               child: Text(
-                'Logout',
+                localizations.drawerLogout,
                 style: GoogleFonts.poppins(color: Colors.white),
               ),
             ),

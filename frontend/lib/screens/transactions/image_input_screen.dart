@@ -552,7 +552,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   SizedBox(height: 16),
                                   _buildDataRow(localizations.dataLabelType, _extractedData!.type.name.toUpperCase()),
                                   _buildDataRow(localizations.dataLabelAmount, '${_extractedData!.currency.symbol}${_extractedData!.amount.toStringAsFixed(2)}'),
-                                  _buildDataRow('Currency', _extractedData!.currency.displayName),
+                                  _buildDataRow(localizations.currency, _extractedData!.currency.displayName),
                                   _buildDataRow(localizations.dataLabelCategory, '${_extractedData!.mainCategory} > ${_extractedData!.subCategory}'),
                                   _buildDataRow(localizations.dataLabelDate, DateFormat('yyyy-MM-dd').format(_extractedData!.date)),
                                   if (_extractedData!.description != null)

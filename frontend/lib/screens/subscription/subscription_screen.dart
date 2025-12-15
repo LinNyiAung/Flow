@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
+import '../../services/localization_service.dart';
+
 class SubscriptionScreen extends StatefulWidget {
   @override
   _SubscriptionScreenState createState() => _SubscriptionScreenState();
@@ -50,6 +52,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   void _showSuccessDialog() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -70,7 +73,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ),
             SizedBox(height: responsive.sp24),
             Text(
-              'Welcome to Premium!',
+              localizations.welcomeToPremium,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs24,
                 fontWeight: FontWeight.bold,
@@ -78,7 +81,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ),
             SizedBox(height: responsive.sp12),
             Text(
-              'You now have access to all premium features.',
+              localizations.accessAllPremiumFeatures,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[600],
@@ -101,7 +104,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
             ),
             child: Text(
-              'Get Started',
+              localizations.getStarted,
               style: GoogleFonts.poppins(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -116,6 +119,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -160,7 +164,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         ),
                         SizedBox(width: responsive.sp16),
                         Text(
-                          isPremium ? 'Premium Status' : 'Upgrade to Premium',
+                          isPremium ? localizations.premiumStatus : localizations.upgradeToPremium,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs24,
                             fontWeight: FontWeight.bold,
@@ -199,7 +203,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                   Icon(Icons.star, color: Colors.white, size: responsive.iconSize(mobile: 48)),
                                   SizedBox(height: responsive.sp16),
                                   Text(
-                                    'Premium Active',
+                                    localizations.premiumActive,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs24,
                                       fontWeight: FontWeight.bold,
@@ -224,7 +228,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
                           // Premium Features
                           Text(
-                            'Premium Features',
+                            localizations.premiumFeatures,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs20,
                               fontWeight: FontWeight.bold,
@@ -235,32 +239,32 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
                           _buildFeatureCard(
                             icon: Icons.auto_awesome,
-                            title: 'AI Budget Suggestions',
-                            description: 'Get smart budget recommendations based on your spending patterns',
+                            title: localizations.aiBudgetSuggestions,
+                            description: localizations.aiBudgetSuggestionsDes,
                             gradient: [Color(0xFF667eea), Color(0xFF764ba2)],
                           ),
                           _buildFeatureCard(
                             icon: Icons.mic,
-                            title: 'Voice Input',
-                            description: 'Add transactions by simply speaking',
+                            title: localizations.voiceInput,
+                            description: localizations.voiceInputDes,
                             gradient: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
                           ),
                           _buildFeatureCard(
                             icon: Icons.photo_camera,
-                            title: 'Receipt Scanning',
-                            description: 'Scan receipts and auto-extract transaction details',
+                            title: localizations.receiptScanning,
+                            description: localizations.receiptScanningDes,
                             gradient: [Color(0xFFFF9800), Color(0xFFF57C00)],
                           ),
                           _buildFeatureCard(
                             icon: Icons.smart_toy,
-                            title: 'AI Financial Assistant',
-                            description: 'Chat with AI for personalized financial advice',
+                            title: localizations.aiFinancialAssistant,
+                            description: localizations.aiFinancialAssistantDes,
                             gradient: [Color(0xFF2196F3), Color(0xFF1976D2)],
                           ),
                           _buildFeatureCard(
                             icon: Icons.lightbulb,
-                            title: 'AI Insights',
-                            description: 'Get deep insights into your spending habits',
+                            title: localizations.aiInsights,
+                            description: localizations.aiInsightsDes,
                             gradient: [Color(0xFFFFB74D), Color(0xFFFF9800)],
                           ),
                           
@@ -290,7 +294,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                               child: Column(
                                 children: [
                                   Text(
-                                    'Premium Plan',
+                                    localizations.premiumPlan,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs24,
                                       fontWeight: FontWeight.bold,
@@ -363,7 +367,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                   ),
                                   SizedBox(height: responsive.sp12),
                                   Text(
-                                    'Try 30 days • Cancel anytime',
+                                    localizations.tryCancelAnytime,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs12,
                                       color: Colors.grey[600],

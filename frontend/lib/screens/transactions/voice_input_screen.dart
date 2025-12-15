@@ -594,23 +594,23 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 SizedBox(height: 12),
                                 _buildDetailRow(
                                   Icons.attach_money,
-                                  'Currency',
+                                  localizations.currency,
                                   transaction.currency.displayName,
                                 ),
                                 _buildDetailRow(
                                   Icons.category,
-                                  'Category',
+                                  localizations.categoryLabel,
                                   '${transaction.mainCategory} > ${transaction.subCategory}',
                                 ),
                                 _buildDetailRow(
                                   Icons.calendar_today,
-                                  'Date',
+                                  localizations.dataLabelDate,
                                   DateFormat('yyyy-MM-dd').format(transaction.date),
                                 ),
                                 if (transaction.description != null)
                                   _buildDetailRow(
                                     Icons.notes,
-                                    'Description',
+                                    localizations.dataLabelDescription,
                                     transaction.description!,
                                   ),
                                 SizedBox(height: 8),

@@ -305,7 +305,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                             ),
                                             SizedBox(width: responsive.sp8),
                                             Text(
-                                              'Outflow',
+                                              localizations.outflow,
                                               style: GoogleFonts.poppins(
                                                 color: _selectedType == TransactionType.outflow
                                                     ? Colors.white
@@ -351,7 +351,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                             ),
                                             SizedBox(width: responsive.sp8),
                                             Text(
-                                              'Inflow',
+                                              localizations.inflow,
                                               style: GoogleFonts.poppins(
                                                 color: _selectedType == TransactionType.inflow
                                                     ? Colors.white
@@ -370,7 +370,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             SizedBox(height: 24),
                             // ADD CURRENCY SELECTOR HERE
                           Text(
-                            'Currency',
+                            localizations.currency,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,
@@ -392,7 +392,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                             ),
                             child: DropdownButtonFormField<Currency>(
                               decoration: InputDecoration(
-                                hintText: 'Select currency',
+                                hintText: localizations.selectCurrencyT,
                                 border: InputBorder.none,
                                 contentPadding: responsive.padding(all: 20),
                                 
@@ -414,7 +414,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               },
                               validator: (value) {
                                 if (value == null) {
-                                  return 'Please select a currency';
+                                  return localizations.pleaseSelectCurrency;
                                 }
                                 return null;
                               },
@@ -428,7 +428,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                               onPressed: () => _showCurrencyConversionDialog(),
                               icon: Icon(Icons.currency_exchange, size: responsive.icon18),
                               label: Text(
-                                'Convert Currency',
+                                localizations.convertCurrency,
                                 style: GoogleFonts.poppins(fontSize: 14),
                               ),
                               style: OutlinedButton.styleFrom(
@@ -445,7 +445,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
 
                             // Amount Field
                             Text(
-                              'Amount',
+                              localizations.amountLabel,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
@@ -489,15 +489,15 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                 // Validation for the amount field
                                 validator: (value) {
                                   if (value == null || value.isEmpty) {
-                                    return 'Please enter an amount';
+                                    return localizations.validationAmountRequired;
                                   }
                                   // Check if it's a valid number
                                   if (double.tryParse(value) == null) {
-                                    return 'Please enter a valid amount';
+                                    return localizations.pleaseEnterAValidAmount;
                                   }
                                   // Check if amount is positive
                                   if (double.parse(value) <= 0) {
-                                    return 'Amount must be greater than 0';
+                                    return localizations.validationAmountPositive;
                                   }
                                   return null; // Return null if validation passes
                                 },
@@ -507,7 +507,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
 
                             // Date Field
                             Text(
-                              'Date',
+                              localizations.dataLabelDate,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
@@ -554,7 +554,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
 
                             // Main Category Field
                             Text(
-                              'Category',
+                              localizations.dataLabelCategory,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
@@ -582,7 +582,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                     )
                                   : DropdownButtonFormField<String>(
                                       decoration: InputDecoration(
-                                        hintText: 'Select main category',
+                                        hintText: localizations.selectMainCategoryHint,
                                         border: InputBorder.none,
                                         contentPadding: responsive.padding(all: 20),
                                         prefixIcon: Icon(Icons.category_outlined),
@@ -607,7 +607,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                       // Validation for main category
                                       validator: (value) {
                                         if (value == null || value.isEmpty) {
-                                          return 'Please select a main category';
+                                          return localizations.validationMainCategoryRequired;
                                         }
                                         return null;
                                       },
@@ -631,7 +631,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                 ),
                                 child: DropdownButtonFormField<String>(
                                   decoration: InputDecoration(
-                                    hintText: 'Select sub category',
+                                    hintText: localizations.selectSubCategoryHint,
                                     border: InputBorder.none,
                                     contentPadding: responsive.padding(all: 20),
                                     prefixIcon: Icon(Icons.list_outlined),
@@ -662,7 +662,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                   // Validation for sub category
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
-                                      return 'Please select a sub category';
+                                      return localizations.validationSubCategoryRequired;
                                     }
                                     return null;
                                   },
@@ -673,7 +673,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
 
                             // Description Field (Optional)
                             Text(
-                              'Description (Optional)',
+                              localizations.descriptionLabel,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
@@ -697,7 +697,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                 controller: _descriptionController,
                                 maxLines: 3, // Allow multiple lines for description
                                 decoration: InputDecoration(
-                                  hintText: 'Add a note about this transaction...',
+                                  hintText: localizations.descriptionHint,
                                   border: InputBorder.none,
                                   contentPadding: responsive.padding(all: 20),
                                   prefixIcon: Padding( // Icon padding for alignment
@@ -852,7 +852,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                                   SizedBox(width: responsive.sp8),
                                                   Expanded(
                                                     child: Text(
-                                                      'The recurring schedule for this transaction has been stopped.',
+                                                      localizations.recurringScheduleStopped,
                                                       style: GoogleFonts.poppins(
                                                         fontSize: responsive.fs11,
                                                         color: Colors.grey[700],
@@ -898,7 +898,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
                                     SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
-                                        'Recurring settings are managed by the parent transaction. Use the button above to stop future auto-creation.',
+                                        localizations.recurringSettingsStopDes,
                                         style: GoogleFonts.poppins(
                                           fontSize: 12,
                                           color: Colors.grey[700],
@@ -1056,7 +1056,7 @@ void _showDisableRecurrenceDialog() {
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                'Cancel',
+                localizations.dialogCancel,
                 style: GoogleFonts.poppins(
                   color: Colors.grey[600],
                   fontWeight: FontWeight.w500,
@@ -1112,7 +1112,7 @@ void _showDisableRecurrenceDialog() {
                 SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Convert Currency',
+                    localizations.convertCurrency,
                     style: GoogleFonts.poppins(
                       fontWeight: FontWeight.bold,
                       fontSize: responsive.fs18,
@@ -1136,7 +1136,7 @@ void _showDisableRecurrenceDialog() {
                     child: Row(
                       children: [
                         Text(
-                          'Current: ',
+                          localizations.current,
                           style: GoogleFonts.poppins(
                             fontSize: 14,
                             color: Colors.grey[600],
@@ -1159,7 +1159,7 @@ void _showDisableRecurrenceDialog() {
 
                   // Target Currency Selector
                   Text(
-                    'Convert To:',
+                    localizations.convertTo,
                     style: GoogleFonts.poppins(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -1174,7 +1174,7 @@ void _showDisableRecurrenceDialog() {
                       ),
                       contentPadding: responsive.padding(horizontal: 12, vertical: 8),
                     ),
-                    hint: Text('Select target currency'),
+                    hint: Text(localizations.selectTargetCurrency),
                     value: _targetCurrency,
                     items: Currency.values
                         .where((c) => c != _selectedCurrency)
@@ -1197,7 +1197,7 @@ void _showDisableRecurrenceDialog() {
 
                   // Exchange Rate Input
                   Text(
-                    'Exchange Rate:',
+                    localizations.exchangeRate,
                     style: GoogleFonts.poppins(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -1236,7 +1236,7 @@ void _showDisableRecurrenceDialog() {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Preview:',
+                            localizations.preview,
                             style: GoogleFonts.poppins(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -1262,7 +1262,7 @@ void _showDisableRecurrenceDialog() {
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
                 child: Text(
-                  'Cancel',
+                  localizations.dialogCancel,
                   style: GoogleFonts.poppins(
                     color: Colors.grey[600],
                     fontWeight: FontWeight.w500,
@@ -1274,7 +1274,7 @@ void _showDisableRecurrenceDialog() {
                   if (_targetCurrency == null || _rateController.text.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Please fill all fields'),
+                        content: Text(localizations.pleaseFillAllFields),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -1285,7 +1285,7 @@ void _showDisableRecurrenceDialog() {
                   if (rate == null || rate <= 0) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Please enter a valid exchange rate'),
+                        content: Text(localizations.pleaseEnterValidExchangeRate),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -1303,7 +1303,7 @@ void _showDisableRecurrenceDialog() {
                   padding: responsive.padding(horizontal: 16, vertical: 12),
                 ),
                 child: Text(
-                  'Convert',
+                  localizations.convert,
                   style: GoogleFonts.poppins(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
@@ -1321,12 +1321,13 @@ void _showDisableRecurrenceDialog() {
 
 void _convertCurrency(Currency targetCurrency, double exchangeRate) {
   final currentAmount = double.tryParse(_amountController.text);
+  final localizations = AppLocalizations.of(context);
   final responsive = ResponsiveHelper(context);
   if (currentAmount == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Please enter a valid amount first',
+          localizations.pleaseEnterValidAmount,
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Colors.red,
@@ -1562,7 +1563,7 @@ void _disableParentRecurrence() async {
             margin: responsive.padding(all: 16),
             elevation: 6,
             action: SnackBarAction(
-              label: 'DISMISS',
+              label: localizations.dismiss,
               textColor: Colors.white,
               onPressed: () {
                 ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -1696,7 +1697,7 @@ void _updateTransaction() async {
             TextButton(
               onPressed: () => Navigator.pop(context), // Close the dialog
               child: Text(
-                'Cancel',
+                localizations.dialogCancel,
                 style: GoogleFonts.poppins(
                   color: Colors.grey[600],
                 ),
@@ -1715,7 +1716,7 @@ void _updateTransaction() async {
                 ),
               ),
               child: Text(
-                'Delete',
+                localizations.delete,
                 style: GoogleFonts.poppins(
                   color: Colors.white,
                 ),

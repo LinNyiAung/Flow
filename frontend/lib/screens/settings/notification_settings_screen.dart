@@ -4,6 +4,7 @@ import 'package:frontend/models/notification_preferences.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../services/localization_service.dart';
 import '../../services/notification_service.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -71,7 +72,7 @@ class _NotificationSettingsScreenState
       setState(() {
         _preferences = _updatePreferenceValue(key, !value);
       });
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -108,16 +109,17 @@ class _NotificationSettingsScreenState
 
   Future<void> _toggleNotifications(bool value) async {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     if (value) {
       final granted = await _notificationService.requestPermissions();
       if (granted) {
         setState(() => _notificationsEnabled = true);
         await _loadPreferences();
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Notifications enabled! 🔔',
+              localizations.notificationsEnabled,
               style: GoogleFonts.poppins(color: Colors.white),
             ),
             backgroundColor: Color(0xFF4CAF50),
@@ -136,6 +138,7 @@ class _NotificationSettingsScreenState
 
   void _showSettingsDialog() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -153,20 +156,20 @@ class _NotificationSettingsScreenState
             SizedBox(width: responsive.sp12),
             Expanded(
               child: Text(
-                'Notification Settings',
+                localizations.notificationSettings,
                 style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: responsive.fs18),
               ),
             ),
           ],
         ),
         content: Text(
-          'To change notification settings, please go to your device settings.',
+          localizations.changeNotificationSettingsDes,
           style: GoogleFonts.poppins(fontSize: responsive.fs14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.grey[600])),
+            child: Text(localizations.dialogCancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
           ),
           ElevatedButton(
             onPressed: () {
@@ -178,7 +181,7 @@ class _NotificationSettingsScreenState
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
               elevation: 0,
             ),
-            child: Text('Open Settings', style: GoogleFonts.poppins(color: Colors.white)),
+            child: Text(localizations.openSettings, style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
@@ -187,17 +190,18 @@ class _NotificationSettingsScreenState
 
   Future<void> _testNotification() async {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     await _notificationService.showNotification(
       id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title: 'Test Notification 🎉',
-      body: 'This is a test notification from Flow Finance!',
+      title: localizations.testNotification,
+      body: localizations.testNotificationDes,
       type: NotificationType.goal_progress,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Test notification sent! Check your notification tray.',
+          localizations.testNotificationMsg,
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Color(0xFF4CAF50),
@@ -209,22 +213,23 @@ class _NotificationSettingsScreenState
 
   Future<void> _resetToDefaults() async {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text(
-          'Reset to Defaults?',
+          localizations.resetToDefaults,
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
         content: Text(
-          'This will enable all notification types. Are you sure?',
+          localizations.enableAllNotificationTypes,
           style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.grey[600])),
+            child: Text(localizations.dialogCancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -232,11 +237,11 @@ class _NotificationSettingsScreenState
               try {
                 await ApiService.resetNotificationPreferences();
                 await _loadPreferences();
-                
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      'Notification preferences reset to defaults',
+                      localizations.notificationPreferencesReset,
                       style: GoogleFonts.poppins(color: Colors.white),
                     ),
                     backgroundColor: Color(0xFF4CAF50),
@@ -247,7 +252,7 @@ class _NotificationSettingsScreenState
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      'Failed to reset preferences',
+                      localizations.failedToResetPreferences,
                       style: GoogleFonts.poppins(color: Colors.white),
                     ),
                     backgroundColor: Colors.red,
@@ -260,7 +265,7 @@ class _NotificationSettingsScreenState
               backgroundColor: Color(0xFF667eea),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
             ),
-            child: Text('Reset', style: GoogleFonts.poppins(color: Colors.white)),
+            child: Text(localizations.reset, style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
@@ -270,10 +275,11 @@ class _NotificationSettingsScreenState
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Notification Settings',
+          localizations.notificationSettings,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -289,329 +295,329 @@ class _NotificationSettingsScreenState
             IconButton(
               icon: Icon(Icons.refresh, color: Color(0xFF667eea)),
               onPressed: _resetToDefaults,
-              tooltip: 'Reset to defaults',
+              tooltip: localizations.resetToDefaultsWQ,
             ),
         ],
       ),
       body: _isLoading
           ? Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-              ),
-            )
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+        ),
+      )
           : Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
+          ),
+        ),
+        child: ListView(
+          padding: responsive.padding(all: 20),
+          children: [
+            // Main Toggle Card
+            Container(
+              padding: responsive.padding(all: 20),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
-                ),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.1),
+                    spreadRadius: 2,
+                    blurRadius: 8,
+                  ),
+                ],
               ),
-              child: ListView(
-                padding: responsive.padding(all: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Main Toggle Card
-                  Container(
-                    padding: responsive.padding(all: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          spreadRadius: 2,
-                          blurRadius: 8,
+                  Row(
+                    children: [
+                      Container(
+                        padding: responsive.padding(all: 12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                          ),
+                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                        child: Icon(
+                          Icons.notifications_active,
+                          color: Colors.white,
+                          size: responsive.icon24,
+                        ),
+                      ),
+                      SizedBox(width: responsive.sp16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              padding: responsive.padding(all: 12),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                                ),
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                              ),
-                              child: Icon(
-                                Icons.notifications_active,
-                                color: Colors.white,
-                                size: responsive.icon24,
+                            Text(
+                              localizations.pushNotifications,
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF333333),
                               ),
                             ),
-                            SizedBox(width: responsive.sp16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Push Notifications',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF333333),
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    'Receive updates about your finances',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs13,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
+                            SizedBox(height: 2),
+                            Text(
+                              localizations.receiveUpdatesAboutFinances,
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs13,
+                                color: Colors.grey[600],
                               ),
-                            ),
-                            Switch(
-                              value: _notificationsEnabled,
-                              onChanged: _toggleNotifications,
-                              activeColor: Color(0xFF667eea),
                             ),
                           ],
                         ),
-                        
-                        if (_notificationsEnabled) ...[
-                          SizedBox(height: responsive.sp20),
-                          Divider(),
-                          SizedBox(height: responsive.sp20),
-                          
-                          // Test Notification Button
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: _testNotification,
-                              icon: Icon(Icons.send, size: responsive.icon18),
-                              label: Text('Send Test Notification'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Color(0xFF667eea),
-                                side: BorderSide(color: Color(0xFF667eea)),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                                ),
-                                padding: responsive.padding(vertical: 12),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+                      ),
+                      Switch(
+                        value: _notificationsEnabled,
+                        onChanged: _toggleNotifications,
+                        activeColor: Color(0xFF667eea),
+                      ),
+                    ],
                   ),
 
-                  if (_notificationsEnabled && _preferences != null) ...[
-                    SizedBox(height: responsive.sp24),
-                    
-                    // Info Card
-                    Container(
-                      padding: responsive.padding(all: 16),
-                      decoration: BoxDecoration(
-                        color: Color(0xFF2196F3).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                        border: Border.all(
-                          color: Color(0xFF2196F3).withOpacity(0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Color(0xFF2196F3), size: responsive.icon24),
-                          SizedBox(width: responsive.sp12),
-                          Expanded(
-                            child: Text(
-                              'Customize which notifications you want to receive',
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs13,
-                                color: Color(0xFF2196F3),
-                              ),
-                            ),
+                  if (_notificationsEnabled) ...[
+                    SizedBox(height: responsive.sp20),
+                    Divider(),
+                    SizedBox(height: responsive.sp20),
+
+                    // Test Notification Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _testNotification,
+                        icon: Icon(Icons.send, size: responsive.icon18),
+                        label: Text(localizations.sendTestNotification),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Color(0xFF667eea),
+                          side: BorderSide(color: Color(0xFF667eea)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                           ),
-                        ],
-                      ),
-                    ),
-
-                    SizedBox(height: responsive.sp24),
-
-                    // Notification Types Header
-                    Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 12),
-                      child: Text(
-                        'Notification Types',
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF333333),
+                          padding: responsive.padding(vertical: 12),
                         ),
                       ),
                     ),
-
-                    // Goal Notifications Section
-                    _buildNotificationSection(
-                      title: 'Goals',
-                      icon: Icons.flag,
-                      color: Color(0xFF4CAF50),
-                      notifications: [
-                        _NotificationToggleInfo(
-                          key: 'goal_progress',
-                          icon: Icons.trending_up,
-                          color: Color(0xFF4CAF50),
-                          title: 'Progress Updates',
-                          description: 'Notified at 25%, 50%, 75% milestones',
-                          value: _preferences!.goalProgress,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'goal_milestone',
-                          icon: Icons.star,
-                          color: Color(0xFFFF9800),
-                          title: 'Milestone Reached',
-                          description: 'Every \$1,000 saved towards goal',
-                          value: _preferences!.goalMilestone,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'goal_approaching_date',
-                          icon: Icons.event,
-                          color: Color(0xFF2196F3),
-                          title: 'Deadline Approaching',
-                          description: 'Reminders at 14, 7, and 3 days before',
-                          value: _preferences!.goalApproachingDate,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'goal_achieved',
-                          icon: Icons.emoji_events,
-                          color: Color(0xFFFFD700),
-                          title: 'Goal Achieved',
-                          description: 'Celebrate when you reach your target!',
-                          value: _preferences!.goalAchieved,
-                        ),
-                      ],
-                    ),
-
-                    SizedBox(height: responsive.sp16),
-
-                    // Budget Notifications Section
-                    _buildNotificationSection(
-                      title: 'Budgets',
-                      icon: Icons.account_balance_wallet,
-                      color: Color(0xFF667eea),
-                      notifications: [
-                        _NotificationToggleInfo(
-                          key: 'budget_started',
-                          icon: Icons.play_circle_filled,
-                          color: Color(0xFF4CAF50),
-                          title: 'Budget Started',
-                          description: 'When a new budget period begins',
-                          value: _preferences!.budgetStarted,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'budget_ending_soon',
-                          icon: Icons.access_time,
-                          color: Color(0xFFFF9800),
-                          title: 'Period Ending Soon',
-                          description: 'Reminder 3 days before period ends',
-                          value: _preferences!.budgetEndingSoon,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'budget_threshold',
-                          icon: Icons.warning_amber_rounded,
-                          color: Color(0xFFFF9800),
-                          title: 'Budget Threshold',
-                          description: 'Alert when 80% of budget is spent',
-                          value: _preferences!.budgetThreshold,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'budget_exceeded',
-                          icon: Icons.error,
-                          color: Color(0xFFFF5722),
-                          title: 'Budget Exceeded',
-                          description: 'When you go over your budget limit',
-                          value: _preferences!.budgetExceeded,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'budget_auto_created',
-                          icon: Icons.autorenew,
-                          color: Color(0xFF667eea),
-                          title: 'Auto-Created Budget',
-                          description: 'New budget created automatically',
-                          value: _preferences!.budgetAutoCreated,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'budget_now_active',
-                          icon: Icons.check_circle,
-                          color: Color(0xFF4CAF50),
-                          title: 'Budget Now Active',
-                          description: 'When an upcoming budget becomes active',
-                          value: _preferences!.budgetNowActive,
-                        ),
-                      ],
-                    ),
-
-                    SizedBox(height: responsive.sp16),
-
-                    // Transaction Notifications Section
-                    _buildNotificationSection(
-                      title: 'Transactions',
-                      icon: Icons.receipt_long,
-                      color: Color(0xFFFF6B6B),
-                      notifications: [
-                        _NotificationToggleInfo(
-                          key: 'large_transaction',
-                          icon: Icons.payments,
-                          color: Color(0xFFFF9800),
-                          title: 'Large Transaction',
-                          description: 'Alerts for unusually large expenses',
-                          value: _preferences!.largeTransaction,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'unusual_spending',
-                          icon: Icons.trending_up,
-                          color: Color(0xFFFF5722),
-                          title: 'Unusual Spending',
-                          description: 'When spending patterns change',
-                          value: _preferences!.unusualSpending,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'payment_reminder',
-                          icon: Icons.notifications_active,
-                          color: Color(0xFF2196F3),
-                          title: 'Payment Reminders',
-                          description: 'Upcoming recurring payments',
-                          value: _preferences!.paymentReminder,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'recurring_transaction_created',
-                          icon: Icons.repeat,
-                          color: Color(0xFF4CAF50),
-                          title: 'Recurring Created',
-                          description: 'When recurring transactions are created',
-                          value: _preferences!.recurringTransactionCreated,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'recurring_transaction_ended',
-                          icon: Icons.repeat_one,
-                          color: Color(0xFF9E9E9E),
-                          title: 'Recurring Ended',
-                          description: 'When recurring series ends',
-                          value: _preferences!.recurringTransactionEnded,
-                        ),
-                        _NotificationToggleInfo(
-                          key: 'recurring_transaction_disabled',
-                          icon: Icons.repeat_on_rounded,
-                          color: Color(0xFFFF9800),
-                          title: 'Recurring Disabled',
-                          description: 'When recurrence is disabled',
-                          value: _preferences!.recurringTransactionDisabled,
-                        ),
-                      ],
-                    ),
-
-                    SizedBox(height: responsive.sp32),
                   ],
                 ],
               ),
             ),
+
+            if (_notificationsEnabled && _preferences != null) ...[
+              SizedBox(height: responsive.sp24),
+
+              // Info Card
+              Container(
+                padding: responsive.padding(all: 16),
+                decoration: BoxDecoration(
+                  color: Color(0xFF2196F3).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                  border: Border.all(
+                    color: Color(0xFF2196F3).withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Color(0xFF2196F3), size: responsive.icon24),
+                    SizedBox(width: responsive.sp12),
+                    Expanded(
+                      child: Text(
+                        localizations.customizeNotificationsReceive,
+                        style: GoogleFonts.poppins(
+                          fontSize: responsive.fs13,
+                          color: Color(0xFF2196F3),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: responsive.sp24),
+
+              // Notification Types Header
+              Padding(
+                padding: EdgeInsets.only(left: 4, bottom: 12),
+                child: Text(
+                  localizations.notificationTypes,
+                  style: GoogleFonts.poppins(
+                    fontSize: responsive.fs18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+              ),
+
+              // Goal Notifications Section
+              _buildNotificationSection(
+                title: localizations.goals,
+                icon: Icons.flag,
+                color: Color(0xFF4CAF50),
+                notifications: [
+                  _NotificationToggleInfo(
+                    key: 'goal_progress',
+                    icon: Icons.trending_up,
+                    color: Color(0xFF4CAF50),
+                    title: localizations.progressUpdates,
+                    description: localizations.notifiedMilestones,
+                    value: _preferences!.goalProgress,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'goal_milestone',
+                    icon: Icons.star,
+                    color: Color(0xFFFF9800),
+                    title: localizations.milestoneReached,
+                    description: localizations.thousandSavedTowardsGoal,
+                    value: _preferences!.goalMilestone,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'goal_approaching_date',
+                    icon: Icons.event,
+                    color: Color(0xFF2196F3),
+                    title: localizations.deadlineApproaching,
+                    description: localizations.reminders,
+                    value: _preferences!.goalApproachingDate,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'goal_achieved',
+                    icon: Icons.emoji_events,
+                    color: Color(0xFFFFD700),
+                    title: localizations.goalAchieved,
+                    description: localizations.celebrate,
+                    value: _preferences!.goalAchieved,
+                  ),
+                ],
+              ),
+
+              SizedBox(height: responsive.sp16),
+
+              // Budget Notifications Section
+              _buildNotificationSection(
+                title: localizations.budgets,
+                icon: Icons.account_balance_wallet,
+                color: Color(0xFF667eea),
+                notifications: [
+                  _NotificationToggleInfo(
+                    key: 'budget_started',
+                    icon: Icons.play_circle_filled,
+                    color: Color(0xFF4CAF50),
+                    title: localizations.budgetStarted,
+                    description: localizations.whenNewBudgetBegins,
+                    value: _preferences!.budgetStarted,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'budget_ending_soon',
+                    icon: Icons.access_time,
+                    color: Color(0xFFFF9800),
+                    title: localizations.periodEndingSoon,
+                    description: localizations.reminderBudgets,
+                    value: _preferences!.budgetEndingSoon,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'budget_threshold',
+                    icon: Icons.warning_amber_rounded,
+                    color: Color(0xFFFF9800),
+                    title: localizations.budgetThreshold,
+                    description: localizations.alertBudget,
+                    value: _preferences!.budgetThreshold,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'budget_exceeded',
+                    icon: Icons.error,
+                    color: Color(0xFFFF5722),
+                    title: localizations.budgetExceeded,
+                    description: localizations.whenOverBudgetLimit,
+                    value: _preferences!.budgetExceeded,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'budget_auto_created',
+                    icon: Icons.autorenew,
+                    color: Color(0xFF667eea),
+                    title: localizations.autoCreatedBudget,
+                    description: localizations.budgetCreatedAutomatically,
+                    value: _preferences!.budgetAutoCreated,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'budget_now_active',
+                    icon: Icons.check_circle,
+                    color: Color(0xFF4CAF50),
+                    title: localizations.budgetNowActive,
+                    description: localizations.whenBudgetBecomesActive,
+                    value: _preferences!.budgetNowActive,
+                  ),
+                ],
+              ),
+
+              SizedBox(height: responsive.sp16),
+
+              // Transaction Notifications Section
+              _buildNotificationSection(
+                title: localizations.transactions,
+                icon: Icons.receipt_long,
+                color: Color(0xFFFF6B6B),
+                notifications: [
+                  _NotificationToggleInfo(
+                    key: 'large_transaction',
+                    icon: Icons.payments,
+                    color: Color(0xFFFF9800),
+                    title: localizations.largeTransaction,
+                    description: localizations.alertsLargeExpenses,
+                    value: _preferences!.largeTransaction,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'unusual_spending',
+                    icon: Icons.trending_up,
+                    color: Color(0xFFFF5722),
+                    title: localizations.unusualSpending,
+                    description: localizations.whenSpendingPatternsChange,
+                    value: _preferences!.unusualSpending,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'payment_reminder',
+                    icon: Icons.notifications_active,
+                    color: Color(0xFF2196F3),
+                    title: localizations.paymentReminders,
+                    description: localizations.upcomingPayments,
+                    value: _preferences!.paymentReminder,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'recurring_transaction_created',
+                    icon: Icons.repeat,
+                    color: Color(0xFF4CAF50),
+                    title: localizations.recurringCreated,
+                    description: localizations.whenRecurringTransactionsCreated,
+                    value: _preferences!.recurringTransactionCreated,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'recurring_transaction_ended',
+                    icon: Icons.repeat_one,
+                    color: Color(0xFF9E9E9E),
+                    title: localizations.recurringEnded,
+                    description: localizations.whenRecurringEnds,
+                    value: _preferences!.recurringTransactionEnded,
+                  ),
+                  _NotificationToggleInfo(
+                    key: 'recurring_transaction_disabled',
+                    icon: Icons.repeat_on_rounded,
+                    color: Color(0xFFFF9800),
+                    title: localizations.recurringDisabled,
+                    description: localizations.whenRecurrenceDisabled,
+                    value: _preferences!.recurringTransactionDisabled,
+                  ),
+                ],
+              ),
+
+              SizedBox(height: responsive.sp32),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -663,9 +669,9 @@ class _NotificationSettingsScreenState
           ),
           // Notification Items
           ...notifications.map((notif) => _buildNotificationToggleItem(
-                notif: notif,
-                isLast: notif == notifications.last,
-              )),
+            notif: notif,
+            isLast: notif == notifications.last,
+          )),
         ],
       ),
     );
@@ -682,11 +688,11 @@ class _NotificationSettingsScreenState
         border: isLast
             ? null
             : Border(
-                bottom: BorderSide(
-                  color: Colors.grey.withOpacity(0.1),
-                  width: 1,
-                ),
-              ),
+          bottom: BorderSide(
+            color: Colors.grey.withOpacity(0.1),
+            width: 1,
+          ),
+        ),
       ),
       child: Row(
         children: [

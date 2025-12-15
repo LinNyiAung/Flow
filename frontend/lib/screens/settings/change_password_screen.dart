@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
+import '../../services/localization_service.dart';
+
 class ChangePasswordScreen extends StatefulWidget {
   @override
   _ChangePasswordScreenState createState() => _ChangePasswordScreenState();
@@ -78,11 +80,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Change Password',
+          localizations.changePassword,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -157,7 +160,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Password must be at least 6 characters long',
+                        localizations.passwordSixCharacters,
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs13,
                           color: Color(0xFF2196F3),
@@ -172,7 +175,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
               // Current Password
               Text(
-                'Current Password',
+                localizations.currentPassword,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
@@ -184,7 +187,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 controller: _currentPasswordController,
                 obscureText: _obscureCurrentPassword,
                 decoration: InputDecoration(
-                  hintText: 'Enter your current password',
+                  hintText: localizations.enterCurrentPassword,
                   prefixIcon: Icon(Icons.lock_outline, color: Color(0xFF667eea)),
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -220,7 +223,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter your current password';
+                    return localizations.pleaseEnterCurrentPassword;
                   }
                   return null;
                 },
@@ -230,7 +233,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
               // New Password
               Text(
-                'New Password',
+                localizations.newPassword,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
@@ -242,7 +245,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 controller: _newPasswordController,
                 obscureText: _obscureNewPassword,
                 decoration: InputDecoration(
-                  hintText: 'Enter your new password',
+                  hintText: localizations.enterNewPassword,
                   prefixIcon: Icon(Icons.lock_reset, color: Color(0xFF667eea)),
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -278,13 +281,13 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter a new password';
+                    return localizations.pleaseEnterNewPassword;
                   }
                   if (value.length < 6) {
-                    return 'Password must be at least 6 characters';
+                    return localizations.passwordSixCharacters;
                   }
                   if (value == _currentPasswordController.text) {
-                    return 'New password must be different from current password';
+                    return localizations.newPasswordDifferentCurrentPassword;
                   }
                   return null;
                 },
@@ -294,7 +297,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
               // Confirm Password
               Text(
-                'Confirm New Password',
+                localizations.confirmNewPassword,
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs14,
                   fontWeight: FontWeight.w600,
@@ -306,7 +309,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 controller: _confirmPasswordController,
                 obscureText: _obscureConfirmPassword,
                 decoration: InputDecoration(
-                  hintText: 'Confirm your new password',
+                  hintText: localizations.confirmYourNewPassword,
                   prefixIcon: Icon(Icons.check_circle_outline, color: Color(0xFF667eea)),
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -342,10 +345,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please confirm your new password';
+                    return localizations.pleaseConfirmNewPassword;
                   }
                   if (value != _newPasswordController.text) {
-                    return 'Passwords do not match';
+                    return localizations.passwordsNotMatch;
                   }
                   return null;
                 },
@@ -376,7 +379,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           ),
                         )
                       : Text(
-                          'Change Password',
+                          localizations.changePassword,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs16,
                             fontWeight: FontWeight.w600,
@@ -400,7 +403,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     ),
                   ),
                   child: Text(
-                    'Cancel',
+                    localizations.dialogCancel,
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs16,
                       fontWeight: FontWeight.w600,

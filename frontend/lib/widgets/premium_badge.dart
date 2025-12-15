@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../services/localization_service.dart';
+
 class PremiumBadge extends StatelessWidget {
   final bool small;
 
@@ -8,6 +10,7 @@ class PremiumBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: small ? 6 : 8,
@@ -29,7 +32,7 @@ class PremiumBadge extends StatelessWidget {
           ),
           SizedBox(width: 4),
           Text(
-            'PREMIUM',
+            localizations.premium,
             style: GoogleFonts.poppins(
               color: Colors.white,
               fontSize: small ? 10 : 12,
@@ -55,6 +58,7 @@ class PremiumFeatureOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     if (!isPremiumFeature) {
       return child;
     }
@@ -79,7 +83,7 @@ class PremiumFeatureOverlay extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'Premium Feature',
+                    localizations.premiumFeatureTitle,
                     style: GoogleFonts.poppins(
                       color: Colors.white,
                       fontSize: 18,
@@ -96,7 +100,7 @@ class PremiumFeatureOverlay extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      'Upgrade Now',
+                      localizations.upgradeNowButton,
                       style: GoogleFonts.poppins(
                         color: Colors.black,
                         fontWeight: FontWeight.bold,

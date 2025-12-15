@@ -50,7 +50,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     if (_contributionController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(localizations.pleaseEnterAnAmount, style: GoogleFonts.poppins(color: Colors.white)),
+          content: Text(localizations.validationAmountRequired, style: GoogleFonts.poppins(color: Colors.white)),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),

@@ -5,6 +5,8 @@ import '../../models/user.dart';
 import '../../providers/auth_provider.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
+import '../../services/localization_service.dart';
+
 class CurrencySettingsScreen extends StatefulWidget {
   @override
   _CurrencySettingsScreenState createState() => _CurrencySettingsScreenState();
@@ -59,11 +61,12 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
     final currentCurrency = authProvider.defaultCurrency;
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Currency Settings',
+          localizations.currencySettings,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -121,7 +124,7 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Select Default Currency',
+                          localizations.selectDefaultCurrency,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs16,
                             fontWeight: FontWeight.bold,
@@ -130,7 +133,7 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
                         ),
                         SizedBox(height: responsive.sp4),
                         Text(
-                          'Choose your preferred currency',
+                          localizations.preferredCurrency,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs12,
                             color: Colors.grey[600],
@@ -173,7 +176,7 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
                   SizedBox(width: responsive.sp12),
                   Expanded(
                     child: Text(
-                      'You can add transactions in any currency. Each currency has its own balance.',
+                      localizations.eachCurrencyOwnBalance,
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs13,
                         color: Color(0xFF2196F3),

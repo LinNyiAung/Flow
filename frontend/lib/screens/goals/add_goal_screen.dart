@@ -265,7 +265,7 @@ void initState() {
                 TextFormField(
                   controller: _nameController,
                   decoration: InputDecoration(
-                    hintText: 'e.g., Emergency Fund',
+                    hintText: localizations.egEmergencyFund,
                     prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
                   ),
                   validator: (value) {

@@ -242,7 +242,7 @@ void _showAddTransactionOptions() {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Transaction added successfully!',
+                        localizations.transactionAdded,
                         style: GoogleFonts.poppins(color: Colors.white),
                       ),
                       backgroundColor: Color(0xFF4CAF50),
@@ -275,7 +275,7 @@ void _showAddTransactionOptions() {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Transaction added successfully!',
+                        localizations.transactionAdded,
                         style: GoogleFonts.poppins(color: Colors.white),
                       ),
                       backgroundColor: Color(0xFF4CAF50),
@@ -308,7 +308,7 @@ void _showAddTransactionOptions() {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        'Transaction added successfully!',
+                        localizations.transactionAdded,
                         style: GoogleFonts.poppins(color: Colors.white),
                       ),
                       backgroundColor: Color(0xFF4CAF50),
@@ -705,7 +705,7 @@ Widget _buildAddOption({
 
                               // Currency Filter
                               Text(
-                                'Currency Filter',
+                                localizations.currencyFilter,
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs14,
                                   fontWeight: FontWeight.w600,
@@ -718,7 +718,7 @@ Widget _buildAddOption({
                                 runSpacing: 8,
                                 children: [
                                   _buildCurrencyFilterChip(
-                                    label: 'All',
+                                    label: localizations.filterChipAll,
                                     currency: null,
                                     isSelected: _selectedCurrency == null,
                                     onSelected: (selected) {
@@ -827,7 +827,7 @@ Widget _buildAddOption({
                           onPressed: _clearAllFilters,
                           icon: Icon(Icons.refresh, color: Colors.white, size: responsive.icon18), // White icon on gradient
                           label: Text(
-                            'Clear All Filters',
+                            localizations.clearAllFiltersButton,
                             style: GoogleFonts.poppins(
                               color: Colors.white, // White text on gradient
                               fontWeight: FontWeight.w500,
@@ -1058,6 +1058,7 @@ Widget _buildAddOption({
 
   Widget _buildTransactionCard(Transaction transaction) {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return GestureDetector(
       onTap: () => _navigateToEditTransaction(transaction),
       child: Container(
@@ -1144,7 +1145,7 @@ Widget _buildAddOption({
                         ),
                         SizedBox(width: 4),
                         Text(
-                          'Auto-created',
+                          localizations.autoCreated,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs11,
                             color: Color(0xFFFF9800),

@@ -48,6 +48,7 @@ void initState() {
 }
 
   void _navigateToAddGoal() async {
+    final localizations = AppLocalizations.of(context);
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => AddGoalScreen()),
@@ -58,7 +59,7 @@ void initState() {
       _refreshData();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Goal created successfully!', style: GoogleFonts.poppins(color: Colors.white)),
+          content: Text(localizations.goalCreatedSuccessfully, style: GoogleFonts.poppins(color: Colors.white)),
           backgroundColor: Color(0xFF4CAF50),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
           behavior: SnackBarBehavior.floating,
@@ -68,6 +69,7 @@ void initState() {
   }
 
   void _navigateToGoalDetail(Goal goal) async {
+    final localizations = AppLocalizations.of(context);
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => GoalDetailScreen(goal: goal)),
@@ -78,7 +80,7 @@ void initState() {
       if (result == 'deleted') {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Goal deleted successfully!', style: GoogleFonts.poppins(color: Colors.white)),
+            content: Text(localizations.goalDeletedSuccessfully, style: GoogleFonts.poppins(color: Colors.white)),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -537,7 +539,7 @@ actions: [
         backgroundColor: Color(0xFF667eea),
         child: Icon(Icons.add, color: Colors.white, size: responsive.icon28),
         elevation: 8,
-        tooltip: 'Create New Goal',
+        tooltip: localizations.createNewGoal,
       ),
     );
   }
@@ -1014,6 +1016,7 @@ actions: [
 
   Widget _buildEmptyState() {
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     return Center(
       child: Container(
         padding: responsive.padding(all: 32),
@@ -1032,7 +1035,7 @@ actions: [
             ),
             SizedBox(height: responsive.sp24),
             Text(
-              'No goals yet',
+              localizations.noGoalsYet,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs18,
                 color: Color(0xFF333333),
@@ -1041,7 +1044,7 @@ actions: [
             ),
             SizedBox(height: responsive.sp8),
             Text(
-              'Create your first financial goal to get started!',
+              localizations.createGoalGetStarted,
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[500],
