@@ -176,13 +176,9 @@ class AppLocalizations {
       'recordingStatus': 'Recording... Tap to stop',
       'tapToRecordStatus': 'Tap to start recording\nYou can describe multiple transactions',
       'transcriptionTitle': 'Transcription',
-      'found_x_transactions': 'Found %d Transactions', // Placeholder for count
-      'transaction_x_card_title': 'Transaction %d', // Placeholder for index
-      'save_x_transactions_button': 'Save %d Transactions', // Placeholder for count
       'errorStartRecording': 'Failed to start recording:',
       'errorStopRecording': 'Failed to stop recording:',
       'analyzingTransactions': 'Analyzing transactions...',
-      'success_save_transactions': 'Successfully saved %d transaction(s)', // Placeholder for count
 
       // Additions for Transactions List Screen
       'allTransactionsTitle': 'All Transactions',
@@ -350,6 +346,8 @@ class AppLocalizations {
       'budgetExceeded': 'Budget Exceeded',
       'budgetExceededAlert': 'You\'ve spent more than your allocated budget. Consider reducing spending in exceeded categories.',
       'approachingBudgetLimit': 'Approaching Budget Limit',
+      'used': 'Used',
+      'categories': 'categories',
 
 
       //ai budget suggestion screen
@@ -761,13 +759,9 @@ class AppLocalizations {
       'recordingStatus': 'အသံသွင်းနေသည်... ရပ်ရန် နှိပ်ပါ',
       'tapToRecordStatus': 'အသံသွင်းခြင်း စတင်ရန် နှိပ်ပါ\nငွေစာရင်းသွင်းမှုများစွာကို ဖော်ပြနိုင်သည်',
       'transcriptionTitle': 'ကူးယူဖော်ပြချက်',
-      'found_x_transactions': 'ငွေစာရင်းသွင်းမှု %d ခု တွေ့ရှိသည်', // Placeholder for count
-      'transaction_x_card_title': 'ငွေစာရင်းသွင်းမှု %d', // Placeholder for index
-      'save_x_transactions_button': 'ငွေစာရင်းသွင်းမှု %d ခု သိမ်းဆည်းရန်', // Placeholder for count
       'errorStartRecording': 'အသံသွင်းခြင်း စတင်ရန် မအောင်မြင်ပါ:',
       'errorStopRecording': 'အသံသွင်းခြင်း ရပ်ရန် မအောင်မြင်ပါ:',
       'analyzingTransactions': 'ငွေစာရင်းသွင်းမှုများကို ခွဲခြမ်းစိတ်ဖြာနေသည်...',
-      'success_save_transactions': 'ငွေစာရင်းသွင်းမှု %d ခု အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ', // Placeholder for count
 
       // Additions for Transactions List Screen
       'allTransactionsTitle': 'ငွေစာရင်းသွင်းမှုများ အားလုံး',
@@ -930,6 +924,8 @@ class AppLocalizations {
       'budgetExceeded': 'ဘတ်ဂျက် ကျော်လွန်သွားသည်',
       'budgetExceededAlert': 'သင်သည် ခွဲဝေထားသော ဘတ်ဂျက်ထက် ပိုမို သုံးစွဲခဲ့သည်။ ကျော်လွန်သွားသော အမျိုးအစားများတွင် သုံးစွဲမှုကို လျှော့ချရန် စဉ်းစားပါ။',
       'approachingBudgetLimit': 'ဘတ်ဂျက် ကန့်သတ်ချက်သို့ နီးကပ်လာသည်',
+      'used': 'အသုံးပြုပြီး',
+      'categories': 'အမျိုးအစား',
 
       //ai budget suggestion screen
       'analysisSummary': 'ခွဲခြမ်းစိတ်ဖြာချက် အကျဉ်းချုပ်',
@@ -1521,6 +1517,9 @@ class AppLocalizations {
   String get budgetExceeded => translate('budgetExceeded');
   String get budgetExceededAlert => translate('budgetExceededAlert');
   String get approachingBudgetLimit => translate('approachingBudgetLimit');
+  String get used => translate('used');
+  String get categories => translate('categories');
+
 
 
   //ai budget suggestion screen getters

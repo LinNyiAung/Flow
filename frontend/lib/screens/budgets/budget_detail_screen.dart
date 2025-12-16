@@ -132,7 +132,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
 
     // Budget is active
     final daysRemaining = endDate.difference(now).inDays;
-    print('Budget active. Days remaining: $daysRemaining');
+
     return '$daysRemaining days remaining';
   }
 
@@ -366,14 +366,14 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        '${_budget.percentageUsed.toStringAsFixed(1)}% Used',
+                        '${_budget.percentageUsed.toStringAsFixed(1)}% ${localizations.used}',
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           color: Colors.white.withOpacity(0.8),
                         ),
                       ),
                       Text(
-                        'Remaining: ${_budget.displayRemainingBudget}',  // NEW: use display method
+                        '${localizations.remaining}: ${_budget.displayRemainingBudget}',  // NEW: use display method
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs12,
                           fontWeight: FontWeight.w600,
@@ -591,7 +591,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                     ),
                   ),
                   Text(
-                    '${_budget.categoryBudgets.length} categories',
+                    '${_budget.categoryBudgets.length} ${localizations.categories}',
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs12,
                       color: Colors.grey[600],
@@ -823,14 +823,14 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              '${catBudget.percentageUsed.toStringAsFixed(1)}% Used',
+              '${catBudget.percentageUsed.toStringAsFixed(1)}% ${localizations.used}',
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs11,
                 color: Colors.grey[600],
               ),
             ),
             Text(
-              'Remaining: ${_budget.currency.symbol}${(catBudget.allocatedAmount - catBudget.spentAmount).toStringAsFixed(2)}',  // NEW: use budget currency
+              '${localizations.remaining}: ${_budget.currency.symbol}${(catBudget.allocatedAmount - catBudget.spentAmount).toStringAsFixed(2)}',  // NEW: use budget currency
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs11,
                 fontWeight: FontWeight.w600,

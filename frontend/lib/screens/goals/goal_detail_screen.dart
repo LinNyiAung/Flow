@@ -692,7 +692,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     ),
                     SizedBox(height: responsive.sp8),
                     Text(
-                      '${_currentGoal.progressPercentage.toStringAsFixed(1)}% Complete',
+                      '${_currentGoal.progressPercentage.toStringAsFixed(1)}% ${localizations.completed}',
                       style: GoogleFonts.poppins(
                         color: Colors.white,
                         fontSize: responsive.fs16,
