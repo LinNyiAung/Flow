@@ -143,7 +143,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           children: [
             // UPDATE to show currency symbol
             Text(
-              'Available: ${_currentGoal.currency.symbol}${availableBalance.toStringAsFixed(2)}',
+              '${localizations.available}: ${_currentGoal.currency.symbol}${availableBalance.toStringAsFixed(2)}',
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14, 
                 color: Color(0xFF667eea), 
@@ -152,7 +152,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             ),
             SizedBox(height: responsive.sp4),
             Text(
-              'Currency: ${_currentGoal.currency.displayName}',
+              '${localizations.currency}: ${_currentGoal.currency.displayName}',
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs12, 
                 color: Colors.grey[600],

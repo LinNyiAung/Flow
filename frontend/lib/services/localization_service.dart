@@ -628,7 +628,7 @@ class AppLocalizations {
       'noTransactions': 'ငွေစာရင်းသွင်းမှု မရှိသေးပါ',
       'tapToAddFirst': 'ပထမဆုံး ငွေစာရင်းသွင်းမှုပြုလုပ်ရန် + ခလုတ်ကို နှိပ်ပါ',
       'addTransaction': 'ငွေစာရင်းသွင်းရန်',
-      'manualEntry': 'ကိုယ်တိုင် ထည့်သွင်းရန်',
+      'manualEntry': 'ကိုယ်တိုင် ထည့်ရန်',
       'typeTransactionDetails': 'ငွေစာရင်းအသေးစိတ်ကို ရိုက်ထည့်ပါ',
       'voiceInput': 'အသံဖြင့် ထည့်ရန်',
       'speakYourTransaction': 'သင့်ငွေစာရင်းအချက်အလက်ကို ပြောပါ',
@@ -640,7 +640,7 @@ class AppLocalizations {
       'transactionDeleted': 'ငွေစာရင်းသွင်းကို အောင်မြင်စွာ ဖျက်ပြီးပါပြီ',
       'dashboard': 'ဒက်ရှ်ဘုတ်',
       'autoCreated': 'အလိုအလျောက် ဖန်တီးထားသော',
-      'viewAllCurrencies':'ငွေကြေးအမျိုးအစားအားလုံးကို ကြည့်ရန်',
+      'viewAllCurrencies':'ငွေကြေးအမျိုးအစားအားလုံးကြည့်ရန်',
       'allCurrencyBalances':'ငွေကြေးအားလုံး၏ လက်ကျန်များ',
       'default':'မူရင်း',
 
@@ -776,7 +776,7 @@ class AppLocalizations {
       'clearAllFiltersButton': 'စစ်ထုတ်မှုများ အားလုံး ရှင်းလင်းရန်',
       'clearDateFilterTooltip': 'ရက်စွဲ စစ်ထုတ်မှုကို ရှင်းလင်းရန်',
       'addTransactionFabTooltip': 'ငွေစာရင်းသွင်းမှု အသစ် ထည့်ရန်',
-      'currencyFilter': 'ငွေကြေး စစ်ထုတ်မှု',
+      'currencyFilter': 'ငွေကြေးအမျိုးအစား စစ်ထုတ်မှု',
 
       //Goals screen
       'financialGoals': 'ငွေကြေး ရည်မှန်းချက်များ',
@@ -872,7 +872,7 @@ class AppLocalizations {
       'custom': 'စိတ်ကြိုက်ကာလ',
       'startDate': 'စတင်မည့်ရက်',
       'endDateNoOp': 'ပြီးဆုံးမည့်ရက်',
-      'autoCreateNextBudget':  'နောက် ဘတ်ဂျက်ကို အလိုအလျောက် ဖန်တီးရန်',
+      'autoCreateNextBudget':  'နောက်ဘတ်ဂျက်ကိုအလိုအလျောက်ဖန်တီးရန်',
       'automaticallyCreateNewBudget': 'ဤဘတ်ဂျက် ပြီးဆုံးသည့်အခါ ဘတ်ဂျက်အသစ်ကို အလိုအလျောက် ဖန်တီးပါ',
       'enableAutoCreate': 'အလိုအလျောက် ဖန်တီးခြင်း ဖွင့်ရန်',
       'chooseHowToCreateNextBudget': 'နောက်ဘတ်ဂျက်ကို မည်သို့ ဖန်တီးမည်ကို ရွေးချယ်ပါ:',
@@ -880,7 +880,7 @@ class AppLocalizations {
       'keepTheSameBudgetAmounts': 'အမျိုးအစားအားလုံးအတွက် တူညီသော ဘတ်ဂျက် ပမာဏများကို ထားရှိရန်',
       'aiOptimizedBudget': 'AI-မှ အကောင်းဆုံးဖြစ်အောင် ပြုလုပ်ထားသော ဘတ်ဂျက်',
       'aiAnalyzesSpendingAndSuggestsAmounts': 'AI သည် သင့်သုံးစွဲမှုကို ခွဲခြမ်းစိတ်ဖြာပြီး အကောင်းဆုံး ပမာဏများကို အကြံပြုမည်',
-      'categoryBudgets': 'အမျိုးအစားအလိုက် ဘတ်ဂျက်များ',
+      'categoryBudgets': 'အမျိုးအစားအလိုက်ဘတ်ဂျက်များ',
       'noCategoriesAddedYet': 'အမျိုးအစားများ မထည့်သွင်းရသေးပါ',
       'totalBudget': 'စုစုပေါင်း ဘတ်ဂျက်',
       'addCategoryBudget': 'အမျိုးအစားအလိုက် ဘတ်ဂျက် ထည့်ရန်',
@@ -1465,7 +1465,7 @@ class AppLocalizations {
   String get enableAutoCreate => translate('enableAutoCreate');
   String get chooseHowToCreateNextBudget => translate('chooseHowToCreateNextBudget');
   String get useCurrentCategories => translate('useCurrentCategories');
-  String get keepTheSameBudgetAmounts => translate('useCurrentCategories');
+  String get keepTheSameBudgetAmounts => translate('keepTheSameBudgetAmounts');
   String get aiOptimizedBudget => translate('aiOptimizedBudget');
   String get aiAnalyzesSpendingAndSuggestsAmounts => translate('aiAnalyzesSpendingAndSuggestsAmounts');
   String get categoryBudgets => translate('categoryBudgets');

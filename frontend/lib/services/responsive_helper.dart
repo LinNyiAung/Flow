@@ -50,6 +50,7 @@ class ResponsiveHelper {
   double get fs24 => fontSize(mobile: 24);
   double get fs28 => fontSize(mobile: 28);
   double get fs32 => fontSize(mobile: 32);
+  double get fs36 => fontSize(mobile: 36);
   
   // Responsive spacing
   double spacing({
@@ -70,6 +71,7 @@ class ResponsiveHelper {
   
   // Quick spacing getters
   double get sp4 => spacing(mobile: 4);
+  double get sp6 => spacing(mobile: 6);
   double get sp8 => spacing(mobile: 8);
   double get sp12 => spacing(mobile: 12);
   double get sp16 => spacing(mobile: 16);
@@ -101,6 +103,7 @@ class ResponsiveHelper {
   double get icon20 => iconSize(mobile: 20);
   double get icon24 => iconSize(mobile: 24);
   double get icon28 => iconSize(mobile: 28);
+  double get icon32 => iconSize(mobile: 32);
   double get icon48 => iconSize(mobile: 48);
   double get icon50 => iconSize(mobile: 50);
   double get icon64 => iconSize(mobile: 64);

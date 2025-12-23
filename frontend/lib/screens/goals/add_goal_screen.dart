@@ -423,13 +423,15 @@ void initState() {
                       children: [
                         Icon(Icons.calendar_today, color: Color(0xFF667eea)),
                         SizedBox(width: responsive.sp12),
-                        Text(
-                          _targetDate == null
-                              ? localizations.selectTargetDate
-                              : DateFormat('MMM dd, yyyy').format(_targetDate!),
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs14,
-                            color: _targetDate == null ? Colors.grey[600] : Color(0xFF333333),
+                        Expanded(
+                          child: Text(
+                            _targetDate == null
+                                ? localizations.selectTargetDate
+                                : DateFormat('MMM dd, yyyy').format(_targetDate!),
+                            style: GoogleFonts.poppins(
+                              fontSize: responsive.fs14,
+                              color: _targetDate == null ? Colors.grey[600] : Color(0xFF333333),
+                            ),
                           ),
                         ),
                       ],

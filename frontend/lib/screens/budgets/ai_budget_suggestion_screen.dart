@@ -87,9 +87,11 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           children: [
             Icon(Icons.analytics, color: Color(0xFF667eea)),
             SizedBox(width: responsive.sp12),
-            Text(
-              localizations.analysisSummary,
-              style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+            Expanded(
+              child: Text(
+                localizations.analysisSummary,
+                style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ),

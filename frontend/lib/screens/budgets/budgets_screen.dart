@@ -314,7 +314,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                                           ],
                                         ),
                                         Text(
-                                          '${summary.activeBudgets} active',
+                                          '${summary.activeBudgets} ${localizations.active}',
                                           style: GoogleFonts.poppins(
                                             fontSize: responsive.fs11,
                                             color: Colors.white.withOpacity(0.7),
@@ -340,7 +340,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                                     ),
                                     SizedBox(height: responsive.sp4),
                                     Text(
-                                      '${summary.percentageUsed.toStringAsFixed(1)}% Used',
+                                      '${summary.percentageUsed.toStringAsFixed(1)}% ${localizations.used}',
                                       style: GoogleFonts.poppins(
                                         color: Colors.white.withOpacity(0.8),
                                         fontSize: responsive.fs11,
@@ -792,7 +792,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    '${budget.percentageUsed.toStringAsFixed(1)}% Used',
+                    '${budget.percentageUsed.toStringAsFixed(1)}% ${localizations.used}',
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs11,
                       color: Colors.grey[600],

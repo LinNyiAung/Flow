@@ -305,7 +305,7 @@ actions: [
                                           ],
                                         ),
                                         Text(
-                                          '${summary.activeGoals} active',
+                                          '${summary.activeGoals} ${localizations.active}',
                                           style: GoogleFonts.poppins(
                                             fontSize: responsive.fs11,
                                             color: Colors.white.withOpacity(0.7),
@@ -331,7 +331,7 @@ actions: [
                                     ),
                                     SizedBox(height: responsive.sp4),
                                     Text(
-                                      '${summary.overallProgress.toStringAsFixed(1)}% Complete',
+                                      '${summary.overallProgress.toStringAsFixed(1)}% ${localizations.completed}',
                                       style: GoogleFonts.poppins(
                                         color: Colors.white.withOpacity(0.8),
                                         fontSize: responsive.fs11,
@@ -486,7 +486,7 @@ actions: [
               // Filter Chips
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: responsive.padding(horizontal: 20),
+                  padding: responsive.padding(horizontal: 10),
                   child: Row(
                     children: [
                       _buildFilterChip(localizations.filterChipAll, null),
@@ -992,7 +992,7 @@ actions: [
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '${goal.progressPercentage.toStringAsFixed(1)}% Complete',
+                '${goal.progressPercentage.toStringAsFixed(1)}% ${localizations.completed}',
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs11,
                   color: Colors.grey[600],

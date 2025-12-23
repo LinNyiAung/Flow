@@ -383,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     localizations.viewAllCurrencies,
                                     style: GoogleFonts.poppins(
                                       color: Colors.white,
-                                      fontSize: responsive.fs14,
+                                      fontSize: responsive.fs13,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),

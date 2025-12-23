@@ -427,12 +427,14 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                         children: [
                           Icon(Icons.autorenew, color: Color(0xFF667eea)),
                           SizedBox(width: responsive.sp8),
-                          Text(
-                            localizations.autoCreateNextBudget,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF333333),
+                          Expanded(
+                            child: Text(
+                              localizations.autoCreateNextBudget,
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF333333),
+                              ),
                             ),
                           ),
                         ],
@@ -515,9 +517,11 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                                 color: Color(0xFF667eea),
                               ),
                               SizedBox(width: responsive.sp4),
-                              Text(
-                                localizations.aiOptimizedBudget,
-                                style: GoogleFonts.poppins(fontSize: responsive.fs13),
+                              Expanded(
+                                child: Text(
+                                  localizations.aiOptimizedBudget,
+                                  style: GoogleFonts.poppins(fontSize: responsive.fs13),
+                                ),
                               ),
                             ],
                           ),
@@ -546,7 +550,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   Text(
                     localizations.categoryBudgets,
                     style: GoogleFonts.poppins(
-                      fontSize: responsive.fs18,
+                      fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF333333),
                     ),

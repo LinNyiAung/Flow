@@ -1168,6 +1168,7 @@ void _showDisableRecurrenceDialog() {
                   ),
                   SizedBox(height: 8),
                   DropdownButtonFormField<Currency>(
+                    isExpanded: true,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),

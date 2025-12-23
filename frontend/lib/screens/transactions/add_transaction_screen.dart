@@ -355,7 +355,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                             ),
                             child: DropdownButtonFormField<Currency>(
                               decoration: InputDecoration(
-                                hintText: localizations.selectCurrency,
+                                hintText: localizations.selectCurrencyT,
                                 border: InputBorder.none,
                                 contentPadding: responsive.padding(all: 20),
                                 
@@ -863,6 +863,7 @@ void _showCurrencyConversionDialog() {
                   ),
                   SizedBox(height: 8),
                   DropdownButtonFormField<Currency>(
+                    isExpanded: true,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
