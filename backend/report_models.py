@@ -20,6 +20,7 @@ class ReportRequest(BaseModel):
 
 class CategoryBreakdown(BaseModel):
     category: str
+    main_category: str  # NEW - Add this field
     amount: float
     percentage: float
     transaction_count: int

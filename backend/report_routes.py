@@ -61,18 +61,24 @@ def generate_currency_report(transactions, currency, start_date, end_date):
     total_inflow = sum(t["amount"] for t in inflows)
     total_outflow = sum(t["amount"] for t in outflows)
     
-    # Calculate category breakdowns for inflows
+    # Calculate category breakdowns for inflows - CHANGED to use sub_category
     inflow_categories = {}
     for t in inflows:
-        cat = t["main_category"]
-        if cat not in inflow_categories:
-            inflow_categories[cat] = {"amount": 0, "count": 0}
-        inflow_categories[cat]["amount"] += t["amount"]
-        inflow_categories[cat]["count"] += 1
+        # Use format "Main Category -> Sub Category"
+        cat_key = f"{t['main_category']} > {t['sub_category']}"
+        if cat_key not in inflow_categories:
+            inflow_categories[cat_key] = {
+                "amount": 0, 
+                "count": 0,
+                "main_category": t['main_category']
+            }
+        inflow_categories[cat_key]["amount"] += t["amount"]
+        inflow_categories[cat_key]["count"] += 1
     
     inflow_by_category = [
         CategoryBreakdown(
             category=cat,
+            main_category=data["main_category"],  # NEW
             amount=data["amount"],
             percentage=(data["amount"] / total_inflow * 100) if total_inflow > 0 else 0,
             transaction_count=data["count"]
@@ -81,18 +87,24 @@ def generate_currency_report(transactions, currency, start_date, end_date):
     ]
     inflow_by_category.sort(key=lambda x: x.amount, reverse=True)
     
-    # Calculate category breakdowns for outflows
+    # Calculate category breakdowns for outflows - CHANGED to use sub_category
     outflow_categories = {}
     for t in outflows:
-        cat = t["main_category"]
-        if cat not in outflow_categories:
-            outflow_categories[cat] = {"amount": 0, "count": 0}
-        outflow_categories[cat]["amount"] += t["amount"]
-        outflow_categories[cat]["count"] += 1
+        # Use format "Main Category -> Sub Category"
+        cat_key = f"{t['main_category']} > {t['sub_category']}"
+        if cat_key not in outflow_categories:
+            outflow_categories[cat_key] = {
+                "amount": 0, 
+                "count": 0,
+                "main_category": t['main_category']
+            }
+        outflow_categories[cat_key]["amount"] += t["amount"]
+        outflow_categories[cat_key]["count"] += 1
     
     outflow_by_category = [
         CategoryBreakdown(
             category=cat,
+            main_category=data["main_category"],  # NEW
             amount=data["amount"],
             percentage=(data["amount"] / total_outflow * 100) if total_outflow > 0 else 0,
             transaction_count=data["count"]

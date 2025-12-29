@@ -4,12 +4,14 @@ enum ReportPeriod { week, month, year, custom }
 
 class CategoryBreakdown {
   final String category;
+  final String mainCategory;  // NEW - Add this field
   final double amount;
   final double percentage;
   final int transactionCount;
 
   CategoryBreakdown({
     required this.category,
+    required this.mainCategory,  // NEW
     required this.amount,
     required this.percentage,
     required this.transactionCount,
@@ -18,6 +20,7 @@ class CategoryBreakdown {
   factory CategoryBreakdown.fromJson(Map<String, dynamic> json) {
     return CategoryBreakdown(
       category: json['category'],
+      mainCategory: json['main_category'],  // NEW
       amount: json['amount'].toDouble(),
       percentage: json['percentage'].toDouble(),
       transactionCount: json['transaction_count'],
