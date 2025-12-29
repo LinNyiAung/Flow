@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../providers/notification_provider.dart';
+import '../auth/login_screen.dart';
 import 'edit_profile_screen.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -652,7 +653,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () {
                 Navigator.pop(context);
                 Provider.of<AuthProvider>(context, listen: false).logout();
-                Navigator.pushReplacementNamed(context, '/login');
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => LoginScreen()),
+                );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,

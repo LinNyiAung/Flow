@@ -485,7 +485,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               ),
                               SizedBox(height: 8),
                               Text(
-                                'Confidence: ${(_extractedData!.overallConfidence * 100).toStringAsFixed(0)}%',
+                                '${localizations.confidenceLabel} ${(_extractedData!.overallConfidence * 100).toStringAsFixed(0)}%',
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs14,
                                   color: Colors.white70,
@@ -653,7 +653,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                       Icon(Icons.check_circle, color: Colors.white),
                                       SizedBox(width: responsive.sp8),
                                       Text(
-                                        'Save ${_extractedData!.totalCount} Transaction${_extractedData!.totalCount > 1 ? 's' : ''}',
+                                        localizations.saveTransactionButton,
                                         style: GoogleFonts.poppins(
                                           fontSize: responsive.fs16,
                                           fontWeight: FontWeight.w600,

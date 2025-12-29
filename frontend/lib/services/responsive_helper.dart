@@ -27,11 +27,11 @@ class ResponsiveHelper {
     double? desktop,
   }) {
     if (screenWidth < 360) {
-      return mobile * 0.5; // 10% smaller for very small devices
+      return mobile * 0.5;
     } else if (screenWidth < 400) {
-      return mobile * 0.85;
+      return mobile * 0.8;
     } else if (screenWidth < 600) {
-      return tablet ?? mobile * 1;
+      return tablet ?? mobile * 0.9;
     } else {
       return desktop ?? tablet ?? mobile * 1.2;
     }

@@ -172,24 +172,20 @@ void initState() {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            localizations.availableForGoals,
-                            style: GoogleFonts.poppins(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: responsive.fs14,
-                            ),
-                          ),
-                          Spacer(),
-                          Text(
-                            _selectedCurrency.displayName,
-                            style: GoogleFonts.poppins(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: responsive.fs12,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        localizations.availableForGoals,
+                        style: GoogleFonts.poppins(
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: responsive.fs14,
+                        ),
+                      ),
+                      SizedBox(height: responsive.sp8),
+                      Text(
+                        _selectedCurrency.displayName,
+                        style: GoogleFonts.poppins(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: responsive.fs12,
+                        ),
                       ),
                       Text(
                         transactionProvider.balance != null && 

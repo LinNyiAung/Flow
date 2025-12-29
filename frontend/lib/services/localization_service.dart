@@ -997,7 +997,7 @@ class AppLocalizations {
       //notification screen
       'notifications': 'အကြောင်းကြားချက်များ',
       'markedAsRead': 'အကြောင်းကြားချက်များ အားလုံးကို ဖတ်ပြီးဟု အမှတ်အသားပြုပြီးပါပြီ',
-      'markAllRead': 'အားလုံး ဖတ်ပြီးဟု အမှတ်အသားပြုရန်',
+      'markAllRead': 'ဖတ်ပြီးဟုအမှတ်အသားပြုရန်',
       'notificationDeleted': 'အကြောင်းကြားချက် ဖျက်လိုက်ပြီ',
       'undo': 'ပြန်ဖျက်ရန်',
       'noNotificationsYet': 'အကြောင်းကြားချက် မရှိသေးပါ',
