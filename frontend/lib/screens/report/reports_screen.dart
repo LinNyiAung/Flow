@@ -1240,7 +1240,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   child: Text(
                     localizations.topIncomeCategories,
                     style: GoogleFonts.poppins(
-                      fontSize: responsive.fs12,
+                      fontSize: responsive.fs13,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey[700],
                     ),
@@ -1248,20 +1248,20 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 ),
                 ...currencyReport.inflowByCategory.take(3).map((cat) => 
                   Padding(
-                    padding: responsive.padding(vertical: 4),
+                    padding: responsive.padding(vertical: 7),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           child: Text(
                             cat.category,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs11),
+                            style: GoogleFonts.poppins(fontSize: responsive.fs13),
                           ),
                         ),
                         Text(
                           '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
                           style: GoogleFonts.poppins(
-                            fontSize: responsive.fs11,
+                            fontSize: responsive.fs13,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFF4CAF50),
                           ),
@@ -1277,7 +1277,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   child: Text(
                     localizations.topExpenseCategories,
                     style: GoogleFonts.poppins(
-                      fontSize: responsive.fs12,
+                      fontSize: responsive.fs13,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey[700],
                     ),
@@ -1285,20 +1285,20 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                 ),
                 ...currencyReport.outflowByCategory.take(3).map((cat) => 
                   Padding(
-                    padding: responsive.padding(vertical: 4),
+                    padding: responsive.padding(vertical: 7),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           child: Text(
                             cat.category,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs11),
+                            style: GoogleFonts.poppins(fontSize: responsive.fs13),
                           ),
                         ),
                         Text(
                           '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
                           style: GoogleFonts.poppins(
-                            fontSize: responsive.fs11,
+                            fontSize: responsive.fs13,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFFFF5722),
                           ),
