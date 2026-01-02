@@ -422,7 +422,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             yield f"I encountered an error: {str(e)}"
 
     async def translate_insights_to_myanmar(self, english_content: str) -> str:
-        """Translate English insights to Myanmar language using Gemini"""
+        """Translate English insights to Myanmar language using Gemini with streaming"""
         try:
             import google.generativeai as genai
             
@@ -441,6 +441,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     4. Use natural, conversational Myanmar that feels native
     5. Keep emojis exactly as they are
     6. Maintain the same structure and sections
+    7. Translate EVERYTHING - do not stop until the entire content is translated
 
     For financial terms:
     - Money: ငွေ
@@ -451,27 +452,63 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     - Budget: ဘတ်ဂျက်
     - Goals: ရည်မှန်းချက်များ
     - Transaction: ငွေသွင်းထုတ်
+    - USD: အမေရိကန်ဒေါ်လာ
+    - MMK: မြန်မာကျပ်
 
-    Translate naturally while keeping the professional yet friendly tone."""
+    Translate naturally while keeping the professional yet friendly tone.
+
+    IMPORTANT: Complete the ENTIRE translation. Do not stop midway."""
 
             model = genai.GenerativeModel(
                 model_name=self.gemini_model,
                 generation_config={
                     "temperature": 0.3,
-                    "max_output_tokens": 8192,
+                    "max_output_tokens": 8192,  # ✅ INCREASED
+                    "top_p": 0.95,
+                    "top_k": 40,
                 }
             )
             
             prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
             
-            response = model.generate_content(prompt)
-            myanmar_content = response.text
+            # ✅ USE STREAMING for long translations
+            print(f"🔄 Starting Myanmar translation (streaming)...")
+            response = model.generate_content(prompt, stream=True)
+            
+            myanmar_content = ""
+            chunk_count = 0
+            
+            for chunk in response:
+                if chunk.text:
+                    myanmar_content += chunk.text
+                    chunk_count += 1
+                    
+                    # Log progress every 10 chunks
+                    if chunk_count % 10 == 0:
+                        print(f"   Translated {len(myanmar_content)} characters...")
+            
+            print(f"✅ Translation complete: {len(myanmar_content)} characters in {chunk_count} chunks")
+            
+            # Verify we got substantial content
+            if len(myanmar_content) < len(english_content) * 0.5:
+                print(f"⚠️ Warning: Translation seems incomplete")
+                print(f"   Original: {len(english_content)} chars")
+                print(f"   Translated: {len(myanmar_content)} chars")
+                
+                # Check finish reason
+                if hasattr(response, 'candidates') and response.candidates:
+                    finish_reason = response.candidates[0].finish_reason
+                    print(f"   Finish reason: {finish_reason}")
             
             return myanmar_content
             
         except Exception as e:
             print(f"Gemini translation error: {e}")
+            import traceback
+            traceback.print_exc()
             raise Exception(f"Failed to translate insights: {str(e)}")
+    
+
 
     async def generate_insights(self, user_id: str) -> str:
         """Generate comprehensive financial insights using Gemini"""
