@@ -458,7 +458,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 model_name=self.gemini_model,
                 generation_config={
                     "temperature": 0.3,
-                    "max_output_tokens": 3000,
+                    "max_output_tokens": 8192,
                 }
             )
             
@@ -557,7 +557,7 @@ Length: 800-1500 words of detailed, personalized analysis."""
                 model_name=self.gemini_model,
                 generation_config={
                     "temperature": 0.7,
-                    "max_output_tokens": 2500,
+                    "max_output_tokens": 8192,
                 }
             )
             
