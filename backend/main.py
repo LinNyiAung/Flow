@@ -19,7 +19,7 @@ from models import (
     CategoryResponse, Currency, TransactionType,
 )
 from chat_models import (
-    ChatRequest, ChatResponse, ChatMessage, MessageRole,
+    AIProvider, ChatRequest, ChatResponse, ChatMessage, MessageRole,
 )
 
 
@@ -35,6 +35,7 @@ from database import (
     chat_sessions_collection, goals_collection, insights_collection, budgets_collection, notifications_collection, notification_preferences_collection
 )
 from ai_chatbot import financial_chatbot
+from ai_chatbot_gemini import gemini_financial_chatbot
 from config import settings
 
 
@@ -150,12 +151,23 @@ async def stream_chat_with_ai(
     chat_request: ChatRequest,
     current_user: dict = Depends(require_premium)
 ):
-    """Stream chat response from AI with response style support"""
-    if financial_chatbot is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI service is currently unavailable"
-        )
+    """Stream chat response from AI with response style and provider support"""
+    
+    # NEW: Select chatbot based on provider
+    if chat_request.ai_provider == AIProvider.GEMINI:
+        chatbot = gemini_financial_chatbot
+        if chatbot is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Gemini AI service is currently unavailable"
+            )
+    else:  # Default to OpenAI
+        chatbot = financial_chatbot
+        if chatbot is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI AI service is currently unavailable"
+            )
     
     chat_history = None
     if chat_request.chat_history:
@@ -173,11 +185,11 @@ async def stream_chat_with_ai(
     
     async def generate_stream():
         try:
-            stream = financial_chatbot.stream_chat(
+            stream = chatbot.stream_chat(  # Use selected chatbot
                 user_id=current_user["_id"],
                 message=chat_request.message,
                 chat_history=chat_history,
-                response_style=response_style  # NEW: Pass response style
+                response_style=response_style
             )
             
             full_response = ""
@@ -277,11 +289,33 @@ async def clear_chat_history(current_user: dict = Depends(get_current_user)):
 
 
 @app.post("/api/chat/refresh-data")
-async def refresh_ai_data(current_user: dict = Depends(get_current_user)):
+async def refresh_ai_data(
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
+    current_user: dict = Depends(get_current_user)
+):
     """Manually refresh user's AI data"""
     try:
-        financial_chatbot.refresh_user_data(current_user["_id"])
-        return {"message": "AI data refreshed successfully"}
+        # NEW: Refresh based on provider
+        if ai_provider == AIProvider.GEMINI:
+            if gemini_financial_chatbot:
+                gemini_financial_chatbot.refresh_user_data(current_user["_id"])
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Gemini AI service is currently unavailable"
+                )
+        else:
+            if financial_chatbot:
+                financial_chatbot.refresh_user_data(current_user["_id"])
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="OpenAI AI service is currently unavailable"
+                )
+        
+        return {"message": f"AI data refreshed successfully for {ai_provider.value}"}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Refresh AI data error: {str(e)}")
         raise HTTPException(
@@ -320,6 +354,7 @@ def calculate_data_hash(user_id: str) -> str:
 @app.get("/api/insights", response_model=InsightResponse)
 async def get_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
     current_user: dict = Depends(require_premium)
 ):
     """Get AI-generated financial insights (cached if data unchanged)"""
@@ -327,26 +362,33 @@ async def get_insights(
         # Calculate current data hash
         current_hash = calculate_data_hash(current_user["_id"])
         
-        # Check if we have cached insights
+        # NEW: Add provider to cache key
+        cache_key = f"{current_user['_id']}_{ai_provider.value}"
+        
+        # Check if we have cached insights for this provider
         cached_insight = insights_collection.find_one({
             "user_id": current_user["_id"],
-            "data_hash": current_hash
+            "data_hash": current_hash,
+            "ai_provider": ai_provider.value  # NEW
         })
         
         if cached_insight:
-            print(f"✅ Returning cached insights for user {current_user['_id']}")
+            print(f"✅ Returning cached {ai_provider.value} insights for user {current_user['_id']}")
             
             # If Myanmar requested but not cached, generate translation
             if language == "mm" and not cached_insight.get("content_mm"):
-                print(f"🔄 Generating Myanmar translation...")
+                print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
                 
-                if financial_chatbot is None:
+                # Select chatbot for translation
+                chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+                
+                if chatbot is None:
                     raise HTTPException(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="AI service is currently unavailable"
+                        detail=f"{ai_provider.value} AI service is currently unavailable"
                     )
                 
-                myanmar_content = await financial_chatbot.translate_insights_to_myanmar(
+                myanmar_content = await chatbot.translate_insights_to_myanmar(
                     cached_insight["content"]
                 )
                 
@@ -369,21 +411,24 @@ async def get_insights(
             )
         
         # Generate new insights
-        print(f"🔄 Generating new insights for user {current_user['_id']}")
+        print(f"🔄 Generating new {ai_provider.value} insights for user {current_user['_id']}")
         
-        if financial_chatbot is None:
+        # Select chatbot
+        chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+        
+        if chatbot is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="AI service is currently unavailable"
+                detail=f"{ai_provider.value} AI service is currently unavailable"
             )
         
-        insights_content = await financial_chatbot.generate_insights(current_user["_id"])
+        insights_content = await chatbot.generate_insights(current_user["_id"])
         
         # Generate Myanmar translation if requested
         myanmar_content = None
         if language == "mm":
-            print(f"🔄 Generating Myanmar translation...")
-            myanmar_content = await financial_chatbot.translate_insights_to_myanmar(insights_content)
+            print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
+            myanmar_content = await chatbot.translate_insights_to_myanmar(insights_content)
         
         # Save to database
         insight_id = str(uuid.uuid4())
@@ -396,16 +441,20 @@ async def get_insights(
             "content_mm": myanmar_content,
             "generated_at": now,
             "data_hash": current_hash,
+            "ai_provider": ai_provider.value,  # NEW
             "expires_at": None
         }
         
-        # Delete old insights for this user
-        insights_collection.delete_many({"user_id": current_user["_id"]})
+        # Delete old insights for this user and provider
+        insights_collection.delete_many({
+            "user_id": current_user["_id"],
+            "ai_provider": ai_provider.value
+        })
         
         # Insert new insight
         insights_collection.insert_one(new_insight)
         
-        print(f"✅ New insights generated and cached")
+        print(f"✅ New {ai_provider.value} insights generated and cached")
         
         return InsightResponse(
             id=insight_id,
@@ -428,12 +477,23 @@ async def get_insights(
 
 
 @app.delete("/api/insights")
-async def delete_insights(current_user: dict = Depends(get_current_user)):
+async def delete_insights(
+    ai_provider: Optional[AIProvider] = Query(default=None),  # NEW: Optional to delete specific provider
+    current_user: dict = Depends(get_current_user)
+):
     """Force regeneration of insights by deleting cached ones"""
     try:
-        result = insights_collection.delete_many({"user_id": current_user["_id"]})
+        query = {"user_id": current_user["_id"]}
+        
+        # NEW: If provider specified, only delete for that provider
+        if ai_provider:
+            query["ai_provider"] = ai_provider.value
+        
+        result = insights_collection.delete_many(query)
+        
+        provider_msg = f" for {ai_provider.value}" if ai_provider else ""
         return {
-            "message": f"Deleted {result.deleted_count} cached insights",
+            "message": f"Deleted {result.deleted_count} cached insights{provider_msg}",
             "deleted_count": result.deleted_count
         }
     except Exception as e:
@@ -447,29 +507,37 @@ async def delete_insights(current_user: dict = Depends(get_current_user)):
 @app.post("/api/insights/regenerate", response_model=InsightResponse)
 async def regenerate_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
     current_user: dict = Depends(require_premium)
 ):
     """Force regenerate insights regardless of data changes"""
     try:
-        insights_collection.delete_many({"user_id": current_user["_id"]})
+        # Delete cached insights for this provider
+        insights_collection.delete_many({
+            "user_id": current_user["_id"],
+            "ai_provider": ai_provider.value
+        })
         
         current_hash = calculate_data_hash(current_user["_id"])
         
-        print(f"🔄 Force regenerating insights for user {current_user['_id']}")
+        print(f"🔄 Force regenerating {ai_provider.value} insights for user {current_user['_id']}")
         
-        if financial_chatbot is None:
+        # Select chatbot
+        chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+        
+        if chatbot is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="AI service is currently unavailable"
+                detail=f"{ai_provider.value} AI service is currently unavailable"
             )
         
-        insights_content = await financial_chatbot.generate_insights(current_user["_id"])
+        insights_content = await chatbot.generate_insights(current_user["_id"])
         
         # Generate Myanmar translation if requested
         myanmar_content = None
         if language == "mm":
-            print(f"🔄 Generating Myanmar translation...")
-            myanmar_content = await financial_chatbot.translate_insights_to_myanmar(insights_content)
+            print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
+            myanmar_content = await chatbot.translate_insights_to_myanmar(insights_content)
         
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -481,12 +549,13 @@ async def regenerate_insights(
             "content_mm": myanmar_content,
             "generated_at": now,
             "data_hash": current_hash,
+            "ai_provider": ai_provider.value,  # NEW
             "expires_at": None
         }
         
         insights_collection.insert_one(new_insight)
         
-        print(f"✅ Insights regenerated successfully")
+        print(f"✅ {ai_provider.value} insights regenerated successfully")
         
         return InsightResponse(
             id=insight_id,
@@ -509,16 +578,22 @@ async def regenerate_insights(
 
 
 @app.post("/api/insights/translate-myanmar")
-async def translate_insights_to_myanmar(current_user: dict = Depends(require_premium)):
+async def translate_insights_to_myanmar(
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
+    current_user: dict = Depends(require_premium)
+):
     """Translate existing English insights to Myanmar"""
     try:
-        # Get existing insights
-        insight = insights_collection.find_one({"user_id": current_user["_id"]})
+        # Get existing insights for this provider
+        insight = insights_collection.find_one({
+            "user_id": current_user["_id"],
+            "ai_provider": ai_provider.value
+        })
         
         if not insight:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No insights found to translate"
+                detail=f"No {ai_provider.value} insights found to translate"
             )
         
         # Check if already translated
@@ -528,15 +603,18 @@ async def translate_insights_to_myanmar(current_user: dict = Depends(require_pre
                 "already_translated": True
             }
         
-        if financial_chatbot is None:
+        # Select chatbot
+        chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+        
+        if chatbot is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="AI service is currently unavailable"
+                detail=f"{ai_provider.value} AI service is currently unavailable"
             )
         
-        print(f"🔄 Translating insights to Myanmar for user {current_user['_id']}")
+        print(f"🔄 Translating insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
         
-        myanmar_content = await financial_chatbot.translate_insights_to_myanmar(
+        myanmar_content = await chatbot.translate_insights_to_myanmar(
             insight["content"]
         )
         
@@ -546,7 +624,7 @@ async def translate_insights_to_myanmar(current_user: dict = Depends(require_pre
             {"$set": {"content_mm": myanmar_content}}
         )
         
-        print(f"✅ Myanmar translation completed")
+        print(f"✅ Myanmar translation completed using {ai_provider.value}")
         
         return {
             "message": "Translation completed successfully",

@@ -8,11 +8,11 @@ class ChatProvider with ChangeNotifier {
   bool _isLoading = false;
   bool _isSendingMessage = false;
   String? _error;
-  
+
   bool _isStreaming = false;
   String _currentStreamingMessage = '';
   StreamSubscription? _streamSubscription;
-  
+
   // NEW: Response style state
   ResponseStyle _responseStyle = ResponseStyle.normal;
 
@@ -22,7 +22,19 @@ class ChatProvider with ChangeNotifier {
   String? get error => _error;
   bool get isStreaming => _isStreaming;
   String get currentStreamingMessage => _currentStreamingMessage;
-  ResponseStyle get responseStyle => _responseStyle;  // NEW
+  ResponseStyle get responseStyle => _responseStyle; // NEW
+
+  // NEW: AI Provider state
+  AIProvider _aiProvider = AIProvider.openai;
+
+  // NEW: Getter
+  AIProvider get aiProvider => _aiProvider;
+
+  // NEW: Set AI provider
+  void setAIProvider(AIProvider provider) {
+    _aiProvider = provider;
+    notifyListeners();
+  }
 
   void _setLoading(bool loading) {
     _isLoading = loading;
@@ -53,7 +65,7 @@ class ChatProvider with ChangeNotifier {
     _currentStreamingMessage = '';
     notifyListeners();
   }
-  
+
   // NEW: Set response style
   void setResponseStyle(ResponseStyle style) {
     _responseStyle = style;
@@ -71,11 +83,11 @@ class ChatProvider with ChangeNotifier {
 
     try {
       _setStreaming(true);
-      
-      final chatHistoryToSend = _messages.length > 10 
+
+      final chatHistoryToSend = _messages.length > 10
           ? _messages.sublist(_messages.length - 10)
           : List<ChatMessage>.from(_messages);
-      
+
       final userMessage = ChatMessage(
         role: MessageRole.user,
         content: message,
@@ -83,7 +95,7 @@ class ChatProvider with ChangeNotifier {
       );
       _messages.add(userMessage);
       notifyListeners();
-      
+
       final aiMessageIndex = _messages.length;
       final aiMessage = ChatMessage(
         role: MessageRole.assistant,
@@ -93,19 +105,20 @@ class ChatProvider with ChangeNotifier {
       _messages.add(aiMessage);
       notifyListeners();
 
-      // NEW: Pass response style to API
+      // NEW: Pass AI provider to API
       final stream = ApiService.streamChatMessage(
         message: message,
         chatHistory: chatHistoryToSend,
-        responseStyle: _responseStyle,  // NEW
+        responseStyle: _responseStyle,
+        aiProvider: _aiProvider, // NEW
       );
 
       String fullResponse = '';
-      
+
       _streamSubscription = stream.listen(
         (chunk) {
           fullResponse += chunk;
-          
+
           _messages[aiMessageIndex] = ChatMessage(
             role: MessageRole.assistant,
             content: fullResponse,
@@ -117,7 +130,7 @@ class ChatProvider with ChangeNotifier {
           _setError(error.toString().replaceAll('Exception: ', ''));
           _setStreaming(false);
           _setSendingMessage(false);
-          
+
           if (aiMessageIndex < _messages.length) {
             _messages.removeAt(aiMessageIndex);
             notifyListeners();
@@ -127,7 +140,7 @@ class ChatProvider with ChangeNotifier {
           _setStreaming(false);
           _setSendingMessage(false);
           _resetStreamingMessage();
-          
+
           if (aiMessageIndex < _messages.length && fullResponse.isNotEmpty) {
             _messages[aiMessageIndex] = ChatMessage(
               role: MessageRole.assistant,
@@ -140,18 +153,19 @@ class ChatProvider with ChangeNotifier {
       );
 
       return true;
-      
     } catch (e) {
       _setError(e.toString().replaceAll('Exception: ', ''));
       _setStreaming(false);
       _setSendingMessage(false);
       _resetStreamingMessage();
-      
-      if (_messages.isNotEmpty && _messages.last.role == MessageRole.assistant && _messages.last.content.isEmpty) {
+
+      if (_messages.isNotEmpty &&
+          _messages.last.role == MessageRole.assistant &&
+          _messages.last.content.isEmpty) {
         _messages.removeLast();
         notifyListeners();
       }
-      
+
       return false;
     }
   }
@@ -194,7 +208,9 @@ class ChatProvider with ChangeNotifier {
 
   Future<void> refreshAiData() async {
     try {
-      await ApiService.refreshAiData();
+      await ApiService.refreshAiData(
+        aiProvider: _aiProvider,
+      ); // NEW: pass provider
     } catch (e) {
       print('Error refreshing AI data: $e');
     }
@@ -212,7 +228,7 @@ class ChatProvider with ChangeNotifier {
   Future<void> stopStreaming() async {
     await _cancelStream();
     _setSendingMessage(false);
-    
+
     if (_currentStreamingMessage.isNotEmpty && _messages.isNotEmpty) {
       final lastMessage = _messages.last;
       if (lastMessage.role == MessageRole.assistant) {

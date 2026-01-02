@@ -1,5 +1,3 @@
-# backend/chat_models.py
-
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -14,6 +12,11 @@ class ResponseStyle(str, Enum):
     CONCISE = "concise"
     EXPLANATORY = "explanatory"
 
+# NEW: AI Provider enum
+class AIProvider(str, Enum):
+    OPENAI = "openai"
+    GEMINI = "gemini"
+
 class ChatMessage(BaseModel):
     role: MessageRole
     content: str
@@ -22,7 +25,8 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     chat_history: Optional[List[ChatMessage]] = None
-    response_style: Optional[ResponseStyle] = ResponseStyle.NORMAL  # NEW
+    response_style: Optional[ResponseStyle] = ResponseStyle.NORMAL
+    ai_provider: Optional[AIProvider] = AIProvider.OPENAI  # NEW
 
 class ChatResponse(BaseModel):
     response: str

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/chat.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -26,86 +27,229 @@ class _InsightsScreenState extends State<InsightsScreen> {
     });
   }
 
-
   Future<void> _fetchInsights() async {
-  final locale = Localizations.localeOf(context);
-  final language = locale.languageCode == 'my' ? 'mm' : 'en';
-  
-  await Provider.of<InsightProvider>(context, listen: false)
-      .fetchInsights(language: language);
-}
+    final locale = Localizations.localeOf(context);
+    final language = locale.languageCode == 'my' ? 'mm' : 'en';
 
+    await Provider.of<InsightProvider>(
+      context,
+      listen: false,
+    ).fetchInsights(language: language);
+  }
 
   Future<void> _regenerateInsights() async {
-  final insightProvider = Provider.of<InsightProvider>(context, listen: false);
-  final locale = Localizations.localeOf(context);
-  final language = locale.languageCode == 'my' ? 'mm' : 'en';
-  final responsive = ResponsiveHelper(context);
-  final localizations = AppLocalizations.of(context);
-  
-  // Show loading dialog
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (BuildContext context) {
-      return Center(
-        child: Container(
-          padding: responsive.padding(all: 24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-              ),
-              SizedBox(height: responsive.sp16),
-              Text(
-                localizations.generatingInsights,
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs16,
-                  fontWeight: FontWeight.w500,
+    final insightProvider = Provider.of<InsightProvider>(
+      context,
+      listen: false,
+    );
+    final locale = Localizations.localeOf(context);
+    final language = locale.languageCode == 'my' ? 'mm' : 'en';
+    final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Center(
+          child: Container(
+            padding: responsive.padding(all: 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
                 ),
-              ),
-            ],
+                SizedBox(height: responsive.sp16),
+                Text(
+                  localizations.generatingInsights,
+                  style: GoogleFonts.poppins(
+                    fontSize: responsive.fs16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
+        );
+      },
+    );
+
+    final success = await insightProvider.regenerateInsights(
+      language: language,
+    );
+
+    Navigator.pop(context); // Close loading dialog
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            localizations.insightsRegeneratedSuccessfully,
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Color(0xFF4CAF50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+          ),
+          behavior: SnackBarBehavior.floating,
         ),
       );
-    },
-  );
-
-  final success = await insightProvider.regenerateInsights(language: language);
-  
-  Navigator.pop(context); // Close loading dialog
-
-  if (success) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          localizations.insightsRegeneratedSuccessfully,
-          style: GoogleFonts.poppins(color: Colors.white),
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            insightProvider.error ?? localizations.failedToRegenerateInsights,
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Colors.red,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+          ),
+          behavior: SnackBarBehavior.floating,
         ),
-        backgroundColor: Color(0xFF4CAF50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
-        behavior: SnackBarBehavior.floating,
+      );
+    }
+  }
+
+  void _showAIProviderSelector(InsightProvider insightProvider) {
+    final responsive = ResponsiveHelper(context);
+
+    showModalBottomSheet(
+      context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-    );
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          insightProvider.error ?? localizations.failedToRegenerateInsights,
-          style: GoogleFonts.poppins(color: Colors.white),
+      builder: (context) => Container(
+        padding: responsive.padding(all: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.psychology_alt, color: Color(0xFF667eea)),
+                SizedBox(width: responsive.sp12),
+                Text(
+                  'AI Model',
+                  style: GoogleFonts.poppins(
+                    fontSize: responsive.fs20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: responsive.sp8),
+            Text(
+              'Choose which AI model to generate insights',
+              style: GoogleFonts.poppins(
+                fontSize: responsive.fs14,
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: responsive.sp24),
+            ...AIProvider.values.map((provider) {
+              final isSelected = insightProvider.aiProvider == provider;
+              return Container(
+                margin: EdgeInsets.only(bottom: 12),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () async {
+                      insightProvider.setAIProvider(provider);
+                      Navigator.pop(context);
+                      // Auto-fetch insights for the new provider
+                      await _fetchInsights();
+                    },
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
+                    child: Container(
+                      padding: responsive.padding(all: 16),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? provider.color.withOpacity(0.1)
+                            : Colors.grey[50],
+                        border: Border.all(
+                          color: isSelected
+                              ? provider.color
+                              : Colors.grey[300]!,
+                          width: 2,
+                        ),
+                        borderRadius: BorderRadius.circular(
+                          responsive.borderRadius(12),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: responsive.icon48,
+                            height: responsive.icon48,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? provider.color
+                                  : Colors.grey[300],
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: Icon(
+                              provider.icon,
+                              color: Colors.white,
+                              size: responsive.icon24,
+                            ),
+                          ),
+                          SizedBox(width: responsive.sp16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  provider.getDisplayName(context),
+                                  style: GoogleFonts.poppins(
+                                    fontSize: responsive.fs16,
+                                    fontWeight: FontWeight.w600,
+                                    color: isSelected
+                                        ? provider.color
+                                        : Color(0xFF333333),
+                                  ),
+                                ),
+                                SizedBox(height: responsive.sp4),
+                                Text(
+                                  provider == AIProvider.openai
+                                      ? 'Powered by GPT-4o-mini'
+                                      : 'Powered by Gemini 2.0 Flash',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: responsive.fs14,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isSelected)
+                            Icon(
+                              Icons.check_circle,
+                              color: provider.color,
+                              size: responsive.icon24,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+            SizedBox(height: responsive.sp8),
+          ],
         ),
-        backgroundColor: Colors.red,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
-        behavior: SnackBarBehavior.floating,
       ),
     );
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -117,7 +261,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
-      drawerEnableOpenDragGesture: true,  
+      drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
         title: Row(
@@ -131,15 +275,45 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
             ),
             SizedBox(width: responsive.sp8),
+            Consumer<InsightProvider>(
+              builder: (context, insightProvider, _) => Container(
+                padding: responsive.padding(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: insightProvider.aiProvider.color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(8),
+                  ),
+                  border: Border.all(
+                    color: insightProvider.aiProvider.color,
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  insightProvider.aiProvider.getDisplayName(context),
+                  style: GoogleFonts.poppins(
+                    fontSize: responsive.fs10,
+                    fontWeight: FontWeight.bold,
+                    color: insightProvider.aiProvider.color,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(width: responsive.sp8),
             if (!authProvider.isPremium)
-              Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
-              SizedBox(width: responsive.sp8),
+              Icon(
+                Icons.lock,
+                size: responsive.icon16,
+                color: Color(0xFFFFD700),
+              ),
+            SizedBox(width: responsive.sp8),
             if (!authProvider.isPremium)
               Container(
                 padding: responsive.padding(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Color(0xFFFFD700).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(8),
+                  ),
                   border: Border.all(color: Color(0xFFFFD700), width: 1),
                 ),
                 child: Text(
@@ -150,7 +324,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     color: Color(0xFFFFD700),
                   ),
                 ),
-              )
+              ),
           ],
         ),
         leading: IconButton(
@@ -183,6 +357,34 @@ class _InsightsScreenState extends State<InsightsScreen> {
           //     tooltip: 'Regenerate Insights',
           //     onPressed: _regenerateInsights,
           //   ),
+          Consumer<InsightProvider>(
+            builder: (context, insightProvider, child) {
+              return IconButton(
+                onPressed: () => _showAIProviderSelector(insightProvider),
+                icon: Container(
+                  padding: responsive.padding(all: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        spreadRadius: 1,
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    insightProvider.aiProvider.icon,
+                    color: insightProvider.aiProvider.color,
+                  ),
+                ),
+                tooltip: 'Change AI Model',
+              );
+            },
+          ),
           Padding(
             padding: responsive.padding(right: 16),
             child: Consumer<NotificationProvider>(
@@ -193,7 +395,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                       padding: responsive.padding(all: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                        borderRadius: BorderRadius.circular(
+                          responsive.borderRadius(12),
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.grey.withOpacity(0.1),
@@ -254,10 +458,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
+            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
           ),
         ),
         child: RefreshIndicator(
@@ -271,128 +472,147 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Widget _buildFeatureItem(String text) {
     final responsive = ResponsiveHelper(context);
-  return Padding(
-    padding: EdgeInsets.symmetric(vertical: 8),
-    child: Row(
-      children: [
-        Icon(Icons.check_circle, color: Colors.white, size: responsive.icon20),
-        SizedBox(width: responsive.sp12),
-        Expanded(
-          child: Text(
-            text,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs14,
-              color: Colors.white,
-              fontWeight: FontWeight.w500,
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            Icons.check_circle,
+            color: Colors.white,
+            size: responsive.icon20,
+          ),
+          SizedBox(width: responsive.sp12),
+          Expanded(
+            child: Text(
+              text,
+              style: GoogleFonts.poppins(
+                fontSize: responsive.fs14,
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   Widget _buildBody(InsightProvider insightProvider) {
     final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
-      if (!Provider.of<AuthProvider>(context).isPremium) {
-    return SingleChildScrollView(
-      child: Padding(
-        padding: responsive.padding(all: 20),
-        child: Column(
-          children: [
-            SizedBox(height: responsive.sp20),
-            Container(
-              width: double.infinity,
-              padding: responsive.padding(all: 24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+    if (!Provider.of<AuthProvider>(context).isPremium) {
+      return SingleChildScrollView(
+        child: Padding(
+          padding: responsive.padding(all: 20),
+          child: Column(
+            children: [
+              SizedBox(height: responsive.sp20),
+              Container(
+                width: double.infinity,
+                padding: responsive.padding(all: 24),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                  ),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(20),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0xFFFFD700).withOpacity(0.3),
+                      spreadRadius: 2,
+                      blurRadius: 12,
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFFFFD700).withOpacity(0.3),
-                    spreadRadius: 2,
-                    blurRadius: 12,
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.lightbulb, color: Colors.white, size: responsive.icon64),
-                  SizedBox(height: responsive.sp16),
-                  Text(
-                    localizations.aiInsights,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs24,
-                      fontWeight: FontWeight.bold,
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.lightbulb,
                       color: Colors.white,
+                      size: responsive.icon64,
                     ),
-                  ),
-                  SizedBox(height: responsive.sp8),
-                  Text(
-                    localizations.premiumFeatureTitle,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs14,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                  SizedBox(height: responsive.sp24),
-                  Container(
-                    padding: responsive.padding(all: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    ),
-                    child: Column(
-                      children: [
-                        _buildFeatureItem(localizations.deepSpendingAnalysis),
-                        _buildFeatureItem(localizations.personalizedRecommendations),
-                        _buildFeatureItem(localizations.financialHealthScore),
-                        _buildFeatureItem(localizations.savingsOpportunities),
-                        _buildFeatureItem(localizations.budgetOptimizationTips),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: responsive.sp24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pushNamed(context, '/subscription'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Color(0xFFFFD700),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                        ),
-                        elevation: 4,
+                    SizedBox(height: responsive.sp16),
+                    Text(
+                      localizations.aiInsights,
+                      style: GoogleFonts.poppins(
+                        fontSize: responsive.fs24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    ),
+                    SizedBox(height: responsive.sp8),
+                    Text(
+                      localizations.premiumFeatureTitle,
+                      style: GoogleFonts.poppins(
+                        fontSize: responsive.fs14,
+                        color: Colors.white.withOpacity(0.9),
+                      ),
+                    ),
+                    SizedBox(height: responsive.sp24),
+                    Container(
+                      padding: responsive.padding(all: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(
+                          responsive.borderRadius(12),
+                        ),
+                      ),
+                      child: Column(
                         children: [
-                          Icon(Icons.upgrade, size: responsive.icon24),
-                          SizedBox(width: responsive.sp12),
-                          Text(
-                            localizations.upgradeToPremium,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          _buildFeatureItem(localizations.deepSpendingAnalysis),
+                          _buildFeatureItem(
+                            localizations.personalizedRecommendations,
+                          ),
+                          _buildFeatureItem(localizations.financialHealthScore),
+                          _buildFeatureItem(localizations.savingsOpportunities),
+                          _buildFeatureItem(
+                            localizations.budgetOptimizationTips,
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ],
+                    SizedBox(height: responsive.sp24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, '/subscription'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Color(0xFFFFD700),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              responsive.borderRadius(16),
+                            ),
+                          ),
+                          elevation: 4,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.upgrade, size: responsive.icon24),
+                            SizedBox(width: responsive.sp12),
+                            Text(
+                              localizations.upgradeToPremium,
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
+    }
     if (insightProvider.isLoading || insightProvider.insight == null) {
       return Center(
         child: Column(
@@ -433,7 +653,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 padding: responsive.padding(all: 24),
                 decoration: BoxDecoration(
                   color: Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(20),
+                  ),
                 ),
                 child: Icon(
                   Icons.error_outline,
@@ -474,7 +696,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   backgroundColor: Color(0xFF667eea),
                   padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
                   ),
                 ),
               ),
@@ -497,7 +721,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   gradient: LinearGradient(
                     colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                   ),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(20),
+                  ),
                 ),
                 child: Icon(
                   Icons.lightbulb_outline,
@@ -538,7 +764,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
           padding: responsive.padding(all: 16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+              colors: [
+                insightProvider.aiProvider.color,
+                insightProvider.aiProvider.color.withOpacity(0.7),
+              ],
             ),
             borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
             boxShadow: [
@@ -555,67 +784,103 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 padding: responsive.padding(all: 12),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(12),
+                  ),
                 ),
                 child: Icon(
-                  Icons.auto_awesome,
+                  insightProvider.aiProvider.icon,
                   color: Colors.white,
                   size: responsive.icon28,
                 ),
               ),
               SizedBox(width: responsive.sp16),
               Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Flexible(
-                  flex: 5,
-                  child: Text(
-                    localizations.aiGeneratedInsights,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          flex: 5,
+                          child: Text(
+                            localizations.aiGeneratedInsights,
+                            style: GoogleFonts.poppins(
+                              fontSize: responsive.fs16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: responsive.sp8),
+                        // AI Model badge
+                        Flexible(
+                          flex: 2,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(8),
+                              ),
+                            ),
+                            child: Text(
+                              insightProvider.aiProvider.getDisplayName(
+                                context,
+                              ),
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs10,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: responsive.sp8),
+                        // Language badge
+                        Flexible(
+                          flex: 2,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(8),
+                              ),
+                            ),
+                            child: Text(
+                              insightProvider.currentLanguage == 'mm'
+                                  ? 'မြန်မာ'
+                                  : 'English',
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs10,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-                SizedBox(width: responsive.sp8),
-                // Language badge
-                Flexible(
-                  flex: 2,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                    ),
-                    child: Text(
-                      insightProvider.currentLanguage == 'mm' ? 'မြန်မာ' : 'English',
+                    Text(
+                      'Generated ${DateFormat('MMM dd, yyyy • hh:mm a').format(insightProvider.insight!.generatedAt)}',
                       style: GoogleFonts.poppins(
-                        fontSize: responsive.fs10,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
+                        fontSize: responsive.fs12,
+                        color: Colors.white.withOpacity(0.8),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-            Text(
-              'Generated ${DateFormat('MMM dd, yyyy â€¢ hh:mm a').format(insightProvider.insight!.generatedAt)}',
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs12,
-                color: Colors.white.withOpacity(0.8),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    ],
-  ),
-),
 
         SizedBox(height: responsive.sp20),
 
@@ -635,7 +900,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
           ),
           child: MarkdownBody(
             // Use the provider method to get content in current language
-            data: insightProvider.getContentForLanguage() ?? insightProvider.insight!.content,
+            data:
+                insightProvider.getContentForLanguage() ??
+                insightProvider.insight!.content,
             styleSheet: MarkdownStyleSheet(
               h1: GoogleFonts.poppins(
                 fontSize: responsive.fs24,
@@ -668,7 +935,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ),
           ),
         ),
-        
 
         SizedBox(height: responsive.sp20),
 

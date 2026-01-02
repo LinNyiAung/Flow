@@ -7,11 +7,11 @@ import '../services/localization_service.dart';
 enum MessageRole { user, assistant }
 
 // NEW: Response style enum
-enum ResponseStyle { 
-  normal, 
-  concise, 
+enum ResponseStyle {
+  normal,
+  concise,
   explanatory;
-  
+
   String getDisplayName(BuildContext context) {
     final localizations = AppLocalizations.of(context);
     switch (this) {
@@ -23,8 +23,8 @@ enum ResponseStyle {
         return localizations.detailed;
     }
   }
-  
-  String getDescription (BuildContext context){
+
+  String getDescription(BuildContext context) {
     final localizations = AppLocalizations.of(context);
     switch (this) {
       case ResponseStyle.normal:
@@ -35,7 +35,7 @@ enum ResponseStyle {
         return localizations.thoroughExplanations;
     }
   }
-  
+
   IconData get icon {
     switch (this) {
       case ResponseStyle.normal:
@@ -44,6 +44,39 @@ enum ResponseStyle {
         return Icons.speed;
       case ResponseStyle.explanatory:
         return Icons.article_outlined;
+    }
+  }
+}
+
+enum AIProvider {
+  openai,
+  gemini;
+
+  String getDisplayName(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
+    switch (this) {
+      case AIProvider.openai:
+        return 'ChatGPT';
+      case AIProvider.gemini:
+        return 'Gemini';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case AIProvider.openai:
+        return Icons.psychology;
+      case AIProvider.gemini:
+        return Icons.auto_awesome;
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case AIProvider.openai:
+        return Color(0xFF10A37F);
+      case AIProvider.gemini:
+        return Color(0xFF4285F4);
     }
   }
 }
@@ -79,19 +112,22 @@ class ChatMessage {
 class ChatRequest {
   final String message;
   final List<ChatMessage>? chatHistory;
-  final ResponseStyle? responseStyle;  // NEW
+  final ResponseStyle? responseStyle;
+  final AIProvider? aiProvider; // NEW
 
   ChatRequest({
     required this.message,
     this.chatHistory,
-    this.responseStyle,  // NEW
+    this.responseStyle,
+    this.aiProvider, // NEW
   });
 
   Map<String, dynamic> toJson() {
     return {
       'message': message,
       'chat_history': chatHistory?.map((msg) => msg.toJson()).toList(),
-      if (responseStyle != null) 'response_style': responseStyle!.name,  // NEW
+      if (responseStyle != null) 'response_style': responseStyle!.name,
+      if (aiProvider != null) 'ai_provider': aiProvider!.name, // NEW
     };
   }
 }
@@ -100,10 +136,7 @@ class ChatResponse {
   final String response;
   final DateTime timestamp;
 
-  ChatResponse({
-    required this.response,
-    required this.timestamp,
-  });
+  ChatResponse({required this.response, required this.timestamp});
 
   factory ChatResponse.fromJson(Map<String, dynamic> json) {
     return ChatResponse(

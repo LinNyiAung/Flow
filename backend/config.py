@@ -11,8 +11,13 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES = 30
     
     # AI Chatbot settings
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Make sure to set this in your environment
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    MAX_CHAT_HISTORY = int(os.getenv("MAX_CHAT_HISTORY"))  # Maximum messages to keep in history
+    
+    # NEW: Gemini settings
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    
+    MAX_CHAT_HISTORY = int(os.getenv("MAX_CHAT_HISTORY", "20"))
 
 settings = Settings()
