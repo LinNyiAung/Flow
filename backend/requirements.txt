@@ -18,3 +18,4 @@ reportlab>=4.0.7
 APScheduler>=3.10.4
 python-dotenv>=1.0.1
 numpy>=1.26.4
+google-generativeai>=0.3.0
