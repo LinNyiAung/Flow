@@ -393,47 +393,14 @@ class _AiChatScreenState extends State<AiChatScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        localizations.aiAssistant,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF333333),
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(width: 6),
-                      Consumer<ChatProvider>(
-                        builder: (context, chatProvider, _) => Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: chatProvider.aiProvider.color.withOpacity(
-                              0.2,
-                            ),
-                            borderRadius: BorderRadius.circular(
-                              responsive.borderRadius(8),
-                            ),
-                            border: Border.all(
-                              color: chatProvider.aiProvider.color,
-                              width: 1,
-                            ),
-                          ),
-                          child: Text(
-                            chatProvider.aiProvider.getDisplayName(context),
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs10,
-                              fontWeight: FontWeight.bold,
-                              color: chatProvider.aiProvider.color,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    localizations.aiAssistant,
+                    style: GoogleFonts.poppins(
+                      fontSize: responsive.fs16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF333333),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                   Consumer<ChatProvider>(
                     builder: (context, chatProvider, child) {

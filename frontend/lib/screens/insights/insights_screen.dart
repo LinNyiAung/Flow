@@ -274,30 +274,30 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 color: Color(0xFF333333),
               ),
             ),
-            SizedBox(width: responsive.sp8),
-            Consumer<InsightProvider>(
-              builder: (context, insightProvider, _) => Container(
-                padding: responsive.padding(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: insightProvider.aiProvider.color.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(
-                    responsive.borderRadius(8),
-                  ),
-                  border: Border.all(
-                    color: insightProvider.aiProvider.color,
-                    width: 1,
-                  ),
-                ),
-                child: Text(
-                  insightProvider.aiProvider.getDisplayName(context),
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs10,
-                    fontWeight: FontWeight.bold,
-                    color: insightProvider.aiProvider.color,
-                  ),
-                ),
-              ),
-            ),
+            // SizedBox(width: responsive.sp8),
+            // Consumer<InsightProvider>(
+            //   builder: (context, insightProvider, _) => Container(
+            //     padding: responsive.padding(horizontal: 4, vertical: 2),
+            //     decoration: BoxDecoration(
+            //       color: insightProvider.aiProvider.color.withOpacity(0.2),
+            //       borderRadius: BorderRadius.circular(
+            //         responsive.borderRadius(8),
+            //       ),
+            //       border: Border.all(
+            //         color: insightProvider.aiProvider.color,
+            //         width: 1,
+            //       ),
+            //     ),
+            //     child: Text(
+            //       insightProvider.aiProvider.getDisplayName(context),
+            //       style: GoogleFonts.poppins(
+            //         fontSize: responsive.fs10,
+            //         fontWeight: FontWeight.bold,
+            //         color: insightProvider.aiProvider.color,
+            //       ),
+            //     ),
+            //   ),
+            // ),
             SizedBox(width: responsive.sp8),
             if (!authProvider.isPremium)
               Icon(

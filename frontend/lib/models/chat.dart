@@ -56,7 +56,7 @@ enum AIProvider {
     final localizations = AppLocalizations.of(context);
     switch (this) {
       case AIProvider.openai:
-        return 'ChatGPT';
+        return 'GPT';
       case AIProvider.gemini:
         return 'Gemini';
     }
