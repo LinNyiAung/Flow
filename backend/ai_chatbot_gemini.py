@@ -478,10 +478,10 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             print(f"  - Max output tokens: 8192")
             
             model = genai.GenerativeModel(
-                model_name=self.gemini_model,
+                model_name="gemini-1.5-pro",
                 generation_config={
                     "temperature": 0.3,
-                    "max_output_tokens": 8192,
+                    "max_output_tokens": 32000,
                     "top_p": 0.95,
                     "top_k": 40,
                 }
