@@ -1,4 +1,3 @@
-import asyncio
 import os
 import json
 from typing import List, Dict, Any, Optional
@@ -423,7 +422,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             yield f"I encountered an error: {str(e)}"
 
     async def translate_insights_to_myanmar(self, english_content: str) -> str:
-        """Translate English insights to Myanmar language using Gemini with chunking"""
+        """Translate English insights to Myanmar language using Gemini"""
         try:
             import google.generativeai as genai
             
@@ -453,89 +452,26 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     - Goals: ရည်မှန်းချက်များ
     - Transaction: ငွေသွင်းထုတ်
 
-    Translate naturally while keeping the professional yet friendly tone.
+    Translate naturally while keeping the professional yet friendly tone."""
 
-    IMPORTANT: If this is a continuation of a previous section, continue the translation seamlessly without repeating headers."""
-
-            # Check content length and decide whether to chunk
-            # Rough estimate: 1 token ≈ 4 characters for English, but Myanmar uses more tokens
-            estimated_tokens = len(english_content) / 3
+            model = genai.GenerativeModel(
+                model_name=self.gemini_model,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": 8192,
+                }
+            )
             
-            if estimated_tokens > 6000:  # If content is large, chunk it
-                print(f"📝 Content is large ({estimated_tokens:.0f} estimated tokens), using chunking strategy...")
-                
-                # Split by main sections (##) to preserve context
-                sections = english_content.split('\n## ')
-                translated_sections = []
-                
-                # Translate first section (might not have ## prefix)
-                if sections[0].strip():
-                    model = genai.GenerativeModel(
-                        model_name=self.gemini_model,
-                        generation_config={
-                            "temperature": 0.3,
-                            "max_output_tokens": 8192,
-                        }
-                    )
-                    
-                    prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{sections[0]}"
-                    response = model.generate_content(prompt)
-                    translated_sections.append(response.text)
-                    print(f"✅ Translated section 1/{len(sections)}")
-                
-                # Translate remaining sections with ## prefix
-                for idx, section in enumerate(sections[1:], 2):
-                    section_with_header = f"## {section}"
-                    
-                    model = genai.GenerativeModel(
-                        model_name=self.gemini_model,
-                        generation_config={
-                            "temperature": 0.3,
-                            "max_output_tokens": 8192,
-                        }
-                    )
-                    
-                    prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{section_with_header}"
-                    response = model.generate_content(prompt)
-                    translated_sections.append(response.text)
-                    print(f"✅ Translated section {idx}/{len(sections)}")
-                    
-                    # Small delay to avoid rate limits
-                    await asyncio.sleep(0.5)
-                
-                # Combine all translated sections
-                myanmar_content = '\n\n'.join(translated_sections)
-                print(f"✅ Combined {len(translated_sections)} sections")
-                
-            else:
-                # Content is small enough, translate in one go with higher token limit
-                print(f"📝 Translating content in single request ({estimated_tokens:.0f} estimated tokens)...")
-                
-                model = genai.GenerativeModel(
-                    model_name=self.gemini_model,
-                    generation_config={
-                        "temperature": 0.3,
-                        "max_output_tokens": 8192,  # Maximum for most Gemini models
-                        "top_p": 0.95,
-                        "top_k": 40,
-                    }
-                )
-                
-                prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
-                
-                response = model.generate_content(prompt)
-                myanmar_content = response.text
-                print(f"✅ Translation completed")
+            prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
+            
+            response = model.generate_content(prompt)
+            myanmar_content = response.text
             
             return myanmar_content
             
         except Exception as e:
             print(f"Gemini translation error: {e}")
-            import traceback
-            traceback.print_exc()
             raise Exception(f"Failed to translate insights: {str(e)}")
-    
-
 
     async def generate_insights(self, user_id: str) -> str:
         """Generate comprehensive financial insights using Gemini"""
