@@ -69,7 +69,7 @@ class GeminiFinancialChatbot:
         )
         self.user_vector_stores = {}
         
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     
     def _get_or_create_vector_store(self, user_id: str) -> Chroma:
         """Get or create vector store for user"""
@@ -422,8 +422,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             traceback.print_exc()
             yield f"I encountered an error: {str(e)}"
 
-    async def translate_insights_to_myanmar_chunked(self, english_content: str) -> str:
-        """Translate with chunking for very long content (alternative approach)"""
+    async def translate_insights_to_myanmar(self, english_content: str) -> str:
+        """Translate English insights to Myanmar language using Gemini"""
         try:
             import google.generativeai as genai
             
@@ -431,24 +431,6 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 raise Exception("Google API key not configured")
             
             genai.configure(api_key=self.google_api_key)
-            
-            # Split content by sections (markdown headers)
-            sections = []
-            current_section = ""
-            
-            for line in english_content.split('\n'):
-                current_section += line + '\n'
-                
-                # Split at ## headers if section is getting large
-                if line.startswith('## ') and len(current_section) > 1000:
-                    sections.append(current_section)
-                    current_section = ""
-            
-            # Add remaining content
-            if current_section:
-                sections.append(current_section)
-            
-            print(f"🔄 Translating {len(sections)} sections...")
             
             system_prompt = """You are a professional translator specializing in financial content. 
     Translate the following financial insights from English to Myanmar (Burmese) language.
@@ -462,9 +444,14 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     6. Maintain the same structure and sections
 
     For financial terms:
-    - Money: ငွေ, Balance: လက်ကျန်ငွေ, Income: ၀င်ငွေ, Expenses: ကုန်ကြေးရိတ်
-    - Savings: စုဆောင်းငွေ, Budget: ဘတ်ဂျက်, Goals: ရည်မှန်းချက်များ
-    - Transaction: ငွေသွင်းထုတ်, USD: အမေရိကန်ဒေါ်လာ, MMK: မြန်မာကျပ်
+    - Money: ငွေ
+    - Balance: လက်ကျန်ငွေ
+    - Income: ၀င်ငွေ
+    - Expenses: ကုန်ကြေးရိတ်
+    - Savings: စုဆောင်းငွေ
+    - Budget: ဘတ်ဂျက်
+    - Goals: ရည်မှန်းချက်များ
+    - Transaction: ငွေသွင်းထုတ်
 
     Translate naturally while keeping the professional yet friendly tone."""
 
@@ -472,41 +459,19 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 model_name=self.gemini_model,
                 generation_config={
                     "temperature": 0.3,
-                    "max_output_tokens": 4096,
-                    "top_p": 0.95,
+                    "max_output_tokens": 8192,
                 }
             )
             
-            translated_sections = []
+            prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
             
-            for i, section in enumerate(sections, 1):
-                print(f"   Translating section {i}/{len(sections)}...")
-                
-                prompt = f"{system_prompt}\n\nTranslate this section to Myanmar:\n\n{section}"
-                
-                response = model.generate_content(prompt, stream=True)
-                
-                translated = ""
-                for chunk in response:
-                    if chunk.text:
-                        translated += chunk.text
-                
-                translated_sections.append(translated)
-                
-                # Small delay between sections to avoid rate limits
-                if i < len(sections):
-                    await asyncio.sleep(0.5)
-            
-            myanmar_content = '\n'.join(translated_sections)
-            
-            print(f"✅ Translation complete: {len(myanmar_content)} characters")
+            response = model.generate_content(prompt)
+            myanmar_content = response.text
             
             return myanmar_content
             
         except Exception as e:
-            print(f"Gemini chunked translation error: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Gemini translation error: {e}")
             raise Exception(f"Failed to translate insights: {str(e)}")
     
 
