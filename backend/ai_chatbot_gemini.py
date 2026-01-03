@@ -422,26 +422,14 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             yield f"I encountered an error: {str(e)}"
 
     async def translate_insights_to_myanmar(self, english_content: str) -> str:
-        """Translate English insights to Myanmar language using Gemini with comprehensive debugging"""
+        """Translate English insights to Myanmar language using Gemini"""
         try:
             import google.generativeai as genai
-            
-            print("\n" + "="*60)
-            print("🔍 MYANMAR TRANSLATION DEBUG START")
-            print("="*60)
             
             if not self.google_api_key:
                 raise Exception("Google API key not configured")
             
             genai.configure(api_key=self.google_api_key)
-            
-            # Debug: Input content analysis
-            print(f"\n📊 INPUT ANALYSIS:")
-            print(f"  - Content length: {len(english_content)} characters")
-            print(f"  - Word count: ~{len(english_content.split())} words")
-            print(f"  - Line count: {len(english_content.splitlines())} lines")
-            print(f"  - First 200 chars: {english_content[:200]}...")
-            print(f"  - Last 200 chars: ...{english_content[-200:]}")
             
             system_prompt = """You are a professional translator specializing in financial content. 
     Translate the following financial insights from English to Myanmar (Burmese) language.
@@ -464,115 +452,25 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     - Goals: ရည်မှန်းချက်များ
     - Transaction: ငွေသွင်းထုတ်
 
-    Translate naturally while keeping the professional yet friendly tone.
+    Translate naturally while keeping the professional yet friendly tone."""
 
-    IMPORTANT: Complete the ENTIRE translation. Do not stop midway. Translate every section completely."""
-
-            print(f"\n📝 SYSTEM PROMPT:")
-            print(f"  - Length: {len(system_prompt)} characters")
-            
-            # Debug: Model configuration
-            print(f"\n⚙️  MODEL CONFIGURATION:")
-            print(f"  - Model: {self.gemini_model}")
-            print(f"  - Temperature: 0.3")
-            print(f"  - Max output tokens: 8192")
-            
             model = genai.GenerativeModel(
                 model_name="gemini-2.5-pro",
                 generation_config={
                     "temperature": 0.3,
                     "max_output_tokens": 65536,
-                    "top_p": 0.95,
-                    "top_k": 40,
                 }
             )
             
             prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
             
-            print(f"\n📤 FULL PROMPT:")
-            print(f"  - Total prompt length: {len(prompt)} characters")
-            print(f"  - Estimated tokens: ~{len(prompt) // 4}")
-            
-            print(f"\n🚀 Sending request to Gemini API...")
-            
-            # Debug: API call with timing
-            import time
-            start_time = time.time()
-            
             response = model.generate_content(prompt)
-            
-            api_time = time.time() - start_time
-            print(f"\n✅ API Response received in {api_time:.2f} seconds")
-            
-            # Debug: Response analysis
-            if hasattr(response, 'prompt_feedback'):
-                print(f"\n📋 PROMPT FEEDBACK:")
-                print(f"  {response.prompt_feedback}")
-            
             myanmar_content = response.text
-            
-            print(f"\n📊 OUTPUT ANALYSIS:")
-            print(f"  - Output length: {len(myanmar_content)} characters")
-            print(f"  - Word count: ~{len(myanmar_content.split())} words")
-            print(f"  - Line count: {len(myanmar_content.splitlines())} lines")
-            print(f"  - First 200 chars: {myanmar_content[:200]}...")
-            print(f"  - Last 200 chars: ...{myanmar_content[-200:]}")
-            
-            # Debug: Compare lengths
-            ratio = len(myanmar_content) / len(english_content) if english_content else 0
-            print(f"\n📈 LENGTH COMPARISON:")
-            print(f"  - Input: {len(english_content)} chars")
-            print(f"  - Output: {len(myanmar_content)} chars")
-            print(f"  - Ratio: {ratio:.2f}x")
-            print(f"  - Expected ratio for Myanmar: ~1.2-1.5x")
-            
-            if ratio < 0.5:
-                print(f"\n⚠️  WARNING: Output is suspiciously short!")
-                print(f"     This suggests incomplete translation.")
-            
-            # Debug: Check if translation stopped midway
-            incomplete_indicators = [
-                not myanmar_content.strip().endswith(('.', '။', '!', '?', 'ပါ', 'သည်', 'ပြီ')),
-                len(myanmar_content) < len(english_content) * 0.7,
-                '...' in myanmar_content[-100:],
-            ]
-            
-            if any(incomplete_indicators):
-                print(f"\n⚠️  POTENTIAL INCOMPLETE TRANSLATION DETECTED:")
-                print(f"  - Ends with proper punctuation: {myanmar_content.strip().endswith(('.', '။', '!', '?', 'ပါ', 'သည်', 'ပြီ'))}")
-                print(f"  - Length adequate: {len(myanmar_content) >= len(english_content) * 0.7}")
-                print(f"  - No trailing ellipsis: {'...' not in myanmar_content[-100:]}")
-            
-            # Debug: Check finish reason
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'finish_reason'):
-                    print(f"\n🏁 FINISH REASON: {candidate.finish_reason}")
-                    
-                    if candidate.finish_reason != 1:  # 1 = STOP (normal completion)
-                        print(f"  ⚠️  WARNING: Abnormal finish reason!")
-                        print(f"     1=STOP, 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION, 5=OTHER")
-                
-                if hasattr(candidate, 'safety_ratings'):
-                    print(f"\n🛡️  SAFETY RATINGS:")
-                    for rating in candidate.safety_ratings:
-                        print(f"  - {rating.category}: {rating.probability}")
-            
-            print("\n" + "="*60)
-            print("✅ MYANMAR TRANSLATION DEBUG END")
-            print("="*60 + "\n")
             
             return myanmar_content
             
         except Exception as e:
-            print(f"\n❌ TRANSLATION ERROR:")
-            print(f"  - Error type: {type(e).__name__}")
-            print(f"  - Error message: {str(e)}")
-            
-            import traceback
-            print(f"\n📜 FULL TRACEBACK:")
-            traceback.print_exc()
-            
+            print(f"Gemini translation error: {e}")
             raise Exception(f"Failed to translate insights: {str(e)}")
 
     async def generate_insights(self, user_id: str) -> str:
