@@ -22,9 +22,137 @@ notification_preferences_collection = database.notification_preferences
 def initialize_categories():
     if categories_collection.count_documents({}) == 0:
         default_categories = [
-            {"_id":"inflow","categories":[{"main_category":"Income","sub_categories":["Salary","Freelance","Business","Investment Returns","Bonus","Other"]},{"main_category":"Refunds","sub_categories":["Tax Refund","Purchase Refund","Insurance Claim","Other"]},{"main_category":"Gifts","sub_categories":["Birthday","Holiday","Wedding","Other"]}]},
-            {"_id":"outflow","categories":[{"main_category":"Food & Dining","sub_categories":["Restaurants","Groceries","Fast Food","Coffee & Tea","Alcohol & Bars"]},{"main_category":"Transportation","sub_categories":["Gas & Fuel","Parking","Public Transport","Taxi & Uber","Car Maintenance"]},{"main_category":"Shopping","sub_categories":["Clothing","Electronics","Books","Home & Garden","Sports & Recreation"]},{"main_category":"Entertainment","sub_categories":["Movies & Theater","Music","Games","Hobbies","Sports Events"]},{"main_category":"Bills & Utilities","sub_categories":["Phone","Internet","Electricity","Water","Gas","Cable TV"]},{"main_category":"Health & Fitness","sub_categories":["Doctor","Dentist","Pharmacy","Gym","Health Insurance"]},{"main_category":"Travel","sub_categories":["Flights","Hotels","Car Rental","Travel Insurance","Activities"]},{"main_category":"Education","sub_categories":["Tuition","Books","Courses","Training","School Supplies"]},{"main_category":"Personal Care","sub_categories":["Haircut","Cosmetics","Clothing","Spa & Massage"]},{"main_category":"Gifts & Donations","sub_categories":["Gifts","Charity","Religious Donations"]},{"main_category":"Financial","sub_categories":["Bank Fees","Interest","Insurance","Taxes","Investments"]},{"main_category":"Other","sub_categories":["Miscellaneous","Cash Withdrawal","Other"]}]}
+    {
+        "_id": "inflow",
+        "categories": [
+            {
+                "main_category": "Employment Income",
+                "sub_categories": [
+                    "Salary", "Overtime Pay", "Bonus", "Commission", "Allowances", "Pension"
+                ]
+            },
+            {
+                "main_category": "Self-Employment & Business",
+                "sub_categories": [
+                    "Freelance Income", "Business Income", 
+                    "Side Hustle", "Royalties"
+                ]
+            },
+            {
+                "main_category": "Investment Income",
+                "sub_categories": [
+                    "Dividends", "Interest Income", "Capital Gains",
+                    "Crypto Gains", "Rental Income"                ]
+            },
+            {
+                "main_category": "Gifts & Support",
+                "sub_categories": [
+                    "Gifts Received", "Family Support",
+                    "Wedding / Events", "Inheritance"
+                ]
+            },
+            {
+                "main_category": "Refunds & Reimbursements",
+                "sub_categories": [
+                    "Tax Refund", "Expense Reimbursement",
+                    "Purchase Refund", "Insurance Claim", "Cashback / Rewards"
+                ]
+            },
+            {
+                "main_category": "Other Income",
+                "sub_categories": [
+                    "Asset Sale", "Prize / Lottery",
+                    "Other Income"
+                ]
+            }
         ]
+    },
+    {
+        "_id": "outflow",
+        "categories": [
+            {
+                "main_category": "Food & Daily Living",
+                "sub_categories": [
+                    "Groceries", "Restaurants", "Fast Food",
+                    "Coffee & Snacks", "Alcohol"                ]
+            },
+            {
+                "main_category": "Housing & Utilities",
+                "sub_categories": [
+                    "Rent", "Mortgage", "Electricity", "Water",
+                    "Gas", "Internet", "Mobile Phone", "Home Maintenance"
+                ]
+            },
+            {
+                "main_category": "Transportation",
+                "sub_categories": [
+                    "Fuel", "Public Transport", "Taxi",
+                    "Vehicle Maintenance", "Vehicle Insurance",
+                    "Parking", "Toll Fees"
+                ]
+            },
+            {
+                "main_category": "Shopping & Lifestyle",
+                "sub_categories": [
+                    "Clothing", "Footwear", "Accessories",
+                    "Electronics", "Home Supplies", "Furniture"
+                ]
+            },
+            {
+                "main_category": "Entertainment & Leisure",
+                "sub_categories": [
+                    "Movies & Streaming", "Games", "Music",
+                    "Events & Concerts", "Hobbies", "Subscriptions"
+                ]
+            },
+            {
+                "main_category": "Health & Insurance",
+                "sub_categories": [
+                    "Doctor Visits", "Dental", "Pharmacy",
+                    "Health Insurance", "Mental Health", "Fitness & Gym"
+                ]
+            },
+            {
+                "main_category": "Education & Self-Improvement",
+                "sub_categories": [
+                    "Tuition Fees", "Online Courses", "Books",
+                    "Professional Development", "Workshops", "Learning Subscriptions"
+                ]
+            },
+            {
+                "main_category": "Travel & Vacation",
+                "sub_categories": [
+                    "Flights", "Accommodation", "Transport (Travel)",
+                    "Food (Travel)", "Activities", "Travel Insurance"
+                ]
+            },
+            {
+                "main_category": "Financial Expenses",
+                "sub_categories": [
+                    "Bank Fees", "Loan Repayment",
+                    "Credit Card Payment", "Interest Paid",
+                    "Taxes", "Investment Fees"
+                ]
+            },
+            {
+                "main_category": "Business Expenses",
+                "sub_categories": [
+                    "Software & Tools", "Marketing & Ads",
+                    "Office Supplies", "Hosting & Domains",
+                    "Business Travel", "Contractor Payments"
+                ]
+            },
+            {
+                "main_category": "Other & Adjustments",
+                "sub_categories": [
+                    "Cash Withdrawal", "Currency Exchange Loss",
+                    "Correction / Adjustment", "Miscellaneous", "Other Expenses"
+                ]
+            }
+        ]
+    }
+]
+
         categories_collection.insert_many(default_categories)
         
         
