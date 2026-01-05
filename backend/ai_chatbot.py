@@ -508,7 +508,7 @@ class FinancialChatbot:
         )
         self.user_vector_stores = {}
         
-        self.gpt_model = "gpt-4o-mini"
+        self.gpt_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     
     def _get_or_create_vector_store(self, user_id: str) -> Chroma:
         """Get or create vector store for user"""
@@ -744,7 +744,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             
             # Calculate goals summary
             goals_summary = None
-            if goals:
+            if goals:                  
                 active_goals = [g for g in goals if g["status"] == "active"]
                 achieved_goals = [g for g in goals if g["status"] == "achieved"]
                 total_allocated = sum(g["current_amount"] for g in active_goals)

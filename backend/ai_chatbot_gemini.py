@@ -313,14 +313,6 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             # Calculate goals summary
             goals_summary = None
             if goals:
-                # Group goals by currency for summary
-                goals_by_currency = {}
-                for g in goals:
-                    currency = g.get("currency", "usd")
-                    if currency not in goals_by_currency:
-                        goals_by_currency[currency] = []
-                    goals_by_currency[currency].append(g)
-                
                 active_goals = [g for g in goals if g["status"] == "active"]
                 achieved_goals = [g for g in goals if g["status"] == "achieved"]
                 total_allocated = sum(g["current_amount"] for g in active_goals)
@@ -329,8 +321,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "total_goals": len(goals),
                     "active_goals": len(active_goals),
                     "achieved_goals": len(achieved_goals),
-                    "total_allocated": total_allocated,
-                    "goals_by_currency": goals_by_currency
+                    "total_allocated": total_allocated                   
                 }
             
             if summary.get("message") and not goals:
