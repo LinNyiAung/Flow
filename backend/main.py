@@ -349,20 +349,11 @@ async def get_insights(
             if language == "mm" and not latest_insight.get("content_mm"):
                 print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
                 
-                # Select chatbot for translation
-                from ai_chatbot import financial_chatbot
-                from ai_chatbot_gemini import gemini_financial_chatbot
+                from insights_service import translate_insight_to_myanmar
                 
-                chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
-                
-                if chatbot is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail=f"{ai_provider.value} AI service is currently unavailable"
-                    )
-                
-                myanmar_content = await chatbot.translate_insights_to_myanmar(
-                    latest_insight["content"]
+                myanmar_content = await translate_insight_to_myanmar(
+                    latest_insight["content"],
+                    ai_provider.value
                 )
                 
                 # Update cache with Myanmar translation
@@ -403,22 +394,19 @@ async def get_insights(
         if language == "mm":
             print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
             
-            from ai_chatbot import financial_chatbot
-            from ai_chatbot_gemini import gemini_financial_chatbot
+            from insights_service import translate_insight_to_myanmar
             
-            chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+            myanmar_content = await translate_insight_to_myanmar(
+                new_insight["content"],
+                ai_provider.value
+            )
+                
+            insights_collection.update_one(
+                {"_id": new_insight["_id"]},
+                {"$set": {"content_mm": myanmar_content}}
+            )
             
-            if chatbot:
-                myanmar_content = await chatbot.translate_insights_to_myanmar(
-                    new_insight["content"]
-                )
-                
-                insights_collection.update_one(
-                    {"_id": new_insight["_id"]},
-                    {"$set": {"content_mm": myanmar_content}}
-                )
-                
-                new_insight["content_mm"] = myanmar_content
+            new_insight["content_mm"] = myanmar_content
         
         print(f"✅ First weekly {ai_provider.value} insight generated")
         
@@ -499,22 +487,19 @@ async def regenerate_insights(
         if language == "mm":
             print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
             
-            from ai_chatbot import financial_chatbot
-            from ai_chatbot_gemini import gemini_financial_chatbot
+            from insights_service import translate_insight_to_myanmar
             
-            chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+            myanmar_content = await translate_insight_to_myanmar(
+                new_insight["content"],
+                ai_provider.value
+            )
+                
+            insights_collection.update_one(
+                {"_id": new_insight["_id"]},
+                {"$set": {"content_mm": myanmar_content}}
+            )
             
-            if chatbot:
-                myanmar_content = await chatbot.translate_insights_to_myanmar(
-                    new_insight["content"]
-                )
-                
-                insights_collection.update_one(
-                    {"_id": new_insight["_id"]},
-                    {"$set": {"content_mm": myanmar_content}}
-                )
-                
-                new_insight["content_mm"] = myanmar_content
+            new_insight["content_mm"] = myanmar_content
         
         print(f"✅ Weekly {ai_provider.value} insights regenerated successfully")
         
