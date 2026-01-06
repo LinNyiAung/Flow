@@ -1,4 +1,5 @@
 import uuid
+import os
 from datetime import datetime, timedelta, UTC
 from database import users_collection, insights_collection
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
@@ -6,6 +7,10 @@ from ai_chatbot_gemini import gemini_financial_chatbot
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Get API keys
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
 def get_week_date_range():
@@ -91,9 +96,9 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         import google.generativeai as genai
         
         if ai_provider == "gemini":
-            genai.configure(api_key=chatbot.google_api_key)
+            genai.configure(api_key=GOOGLE_API_KEY)
             model = genai.GenerativeModel(
-                model_name=chatbot.gemini_model,
+                model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 generation_config={
                     "temperature": 0.7,
                     "max_output_tokens": 8192,
@@ -103,7 +108,7 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
             response = model.generate_content(full_prompt)
             insights_content = response.text
         else:
-            client = AsyncOpenAI(api_key=chatbot.openai_api_key)
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
             response = await client.chat.completions.create(
                 model=chatbot.gpt_model,
                 messages=[
@@ -384,3 +389,76 @@ def generate_weekly_insights_for_all_users():
             logger.error(f"❌ Error processing user {user_id}: {str(e)}")
     
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
+
+
+async def translate_insight_to_myanmar(english_content: str, ai_provider: str = "openai") -> str:
+    """Translate English insights to Myanmar language"""
+    try:
+        system_prompt = """You are a professional translator specializing in financial content. 
+Translate the following financial insights from English to Myanmar (Burmese) language.
+
+CRITICAL RULES:
+1. Maintain ALL formatting including markdown (##, **, bullets, emojis)
+2. Keep financial terms clear and understandable in Myanmar
+3. Preserve all numbers, percentages, and dollar amounts exactly
+4. Use natural, conversational Myanmar that feels native
+5. Keep emojis exactly as they are
+6. Maintain the same structure and sections
+
+For financial terms:
+- Money: ငွေ
+- Balance: လက်ကျန်ငွေ
+- Income: ၀င်ငွေ
+- Expenses: ကုန်ကျစရိတ်
+- Savings: စုဆောင်းငွေ
+- Budget: ဘတ်ဂျက်
+- Goals: ရည်မှန်းချက်များ
+- Transaction: ငွေသွင်းထုတ်
+
+Translate naturally while keeping the professional yet friendly tone."""
+
+        if ai_provider == "gemini":
+            import google.generativeai as genai
+            
+            if not GOOGLE_API_KEY:
+                raise Exception("Google API key not configured")
+            
+            genai.configure(api_key=GOOGLE_API_KEY)
+            
+            model = genai.GenerativeModel(
+                model_name="gemini-2.5-pro",
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": 8192,
+                }
+            )
+            
+            prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
+            response = model.generate_content(prompt)
+            myanmar_content = response.text
+            
+        else:  # OpenAI
+            from openai import AsyncOpenAI
+            
+            if not OPENAI_API_KEY:
+                raise Exception("OpenAI API key not configured")
+            
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            
+            response = await client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Translate this to Myanmar:\n\n{english_content}"}
+                ],
+                temperature=0.3,
+                max_tokens=3000
+            )
+            
+            myanmar_content = response.choices[0].message.content
+        
+        return myanmar_content
+        
+    except Exception as e:
+        logger.error(f"Translation error using {ai_provider}: {e}")
+        raise Exception(f"Failed to translate insights: {str(e)}")

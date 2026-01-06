@@ -8,5 +8,4 @@ class InsightResponse(BaseModel):
     content: str
     content_mm: Optional[str] = None  # NEW: Myanmar translation
     generated_at: datetime
-    data_hash: str
     expires_at: Optional[datetime] = None

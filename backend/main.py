@@ -325,30 +325,6 @@ async def refresh_ai_data(
     
 
 # ==================== AI INSIGHTS ====================   
-    
-def calculate_data_hash(user_id: str) -> str:
-    """Calculate hash of user's financial data to detect changes"""
-    # Get counts and totals to create a fingerprint
-    transaction_count = transactions_collection.count_documents({"user_id": user_id})
-    goal_count = goals_collection.count_documents({"user_id": user_id})
-    
-    # Get last transaction date
-    last_transaction = transactions_collection.find_one(
-        {"user_id": user_id},
-        sort=[("date", -1)]
-    )
-    last_transaction_date = last_transaction["date"].isoformat() if last_transaction else "none"
-    
-    # Get last goal update
-    last_goal = goals_collection.find_one(
-        {"user_id": user_id},
-        sort=[("updated_at", -1)]
-    )
-    last_goal_update = last_goal["updated_at"].isoformat() if last_goal else "none"
-    
-    # Create hash from all these elements
-    data_string = f"{user_id}:{transaction_count}:{goal_count}:{last_transaction_date}:{last_goal_update}"
-    return hashlib.sha256(data_string.encode()).hexdigest()
 
 
 @app.get("/api/insights", response_model=InsightResponse)
@@ -589,22 +565,13 @@ async def translate_insights_to_myanmar(
                 "already_translated": True
             }
         
-        # Select chatbot
-        from ai_chatbot import financial_chatbot
-        from ai_chatbot_gemini import gemini_financial_chatbot
-        
-        chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
-        
-        if chatbot is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"{ai_provider.value} AI service is currently unavailable"
-            )
+        from insights_service import translate_insight_to_myanmar
         
         print(f"🔄 Translating weekly insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
         
-        myanmar_content = await chatbot.translate_insights_to_myanmar(
-            insight["content"]
+        myanmar_content = await translate_insight_to_myanmar(
+            insight["content"],
+            ai_provider.value
         )
         
         # Update with Myanmar translation
