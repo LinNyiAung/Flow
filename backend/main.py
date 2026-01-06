@@ -354,32 +354,29 @@ def calculate_data_hash(user_id: str) -> str:
 @app.get("/api/insights", response_model=InsightResponse)
 async def get_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
-    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     current_user: dict = Depends(require_premium)
 ):
-    """Get AI-generated financial insights (cached if data unchanged)"""
+    """Get latest weekly AI-generated financial insights"""
     try:
-        # Calculate current data hash
-        current_hash = calculate_data_hash(current_user["_id"])
-        
-        # NEW: Add provider to cache key
-        cache_key = f"{current_user['_id']}_{ai_provider.value}"
-        
-        # Check if we have cached insights for this provider
-        cached_insight = insights_collection.find_one({
+        # Get the latest weekly insight for this provider
+        latest_insight = insights_collection.find_one({
             "user_id": current_user["_id"],
-            "data_hash": current_hash,
-            "ai_provider": ai_provider.value  # NEW
-        })
+            "ai_provider": ai_provider.value,
+            "insight_type": "weekly"  # NEW: Filter for weekly insights
+        }, sort=[("generated_at", -1)])
         
-        if cached_insight:
-            print(f"✅ Returning cached {ai_provider.value} insights for user {current_user['_id']}")
+        if latest_insight:
+            print(f"✅ Returning latest weekly {ai_provider.value} insights for user {current_user['_id']}")
             
             # If Myanmar requested but not cached, generate translation
-            if language == "mm" and not cached_insight.get("content_mm"):
+            if language == "mm" and not latest_insight.get("content_mm"):
                 print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
                 
                 # Select chatbot for translation
+                from ai_chatbot import financial_chatbot
+                from ai_chatbot_gemini import gemini_financial_chatbot
+                
                 chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
                 
                 if chatbot is None:
@@ -389,103 +386,98 @@ async def get_insights(
                     )
                 
                 myanmar_content = await chatbot.translate_insights_to_myanmar(
-                    cached_insight["content"]
+                    latest_insight["content"]
                 )
                 
                 # Update cache with Myanmar translation
                 insights_collection.update_one(
-                    {"_id": cached_insight["_id"]},
+                    {"_id": latest_insight["_id"]},
                     {"$set": {"content_mm": myanmar_content}}
                 )
                 
-                cached_insight["content_mm"] = myanmar_content
+                latest_insight["content_mm"] = myanmar_content
             
             return InsightResponse(
-                id=cached_insight["_id"],
-                user_id=cached_insight["user_id"],
-                content=cached_insight["content"],
-                content_mm=cached_insight.get("content_mm"),
-                generated_at=cached_insight["generated_at"],
-                data_hash=cached_insight["data_hash"],
-                expires_at=cached_insight.get("expires_at")
+                id=latest_insight["_id"],
+                user_id=latest_insight["user_id"],
+                content=latest_insight["content"],
+                content_mm=latest_insight.get("content_mm"),
+                generated_at=latest_insight["generated_at"],
+                data_hash=latest_insight.get("data_hash", ""),  # Keep for compatibility
+                expires_at=latest_insight.get("expires_at")
             )
         
-        # Generate new insights
-        print(f"🔄 Generating new {ai_provider.value} insights for user {current_user['_id']}")
+        # No existing weekly insight - generate first one
+        print(f"🔄 No weekly insight found, generating first {ai_provider.value} insight for user {current_user['_id']}")
         
-        # Select chatbot
-        chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+        from insights_service import generate_weekly_insight
         
-        if chatbot is None:
+        new_insight = await generate_weekly_insight(
+            current_user["_id"],
+            ai_provider.value
+        )
+        
+        if not new_insight:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"{ai_provider.value} AI service is currently unavailable"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate weekly insight"
             )
-        
-        insights_content = await chatbot.generate_insights(current_user["_id"])
         
         # Generate Myanmar translation if requested
-        myanmar_content = None
         if language == "mm":
             print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
-            myanmar_content = await chatbot.translate_insights_to_myanmar(insights_content)
+            
+            from ai_chatbot import financial_chatbot
+            from ai_chatbot_gemini import gemini_financial_chatbot
+            
+            chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+            
+            if chatbot:
+                myanmar_content = await chatbot.translate_insights_to_myanmar(
+                    new_insight["content"]
+                )
+                
+                insights_collection.update_one(
+                    {"_id": new_insight["_id"]},
+                    {"$set": {"content_mm": myanmar_content}}
+                )
+                
+                new_insight["content_mm"] = myanmar_content
         
-        # Save to database
-        insight_id = str(uuid.uuid4())
-        now = datetime.now(UTC)
-        
-        new_insight = {
-            "_id": insight_id,
-            "user_id": current_user["_id"],
-            "content": insights_content,
-            "content_mm": myanmar_content,
-            "generated_at": now,
-            "data_hash": current_hash,
-            "ai_provider": ai_provider.value,  # NEW
-            "expires_at": None
-        }
-        
-        # Delete old insights for this user and provider
-        insights_collection.delete_many({
-            "user_id": current_user["_id"],
-            "ai_provider": ai_provider.value
-        })
-        
-        # Insert new insight
-        insights_collection.insert_one(new_insight)
-        
-        print(f"✅ New {ai_provider.value} insights generated and cached")
+        print(f"✅ First weekly {ai_provider.value} insight generated")
         
         return InsightResponse(
-            id=insight_id,
-            user_id=current_user["_id"],
-            content=insights_content,
-            content_mm=myanmar_content,
-            generated_at=now,
-            data_hash=current_hash,
-            expires_at=None
+            id=new_insight["_id"],
+            user_id=new_insight["user_id"],
+            content=new_insight["content"],
+            content_mm=new_insight.get("content_mm"),
+            generated_at=new_insight["generated_at"],
+            data_hash=new_insight.get("data_hash", ""),
+            expires_at=new_insight.get("expires_at")
         )
         
     except Exception as e:
-        print(f"❌ Error generating insights: {str(e)}")
+        print(f"❌ Error getting insights: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate insights: {str(e)}"
+            detail=f"Failed to get insights: {str(e)}"
         )
 
 
 @app.delete("/api/insights")
 async def delete_insights(
-    ai_provider: Optional[AIProvider] = Query(default=None),  # NEW: Optional to delete specific provider
+    ai_provider: Optional[AIProvider] = Query(default=None),
     current_user: dict = Depends(get_current_user)
 ):
-    """Force regeneration of insights by deleting cached ones"""
+    """Delete cached weekly insights"""
     try:
-        query = {"user_id": current_user["_id"]}
+        query = {
+            "user_id": current_user["_id"],
+            "insight_type": "weekly"  # NEW: Only delete weekly insights
+        }
         
-        # NEW: If provider specified, only delete for that provider
         if ai_provider:
             query["ai_provider"] = ai_provider.value
         
@@ -493,7 +485,7 @@ async def delete_insights(
         
         provider_msg = f" for {ai_provider.value}" if ai_provider else ""
         return {
-            "message": f"Deleted {result.deleted_count} cached insights{provider_msg}",
+            "message": f"Deleted {result.deleted_count} weekly insights{provider_msg}",
             "deleted_count": result.deleted_count
         }
     except Exception as e:
@@ -507,64 +499,57 @@ async def delete_insights(
 @app.post("/api/insights/regenerate", response_model=InsightResponse)
 async def regenerate_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
-    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     current_user: dict = Depends(require_premium)
 ):
-    """Force regenerate insights regardless of data changes"""
+    """Force regenerate weekly insights (admin/testing purpose)"""
     try:
-        # Delete cached insights for this provider
-        insights_collection.delete_many({
-            "user_id": current_user["_id"],
-            "ai_provider": ai_provider.value
-        })
+        print(f"🔄 Force regenerating weekly {ai_provider.value} insights for user {current_user['_id']}")
         
-        current_hash = calculate_data_hash(current_user["_id"])
+        from insights_service import generate_weekly_insight
         
-        print(f"🔄 Force regenerating {ai_provider.value} insights for user {current_user['_id']}")
+        new_insight = await generate_weekly_insight(
+            current_user["_id"],
+            ai_provider.value
+        )
         
-        # Select chatbot
-        chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
-        
-        if chatbot is None:
+        if not new_insight:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"{ai_provider.value} AI service is currently unavailable"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to regenerate weekly insight"
             )
         
-        insights_content = await chatbot.generate_insights(current_user["_id"])
-        
         # Generate Myanmar translation if requested
-        myanmar_content = None
         if language == "mm":
             print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
-            myanmar_content = await chatbot.translate_insights_to_myanmar(insights_content)
+            
+            from ai_chatbot import financial_chatbot
+            from ai_chatbot_gemini import gemini_financial_chatbot
+            
+            chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
+            
+            if chatbot:
+                myanmar_content = await chatbot.translate_insights_to_myanmar(
+                    new_insight["content"]
+                )
+                
+                insights_collection.update_one(
+                    {"_id": new_insight["_id"]},
+                    {"$set": {"content_mm": myanmar_content}}
+                )
+                
+                new_insight["content_mm"] = myanmar_content
         
-        insight_id = str(uuid.uuid4())
-        now = datetime.now(UTC)
-        
-        new_insight = {
-            "_id": insight_id,
-            "user_id": current_user["_id"],
-            "content": insights_content,
-            "content_mm": myanmar_content,
-            "generated_at": now,
-            "data_hash": current_hash,
-            "ai_provider": ai_provider.value,  # NEW
-            "expires_at": None
-        }
-        
-        insights_collection.insert_one(new_insight)
-        
-        print(f"✅ {ai_provider.value} insights regenerated successfully")
+        print(f"✅ Weekly {ai_provider.value} insights regenerated successfully")
         
         return InsightResponse(
-            id=insight_id,
-            user_id=current_user["_id"],
-            content=insights_content,
-            content_mm=myanmar_content,
-            generated_at=now,
-            data_hash=current_hash,
-            expires_at=None
+            id=new_insight["_id"],
+            user_id=new_insight["user_id"],
+            content=new_insight["content"],
+            content_mm=new_insight.get("content_mm"),
+            generated_at=new_insight["generated_at"],
+            data_hash=new_insight.get("data_hash", ""),
+            expires_at=new_insight.get("expires_at")
         )
         
     except Exception as e:
@@ -579,21 +564,22 @@ async def regenerate_insights(
 
 @app.post("/api/insights/translate-myanmar")
 async def translate_insights_to_myanmar(
-    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     current_user: dict = Depends(require_premium)
 ):
-    """Translate existing English insights to Myanmar"""
+    """Translate existing weekly insights to Myanmar"""
     try:
-        # Get existing insights for this provider
+        # Get latest weekly insight for this provider
         insight = insights_collection.find_one({
             "user_id": current_user["_id"],
-            "ai_provider": ai_provider.value
-        })
+            "ai_provider": ai_provider.value,
+            "insight_type": "weekly"  # NEW
+        }, sort=[("generated_at", -1)])
         
         if not insight:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No {ai_provider.value} insights found to translate"
+                detail=f"No weekly {ai_provider.value} insights found to translate"
             )
         
         # Check if already translated
@@ -604,6 +590,9 @@ async def translate_insights_to_myanmar(
             }
         
         # Select chatbot
+        from ai_chatbot import financial_chatbot
+        from ai_chatbot_gemini import gemini_financial_chatbot
+        
         chatbot = gemini_financial_chatbot if ai_provider == AIProvider.GEMINI else financial_chatbot
         
         if chatbot is None:
@@ -612,7 +601,7 @@ async def translate_insights_to_myanmar(
                 detail=f"{ai_provider.value} AI service is currently unavailable"
             )
         
-        print(f"🔄 Translating insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
+        print(f"🔄 Translating weekly insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
         
         myanmar_content = await chatbot.translate_insights_to_myanmar(
             insight["content"]
@@ -640,6 +629,41 @@ async def translate_insights_to_myanmar(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to translate insights: {str(e)}"
+        )
+        
+        
+        
+        
+@app.post("/api/insights/generate-weekly")
+async def manually_generate_weekly_insights(
+    current_user: dict = Depends(require_premium)
+):
+    """Manually trigger weekly insights generation for current user"""
+    try:
+        from insights_service import generate_weekly_insight
+        
+        results = {}
+        
+        for provider in ["openai", "gemini"]:
+            try:
+                insight = await generate_weekly_insight(
+                    current_user["_id"],
+                    provider
+                )
+                results[provider] = "success" if insight else "failed"
+            except Exception as e:
+                results[provider] = f"error: {str(e)}"
+        
+        return {
+            "message": "Weekly insights generation completed",
+            "results": results
+        }
+        
+    except Exception as e:
+        print(f"Error in manual weekly generation: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate weekly insights: {str(e)}"
         )
     
         

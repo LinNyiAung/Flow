@@ -939,31 +939,31 @@ class _InsightsScreenState extends State<InsightsScreen> {
         SizedBox(height: responsive.sp20),
 
         // Regenerate Button
-        // SizedBox(
-        //   width: double.infinity,
-        //   child: ElevatedButton.icon(
-        //     onPressed: insightProvider.isLoading ? null : _regenerateInsights,
-        //     icon: Icon(Icons.refresh, color: Colors.white),
-        //     label: Text(
-        //       'Regenerate Insights',
-        //       style: GoogleFonts.poppins(
-        //         color: Colors.white,
-        //         fontWeight: FontWeight.w600,
-        //         fontSize: responsive.fs16,
-        //       ),
-        //     ),
-        //     style: ElevatedButton.styleFrom(
-        //       backgroundColor: Color(0xFF667eea),
-        //       padding: responsive.padding(vertical: 16),
-        //       shape: RoundedRectangleBorder(
-        //         borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-        //       ),
-        //       elevation: 4,
-        //     ),
-        //   ),
-        // ),
-        //
-        // SizedBox(height: 100),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: insightProvider.isLoading ? null : _regenerateInsights,
+            icon: Icon(Icons.refresh, color: Colors.white),
+            label: Text(
+              'Regenerate Insights',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: responsive.fs16,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Color(0xFF667eea),
+              padding: responsive.padding(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+              ),
+              elevation: 4,
+            ),
+          ),
+        ),
+        
+        SizedBox(height: 100),
       ],
     );
   }

@@ -41,6 +41,11 @@ class FinancialDataProcessor:
     def __init__(self, user_id: str):
         self.user_id = user_id
         
+        
+    def ensure_utc_datetime(self, dt) -> datetime:
+        """Ensure datetime is timezone-aware UTC (instance method wrapper)"""
+        return ensure_utc_datetime(dt)
+        
     def get_user_transactions(self, days_back: Optional[int] = None) -> List[Dict]:
         """Get user transactions from last N days, or all if days_back is None"""
         query = {"user_id": self.user_id}

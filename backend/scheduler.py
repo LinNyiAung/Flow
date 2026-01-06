@@ -75,6 +75,25 @@ def start_scheduler():
         replace_existing=True
     )
     
+    
+    
+        # NEW: Generate weekly insights every Sunday at 6 AM
+    def generate_all_users_weekly_insights():
+        """Generate weekly insights for all premium users"""
+        from insights_service import generate_weekly_insights_for_all_users
+        generate_weekly_insights_for_all_users()
+    
+    scheduler.add_job(
+        func=generate_all_users_weekly_insights,
+        trigger="cron",
+        day_of_week="sun",  # Sunday
+        hour=1,
+        minute=0,
+        id="weekly_insights_generation",
+        name="Generate weekly insights for all users",
+        replace_existing=True
+    )
+    
     scheduler.start()
     logger.info("Notification scheduler started")
     
