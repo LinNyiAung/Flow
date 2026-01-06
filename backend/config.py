@@ -8,7 +8,8 @@ class Settings:
     DATABASE_NAME = os.getenv("DATABASE_NAME")
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+    # 30 days
+    ACCESS_TOKEN_EXPIRE_MINUTES = 43200 
     
     # AI Chatbot settings
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
