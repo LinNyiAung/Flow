@@ -392,7 +392,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 model_name=self.gemini_model,
                 generation_config={
                     "temperature": temperature_map.get(response_style, 0.3),
-                    "max_output_tokens": 1000,
+                    "max_output_tokens": 3000,
                 }
             )
             
