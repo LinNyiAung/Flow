@@ -69,6 +69,16 @@ class GeminiFinancialChatbot:
         self.user_vector_stores = {}
         
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        
+        # Initialize the new Gemini client
+        self.client = None
+        if self.google_api_key:
+            try:
+                from google import genai
+                self.client = genai.Client(api_key=self.google_api_key)
+                print("✅ Initialized new google.genai client")
+            except Exception as e:
+                print(f"❌ Failed to initialize genai client: {e}")
     
     def _get_or_create_vector_store(self, user_id: str) -> Chroma:
         """Get or create vector store for user"""
@@ -228,7 +238,7 @@ Your capabilities:
 
 Remember: Accuracy is more important than speed. Double-check dates, amounts, AND currencies! Respect their time and adapt your verbosity to their preference.
 
-ဘာသာစကား အတူကို ဂရုစိုက်ပါ။ (Use language naturally.)"""
+ဘာသာစကားကို သဘာဝကျကျ သုံးပါ။ (Use language naturally.)"""
     
     def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
         """Build comprehensive user prompt with multi-currency support"""
@@ -272,17 +282,17 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         
         prompt += f"""
 
-    ╔══════════════════════════════════════════════╗
+    ╔═══════════════════════════════════════════════╗
                         FINANCIAL DATA
-    ╚══════════════════════════════════════════════╝
+    ╚═══════════════════════════════════════════════╝
 
     {context}
 
-    {f"╔══════════════════════════════════════════════╗\n                CONVERSATION HISTORY\n╚══════════════════════════════════════════════╝{history_text}" if history_text else ""}
+    {f"╔═══════════════════════════════════════════════╗\n                CONVERSATION HISTORY\n╚═══════════════════════════════════════════════╝\n{history_text}" if history_text else ""}
 
-    ╔══════════════════════════════════════════════╗
+    ╔═══════════════════════════════════════════════╗
                         USER QUESTION
-    ╚══════════════════════════════════════════════╝
+    ╚═══════════════════════════════════════════════╝
 
     {message}
 
@@ -293,13 +303,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None, response_style: str = "normal"):
         """Stream chat response using Gemini with enhanced RAG and response style"""
         try:
-            import google.generativeai as genai
-            
-            if not self.google_api_key:
-                yield "Gemini service is not available. Google API key not configured."
+            if not self.client:
+                yield "Gemini service is not available. Google API key not configured or client initialization failed."
                 return
-            
-            genai.configure(api_key=self.google_api_key)
             
             user = users_collection.find_one({"_id": user_id})
             if not user:
@@ -317,11 +323,20 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 achieved_goals = [g for g in goals if g["status"] == "achieved"]
                 total_allocated = sum(g["current_amount"] for g in active_goals)
                 
+                # Group goals by currency
+                goals_by_currency = {}
+                for goal in goals:
+                    curr = goal.get('currency', 'usd')
+                    if curr not in goals_by_currency:
+                        goals_by_currency[curr] = []
+                    goals_by_currency[curr].append(goal)
+                
                 goals_summary = {
                     "total_goals": len(goals),
                     "active_goals": len(active_goals),
                     "achieved_goals": len(achieved_goals),
-                    "total_allocated": total_allocated                   
+                    "total_allocated": total_allocated,
+                    "goals_by_currency": goals_by_currency
                 }
             
             if summary.get("message") and not goals:
@@ -387,21 +402,20 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 "explanatory": 0.4
             }
             
-            # Create Gemini model
-            model = genai.GenerativeModel(
-                model_name=self.gemini_model,
-                generation_config={
+            # Combine system and user prompts for Gemini
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            
+            # Use the new API with streaming
+            response = self.client.models.generate_content_stream(
+                model=self.gemini_model,
+                contents=full_prompt,
+                config={
                     "temperature": temperature_map.get(response_style, 0.3),
                     "max_output_tokens": 3000,
                 }
             )
             
-            # Combine system and user prompts for Gemini
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            
-            # Stream response
-            response = model.generate_content(full_prompt, stream=True)
-            
+            # Stream the response
             for chunk in response:
                 if chunk.text:
                     yield chunk.text
@@ -411,7 +425,6 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             import traceback
             traceback.print_exc()
             yield f"I encountered an error: {str(e)}"
-
 
 
 # Global Gemini chatbot instance

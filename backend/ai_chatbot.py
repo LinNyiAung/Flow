@@ -673,7 +673,7 @@ Your capabilities:
 
 Remember: Accuracy is more important than speed. Double-check dates, amounts, AND currencies! Respect their time and adapt your verbosity to their preference.
 
-ဘာသာစကား၏ သဘာဝကို ဂရုစိုက်ပါ။ (Use language naturally.)"""
+ဘာသာစကားကို သဘာဝကျကျ သုံးပါ။ (Use language naturally.)"""
     
     def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
         """Build comprehensive user prompt with multi-currency support"""
@@ -754,11 +754,20 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 achieved_goals = [g for g in goals if g["status"] == "achieved"]
                 total_allocated = sum(g["current_amount"] for g in active_goals)
                 
+                # Group goals by currency
+                goals_by_currency = {}
+                for goal in goals:
+                    curr = goal.get('currency', 'usd')
+                    if curr not in goals_by_currency:
+                        goals_by_currency[curr] = []
+                    goals_by_currency[curr].append(goal)
+                
                 goals_summary = {
                     "total_goals": len(goals),
                     "active_goals": len(active_goals),
                     "achieved_goals": len(achieved_goals),
-                    "total_allocated": total_allocated
+                    "total_allocated": total_allocated,
+                    "goals_by_currency": goals_by_currency
                 }
             
             if summary.get("message") and not goals:

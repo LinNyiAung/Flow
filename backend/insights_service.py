@@ -94,19 +94,22 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         system_prompt = _build_weekly_system_prompt()
         
         from openai import AsyncOpenAI
-        import google.generativeai as genai
+        from google import genai
         
         if ai_provider == "gemini":
-            genai.configure(api_key=GOOGLE_API_KEY)
-            model = genai.GenerativeModel(
-                model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-                generation_config={
+            # NEW: Using google.genai instead of google.generativeai
+            client = genai.Client(api_key=GOOGLE_API_KEY)
+            
+            full_prompt = f"{system_prompt}\n\n{context}"
+            
+            response = client.models.generate_content(
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                contents=full_prompt,
+                config={
                     "temperature": 0.7,
                     "max_output_tokens": 8192,
                 }
             )
-            full_prompt = f"{system_prompt}\n\n{context}"
-            response = model.generate_content(full_prompt)
             insights_content = response.text
         else:
             client = AsyncOpenAI(api_key=OPENAI_API_KEY)
@@ -413,7 +416,7 @@ CRITICAL RULES:
 For financial terms:
 - Money: ငွေ
 - Balance: လက်ကျန်ငွေ
-- Income: ၀င်ငွေ
+- Income: ဝင်ငွေ
 - Expenses: ကုန်ကျစရိတ်
 - Savings: စုဆောင်းငွေ
 - Budget: ဘတ်ဂျက်
@@ -423,23 +426,25 @@ For financial terms:
 Translate naturally while keeping the professional yet friendly tone."""
 
         if ai_provider == "gemini":
-            import google.generativeai as genai
+            from google import genai
             
             if not GOOGLE_API_KEY:
                 raise Exception("Google API key not configured")
             
-            genai.configure(api_key=GOOGLE_API_KEY)
+            # NEW: Using google.genai instead of google.generativeai
+            client = genai.Client(api_key=GOOGLE_API_KEY)
             
-            model = genai.GenerativeModel(
-                model_name="gemini-2.5-pro",
-                generation_config={
+            prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
+            
+            response = client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=prompt,
+                config={
                     "temperature": 0.3,
                     "max_output_tokens": 8192,
                 }
             )
             
-            prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
-            response = model.generate_content(prompt)
             myanmar_content = response.text
             
         else:  # OpenAI
