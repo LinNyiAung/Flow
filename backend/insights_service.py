@@ -93,6 +93,67 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         # Get goals
         goals = processor.get_user_goals()
         
+        # NEW: Check if user has any financial activity at all
+        all_transactions = processor.get_user_transactions()
+        has_activity = len(all_transactions) > 0 or len(goals) > 0
+        
+        if not has_activity:
+            logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
+            # Return a placeholder insight without calling AI
+            insight_id = str(uuid.uuid4())
+            now = datetime.now(UTC)
+            
+            placeholder_content = """## 👋 Welcome to Flow Finance!
+
+### 🎯 Get Started with Your Financial Journey
+
+It looks like you're just getting started with Flow Finance. To generate personalized AI insights, you'll need to add some financial activities first.
+
+### 📊 What to Add:
+
+**💰 Transactions**
+- Add your income and expenses
+- Record your daily spending
+- Track where your money goes
+
+**🎯 Financial Goals**
+- Set savings targets
+- Plan for future purchases
+- Track your progress
+
+### ✨ What You'll Get:
+
+Once you add your financial data, our AI will analyze your spending patterns and provide:
+- **📈 Spending Analysis** - Understand where your money goes
+- **💡 Personalized Recommendations** - Get actionable advice
+- **🎯 Goal Progress** - Track your financial goals
+- **⚠️ Alerts** - Stay informed about your finances
+- **📊 Weekly Insights** - Regular financial health reports
+
+### 🚀 Ready to Begin?
+
+Start by adding your first transaction or creating a financial goal. The more data you provide, the better insights you'll receive!
+
+---
+*Your financial journey starts here. Let's make it count!* 💪"""
+            
+            new_insight = {
+                "_id": insight_id,
+                "user_id": user_id,
+                "content": placeholder_content,
+                "content_mm": None,
+                "generated_at": now,
+                "week_start": week_start,
+                "week_end": week_end,
+                "insight_type": "weekly",
+                "ai_provider": ai_provider,
+                "expires_at": None,
+                "is_placeholder": True  # NEW: Flag to indicate this is a placeholder
+            }
+            
+            insights_collection.insert_one(new_insight)
+            return new_insight
+        
         # Get previous week's insight for comparison
         previous_insight = insights_collection.find_one(
             {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "weekly"},
@@ -117,7 +178,6 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         from google import genai
         
         if ai_provider == "gemini":
-            # NEW: Using google.genai instead of google.generativeai
             client = genai.Client(api_key=GOOGLE_API_KEY)
             
             full_prompt = f"{system_prompt}\n\n{context}"
@@ -152,17 +212,17 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
             "_id": insight_id,
             "user_id": user_id,
             "content": insights_content,
-            "content_mm": None,  # Can be generated later if needed
+            "content_mm": None,
             "generated_at": now,
             "week_start": week_start,
             "week_end": week_end,
-            "insight_type": "weekly",  # NEW field to identify weekly insights
+            "insight_type": "weekly",
             "ai_provider": ai_provider,
-            "expires_at": None
+            "expires_at": None,
+            "is_placeholder": False  # NEW: Flag to indicate this is real AI content
         }
         
         insights_collection.insert_one(new_insight)
-        
         
         # Notify user that weekly insights are ready
         notify_weekly_insights_generated(user_id)
@@ -578,6 +638,68 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
         # Get goals
         goals = processor.get_user_goals()
         
+        # NEW: Check if user has any financial activity at all
+        all_transactions = processor.get_user_transactions()
+        has_activity = len(all_transactions) > 0 or len(goals) > 0
+        
+        if not has_activity:
+            logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
+            # Return a placeholder insight without calling AI
+            insight_id = str(uuid.uuid4())
+            now = datetime.now(UTC)
+            
+            placeholder_content = """## 👋 Welcome to Flow Finance!
+
+### 🎯 Get Started with Your Financial Journey
+
+It looks like you're just getting started with Flow Finance. To generate personalized monthly AI insights, you'll need to add some financial activities first.
+
+### 📊 What to Add:
+
+**💰 Transactions**
+- Add your income and expenses
+- Record your daily spending
+- Track where your money goes
+
+**🎯 Financial Goals**
+- Set savings targets
+- Plan for future purchases
+- Track your progress
+
+### ✨ What You'll Get in Monthly Reports:
+
+Once you add your financial data, our AI will provide comprehensive monthly analysis including:
+- **📈 Month-over-Month Comparison** - Track your financial trends
+- **💰 Spending Deep Dive** - Detailed expense breakdown
+- **🎯 Goals Progress** - Monthly achievement tracking
+- **📊 Financial Health Score** - Overall assessment
+- **💡 Action Plan** - Specific recommendations for the month
+- **🏆 Wins & Achievements** - Celebrate your success
+
+### 🚀 Ready to Begin?
+
+Start by adding your first transaction or creating a financial goal. The more data you provide, the better insights you'll receive!
+
+---
+*Your financial journey starts here. Let's make it count!* 💪"""
+            
+            new_insight = {
+                "_id": insight_id,
+                "user_id": user_id,
+                "content": placeholder_content,
+                "content_mm": None,
+                "generated_at": now,
+                "month_start": month_start,
+                "month_end": month_end,
+                "insight_type": "monthly",
+                "ai_provider": ai_provider,
+                "expires_at": None,
+                "is_placeholder": True  # NEW: Flag to indicate this is a placeholder
+            }
+            
+            insights_collection.insert_one(new_insight)
+            return new_insight
+        
         # Get previous month's insight for comparison
         previous_insight = insights_collection.find_one(
             {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "monthly"},
@@ -642,7 +764,8 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
             "month_end": month_end,
             "insight_type": "monthly",
             "ai_provider": ai_provider,
-            "expires_at": None
+            "expires_at": None,
+            "is_placeholder": False  # NEW: Flag to indicate this is real AI content
         }
         
         insights_collection.insert_one(new_insight)
