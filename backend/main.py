@@ -331,19 +331,20 @@ async def refresh_ai_data(
 async def get_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
+    insight_type: Optional[str] = Query(default="weekly", regex="^(weekly|monthly)$"),  # NEW
     current_user: dict = Depends(require_premium)
 ):
-    """Get latest weekly AI-generated financial insights"""
+    """Get latest AI-generated financial insights"""
     try:
-        # Get the latest weekly insight for this provider
+        # Get the latest insight for this provider and type
         latest_insight = insights_collection.find_one({
             "user_id": current_user["_id"],
             "ai_provider": ai_provider.value,
-            "insight_type": "weekly"  # NEW: Filter for weekly insights
+            "insight_type": insight_type  # NEW
         }, sort=[("generated_at", -1)])
         
         if latest_insight:
-            print(f"✅ Returning latest weekly {ai_provider.value} insights for user {current_user['_id']}")
+            print(f"✅ Returning latest {insight_type} {ai_provider.value} insights for user {current_user['_id']}")
             
             # If Myanmar requested but not cached, generate translation
             if language == "mm" and not latest_insight.get("content_mm"):
@@ -356,7 +357,6 @@ async def get_insights(
                     ai_provider.value
                 )
                 
-                # Update cache with Myanmar translation
                 insights_collection.update_one(
                     {"_id": latest_insight["_id"]},
                     {"$set": {"content_mm": myanmar_content}}
@@ -370,24 +370,30 @@ async def get_insights(
                 content=latest_insight["content"],
                 content_mm=latest_insight.get("content_mm"),
                 generated_at=latest_insight["generated_at"],
-                data_hash=latest_insight.get("data_hash", ""),  # Keep for compatibility
+                data_hash=latest_insight.get("data_hash", ""),
                 expires_at=latest_insight.get("expires_at")
             )
         
-        # No existing weekly insight - generate first one
-        print(f"🔄 No weekly insight found, generating first {ai_provider.value} insight for user {current_user['_id']}")
+        # No existing insight - generate first one
+        print(f"🔄 No {insight_type} insight found, generating first {ai_provider.value} insight for user {current_user['_id']}")
         
-        from insights_service import generate_weekly_insight
+        from insights_service import generate_weekly_insight, generate_monthly_insight
         
-        new_insight = await generate_weekly_insight(
-            current_user["_id"],
-            ai_provider.value
-        )
+        if insight_type == "monthly":
+            new_insight = await generate_monthly_insight(
+                current_user["_id"],
+                ai_provider.value
+            )
+        else:
+            new_insight = await generate_weekly_insight(
+                current_user["_id"],
+                ai_provider.value
+            )
         
         if not new_insight:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to generate weekly insight"
+                detail=f"Failed to generate {insight_type} insight"
             )
         
         # Generate Myanmar translation if requested
@@ -408,7 +414,7 @@ async def get_insights(
             
             new_insight["content_mm"] = myanmar_content
         
-        print(f"✅ First weekly {ai_provider.value} insight generated")
+        print(f"✅ First {insight_type} {ai_provider.value} insight generated")
         
         return InsightResponse(
             id=new_insight["_id"],
@@ -433,23 +439,25 @@ async def get_insights(
 @app.delete("/api/insights")
 async def delete_insights(
     ai_provider: Optional[AIProvider] = Query(default=None),
+    insight_type: Optional[str] = Query(default=None, regex="^(weekly|monthly)$"),  # NEW
     current_user: dict = Depends(get_current_user)
 ):
-    """Delete cached weekly insights"""
+    """Delete cached insights"""
     try:
-        query = {
-            "user_id": current_user["_id"],
-            "insight_type": "weekly"  # NEW: Only delete weekly insights
-        }
+        query = {"user_id": current_user["_id"]}
         
         if ai_provider:
             query["ai_provider"] = ai_provider.value
         
+        if insight_type:  # NEW
+            query["insight_type"] = insight_type
+        
         result = insights_collection.delete_many(query)
         
         provider_msg = f" for {ai_provider.value}" if ai_provider else ""
+        type_msg = f" {insight_type}" if insight_type else ""
         return {
-            "message": f"Deleted {result.deleted_count} weekly insights{provider_msg}",
+            "message": f"Deleted {result.deleted_count}{type_msg} insights{provider_msg}",
             "deleted_count": result.deleted_count
         }
     except Exception as e:
@@ -464,18 +472,25 @@ async def delete_insights(
 async def regenerate_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
+    insight_type: Optional[str] = Query(default="weekly", regex="^(weekly|monthly)$"),  # NEW
     current_user: dict = Depends(require_premium)
 ):
-    """Force regenerate weekly insights (admin/testing purpose)"""
+    """Force regenerate insights (admin/testing purpose)"""
     try:
-        print(f"🔄 Force regenerating weekly {ai_provider.value} insights for user {current_user['_id']}")
+        print(f"🔄 Force regenerating {insight_type} {ai_provider.value} insights for user {current_user['_id']}")
         
-        from insights_service import generate_weekly_insight
+        from insights_service import generate_weekly_insight, generate_monthly_insight
         
-        new_insight = await generate_weekly_insight(
-            current_user["_id"],
-            ai_provider.value
-        )
+        if insight_type == "monthly":
+            new_insight = await generate_monthly_insight(
+                current_user["_id"],
+                ai_provider.value
+            )
+        else:
+            new_insight = await generate_weekly_insight(
+                current_user["_id"],
+                ai_provider.value
+            )
         
         if not new_insight:
             raise HTTPException(

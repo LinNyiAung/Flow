@@ -23,6 +23,7 @@ class NotificationPreferences {
 
   // Insight notifications
   final bool weeklyInsightsGenerated;
+  final bool monthlyInsightsGenerated;
 
   NotificationPreferences({
     this.goalProgress = true,
@@ -42,6 +43,7 @@ class NotificationPreferences {
     this.recurringTransactionEnded = true,
     this.recurringTransactionDisabled = true,
     this.weeklyInsightsGenerated = true,
+    this.monthlyInsightsGenerated = true,
   });
 
   factory NotificationPreferences.fromJson(Map<String, dynamic> json) {
@@ -63,6 +65,7 @@ class NotificationPreferences {
       recurringTransactionEnded: json['recurring_transaction_ended'] ?? true,
       recurringTransactionDisabled: json['recurring_transaction_disabled'] ?? true,
       weeklyInsightsGenerated: json['weekly_insights_generated'] ?? true,
+      monthlyInsightsGenerated: json['monthly_insights_generated'] ?? true,
     );
   }
 
@@ -85,6 +88,7 @@ class NotificationPreferences {
       'recurring_transaction_ended': recurringTransactionEnded,
       'recurring_transaction_disabled': recurringTransactionDisabled,
       'weekly_insights_generated': weeklyInsightsGenerated,
+      'monthly_insights_generated': monthlyInsightsGenerated,
     };
   }
 
@@ -106,6 +110,7 @@ class NotificationPreferences {
     bool? recurringTransactionEnded,
     bool? recurringTransactionDisabled,
     bool? weeklyInsightsGenerated,
+    bool? monthlyInsightsGenerated,
   }) {
     return NotificationPreferences(
       goalProgress: goalProgress ?? this.goalProgress,
@@ -125,6 +130,7 @@ class NotificationPreferences {
       recurringTransactionEnded: recurringTransactionEnded ?? this.recurringTransactionEnded,
       recurringTransactionDisabled: recurringTransactionDisabled ?? this.recurringTransactionDisabled,
       weeklyInsightsGenerated: weeklyInsightsGenerated ?? this.weeklyInsightsGenerated,
+      monthlyInsightsGenerated: monthlyInsightsGenerated ?? this.monthlyInsightsGenerated,
     );
   }
 }

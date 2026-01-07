@@ -28,6 +28,7 @@ class NotificationPreferences(BaseModel):
     
     # Insights notifications
     weekly_insights_generated: bool = True
+    monthly_insights_generated: bool = True
 
 class NotificationPreferencesResponse(BaseModel):
     user_id: str

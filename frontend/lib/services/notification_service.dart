@@ -159,6 +159,8 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFFFF9800);  // Orange
     case NotificationType.weekly_insights_generated:
       return Color(0xFF667eea);
+    case NotificationType.monthly_insights_generated:  // NEW
+      return Color(0xFF764ba2);
   }
 }
 }

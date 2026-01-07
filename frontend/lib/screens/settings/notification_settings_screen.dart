@@ -105,6 +105,7 @@ class _NotificationSettingsScreenState
       recurringTransactionEnded: key == 'recurring_transaction_ended' ? value : _preferences!.recurringTransactionEnded,
       recurringTransactionDisabled: key == 'recurring_transaction_disabled' ? value : _preferences!.recurringTransactionDisabled,
       weeklyInsightsGenerated: key == 'weekly_insights_generated' ? value : _preferences!.weeklyInsightsGenerated,
+      monthlyInsightsGenerated: key == 'monthly_insights_generated' ? value : _preferences!.monthlyInsightsGenerated,
     );
   }
 
@@ -568,9 +569,17 @@ class _NotificationSettingsScreenState
                     key: 'weekly_insights_generated',
                     icon: Icons.insights,
                     color: Color(0xFF667eea),
-                    title: localizations.weeklyInsights, // Add to your localization
-                    description: localizations.whenWeeklyInsightsReady, // Add to your localization
+                    title: localizations.weeklyInsights,
+                    description: localizations.whenWeeklyInsightsReady,
                     value: _preferences!.weeklyInsightsGenerated,
+                  ),
+                  _NotificationToggleInfo(  // NEW
+                    key: 'monthly_insights_generated',
+                    icon: Icons.calendar_month,
+                    color: Color(0xFF764ba2),
+                    title: 'Monthly Insights',  // Add to localization
+                    description: 'When your monthly insights are ready',  // Add to localization
+                    value: _preferences!.monthlyInsightsGenerated,
                   ),
                 ],
               ),

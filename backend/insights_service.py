@@ -1,7 +1,7 @@
 import uuid
 import os
 from datetime import datetime, timedelta, UTC
-from notification_service import create_notification
+from notification_service import create_notification, notify_monthly_insights_generated, notify_weekly_insights_generated
 from database import users_collection, insights_collection
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
 from ai_chatbot_gemini import gemini_financial_chatbot
@@ -497,17 +497,419 @@ Translate naturally while keeping the professional yet friendly tone."""
         raise Exception(f"Failed to translate insights: {str(e)}")
     
     
+def get_month_date_range():
+    """
+    Get the start and end dates for the PREVIOUS month
+    When run on the 1st, this returns last month's range
+    """
+    today = datetime.now(UTC)
     
-def notify_weekly_insights_generated(user_id: str):
-    """Notify when weekly insights are generated"""
+    # Get first day of current month
+    current_month_start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
+    # Get last month's start (go back one month)
+    if current_month_start.month == 1:
+        month_start = current_month_start.replace(year=current_month_start.year - 1, month=12)
+    else:
+        month_start = current_month_start.replace(month=current_month_start.month - 1)
     
-    create_notification(
-        user_id=user_id,
-        notification_type="weekly_insights_generated",
-        title="Weekly Insights Ready! 📊",
-        message=f"Your weekly financial insights powered by Flow Finance Ai are now available. Check them out to see your financial progress!",
-        goal_id=None,
-        goal_name=f"Weekly Insights Tailored For You",
-        currency=None
-    )
+    # Get last day of that month (which is day before current month starts)
+    month_end = (current_month_start - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
+    
+    return month_start, month_end
+
+
+def get_previous_month_date_range():
+    """
+    Get the start and end dates for the month BEFORE the previous month
+    (Two months ago)
+    """
+    month_start, _ = get_month_date_range()
+    
+    # Go back one more month
+    if month_start.month == 1:
+        prev_month_start = month_start.replace(year=month_start.year - 1, month=12)
+    else:
+        prev_month_start = month_start.replace(month=month_start.month - 1)
+    
+    # Get last day of that month
+    prev_month_end = (month_start - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
+    
+    return prev_month_start, prev_month_end
+
+
+async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
+    """Generate monthly insight for a specific user"""
+    try:
+        # Select chatbot based on provider
+        chatbot = gemini_financial_chatbot if ai_provider == "gemini" else financial_chatbot
+        
+        if chatbot is None:
+            logger.error(f"Chatbot not available for provider: {ai_provider}")
+            return None
+        
+        # Get date ranges
+        month_start, month_end = get_month_date_range()
+        prev_month_start, prev_month_end = get_previous_month_date_range()
+        
+        # Get user data
+        user = users_collection.find_one({"_id": user_id})
+        if not user:
+            logger.error(f"User not found: {user_id}")
+            return None
+        
+        # Get financial data processor
+        processor = FinancialDataProcessor(user_id)
+        
+        # Get current month transactions
+        current_month_transactions = processor.get_user_transactions()
+        current_month_transactions = [
+            t for t in current_month_transactions
+            if month_start <= processor.ensure_utc_datetime(t["date"]) <= month_end
+        ]
+        
+        # Get previous month transactions
+        prev_month_transactions = processor.get_user_transactions()
+        prev_month_transactions = [
+            t for t in prev_month_transactions
+            if prev_month_start <= processor.ensure_utc_datetime(t["date"]) <= prev_month_end
+        ]
+        
+        # Get goals
+        goals = processor.get_user_goals()
+        
+        # Get previous month's insight for comparison
+        previous_insight = insights_collection.find_one(
+            {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "monthly"},
+            sort=[("generated_at", -1)]
+        )
+        
+        # Build context for monthly insights
+        context = _build_monthly_context(
+            user, 
+            current_month_transactions, 
+            prev_month_transactions,
+            goals,
+            month_start,
+            month_end,
+            previous_insight
+        )
+        
+        # Generate insights using AI
+        system_prompt = _build_monthly_system_prompt()
+        
+        from openai import AsyncOpenAI
+        from google import genai
+        
+        if ai_provider == "gemini":
+            client = genai.Client(api_key=GOOGLE_API_KEY)
+            
+            full_prompt = f"{system_prompt}\n\n{context}"
+            
+            response = client.models.generate_content(
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                contents=full_prompt,
+                config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 8192,
+                }
+            )
+            insights_content = response.text
+        else:
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            response = await client.chat.completions.create(
+                model=chatbot.gpt_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": context}
+                ],
+                temperature=0.7,
+                max_tokens=3000
+            )
+            insights_content = response.choices[0].message.content
+        
+        # Save to database
+        insight_id = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        
+        new_insight = {
+            "_id": insight_id,
+            "user_id": user_id,
+            "content": insights_content,
+            "content_mm": None,
+            "generated_at": now,
+            "month_start": month_start,
+            "month_end": month_end,
+            "insight_type": "monthly",
+            "ai_provider": ai_provider,
+            "expires_at": None
+        }
+        
+        insights_collection.insert_one(new_insight)
+        
+        # Notify user that monthly insights are ready
+        notify_monthly_insights_generated(user_id)
+        
+        logger.info(f"✅ Monthly insight generated for user {user_id} using {ai_provider}")
+        return new_insight
+        
+    except Exception as e:
+        logger.error(f"Error generating monthly insight for user {user_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def _build_monthly_system_prompt():
+    """Build system prompt for monthly insights generation"""
+    return """You are Flow Finance AI, an expert financial analyst providing monthly financial insights.
+
+Your task is to analyze the user's financial activity from the past month and generate a comprehensive monthly report.
+
+MONTHLY INSIGHTS STRUCTURE:
+Generate insights covering:
+
+1. **📊 Last Month's Summary** - Complete overview of the month
+   - Total income and expenses by currency
+   - Net position (surplus/deficit)
+   - Number of transactions
+   - Key highlights and milestones
+
+2. **📈 Month-over-Month Comparison** - Compare with the previous month
+   - Income changes (increase/decrease %)
+   - Expense changes (increase/decrease %)
+   - Spending pattern shifts
+   - Notable differences and trends
+
+3. **💰 Spending Deep Dive** - Detailed expense analysis
+   - Top expense categories by currency
+   - Category breakdowns and percentages
+   - Unusual or high spending areas
+   - Month-to-month category changes
+   - Budget adherence (if applicable)
+
+4. **🎯 Goals Progress** - Monthly goal achievements
+   - Contributions made to goals by currency
+   - Progress percentages and amounts
+   - Goals completed or reached
+   - On-track vs. behind schedule analysis
+   - Projected completion timeline
+
+5. **✨ Monthly Wins & Achievements** - Celebrate success
+   - Money saved last month
+   - Goals reached or significant progress
+   - Good financial decisions
+   - Positive habits established
+
+6. **⚠️ Areas Needing Attention** - Financial concerns
+   - Overspending categories
+   - Budget overruns
+   - Goals falling behind
+   - Concerning trends
+   - Potential issues to address
+
+7. **📊 Financial Health Score** - Overall assessment
+   - Income stability
+   - Expense control
+   - Savings rate
+   - Goal progress
+   - Overall financial trajectory
+
+8. **💡 Action Plan for This Month** - Specific recommendations
+   - Spending adjustments by currency
+   - Savings targets
+   - Goal contribution plans
+   - Budget recommendations
+   - Habit changes to implement
+
+9. **🎯 Monthly Challenge** - One major goal for this month
+   - Clear, measurable target
+   - Actionable steps
+   - Motivational message
+
+CRITICAL RULES:
+- Be VERY SPECIFIC with numbers, dates, categories, AND CURRENCIES
+- Always compare with the previous month when data is available
+- Provide DETAILED and ACTIONABLE recommendations
+- Be encouraging yet realistic in tone
+- Format money as $X.XX (USD) or X K (MMK)
+- Use markdown formatting for clarity
+- Add emojis for visual appeal
+- Keep it comprehensive but readable (1000-1500 words)
+- Focus on LAST MONTH's complete activity (1st to last day of month)
+- Provide detailed action plan for THIS MONTH (the new month starting)
+- If this is the first month, acknowledge it and provide baseline insights
+
+Remember: This report is generated on the 1st of the month, reviewing the complete previous month, and providing a detailed action plan for the month ahead."""
+
+
+def _build_monthly_context(
+    user, 
+    current_month_transactions, 
+    prev_month_transactions,
+    goals,
+    month_start,
+    month_end,
+    previous_insight
+):
+    """Build context for monthly insights generation"""
+    context = f"""USER: {user.get('name', 'User')}
+DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
+
+TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')} (1st of the Month)
+
+LAST MONTH'S PERIOD: {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')}
+
+=== LAST MONTH'S FINANCIAL ACTIVITY ===
+
+Total Transactions: {len(current_month_transactions)}
+
+"""
+    
+    # Group current month by currency
+    current_by_currency = {}
+    for t in current_month_transactions:
+        currency = t.get("currency", "usd")
+        if currency not in current_by_currency:
+            current_by_currency[currency] = {"inflow": 0, "outflow": 0, "transactions": [], "categories": {}}
+        
+        current_by_currency[currency]["transactions"].append(t)
+        if t["type"] == "inflow":
+            current_by_currency[currency]["inflow"] += t["amount"]
+        else:
+            current_by_currency[currency]["outflow"] += t["amount"]
+        
+        # Track categories
+        cat_key = f"{t['main_category']} > {t['sub_category']}"
+        if cat_key not in current_by_currency[currency]["categories"]:
+            current_by_currency[currency]["categories"][cat_key] = 0
+        current_by_currency[currency]["categories"][cat_key] += t["amount"]
+    
+    for currency, data in current_by_currency.items():
+        currency_symbol = "$" if currency == "usd" else "K"
+        currency_name = "USD" if currency == "usd" else "MMK"
+        
+        context += f"\n{currency_name}:\n"
+        context += f"  Income: {currency_symbol}{data['inflow']:.2f}\n"
+        context += f"  Expenses: {currency_symbol}{data['outflow']:.2f}\n"
+        context += f"  Net: {currency_symbol}{data['inflow'] - data['outflow']:.2f}\n"
+        context += f"  Transactions: {len(data['transactions'])}\n"
+        
+        # Top spending categories
+        context += f"\n  Top Spending Categories:\n"
+        sorted_cats = sorted(data['categories'].items(), key=lambda x: x[1], reverse=True)
+        for cat, amount in sorted_cats[:10]:  # Show more categories for monthly
+            context += f"    - {cat}: {currency_symbol}{amount:.2f}\n"
+    
+    # Previous month comparison
+    if prev_month_transactions:
+        context += "\n\n=== PREVIOUS MONTH COMPARISON ===\n\n"
+        
+        prev_by_currency = {}
+        for t in prev_month_transactions:
+            currency = t.get("currency", "usd")
+            if currency not in prev_by_currency:
+                prev_by_currency[currency] = {"inflow": 0, "outflow": 0}
+            
+            if t["type"] == "inflow":
+                prev_by_currency[currency]["inflow"] += t["amount"]
+            else:
+                prev_by_currency[currency]["outflow"] += t["amount"]
+        
+        for currency in set(list(current_by_currency.keys()) + list(prev_by_currency.keys())):
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
+            current = current_by_currency.get(currency, {"inflow": 0, "outflow": 0})
+            prev = prev_by_currency.get(currency, {"inflow": 0, "outflow": 0})
+            
+            income_change = ((current["inflow"] - prev["inflow"]) / prev["inflow"] * 100) if prev["inflow"] > 0 else 0
+            expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
+            
+            context += f"{currency_name}:\n"
+            context += f"  Income: {currency_symbol}{prev['inflow']:.2f} → {currency_symbol}{current['inflow']:.2f} ({income_change:+.1f}%)\n"
+            context += f"  Expenses: {currency_symbol}{prev['outflow']:.2f} → {currency_symbol}{current['outflow']:.2f} ({expense_change:+.1f}%)\n\n"
+    
+    # Goals progress (same as weekly)
+    if goals:
+        context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
+        
+        goals_by_currency = {}
+        for g in goals:
+            currency = g.get("currency", "usd")
+            if currency not in goals_by_currency:
+                goals_by_currency[currency] = []
+            goals_by_currency[currency].append(g)
+        
+        for currency, curr_goals in goals_by_currency.items():
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
+            active_goals = [g for g in curr_goals if g["status"] == "active"]
+            
+            context += f"{currency_name} Goals:\n"
+            for goal in active_goals[:5]:
+                progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+                context += f"  - {goal['name']}: {currency_symbol}{goal['current_amount']:.2f} / {currency_symbol}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
+            context += "\n"
+    
+    # Previous insight summary
+    if previous_insight:
+        context += "\n=== PREVIOUS MONTH'S KEY RECOMMENDATIONS ===\n"
+        context += f"(Review to see if user followed through)\n\n"
+        prev_content = previous_insight.get("content", "")
+        if len(prev_content) > 500:
+            context += prev_content[:500] + "...\n"
+        else:
+            context += prev_content + "\n"
+    
+    context += "\n\nGenerate a comprehensive monthly financial insight report based on the above data."
+    
+    return context
+
+
+def generate_monthly_insights_for_all_users():
+    """Generate monthly insights for all premium users"""
+    logger.info("📅 Starting monthly insights generation for all premium users...")
+    
+    # Find all premium users
+    premium_users = users_collection.find({
+        "subscription_type": "premium"
+    })
+    
+    success_count = 0
+    error_count = 0
+    
+    for user in premium_users:
+        user_id = user["_id"]
+        
+        try:
+            # Check subscription validity
+            expires_at = user.get("subscription_expires_at")
+            if expires_at and expires_at < datetime.now(UTC):
+                logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
+                continue
+            
+            # Generate insights for both providers
+            for provider in ["openai", "gemini"]:
+                result = None
+                try:
+                    import asyncio
+                    result = asyncio.run(generate_monthly_insight(user_id, provider))
+                    
+                    if result:
+                        success_count += 1
+                        logger.info(f"✅ Generated {provider} monthly insight for user {user_id}")
+                    else:
+                        error_count += 1
+                        logger.warning(f"⚠️ Failed to generate {provider} monthly insight for user {user_id}")
+                        
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"❌ Error generating {provider} monthly insight for user {user_id}: {str(e)}")
+                    
+        except Exception as e:
+            error_count += 1
+            logger.error(f"❌ Error processing user {user_id}: {str(e)}")
+    
+    logger.info(f"✅ Monthly insights generation completed: {success_count} successful, {error_count} errors")

@@ -9,12 +9,24 @@ class InsightProvider with ChangeNotifier {
   String? _error;
   String _currentLanguage = 'en'; // NEW: Track current language
   AIProvider _aiProvider = AIProvider.openai; // NEW
+  String _insightType = 'weekly';
 
   Insight? get insight => _insight;
   bool get isLoading => _isLoading;
   String? get error => _error;
   String get currentLanguage => _currentLanguage; // NEW
   AIProvider get aiProvider => _aiProvider; // NEW
+  String get insightType => _insightType;
+
+
+  // NEW: Set insight type
+  void setInsightType(String type) {
+    if (type != _insightType) {
+      _insightType = type;
+      _insight = null; // Clear current insights when switching
+      notifyListeners();
+    }
+  }
 
   // NEW: Set AI provider
   void setAIProvider(AIProvider provider) {
@@ -44,18 +56,21 @@ class InsightProvider with ChangeNotifier {
   }
 
   // Fetch insights with language support
-  Future<void> fetchInsights({String? language}) async {
+  Future<void> fetchInsights({String? language, String? insightType}) async {
     _setLoading(true);
     _setError(null);
 
     final lang = language ?? _currentLanguage;
+    final type = insightType ?? _insightType;
 
     try {
       _insight = await ApiService.getInsights(
         language: lang,
-        aiProvider: _aiProvider, // NEW
+        aiProvider: _aiProvider,
+        insightType: type, // NEW
       );
       _currentLanguage = lang;
+      _insightType = type; // NEW
       _setLoading(false);
     } catch (e) {
       _setError(e.toString().replaceAll('Exception: ', ''));
@@ -64,18 +79,21 @@ class InsightProvider with ChangeNotifier {
   }
 
   // Force regenerate insights with language support
-  Future<bool> regenerateInsights({String? language}) async {
+  Future<bool> regenerateInsights({String? language, String? insightType}) async {
     _setLoading(true);
     _setError(null);
 
     final lang = language ?? _currentLanguage;
+    final type = insightType ?? _insightType;
 
     try {
       _insight = await ApiService.regenerateInsights(
         language: lang,
-        aiProvider: _aiProvider, // NEW
+        aiProvider: _aiProvider,
+        insightType: type, // NEW
       );
       _currentLanguage = lang;
+      _insightType = type; // NEW
       _setLoading(false);
       return true;
     } catch (e) {

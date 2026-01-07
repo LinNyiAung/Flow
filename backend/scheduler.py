@@ -77,7 +77,7 @@ def start_scheduler():
     
     
     
-        # NEW: Generate weekly insights every Sunday at 6 AM
+    # Generate weekly insights every Sunday at 6 AM
     def generate_all_users_weekly_insights():
         """Generate weekly insights for all premium users"""
         from insights_service import generate_weekly_insights_for_all_users
@@ -91,6 +91,25 @@ def start_scheduler():
         minute=0,
         id="weekly_insights_generation",
         name="Generate weekly insights for all users",
+        replace_existing=True
+    )
+    
+    
+    
+    # Generate monthly insights on 1st of every month at 6 AM
+    def generate_all_users_monthly_insights():
+        """Generate monthly insights for all premium users"""
+        from insights_service import generate_monthly_insights_for_all_users
+        generate_monthly_insights_for_all_users()
+
+    scheduler.add_job(
+        func=generate_all_users_monthly_insights,
+        trigger="cron",
+        day=1,  # 1st day of month
+        hour=6,  # 6 AM
+        minute=0,
+        id="monthly_insights_generation",
+        name="Generate monthly insights for all users",
         replace_existing=True
     )
     

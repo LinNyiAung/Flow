@@ -802,9 +802,10 @@ class ApiService {
 
   static Future<Insight> getInsights({
     String language = 'en',
-    AIProvider? aiProvider, // NEW parameter
+    AIProvider? aiProvider,
+    String insightType = 'weekly', // NEW parameter
   }) async {
-    String url = '$baseUrl/api/insights?language=$language';
+    String url = '$baseUrl/api/insights?language=$language&insight_type=$insightType';
 
     if (aiProvider != null) {
       url += '&ai_provider=${aiProvider.name}';
@@ -820,6 +821,30 @@ class ApiService {
     } else {
       final error = jsonDecode(response.body);
       throw Exception(error['detail'] ?? 'Failed to get insights');
+    }
+  }
+
+  static Future<Insight> regenerateInsights({
+    String language = 'en',
+    AIProvider? aiProvider,
+    String insightType = 'weekly', // NEW parameter
+  }) async {
+    String url = '$baseUrl/api/insights/regenerate?language=$language&insight_type=$insightType';
+
+    if (aiProvider != null) {
+      url += '&ai_provider=${aiProvider.name}';
+    }
+
+    final response = await http.post(
+      Uri.parse(url),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return Insight.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to regenerate insights');
     }
   }
 
@@ -841,28 +866,7 @@ class ApiService {
     }
   }
 
-  static Future<Insight> regenerateInsights({
-    String language = 'en',
-    AIProvider? aiProvider, // NEW parameter
-  }) async {
-    String url = '$baseUrl/api/insights/regenerate?language=$language';
-
-    if (aiProvider != null) {
-      url += '&ai_provider=${aiProvider.name}';
-    }
-
-    final response = await http.post(
-      Uri.parse(url),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      return Insight.fromJson(jsonDecode(response.body));
-    } else {
-      final error = jsonDecode(response.body);
-      throw Exception(error['detail'] ?? 'Failed to regenerate insights');
-    }
-  }
+  
 
   // NEW: Method to translate existing insights
   static Future<void> translateInsightsToMyanmar({

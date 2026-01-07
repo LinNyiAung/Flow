@@ -415,7 +415,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
                           Navigator.pushNamed(context, '/notifications').then((
                             _,
                           ) {
-                            // Refresh data when returning from notifications
                             notificationProvider.fetchUnreadCount();
                           });
                         },
@@ -759,9 +758,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return ListView(
       padding: responsive.padding(all: 20),
       children: [
-        // Info Card
+        // Updated Info Card with Insight Type Selector
         Container(
-          padding: responsive.padding(all: 16),
+          padding: responsive.padding(all: 20),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -778,105 +777,162 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
             ],
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: responsive.padding(all: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(
-                    responsive.borderRadius(12),
+              // Top Row - AI Icon and Title
+              Row(
+                children: [
+                  Container(
+                    padding: responsive.padding(all: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(
+                        responsive.borderRadius(12),
+                      ),
+                    ),
+                    child: Icon(
+                      insightProvider.aiProvider.icon,
+                      color: Colors.white,
+                      size: responsive.icon28,
+                    ),
                   ),
-                ),
-                child: Icon(
-                  insightProvider.aiProvider.icon,
-                  color: Colors.white,
-                  size: responsive.icon28,
-                ),
-              ),
-              SizedBox(width: responsive.sp16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                  SizedBox(width: responsive.sp16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Flexible(
-                          flex: 5,
-                          child: Text(
-                            localizations.aiGeneratedInsights,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
+                        Text(
+                          localizations.aiGeneratedInsights,
+                          style: GoogleFonts.poppins(
+                            fontSize: responsive.fs18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
                         ),
-                        SizedBox(width: responsive.sp8),
-                        // AI Model badge
-                        Flexible(
-                          flex: 2,
-                          child: Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.3),
-                              borderRadius: BorderRadius.circular(
-                                responsive.borderRadius(8),
-                              ),
-                            ),
-                            child: Text(
-                              insightProvider.aiProvider.getDisplayName(
-                                context,
-                              ),
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs10,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: responsive.sp8),
-                        // Language badge
-                        Flexible(
-                          flex: 2,
-                          child: Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.3),
-                              borderRadius: BorderRadius.circular(
-                                responsive.borderRadius(8),
-                              ),
-                            ),
-                            child: Text(
-                              insightProvider.currentLanguage == 'mm'
-                                  ? 'မြန်မာ'
-                                  : 'English',
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs10,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
+                        SizedBox(height: responsive.sp4),
+                        Text(
+                          'Generated ${DateFormat('MMM dd, yyyy • hh:mm a').format(insightProvider.insight!.generatedAt)}',
+                          style: GoogleFonts.poppins(
+                            fontSize: responsive.fs12,
+                            color: Colors.white.withOpacity(0.8),
                           ),
                         ),
                       ],
                     ),
-                    Text(
-                      'Generated ${DateFormat('MMM dd, yyyy • hh:mm a').format(insightProvider.insight!.generatedAt)}',
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs12,
-                        color: Colors.white.withOpacity(0.8),
+                  ),
+                ],
+              ),
+              
+              SizedBox(height: responsive.sp16),
+              
+              // Divider
+              Container(
+                height: 1,
+                color: Colors.white.withOpacity(0.3),
+              ),
+              
+              SizedBox(height: responsive.sp16),
+              
+              // Insight Type Toggle
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildInsightTypeButton(
+                      insightProvider,
+                      'weekly',
+                      'Weekly',
+                      Icons.calendar_view_week,
+                      responsive,
+                    ),
+                  ),
+                  SizedBox(width: responsive.sp12),
+                  Expanded(
+                    child: _buildInsightTypeButton(
+                      insightProvider,
+                      'monthly',
+                      'Monthly',
+                      Icons.calendar_month,
+                      responsive,
+                    ),
+                  ),
+                ],
+              ),
+              
+              SizedBox(height: responsive.sp16),
+              
+              // Badges Row
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  // AI Model badge
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(
+                        responsive.borderRadius(8),
                       ),
                     ),
-                  ],
-                ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          insightProvider.aiProvider.icon,
+                          size: responsive.icon16,
+                          color: Colors.white,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          insightProvider.aiProvider.getDisplayName(context),
+                          style: GoogleFonts.poppins(
+                            fontSize: responsive.fs12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Language badge
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(
+                        responsive.borderRadius(8),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.language,
+                          size: responsive.icon16,
+                          color: Colors.white,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          insightProvider.currentLanguage == 'mm'
+                              ? 'မြန်မာ'
+                              : 'English',
+                          style: GoogleFonts.poppins(
+                            fontSize: responsive.fs12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -899,7 +955,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ],
           ),
           child: MarkdownBody(
-            // Use the provider method to get content in current language
             data:
                 insightProvider.getContentForLanguage() ??
                 insightProvider.insight!.content,
@@ -965,6 +1020,68 @@ class _InsightsScreenState extends State<InsightsScreen> {
         
         // SizedBox(height: 100),
       ],
+    );
+  }
+  
+  Widget _buildInsightTypeButton(
+    InsightProvider insightProvider,
+    String type,
+    String label,
+    IconData icon,
+    ResponsiveHelper responsive,
+  ) {
+    final isSelected = insightProvider.insightType == type;
+    
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async {
+          if (!isSelected) {
+            insightProvider.setInsightType(type);
+            await _fetchInsights();
+          }
+        },
+        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+        child: AnimatedContainer(
+          duration: Duration(milliseconds: 200),
+          padding: responsive.padding(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
+            color: isSelected 
+                ? Colors.white
+                : Colors.white.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+            border: Border.all(
+              color: isSelected 
+                  ? Colors.white
+                  : Colors.white.withOpacity(0.4),
+              width: 2,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: responsive.icon20,
+                color: isSelected 
+                    ? insightProvider.aiProvider.color
+                    : Colors.white,
+              ),
+              SizedBox(width: responsive.sp8),
+              Text(
+                label,
+                style: GoogleFonts.poppins(
+                  fontSize: responsive.fs14,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected 
+                      ? insightProvider.aiProvider.color
+                      : Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

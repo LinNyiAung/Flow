@@ -36,6 +36,8 @@ def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
             "recurring_transaction_created": True,
             "recurring_transaction_ended": True,
             "recurring_transaction_disabled": True,
+            "weekly_insights_generated": True,  # ADD
+            "monthly_insights_generated": True,  # NEW
         }
         return default_prefs
     
@@ -542,3 +544,31 @@ def detect_and_notify_recurring_payments():
                                 goal_name=key,
                                 currency=currency  # NEW
                             )
+                            
+                            
+                            
+def notify_monthly_insights_generated(user_id: str):
+    """Notify when monthly insights are generated"""
+    create_notification(
+        user_id=user_id,
+        notification_type="monthly_insights_generated",
+        title="Monthly Insights Ready! 📊",
+        message=f"Your monthly financial insights powered by Flow Finance AI are now available. Check them out to see your monthly financial progress!",
+        goal_id=None,
+        goal_name=f"Monthly Insights Tailored For You",
+        currency=None
+    )
+    
+    
+    
+def notify_weekly_insights_generated(user_id: str):
+    """Notify when weekly insights are generated"""   
+    create_notification(
+        user_id=user_id,
+        notification_type="weekly_insights_generated",
+        title="Weekly Insights Ready! 📊",
+        message=f"Your weekly financial insights powered by Flow Finance Ai are now available. Check them out to see your financial progress!",
+        goal_id=None,
+        goal_name=f"Weekly Insights Tailored For You",
+        currency=None
+    )

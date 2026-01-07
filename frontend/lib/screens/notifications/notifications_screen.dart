@@ -67,6 +67,8 @@ IconData _getNotificationIcon(NotificationType type) {
       return Icons.repeat_on_rounded;
     case NotificationType.weekly_insights_generated:
       return Icons.insights;
+    case NotificationType.monthly_insights_generated:  // NEW
+      return Icons.calendar_month;
   }
 }
 
@@ -106,6 +108,8 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFFFF9800);
     case NotificationType.weekly_insights_generated:
       return Color(0xFF667eea);
+    case NotificationType.monthly_insights_generated:  // NEW
+      return Color(0xFF764ba2);
   }
 }
 
@@ -154,6 +158,10 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
     // Transaction notifications - navigate to transactions list
     Navigator.pushNamed(context, '/transactions').then((_) => _refreshNotifications());
   } else if (notification.type == NotificationType.weekly_insights_generated) {
+    // Navigate to insights screen
+    Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
+  }else if (notification.type == NotificationType.weekly_insights_generated ||
+             notification.type == NotificationType.monthly_insights_generated) {  // UPDATE THIS LINE
     // Navigate to insights screen
     Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
   }
