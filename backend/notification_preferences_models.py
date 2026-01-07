@@ -24,6 +24,10 @@ class NotificationPreferences(BaseModel):
     recurring_transaction_created: bool = True
     recurring_transaction_ended: bool = True
     recurring_transaction_disabled: bool = True
+    
+    
+    # Insights notifications
+    weekly_insights_generated: bool = True
 
 class NotificationPreferencesResponse(BaseModel):
     user_id: str

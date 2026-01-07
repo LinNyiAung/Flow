@@ -1,6 +1,7 @@
 import uuid
 import os
 from datetime import datetime, timedelta, UTC
+from notification_service import create_notification
 from database import users_collection, insights_collection
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
 from ai_chatbot_gemini import gemini_financial_chatbot
@@ -138,6 +139,10 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         }
         
         insights_collection.insert_one(new_insight)
+        
+        
+        # Notify user that weekly insights are ready
+        notify_weekly_insights_generated(user_id)
         
         logger.info(f"✅ Weekly insight generated for user {user_id} using {ai_provider}")
         return new_insight
@@ -462,3 +467,19 @@ Translate naturally while keeping the professional yet friendly tone."""
     except Exception as e:
         logger.error(f"Translation error using {ai_provider}: {e}")
         raise Exception(f"Failed to translate insights: {str(e)}")
+    
+    
+    
+def notify_weekly_insights_generated(user_id: str):
+    """Notify when weekly insights are generated"""
+    
+    
+    create_notification(
+        user_id=user_id,
+        notification_type="weekly_insights_generated",
+        title="Weekly Insights Ready! 📊",
+        message=f"Your weekly financial insights powered by Flow Finance Ai are now available. Check them out to see your financial progress!",
+        goal_id=None,
+        goal_name=f"Weekly Insights Tailored For You",
+        currency=None
+    )

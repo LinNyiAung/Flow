@@ -15,6 +15,7 @@ enum NotificationType {
   recurring_transaction_created,
   recurring_transaction_ended,
   recurring_transaction_disabled,
+  weekly_insights_generated,
 }
 
 class AppNotification {

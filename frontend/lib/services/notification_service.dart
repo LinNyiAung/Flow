@@ -157,6 +157,8 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFF9E9E9E);  // Grey
     case NotificationType.recurring_transaction_disabled:  // ADD
       return Color(0xFFFF9800);  // Orange
+    case NotificationType.weekly_insights_generated:
+      return Color(0xFF667eea);
   }
 }
 }

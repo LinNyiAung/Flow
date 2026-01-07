@@ -20,6 +20,7 @@ class NotificationType(str, Enum):
     RECURRING_TRANSACTION_CREATED = "recurring_transaction_created"
     RECURRING_TRANSACTION_ENDED = "recurring_transaction_ended"
     RECURRING_TRANSACTION_DISABLED = "recurring_transaction_disabled"
+    WEEKLY_INSIGHTS_GENERATED = "weekly_insights_generated"
 
 class NotificationResponse(BaseModel):
     id: str

@@ -21,6 +21,9 @@ class NotificationPreferences {
   final bool recurringTransactionEnded;
   final bool recurringTransactionDisabled;
 
+  // Insight notifications
+  final bool weeklyInsightsGenerated;
+
   NotificationPreferences({
     this.goalProgress = true,
     this.goalMilestone = true,
@@ -38,6 +41,7 @@ class NotificationPreferences {
     this.recurringTransactionCreated = true,
     this.recurringTransactionEnded = true,
     this.recurringTransactionDisabled = true,
+    this.weeklyInsightsGenerated = true,
   });
 
   factory NotificationPreferences.fromJson(Map<String, dynamic> json) {
@@ -58,6 +62,7 @@ class NotificationPreferences {
       recurringTransactionCreated: json['recurring_transaction_created'] ?? true,
       recurringTransactionEnded: json['recurring_transaction_ended'] ?? true,
       recurringTransactionDisabled: json['recurring_transaction_disabled'] ?? true,
+      weeklyInsightsGenerated: json['weekly_insights_generated'] ?? true,
     );
   }
 
@@ -79,6 +84,7 @@ class NotificationPreferences {
       'recurring_transaction_created': recurringTransactionCreated,
       'recurring_transaction_ended': recurringTransactionEnded,
       'recurring_transaction_disabled': recurringTransactionDisabled,
+      'weekly_insights_generated': weeklyInsightsGenerated,
     };
   }
 
@@ -99,6 +105,7 @@ class NotificationPreferences {
     bool? recurringTransactionCreated,
     bool? recurringTransactionEnded,
     bool? recurringTransactionDisabled,
+    bool? weeklyInsightsGenerated,
   }) {
     return NotificationPreferences(
       goalProgress: goalProgress ?? this.goalProgress,
@@ -117,6 +124,7 @@ class NotificationPreferences {
       recurringTransactionCreated: recurringTransactionCreated ?? this.recurringTransactionCreated,
       recurringTransactionEnded: recurringTransactionEnded ?? this.recurringTransactionEnded,
       recurringTransactionDisabled: recurringTransactionDisabled ?? this.recurringTransactionDisabled,
+      weeklyInsightsGenerated: weeklyInsightsGenerated ?? this.weeklyInsightsGenerated,
     );
   }
 }

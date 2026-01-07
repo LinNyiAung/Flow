@@ -65,6 +65,8 @@ IconData _getNotificationIcon(NotificationType type) {
       return Icons.repeat_one;
     case NotificationType.recurring_transaction_disabled:  // ADD
       return Icons.repeat_on_rounded;
+    case NotificationType.weekly_insights_generated:
+      return Icons.insights;
   }
 }
 
@@ -102,6 +104,8 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFF9E9E9E);
     case NotificationType.recurring_transaction_disabled:  // ADD
       return Color(0xFFFF9800);
+    case NotificationType.weekly_insights_generated:
+      return Color(0xFF667eea);
   }
 }
 
@@ -149,6 +153,9 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
              notification.type == NotificationType.recurring_transaction_disabled) {  // ADD
     // Transaction notifications - navigate to transactions list
     Navigator.pushNamed(context, '/transactions').then((_) => _refreshNotifications());
+  } else if (notification.type == NotificationType.weekly_insights_generated) {
+    // Navigate to insights screen
+    Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
   }
 }
 

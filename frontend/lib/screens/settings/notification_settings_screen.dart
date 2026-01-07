@@ -104,6 +104,7 @@ class _NotificationSettingsScreenState
       recurringTransactionCreated: key == 'recurring_transaction_created' ? value : _preferences!.recurringTransactionCreated,
       recurringTransactionEnded: key == 'recurring_transaction_ended' ? value : _preferences!.recurringTransactionEnded,
       recurringTransactionDisabled: key == 'recurring_transaction_disabled' ? value : _preferences!.recurringTransactionDisabled,
+      weeklyInsightsGenerated: key == 'weekly_insights_generated' ? value : _preferences!.weeklyInsightsGenerated,
     );
   }
 
@@ -550,6 +551,26 @@ class _NotificationSettingsScreenState
                     title: localizations.budgetNowActive,
                     description: localizations.whenBudgetBecomesActive,
                     value: _preferences!.budgetNowActive,
+                  ),
+                ],
+              ),
+
+              SizedBox(height: responsive.sp16),
+
+
+              // Insights Notifications Section
+              _buildNotificationSection(
+                title: localizations.aiInsights,
+                icon: Icons.account_balance_wallet,
+                color: Color(0xFF667eea),
+                notifications: [
+                  _NotificationToggleInfo(
+                    key: 'weekly_insights_generated',
+                    icon: Icons.insights,
+                    color: Color(0xFF667eea),
+                    title: localizations.weeklyInsights, // Add to your localization
+                    description: localizations.whenWeeklyInsightsReady, // Add to your localization
+                    value: _preferences!.weeklyInsightsGenerated,
                   ),
                 ],
               ),

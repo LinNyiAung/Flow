@@ -527,6 +527,8 @@ class AppLocalizations {
       'recurringDisabled': 'Recurring Disabled',
       'whenRecurrenceDisabled': 'When recurrence is disabled',
       'whenRecurringTransactionsCreated': 'When recurring transactions are created',
+      'weeklyInsights': 'Weekly Insights',
+      'whenWeeklyInsightsReady': 'Get notified when your weekly financial insights are generated every Sunday',
 
 
       //edit profile screen
@@ -1101,6 +1103,8 @@ class AppLocalizations {
       'recurringDisabled': 'ထပ်တလဲလဲ ပိတ်ထားသည်',
       'whenRecurrenceDisabled': 'ထပ်တလဲလဲ ပြုလုပ်ခြင်း ပိတ်ထားသည့်အခါ',
       'whenRecurringTransactionsCreated': 'ထပ်တလဲလဲ ငွေစာရင်းသွင်းမှုများ ဖန်တီးသည့်အခါ',
+      'weeklyInsights': 'အပတ်စဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ',
+      'whenWeeklyInsightsReady': 'တနင်္ဂနွေနေ့တိုင်း သင့်အပတ်စဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ထုတ်ပြီးသောအခါ အသိပေးချက်ရယူပါ',
 
       //edit profile screen
       'failedUpdateProfile': 'ပရိုဖိုင် ပြုပြင်ရန် မအောင်မြင်ပါ',
@@ -1702,6 +1706,10 @@ class AppLocalizations {
   String get recurringDisabled => translate('recurringDisabled');
   String get whenRecurrenceDisabled => translate('whenRecurrenceDisabled');
   String get whenRecurringTransactionsCreated => translate('whenRecurringTransactionsCreated');
+  String get weeklyInsights => translate('weeklyInsights');
+  String get whenWeeklyInsightsReady => translate('whenWeeklyInsightsReady');
+  
+  
 
 
 
