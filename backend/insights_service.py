@@ -15,21 +15,41 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
 def get_week_date_range():
-    """Get the start and end dates for the current week (Monday to Sunday)"""
+    """
+    Get the start and end dates for the PREVIOUS week (Monday to Sunday)
+    When run on Monday, this returns last week's Monday-Sunday
+    """
     today = datetime.now(UTC)
-    # Get the start of current week (Monday)
-    days_since_monday = today.weekday()
-    week_start = (today - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
-    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    
+    # Calculate last Monday (start of previous week)
+    days_since_monday = today.weekday()  # Monday = 0, Sunday = 6
+    
+    # If today is Monday, go back 7 days to get last Monday
+    # Otherwise, go back to last Monday
+    if days_since_monday == 0:
+        # It's Monday, so go back 7 days to last Monday
+        week_start = (today - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        # Go back to the most recent Monday
+        week_start = (today - timedelta(days=days_since_monday + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # End of that week is Sunday
+    week_end = (week_start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
+    
     return week_start, week_end
 
 
 def get_previous_week_date_range():
-    """Get the start and end dates for the previous week"""
+    """
+    Get the start and end dates for the week BEFORE the previous week
+    (Two weeks ago: Monday to Sunday)
+    """
     week_start, _ = get_week_date_range()
-    prev_week_end = week_start - timedelta(seconds=1)
-    prev_week_start = prev_week_end - timedelta(days=6)
-    prev_week_start = prev_week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Go back one more week
+    prev_week_start = (week_start - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+    prev_week_end = (prev_week_start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
+    
     return prev_week_start, prev_week_end
 
 
@@ -166,25 +186,25 @@ Your task is to analyze the user's financial activity from the past week and gen
 WEEKLY INSIGHTS STRUCTURE:
 Generate insights covering:
 
-1. **📊 This Week's Summary** - Overview of financial activity this week
+1. **📊 Last Week's Summary** - Overview of financial activity last week
    - Total income and expenses by currency
    - Net position (surplus/deficit)
    - Number of transactions
    - Key highlights
 
-2. **📈 Week-over-Week Comparison** - Compare with previous week
+2. **📈 Week-over-Week Comparison** - Compare with the week before
    - Income changes (increase/decrease %)
    - Expense changes (increase/decrease %)
    - Spending pattern shifts
    - Notable differences
 
-3. **💰 Spending Analysis** - Where the money went this week
+3. **💰 Spending Analysis** - Where the money went last week
    - Top expense categories by currency
    - Unusual or high spending areas
    - Comparison with previous weeks
    - Budget adherence (if applicable)
 
-4. **🎯 Goals Progress** - How goals advanced this week
+4. **🎯 Goals Progress** - How goals advanced last week
    - Contributions made to goals by currency
    - Progress percentages
    - On-track vs. behind schedule analysis
@@ -202,29 +222,30 @@ Generate insights covering:
    - Goals falling behind
    - Potential issues
 
-7. **💡 Recommendations for Next Week** - Actionable advice
+7. **💡 Recommendations for This Week** - Actionable advice
    - Specific spending adjustments by currency
    - Savings opportunities
    - Goal contribution suggestions
    - Habit changes to implement
 
-8. **🎯 Weekly Challenge** - One specific goal for next week
+8. **🎯 Weekly Challenge** - One specific goal for this week
    - Clear, measurable target
    - Motivational message
 
 CRITICAL RULES:
 - Be SPECIFIC with numbers, dates, categories, AND CURRENCIES
-- Always compare with previous week when data is available
+- Always compare with the week before when data is available
 - Provide ACTIONABLE recommendations, not generic advice
 - Be encouraging and supportive in tone
 - Format money as $X.XX (USD) or X K (MMK)
 - Use markdown formatting for clarity
 - Add emojis for visual appeal
 - Keep it concise but comprehensive (800-1200 words)
-- Focus on the PAST WEEK's activity primarily
+- Focus on LAST WEEK's activity (the complete Monday-Sunday that just ended)
+- Provide recommendations for THIS WEEK (the new week that just started)
 - If this is the first week, acknowledge it and provide baseline insights
 
-Remember: This is a WEEKLY report focused on the week that just ended."""
+Remember: This report is generated on Monday morning, reviewing the complete week (Monday-Sunday) that just ended, and providing actionable recommendations for the week ahead."""
 
 
 def _build_weekly_context(
@@ -240,9 +261,11 @@ def _build_weekly_context(
     context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-REPORTING PERIOD: {week_start.strftime('%B %d, %Y')} to {week_end.strftime('%B %d, %Y')}
+TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')} (Monday Morning)
 
-=== THIS WEEK'S FINANCIAL ACTIVITY ===
+LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
+
+=== LAST WEEK'S FINANCIAL ACTIVITY ===
 
 Total Transactions: {len(current_week_transactions)}
 
@@ -285,7 +308,7 @@ Total Transactions: {len(current_week_transactions)}
     
     # Previous week comparison
     if prev_week_transactions:
-        context += "\n\n=== PREVIOUS WEEK COMPARISON ===\n\n"
+        context += "\n\n=== WEEK BEFORE LAST COMPARISON ===\n\n"
         
         prev_by_currency = {}
         for t in prev_week_transactions:

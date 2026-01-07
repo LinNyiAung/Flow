@@ -86,8 +86,8 @@ def start_scheduler():
     scheduler.add_job(
         func=generate_all_users_weekly_insights,
         trigger="cron",
-        day_of_week="sun",  # Sunday
-        hour=1,
+        day_of_week="mon",  # Monday
+        hour=5,  # 6 AM Monday morning
         minute=0,
         id="weekly_insights_generation",
         name="Generate weekly insights for all users",
