@@ -4,7 +4,6 @@ class Insight {
   final String content;
   final String? contentMm;  // NEW: Myanmar translation
   final DateTime generatedAt;
-  final String dataHash;
   final DateTime? expiresAt;
 
   Insight({
@@ -13,7 +12,6 @@ class Insight {
     required this.content,
     this.contentMm,  // NEW
     required this.generatedAt,
-    required this.dataHash,
     this.expiresAt,
   });
 
@@ -39,7 +37,6 @@ class Insight {
       content: json['content'],
       contentMm: json['content_mm'],  // NEW
       generatedAt: parseDateTime(json['generated_at']),
-      dataHash: json['data_hash'],
       expiresAt: json['expires_at'] != null
           ? parseDateTime(json['expires_at'])
           : null,
