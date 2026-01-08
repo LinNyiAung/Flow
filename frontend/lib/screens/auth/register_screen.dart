@@ -18,6 +18,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  bool _acceptedTerms = false;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +39,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: Card(
                 elevation: 8,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(16),
+                  ),
                 ),
                 child: Padding(
                   padding: responsive.padding(all: 32),
@@ -47,7 +50,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-
                         // Logo and Title
                         Container(
                           width: responsive.iconSize(mobile: 80),
@@ -56,7 +58,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             gradient: LinearGradient(
                               colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                             ),
-                            borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
+                            borderRadius: BorderRadius.circular(
+                              responsive.borderRadius(20),
+                            ),
                           ),
                           child: Icon(
                             Icons.account_balance_wallet,
@@ -89,7 +93,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             labelText: 'Full Name',
                             prefixIcon: Icon(Icons.person_outlined),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                              borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(12),
+                              ),
                             ),
                             filled: true,
                             fillColor: Colors.grey[50],
@@ -111,7 +117,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             labelText: 'Email',
                             prefixIcon: Icon(Icons.email_outlined),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                              borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(12),
+                              ),
                             ),
                             filled: true,
                             fillColor: Colors.grey[50],
@@ -150,7 +158,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               },
                             ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                              borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(12),
+                              ),
                             ),
                             filled: true,
                             fillColor: Colors.grey[50],
@@ -188,7 +198,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               },
                             ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                              borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(12),
+                              ),
                             ),
                             filled: true,
                             fillColor: Colors.grey[50],
@@ -203,6 +215,98 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             return null;
                           },
                         ),
+                        SizedBox(height: responsive.sp16),
+
+                        // Terms and Conditions Checkbox
+                        Container(
+                          padding: responsive.padding(all: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[50],
+                            borderRadius: BorderRadius.circular(
+                              responsive.borderRadius(12),
+                            ),
+                            border: Border.all(
+                              color: _acceptedTerms
+                                  ? Color(0xFF667eea)
+                                  : Colors.grey[300]!,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                height: responsive.icon24,
+                                width: responsive.icon24,
+                                child: Checkbox(
+                                  value: _acceptedTerms,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _acceptedTerms = value ?? false;
+                                    });
+                                  },
+                                  activeColor: Color(0xFF667eea),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _acceptedTerms = !_acceptedTerms;
+                                    });
+                                  },
+                                  child: RichText(
+                                    text: TextSpan(
+                                      style: GoogleFonts.poppins(
+                                        fontSize: responsive.fs13,
+                                        color: Color(0xFF333333),
+                                      ),
+                                      children: [
+                                        TextSpan(text: 'I agree to the '),
+                                        WidgetSpan(
+                                          child: GestureDetector(
+                                            onTap: () =>
+                                                _showTermsAndConditions(),
+                                            child: Text(
+                                              'Terms and Conditions',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: responsive.fs13,
+                                                color: Color(0xFF667eea),
+                                                fontWeight: FontWeight.w600,
+                                                decoration:
+                                                    TextDecoration.underline,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        TextSpan(text: ' and '),
+                                        WidgetSpan(
+                                          child: GestureDetector(
+                                            onTap: () => _showPrivacyPolicy(),
+                                            child: Text(
+                                              'Privacy Policy',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: responsive.fs13,
+                                                color: Color(0xFF667eea),
+                                                fontWeight: FontWeight.w600,
+                                                decoration:
+                                                    TextDecoration.underline,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                         SizedBox(height: responsive.sp24),
 
                         // Error Message
@@ -214,7 +318,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 margin: responsive.padding(bottom: 16),
                                 decoration: BoxDecoration(
                                   color: Colors.red[50],
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                                  borderRadius: BorderRadius.circular(
+                                    responsive.borderRadius(8),
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
@@ -250,7 +356,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Color(0xFF667eea),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                                    borderRadius: BorderRadius.circular(
+                                      responsive.borderRadius(12),
+                                    ),
                                   ),
                                 ),
                                 child: authProvider.isLoading
@@ -274,9 +382,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         // Login Link
                         Text(
                           "Already have an account? ",
-                          style: GoogleFonts.poppins(
-                            color: Colors.grey[600],
-                          ),
+                          style: GoogleFonts.poppins(color: Colors.grey[600]),
                         ),
                         TextButton(
                           onPressed: () => Navigator.pop(context),
@@ -301,22 +407,186 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _register() async {
-    if (_formKey.currentState!.validate()) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final success = await authProvider.register(
-        name: _nameController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
+  if (_formKey.currentState!.validate()) {
+    // Check if terms are accepted
+    if (!_acceptedTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Please accept the Terms and Conditions to continue',
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
       );
+      return;
+    }
 
-      if (success) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => HomeScreen()),
-        );
-      }
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final success = await authProvider.register(
+      name: _nameController.text.trim(),
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
+
+    if (success) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => HomeScreen()),
+      );
     }
   }
+}
+
+
+void _showTermsAndConditions() {
+  final responsive = ResponsiveHelper(context);
+  
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.description, color: Color(0xFF667eea)),
+            SizedBox(width: 8),
+            Text(
+              'Terms and Conditions',
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold,
+                fontSize: responsive.fs18,
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Welcome to Flow - Personal Finance AI',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w600,
+                  fontSize: responsive.fs14,
+                ),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'By using Flow, you agree to:\n\n'
+                '1. Use the app for personal financial management only\n\n'
+                '2. Provide accurate information when creating transactions\n\n'
+                '3. Keep your account credentials secure\n\n'
+                '4. Not misuse AI features or attempt to manipulate the system\n\n'
+                '5. Understand that financial insights are suggestions, not professional advice\n\n'
+                '6. Accept that premium features require an active subscription\n\n'
+                '7. Allow us to process your financial data to provide personalized insights',
+                style: GoogleFonts.poppins(
+                  fontSize: responsive.fs13,
+                  color: Colors.grey[700],
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Close',
+              style: GoogleFonts.poppins(
+                color: Color(0xFF667eea),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+void _showPrivacyPolicy() {
+  final responsive = ResponsiveHelper(context);
+  
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.privacy_tip, color: Color(0xFF667eea)),
+            SizedBox(width: 8),
+            Text(
+              'Privacy Policy',
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold,
+                fontSize: responsive.fs18,
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Your Privacy Matters',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w600,
+                  fontSize: responsive.fs14,
+                ),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'We collect and use your data to:\n\n'
+                '• Provide personalized financial insights\n'
+                '• Improve our AI recommendations\n'
+                '• Secure your account and transactions\n'
+                '• Send important notifications about your finances\n\n'
+                'We protect your data by:\n\n'
+                '• Encrypting all sensitive information\n'
+                '• Never sharing your data with third parties without consent\n'
+                '• Allowing you to delete your data at any time\n'
+                '• Following industry-standard security practices\n\n'
+                'Your financial data is stored securely and used only to enhance your experience with Flow.',
+                style: GoogleFonts.poppins(
+                  fontSize: responsive.fs13,
+                  color: Colors.grey[700],
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Close',
+              style: GoogleFonts.poppins(
+                color: Color(0xFF667eea),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
 
   @override
   void dispose() {

@@ -14,7 +14,9 @@ import 'package:frontend/screens/report/reports_screen.dart';
 import 'package:frontend/screens/settings/currency_settings_screen.dart';
 import 'package:frontend/screens/settings/language_settings_screen.dart';
 import 'package:frontend/screens/settings/notification_settings_screen.dart';
+import 'package:frontend/screens/settings/privacy_policy_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
+import 'package:frontend/screens/settings/terms_and_conditions_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
@@ -130,6 +132,8 @@ class _MyAppState extends State<MyApp> {
           '/settings': (context) => SettingsScreen(),
           '/notification-settings': (context) => NotificationSettingsScreen(),
           '/currency-settings': (context) => CurrencySettingsScreen(),
+          '/privacy-policy': (context) => PrivacyPolicyScreen(),
+          '/terms-conditions': (context) => TermsAndConditionsScreen(),
         },
         onGenerateRoute: (settings) {
           if (settings.name == '/language-settings') {

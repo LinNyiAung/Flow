@@ -390,16 +390,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: 'View our privacy policy',
               gradientColors: [Color(0xFF9C27B0), Color(0xFF7B1FA2)],
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Privacy policy coming soon!',
-                      style: GoogleFonts.poppins(color: Colors.white),
-                    ),
-                    backgroundColor: Color(0xFF667eea),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                Navigator.pushNamed(context, '/privacy-policy');
               },
             ),
 
@@ -407,20 +398,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             _buildSettingCard(
               icon: Icons.description_outlined,
-              title: 'Terms of Service',
+              title: 'Terms and Conditions',
               subtitle: 'View terms and conditions',
               gradientColors: [Color(0xFF00BCD4), Color(0xFF0097A7)],
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Terms of service coming soon!',
-                      style: GoogleFonts.poppins(color: Colors.white),
-                    ),
-                    backgroundColor: Color(0xFF667eea),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                Navigator.pushNamed(context, '/terms-conditions');
               },
             ),
 
