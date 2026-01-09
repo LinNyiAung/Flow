@@ -55,6 +55,9 @@ class _EditTransactionScreenState extends State<EditTransactionScreen>
 
   late Currency _selectedCurrency;
 
+
+  bool _isDeleting = false;
+
   @override
   void initState() {
     super.initState();
@@ -1671,78 +1674,113 @@ void _updateTransaction() async {
   }
 
   // Function to show the delete confirmation dialog
-  void _showDeleteDialog() {
+    void _showDeleteDialog() {
     final localizations = AppLocalizations.of(context);
     final responsive = ResponsiveHelper(context);
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          ),
-          title: Text(
-            localizations.deleteTransactionTitle,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              color: Colors.red, // Red color for delete title
-            ),
-          ),
-          content: Text(
-            localizations.deleteConfirmMessage,
-            style: GoogleFonts.poppins(),
-          ),
-          actions: [
-            // Cancel Button
-            TextButton(
-              onPressed: () => Navigator.pop(context), // Close the dialog
-              child: Text(
-                localizations.dialogCancel,
+      barrierDismissible: false, // Prevent dismissing while deleting
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+              ),
+              title: Text(
+                localizations.deleteTransactionTitle,
                 style: GoogleFonts.poppins(
-                  color: Colors.grey[600],
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
                 ),
               ),
-            ),
-            // Delete Button
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context); // Close the dialog
-                _deleteTransaction(); // Proceed with deletion
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red, // Red background for delete button
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
+              content: Text(
+                localizations.deleteConfirmMessage,
+                style: GoogleFonts.poppins(),
               ),
-              child: Text(
-                localizations.delete,
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
+              actions: [
+                // Cancel Button
+                TextButton(
+                  onPressed: _isDeleting ? null : () => Navigator.pop(dialogContext),
+                  child: Text(
+                    localizations.dialogCancel,
+                    style: GoogleFonts.poppins(
+                      color: _isDeleting ? Colors.grey[400] : Colors.grey[600],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ],
+                // Delete Button
+                ElevatedButton(
+                  onPressed: _isDeleting
+                      ? null
+                      : () async {
+                          setDialogState(() {
+                            _isDeleting = true;
+                          });
+                          setState(() {
+                            _isDeleting = true;
+                          });
+
+                          await _deleteTransaction();
+
+                          if (mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: _isDeleting
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(
+                          localizations.delete,
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
   // Function to handle the actual deletion of the transaction
-  void _deleteTransaction() async {
+    Future<void> _deleteTransaction() async {
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
     
-    // Call deleteTransaction with context for AI integration
     final success = await transactionProvider.deleteTransaction(
       widget.transaction.id, 
-      context: context, // Add this line for AI data refresh
+      context: context,
     );
 
     if (success) {
-      Navigator.pop(context, 'deleted'); // Pop screen and return 'deleted' string to indicate deletion
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+        Navigator.pop(context, 'deleted');
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
     }
-    // Error message will be handled by the provider if deletion fails
   }
 
   // Dispose of controllers to prevent memory leaks
