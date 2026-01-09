@@ -8,7 +8,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
-from database import transactions_collection, users_collection, goals_collection
+from budget_service import update_budget_spent_amounts
+from database import transactions_collection, users_collection, goals_collection, budgets_collection
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -69,6 +70,36 @@ class FinancialDataProcessor:
             return goals
         except Exception as e:
             print(f"Error fetching goals: {e}")
+            return []
+        
+    def get_user_budgets(self) -> List[Dict]:
+        """Get user's active budgets"""
+        try:         
+            # Get active budgets
+            budgets = list(budgets_collection.find({
+                "user_id": self.user_id,
+                "is_active": True,
+                "status": "active"
+            }).sort("created_at", -1))
+            
+            # Update spent amounts for each budget
+            for budget in budgets:
+                try:
+                    update_budget_spent_amounts(self.user_id, budget["_id"])
+                except Exception as e:
+                    print(f"Error updating budget {budget['_id']}: {e}")
+            
+            # Refresh budget data after updates
+            budgets = list(budgets_collection.find({
+                "user_id": self.user_id,
+                "is_active": True,
+                "status": "active"
+            }).sort("created_at", -1))
+            
+            print(f"Found {len(budgets)} active budgets for user {self.user_id}")
+            return budgets
+        except Exception as e:
+            print(f"Error fetching budgets: {e}")
             return []
     
     def get_financial_summary(self) -> Dict[str, Any]:

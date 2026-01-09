@@ -2,7 +2,7 @@ import uuid
 import os
 from datetime import datetime, timedelta, UTC
 from notification_service import create_notification, notify_monthly_insights_generated, notify_weekly_insights_generated
-from database import users_collection, insights_collection
+from database import users_collection, insights_collection, budgets_collection
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
 from ai_chatbot_gemini import gemini_financial_chatbot
 import logging
@@ -93,9 +93,13 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         # Get goals
         goals = processor.get_user_goals()
         
+        
+        # Get budgets
+        budgets = processor.get_user_budgets()
+        
         # NEW: Check if user has any financial activity at all
         all_transactions = processor.get_user_transactions()
-        has_activity = len(all_transactions) > 0 or len(goals) > 0
+        has_activity = len(all_transactions) > 0 or len(goals) > 0 or len(budgets) > 0
         
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
@@ -166,6 +170,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             current_week_transactions, 
             prev_week_transactions,
             goals,
+            budgets,
             week_start,
             week_end,
             previous_insight
@@ -264,37 +269,47 @@ Generate insights covering:
    - Comparison with previous weeks
    - Budget adherence (if applicable)
 
-4. **🎯 Goals Progress** - How goals advanced last week
+4. **📊 Budget Performance** - How budgets are tracking 
+   - Overall budget utilization by currency
+   - Categories over/under budget
+   - Budget adherence trends
+   - Recommendations for staying on track
+
+5. **🎯 Goals Progress** - How goals advanced last week
    - Contributions made to goals by currency
    - Progress percentages
    - On-track vs. behind schedule analysis
    - Projected completion dates
 
-5. **✨ Wins & Achievements** - Celebrate positive actions
+6. **✨ Wins & Achievements** - Celebrate positive actions
    - Money saved
    - Goals reached
+   - Budget adherence successes 
    - Good financial decisions
    - Positive habits noticed
 
-6. **⚠️ Areas for Attention** - Concerns to address
+7. **⚠️ Areas for Attention** - Concerns to address
    - Overspending categories
    - Budget overruns
    - Goals falling behind
    - Potential issues
 
-7. **💡 Recommendations for This Week** - Actionable advice
+8. **💡 Recommendations for This Week** - Actionable advice
    - Specific spending adjustments by currency
+   - Budget corrections needed
    - Savings opportunities
    - Goal contribution suggestions
    - Habit changes to implement
 
-8. **🎯 Weekly Challenge** - One specific goal for this week
+9. **🎯 Weekly Challenge** - One specific goal for this week
    - Clear, measurable target
    - Motivational message
 
 CRITICAL RULES:
 - Be SPECIFIC with numbers, dates, categories, AND CURRENCIES
 - Always compare with the week before when data is available
+- Pay special attention to budget performance and adherence 
+- Celebrate when users stay within budget 
 - Provide ACTIONABLE recommendations, not generic advice
 - Be encouraging and supportive in tone
 - Format money as $X.XX (USD) or X K (MMK)
@@ -313,6 +328,7 @@ def _build_weekly_context(
     current_week_transactions, 
     prev_week_transactions,
     goals,
+    budgets,
     week_start,
     week_end,
     previous_insight
@@ -321,7 +337,7 @@ def _build_weekly_context(
     context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')}
+TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')} (Monday Morning)
 
 LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
 
@@ -417,6 +433,37 @@ Total Transactions: {len(current_week_transactions)}
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
                 context += f"  - {goal['name']}: {currency_symbol}{goal['current_amount']:.2f} / {currency_symbol}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
             context += "\n"
+            
+            
+    # Budgets progress
+    if budgets:
+        context += "\n=== ACTIVE BUDGETS ===\n\n"
+        
+        budgets_by_currency = {}
+        for b in budgets:
+            currency = b.get("currency", "usd")
+            if currency not in budgets_by_currency:
+                budgets_by_currency[currency] = []
+            budgets_by_currency[currency].append(b)
+        
+        for currency, curr_budgets in budgets_by_currency.items():
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
+            context += f"{currency_name} Budgets:\n"
+            for budget in curr_budgets:
+                utilization = budget.get("percentage_used", 0)
+                status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
+                
+                context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
+                context += f"     Total: {currency_symbol}{budget['total_spent']:.2f} / {currency_symbol}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
+                
+                # Show category breakdowns
+                for cat_budget in budget['category_budgets'][:5]:  # Top 5 categories
+                    cat_util = cat_budget.get('percentage_used', 0)
+                    context += f"       - {cat_budget['main_category']}: {currency_symbol}{cat_budget['spent_amount']:.2f} / {currency_symbol}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
+                
+                context += "\n"
     
     # Previous insight summary (if exists)
     if previous_insight:
@@ -485,7 +532,7 @@ def generate_weekly_insights_for_all_users():
 async def translate_insight_to_myanmar(english_content: str, ai_provider: str = "openai") -> str:
     """Translate English insights to Myanmar language"""
     try:
-        # NEW: Check if this is a placeholder insight by checking for the welcome message
+                # NEW: Check if this is a placeholder insight by checking for the welcome message
         is_placeholder = "Welcome to Flow Finance!" in english_content and "Get Started with Your Financial Journey" in english_content
         
         if is_placeholder:
@@ -540,7 +587,7 @@ CRITICAL RULES:
 For financial terms:
 - Money: ငွေ
 - Balance: လက်ကျန်ငွေ
-- Income: ၀င်ငွေ
+- Income: ဝင်ငွေ
 - Expenses: ကုန်ကျစရိတ်
 - Savings: စုဆောင်းငွေ
 - Budget: ဘတ်ဂျက်
@@ -555,6 +602,7 @@ Translate naturally while keeping the professional yet friendly tone."""
             if not GOOGLE_API_KEY:
                 raise Exception("Google API key not configured")
             
+            # NEW: Using google.genai instead of google.generativeai
             client = genai.Client(api_key=GOOGLE_API_KEY)
             
             prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
@@ -678,9 +726,14 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
         # Get goals
         goals = processor.get_user_goals()
         
+        
+        # Get budgets
+        budgets = processor.get_user_budgets()
+        
+        
         # NEW: Check if user has any financial activity at all
         all_transactions = processor.get_user_transactions()
-        has_activity = len(all_transactions) > 0 or len(goals) > 0
+        has_activity = len(all_transactions) > 0 or len(goals) > 0 or len(budgets) > 0
         
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
@@ -752,6 +805,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             current_month_transactions, 
             prev_month_transactions,
             goals,
+            budgets,
             month_start,
             month_end,
             previous_insight
@@ -851,48 +905,60 @@ Generate insights covering:
    - Month-to-month category changes
    - Budget adherence (if applicable)
 
-4. **🎯 Goals Progress** - Monthly goal achievements
+4. **📊 Budget Performance Review** - Comprehensive budget analysis 
+   - Overall budget utilization by currency
+   - Category-level performance
+   - Over/under spending trends
+   - Month-over-month budget adherence
+   - Budget efficiency recommendations
+
+5. **🎯 Goals Progress** - Monthly goal achievements
    - Contributions made to goals by currency
    - Progress percentages and amounts
    - Goals completed or reached
    - On-track vs. behind schedule analysis
    - Projected completion timeline
 
-5. **✨ Monthly Wins & Achievements** - Celebrate success
+6. **✨ Monthly Wins & Achievements** - Celebrate success
    - Money saved last month
+   - Budget adherence successes 
    - Goals reached or significant progress
    - Good financial decisions
    - Positive habits established
 
-6. **⚠️ Areas Needing Attention** - Financial concerns
+7. **⚠️ Areas Needing Attention** - Financial concerns
    - Overspending categories
-   - Budget overruns
+   - Budget overruns 
    - Goals falling behind
    - Concerning trends
    - Potential issues to address
 
-7. **📊 Financial Health Score** - Overall assessment
+8. **📊 Financial Health Score** - Overall assessment
    - Income stability
    - Expense control
+   - Budget adherence 
    - Savings rate
    - Goal progress
    - Overall financial trajectory
 
-8. **💡 Action Plan for This Month** - Specific recommendations
+9. **💡 Action Plan for This Month** - Specific recommendations
    - Spending adjustments by currency
+   - Budget reallocations needed 
    - Savings targets
    - Goal contribution plans
    - Budget recommendations
    - Habit changes to implement
 
-9. **🎯 Monthly Challenge** - One major goal for this month
-   - Clear, measurable target
-   - Actionable steps
-   - Motivational message
+10. **🎯 Monthly Challenge** - One major goal for this month
+    - Clear, measurable target
+    - Actionable steps
+    - Motivational message
 
 CRITICAL RULES:
 - Be VERY SPECIFIC with numbers, dates, categories, AND CURRENCIES
 - Always compare with the previous month when data is available
+- Analyze budget performance in detail 
+- Provide specific budget adjustment recommendations 
 - Provide DETAILED and ACTIONABLE recommendations
 - Be encouraging yet realistic in tone
 - Format money as $X.XX (USD) or X K (MMK)
@@ -911,6 +977,7 @@ def _build_monthly_context(
     current_month_transactions, 
     prev_month_transactions,
     goals,
+    budgets,
     month_start,
     month_end,
     previous_insight
@@ -1015,6 +1082,37 @@ Total Transactions: {len(current_month_transactions)}
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
                 context += f"  - {goal['name']}: {currency_symbol}{goal['current_amount']:.2f} / {currency_symbol}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
             context += "\n"
+            
+            
+        
+    ## Budgets progress
+    if budgets:
+        context += "\n=== ACTIVE BUDGETS ===\n\n"
+        
+        budgets_by_currency = {}
+        for b in budgets:
+            currency = b.get("currency", "usd")
+            if currency not in budgets_by_currency:
+                budgets_by_currency[currency] = []
+            budgets_by_currency[currency].append(b)
+        
+        for currency, curr_budgets in budgets_by_currency.items():
+            currency_symbol = "$" if currency == "usd" else "K"
+            currency_name = "USD" if currency == "usd" else "MMK"
+            
+            context += f"{currency_name} Budgets:\n"
+            for budget in curr_budgets:
+                utilization = budget.get("percentage_used", 0)
+                status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
+                
+                context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
+                context += f"     Total: {currency_symbol}{budget['total_spent']:.2f} / {currency_symbol}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
+                
+                for cat_budget in budget['category_budgets'][:8]:  # More categories for monthly
+                    cat_util = cat_budget.get('percentage_used', 0)
+                    context += f"       - {cat_budget['main_category']}: {currency_symbol}{cat_budget['spent_amount']:.2f} / {currency_symbol}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
+                
+                context += "\n"
     
     # Previous insight summary
     if previous_insight:
