@@ -321,7 +321,7 @@ def _build_weekly_context(
     context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')} (Monday Morning)
+TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')}
 
 LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
 
@@ -485,6 +485,47 @@ def generate_weekly_insights_for_all_users():
 async def translate_insight_to_myanmar(english_content: str, ai_provider: str = "openai") -> str:
     """Translate English insights to Myanmar language"""
     try:
+        # NEW: Check if this is a placeholder insight by checking for the welcome message
+        is_placeholder = "Welcome to Flow Finance!" in english_content and "Get Started with Your Financial Journey" in english_content
+        
+        if is_placeholder:
+            # Return Myanmar placeholder without calling AI API
+            logger.info("Returning Myanmar placeholder for new user")
+            myanmar_placeholder = """## 👋 Flow Finance မှ ကြိုဆိုပါတယ်!
+
+### 🎯 သင့်ရဲ့ ငွေကြေးခရီးစဉ်ကို စတင်ပါ
+
+Flow Finance နဲ့ စတင်အသုံးပြုနေပုံရပါတယ်။ AI မှ ပုဂ္ဂိုလ်ရေးအရ ဆန်းစစ်ချက်များ ရရှိရန် ပထမဆုံး သင့်ရဲ့ ငွေကြေးလှုပ်ရှားမှုများကို ထည့်သွင်းဖို့ လိုအပ်ပါတယ်။
+
+### 📊 ထည့်သွင်းရမည့် အရာများ:
+
+**💰 ငွေသွင်းထုတ်မှတ်တမ်းများ**
+- ၀င်ငွေနှင့် အသုံးစရိတ်များ ထည့်သွင်းပါ
+- နေ့စဉ် အသုံးစရိတ်များကို မှတ်တမ်းတင်ပါ
+- သင့်ငွေ ဘယ်မှာသွားသလဲ ခြေရာခံပါ
+
+**🎯 ငွေကြေး ရည်မှန်းချက်များ**
+- ချွေတာမှု ပန်းတိုင်များ သတ်မှတ်ပါ
+- အနာဂတ် ဝယ်ယူမှုများ စီစဉ်ပါ
+- သင့်တိုးတက်မှုကို ခြေရာခံပါ
+
+### ✨ သင်ရရှိမည့် အရာများ:
+
+သင့်ရဲ့ ငွေကြေးအချက်အလက်များ ထည့်သွင်းပြီးသည်နှင့် ကျွန်ုပ်တို့၏ AI က သင့်အသုံးစရိတ် ပုံစံများကို ဆန်းစစ်ပြီး အောက်ပါအရာများ ပေးအပ်မည်:
+- **📈 အသုံးစရိတ် ခွဲခြမ်းစိတ်ဖြာမှု** - သင့်ငွေ ဘယ်မှာသွားသလဲ နားလည်ပါ
+- **💡 ပုဂ္ဂိုလ်ရေးအကြံပြုချက်များ** - လုပ်ဆောင်နိုင်သော အကြံဉာဏ်များ ရယူပါ
+- **🎯 ပန်းတိုင် တိုးတက်မှု** - သင့်ငွေကြေး ရည်မှန်းချက်များကို ခြေရာခံပါ
+- **⚠️ သတိပေးချက်များ** - သင့်ငွေကြေးအကြောင်း သတင်းအချက်အလက်များ ရယူပါ
+- **📊 အပတ်စဉ် ဆန်းစစ်ချက်များ** - ပုံမှန် ငွေကြေးကျန်းမာရေး အစီရင်ခံစာများ
+
+### 🚀 စတင်ရန် အသင့်ပြင်ပြီလား?
+
+သင့်ပထမဆုံး ငွေသွင်းထုတ်မှတ်တမ်းကို ထည့်သွင်းခြင်း သို့မဟုတ် ငွေကြေး ရည်မှန်းချက်တစ်ခု ဖန်တီးခြင်းဖြင့် စတင်ပါ။ သင် ပေးသော အချက်အလက်များ များလေ၊ ပိုမိုကောင်းမွန်သော ဆန်းစစ်ချက်များ ရရှိမည် ဖြစ်ပါတယ်!
+
+---
+*သင့်ငွေကြေး ခရီးစဉ် ဤနေရာမှ စတင်ပါသည်။ အောင်မြင်အောင် လုပ်ကြပါစို့!* 💪"""
+            return myanmar_placeholder
+        
         system_prompt = """You are a professional translator specializing in financial content. 
 Translate the following financial insights from English to Myanmar (Burmese) language.
 
@@ -499,7 +540,7 @@ CRITICAL RULES:
 For financial terms:
 - Money: ငွေ
 - Balance: လက်ကျန်ငွေ
-- Income: ဝင်ငွေ
+- Income: ၀င်ငွေ
 - Expenses: ကုန်ကျစရိတ်
 - Savings: စုဆောင်းငွေ
 - Budget: ဘတ်ဂျက်
@@ -514,7 +555,6 @@ Translate naturally while keeping the professional yet friendly tone."""
             if not GOOGLE_API_KEY:
                 raise Exception("Google API key not configured")
             
-            # NEW: Using google.genai instead of google.generativeai
             client = genai.Client(api_key=GOOGLE_API_KEY)
             
             prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
