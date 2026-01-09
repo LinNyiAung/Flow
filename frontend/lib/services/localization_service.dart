@@ -348,7 +348,7 @@ class AppLocalizations {
       'approachingBudgetLimit': 'Approaching Budget Limit',
       'used': 'Used',
       'categories': 'categories',
-
+      'deleting': 'deleting',
 
       //ai budget suggestion screen
       'analysisSummary': 'Analysis Summary',
@@ -928,6 +928,7 @@ class AppLocalizations {
       'approachingBudgetLimit': 'ဘတ်ဂျက် ကန့်သတ်ချက်သို့ နီးကပ်လာသည်',
       'used': 'အသုံးပြုပြီး',
       'categories': 'အမျိုးအစား',
+      'deleting': 'ဖျက်နေသည်',
 
       //ai budget suggestion screen
       'analysisSummary': 'ခွဲခြမ်းစိတ်ဖြာချက် အကျဉ်းချုပ်',
@@ -1523,6 +1524,8 @@ class AppLocalizations {
   String get approachingBudgetLimit => translate('approachingBudgetLimit');
   String get used => translate('used');
   String get categories => translate('categories');
+  String get deleting => translate('deleting');
+  
 
 
 

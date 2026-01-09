@@ -21,6 +21,7 @@ class BudgetDetailScreen extends StatefulWidget {
 class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   late Budget _budget;
   bool _isRefreshing = false;
+  bool _isDeleting = false;
 
   @override
   void initState() {
@@ -45,51 +46,85 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   }
 
   void _showDeleteConfirmation() {
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
-        title: Text(
-          localizations.deleteBudget,
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
-            color: Colors.red,
+  final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
+  showDialog(
+    context: context,
+    barrierDismissible: !_isDeleting,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           ),
-        ),
-        content: Text(
-          localizations.deleteBudgetAlert,
-          style: GoogleFonts.poppins(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              localizations.dialogCancel,
-              style: GoogleFonts.poppins(color: Colors.grey[600]),
+          title: Text(
+            localizations.deleteBudget,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
             ),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _deleteBudget();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+          content: Text(
+            localizations.deleteBudgetAlert,
+            style: GoogleFonts.poppins(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _isDeleting ? null : () => Navigator.pop(context),
+              child: Text(
+                localizations.dialogCancel,
+                style: GoogleFonts.poppins(
+                  color: _isDeleting ? Colors.grey[400] : Colors.grey[600],
+                ),
               ),
             ),
-            child: Text(
-              localizations.delete,
-              style: GoogleFonts.poppins(color: Colors.white),
+            ElevatedButton(
+              onPressed: _isDeleting
+                  ? null
+                  : () async {
+                      setDialogState(() {
+                        _isDeleting = true;
+                      });
+                      setState(() {
+                        _isDeleting = true;
+                      });
+                      
+                      await _deleteBudget();
+                      
+                      if (mounted) {
+                        setState(() {
+                          _isDeleting = false;
+                        });
+                      }
+                      
+                      Navigator.pop(context);
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                ),
+              ),
+              child: _isDeleting
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Text(
+                      localizations.delete,
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        );
+      },
+    ),
+  );
+}
 
   Future<void> _deleteBudget() async {
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
@@ -228,15 +263,24 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.refresh, color: Color(0xFF667eea)),
-            onPressed: _isRefreshing ? null : _refreshBudget,
+            onPressed: (_isRefreshing || _isDeleting) ? null : _refreshBudget,
           ),
           IconButton(
             icon: Icon(Icons.edit, color: Color(0xFF667eea)),
-            onPressed: () => _navigateToEditBudget(),
+            onPressed: _isDeleting ? null : () => _navigateToEditBudget(),
           ),
           IconButton(
-            icon: Icon(Icons.delete, color: Colors.red),
-            onPressed: _showDeleteConfirmation,
+            icon: _isDeleting
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                    ),
+                  )
+                : Icon(Icons.delete, color: Colors.red),
+            onPressed: _isDeleting ? null : _showDeleteConfirmation,
           ),
         ],
       ),
