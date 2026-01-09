@@ -183,6 +183,7 @@ class FinancialDataProcessor:
         """Create optimized documents for GPT-4 with multi-currency support"""
         transactions = self.get_user_transactions()
         goals = self.get_user_goals()
+        budgets = self.get_user_budgets()
         summary = self.get_financial_summary()
         documents = []
         
@@ -258,6 +259,88 @@ class FinancialDataProcessor:
                 page_content=goals_text,
                 metadata={
                     "type": "goals_overview",
+                    "user_id": self.user_id,
+                    "priority": "high"
+                }
+            ))
+            
+            
+        # === BUDGETS OVERVIEW (MULTI-CURRENCY) ===
+        if budgets:
+            # Group budgets by currency
+            budgets_by_currency = {}
+            for b in budgets:
+                currency = b.get("currency", "usd")
+                if currency not in budgets_by_currency:
+                    budgets_by_currency[currency] = []
+                budgets_by_currency[currency].append(b)
+            
+            budgets_text = "╔═══════════════════════════════════════════════════╗\n"
+            budgets_text += "║           ACTIVE BUDGETS OVERVIEW                 ║\n"
+            budgets_text += "╚═══════════════════════════════════════════════════╝\n\n"
+            
+            for currency, curr_budgets in budgets_by_currency.items():
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                total_allocated = sum(b["total_budget"] for b in curr_budgets)
+                total_spent = sum(b["total_spent"] for b in curr_budgets)
+                overall_remaining = total_allocated - total_spent
+                overall_percentage = (total_spent / total_allocated * 100) if total_allocated > 0 else 0
+                
+                budgets_text += f"💰 {currency_name} BUDGETS:\n"
+                budgets_text += f"  • Total Active Budgets: {len(curr_budgets)}\n"
+                budgets_text += f"  • Total Allocated: {currency_symbol}{total_allocated:.2f}\n"
+                budgets_text += f"  • Total Spent: {currency_symbol}{total_spent:.2f}\n"
+                budgets_text += f"  • Overall Remaining: {currency_symbol}{overall_remaining:.2f}\n"
+                budgets_text += f"  • Overall Usage: {overall_percentage:.1f}%\n\n"
+                
+                budgets_text += f"📊 ACTIVE {currency_name} BUDGETS:\n\n"
+                for idx, b in enumerate(curr_budgets, 1):
+                    start_date = ensure_utc_datetime(b["start_date"])
+                    end_date = ensure_utc_datetime(b["end_date"])
+                    days_remaining = (end_date - datetime.now(timezone.utc)).days
+                    days_total = (end_date - start_date).days + 1
+                    
+                    budgets_text += f"──── Budget #{idx}: {b['name']} ────\n"
+                    budgets_text += f"Period: {b['period'].title()}\n"
+                    budgets_text += f"Duration: {start_date.strftime('%b %d, %Y')} - {end_date.strftime('%b %d, %Y')}\n"
+                    budgets_text += f"Days Remaining: {days_remaining} of {days_total}\n"
+                    budgets_text += f"Total Budget: {currency_symbol}{b['total_budget']:.2f}\n"
+                    budgets_text += f"Total Spent: {currency_symbol}{b['total_spent']:.2f}\n"
+                    budgets_text += f"Remaining: {currency_symbol}{b['remaining_budget']:.2f}\n"
+                    budgets_text += f"Usage: {b['percentage_used']:.1f}%\n"
+                    
+                    # Status indicator
+                    if b['percentage_used'] >= 100:
+                        budgets_text += f"Status: 🔴 EXCEEDED\n"
+                    elif b['percentage_used'] >= 80:
+                        budgets_text += f"Status: 🟡 HIGH USAGE (Caution)\n"
+                    else:
+                        budgets_text += f"Status: 🟢 ON TRACK\n"
+                    
+                    budgets_text += f"\nCategory Breakdown:\n"
+                    for cat in b['category_budgets']:
+                        cat_name = cat['main_category']
+                        cat_allocated = cat['allocated_amount']
+                        cat_spent = cat['spent_amount']
+                        cat_remaining = cat_allocated - cat_spent
+                        cat_percentage = cat.get('percentage_used', 0)
+                        
+                        status_icon = "🔴" if cat.get('is_exceeded') else ("🟡" if cat_percentage >= 80 else "🟢")
+                        
+                        budgets_text += f"  {status_icon} {cat_name}:\n"
+                        budgets_text += f"     Budget: {currency_symbol}{cat_allocated:.2f} | "
+                        budgets_text += f"Spent: {currency_symbol}{cat_spent:.2f} | "
+                        budgets_text += f"Left: {currency_symbol}{cat_remaining:.2f} | "
+                        budgets_text += f"{cat_percentage:.1f}%\n"
+                    
+                    budgets_text += "\n"
+            
+            documents.append(Document(
+                page_content=budgets_text,
+                metadata={
+                    "type": "budgets_overview",
                     "user_id": self.user_id,
                     "priority": "high"
                 }
@@ -408,6 +491,90 @@ class FinancialDataProcessor:
                 }
             ))
         
+        
+        # === INDIVIDUAL BUDGET DETAILS (with currency) ===
+            for budget in budgets:
+                currency = budget.get("currency", "usd")
+                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else "MMK"
+                
+                start_date = ensure_utc_datetime(budget["start_date"])
+                end_date = ensure_utc_datetime(budget["end_date"])
+                days_remaining = (end_date - datetime.now(timezone.utc)).days
+                days_total = (end_date - start_date).days + 1
+                days_elapsed = days_total - days_remaining
+                
+                budget_text = f"╔═══════════════════════════════════════════════════╗\n"
+                budget_text += f"║   BUDGET: {budget['name'][:40].center(40)}   ║\n"
+                budget_text += f"╚═══════════════════════════════════════════════════╝\n\n"
+                
+                budget_text += f"Currency: {currency_name}\n"
+                budget_text += f"Period: {budget['period'].title()}\n"
+                budget_text += f"Start Date: {start_date.strftime('%B %d, %Y')}\n"
+                budget_text += f"End Date: {end_date.strftime('%B %d, %Y')}\n"
+                budget_text += f"Days Elapsed: {days_elapsed} / {days_total}\n"
+                budget_text += f"Days Remaining: {days_remaining}\n\n"
+                
+                budget_text += f"💰 OVERALL BUDGET:\n"
+                budget_text += f"Total Budget: {currency_symbol}{budget['total_budget']:.2f}\n"
+                budget_text += f"Total Spent: {currency_symbol}{budget['total_spent']:.2f}\n"
+                budget_text += f"Remaining: {currency_symbol}{budget['remaining_budget']:.2f}\n"
+                budget_text += f"Usage: {budget['percentage_used']:.1f}%\n"
+                
+                if budget['percentage_used'] >= 100:
+                    budget_text += f"⚠️  BUDGET EXCEEDED by {currency_symbol}{budget['total_spent'] - budget['total_budget']:.2f}\n"
+                elif budget['percentage_used'] >= 80:
+                    budget_text += f"⚠️  CAUTION: High usage - {currency_symbol}{budget['remaining_budget']:.2f} remaining\n"
+                
+                # Daily rate analysis
+                if days_remaining > 0:
+                    daily_rate_current = budget['total_spent'] / days_elapsed if days_elapsed > 0 else 0
+                    daily_budget_remaining = budget['remaining_budget'] / days_remaining
+                    
+                    budget_text += f"\n📊 SPENDING RATE:\n"
+                    budget_text += f"Current Daily Avg: {currency_symbol}{daily_rate_current:.2f}\n"
+                    budget_text += f"Daily Budget Left: {currency_symbol}{daily_budget_remaining:.2f}\n"
+                    
+                    if daily_rate_current > daily_budget_remaining:
+                        budget_text += f"⚠️  Spending faster than budget allows!\n"
+                
+                budget_text += f"\n📋 CATEGORY BUDGETS:\n\n"
+                for cat in budget['category_budgets']:
+                    cat_name = cat['main_category']
+                    cat_allocated = cat['allocated_amount']
+                    cat_spent = cat['spent_amount']
+                    cat_remaining = cat_allocated - cat_spent
+                    cat_percentage = cat.get('percentage_used', 0)
+                    
+                    budget_text += f"──── {cat_name} ────\n"
+                    budget_text += f"Allocated: {currency_symbol}{cat_allocated:.2f}\n"
+                    budget_text += f"Spent: {currency_symbol}{cat_spent:.2f}\n"
+                    budget_text += f"Remaining: {currency_symbol}{cat_remaining:.2f}\n"
+                    budget_text += f"Usage: {cat_percentage:.1f}%\n"
+                    
+                    if cat.get('is_exceeded'):
+                        budget_text += f"🔴 EXCEEDED by {currency_symbol}{abs(cat_remaining):.2f}\n"
+                    elif cat_percentage >= 80:
+                        budget_text += f"🟡 HIGH USAGE - approaching limit\n"
+                    else:
+                        budget_text += f"🟢 ON TRACK\n"
+                    
+                    budget_text += "\n"
+                
+                documents.append(Document(
+                    page_content=budget_text,
+                    metadata={
+                        "type": "budget_detail",
+                        "user_id": self.user_id,
+                        "budget_id": budget["_id"],
+                        "budget_name": budget["name"],
+                        "currency": currency
+                    }
+                ))
+            
+            print(f"✅ Created {len(documents)} optimized documents for GPT-4 (including {len(goals)} goals, {len(budgets)} budgets, multi-currency)")
+            return documents
+
         # === DAILY SUMMARIES (Last 30 days, multi-currency) ===
         transactions_by_date = {}
         for t in transactions:
@@ -621,7 +788,7 @@ class FinancialChatbot:
         
         style_instruction = style_instructions.get(response_style, style_instructions["normal"])
         
-        return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history and financial goals.
+        return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history, financial goals, and budgets.
 
 📅 Today's date: {today}
 
@@ -632,7 +799,7 @@ class FinancialChatbot:
 - If the user writes in English, respond ENTIRELY in English
 - Maintain consistency - don't mix languages unless the user does
 - Use natural, conversational Myanmar that feels native and friendly
-- For financial terms in Myanmar, use commonly understood terms (e.g., "ငွေ" for money, "စုငွေ" for savings, "ရည်မှန်းချက်" for goals)
+- For financial terms in Myanmar, use commonly understood terms (e.g., "ငွေ" for money, "စုငွေ" for savings, "ရည်မှန်းချက်" for goals, "ဘတ်ဂျက်" for budget)
 
 💱 MULTI-CURRENCY CAPABILITY:
 - The user can have transactions, goals, and budgets in multiple currencies (USD, MMK)
@@ -647,8 +814,11 @@ Your capabilities:
 - Answer questions about transactions with precision (multi-currency aware)
 - Provide insights on financial goals and progress (per currency)
 - Track goal achievements and suggest strategies
+- Monitor budget performance and spending patterns (per currency)
+- Alert users to budget overruns or high usage
+- Provide budget vs actual spending analysis
 - Calculate savings needed to reach goals (in the goal's currency)
-- Identify spending patterns that affect goal progress (currency-specific)
+- Identify spending patterns that affect goal progress and budget compliance (currency-specific)
 - Provide spending insights and financial advice
 - Help users understand their finances holistically across currencies
 
@@ -675,39 +845,59 @@ Your capabilities:
 - Celebrate progress and provide encouragement
 - Be specific about goal timelines and required savings rates (in goal's currency)
 
-4. DATE ACCURACY:
+4. BUDGET AWARENESS (MULTI-CURRENCY):
+- Always check the BUDGETS OVERVIEW for active budgets
+- Budgets are currency-specific and period-based (weekly, monthly, yearly)
+- Monitor budget usage percentages and alert when approaching limits (80%+)
+- Compare actual spending vs budgeted amounts by category
+- Warn about exceeded budgets or categories (100%+)
+- Consider daily spending rates vs remaining budget
+- Suggest spending adjustments to stay within budget
+- Relate spending to both budgets AND goals
+
+5. DATE ACCURACY:
 - Today is {today}
 - Verify dates carefully before answering
 - Use the "days ago" information as a guide
+- For budgets, calculate days remaining vs days elapsed
 
-5. RESPONSE STYLE - {response_style.upper()}:
+6. RESPONSE STYLE - {response_style.upper()}:
 {style_instructions.get(response_style, style_instructions["normal"])}
 
-6. FORMATTING:
+7. FORMATTING:
 - Format money as $X.XX (USD) or X K (MMK)
 - Include specific dates when relevant
 - If unsure about something, say so honestly
-- Never fabricate transaction or goal details
+- Never fabricate transaction, goal, or budget details
 
-7. MYANMAR LANGUAGE SPECIFICS:
+8. MYANMAR LANGUAGE SPECIFICS:
 - Use respectful Myanmar expressions naturally 
 - Keep financial advice clear and easy to understand
 - Use bullet points (•) for lists in Myanmar responses too
 - When translating amounts, keep currency symbols: $X.XX or X K
 - Be warm and encouraging in Myanmar - financial discussions can be sensitive
 
-8. PRIORITIZATION:
+9. PRIORITIZATION:
 - For "latest/recent" queries, ALWAYS check the chronological index FIRST
 - For goal-related queries, check the goals overview and individual goal details
+- For budget-related queries, check the budgets overview and individual budget details
 - For currency-specific queries, filter by the mentioned currency
-- Consider the interplay between spending, saving, and goal progress per currency
+- Consider the interplay between spending, budgets, saving, and goal progress per currency
 
-Remember: Accuracy is more important than speed. Double-check dates, amounts, AND currencies! Respect their time and adapt your verbosity to their preference.
+10. BUDGET-SPECIFIC ADVICE:
+- When discussing spending, ALWAYS consider if it affects active budgets
+- Warn proactively if spending patterns suggest budget will be exceeded
+- Celebrate staying within budget limits
+- Suggest budget adjustments based on actual spending patterns
+- Link budget performance to financial goals
+- Provide actionable insights: "To stay on track, limit [category] spending to $X per day"
+
+Remember: Accuracy is more important than speed. Double-check dates, amounts, AND currencies! Respect their time and adapt your verbosity to their preference. Help users make informed decisions by considering their budgets, goals, and spending together.
 
 ဘာသာစကားကို သဘာဝကျကျ သုံးပါ။ (Use language naturally.)"""
     
-    def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
-        """Build comprehensive user prompt with multi-currency support"""
+    def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, budgets_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
+        """Build comprehensive user prompt with multi-currency support including budgets"""
         prompt = f"""User Profile:
     Name: {user.get('name', 'User')}
     Default Currency: {user.get('default_currency', 'usd').upper()}
@@ -734,6 +924,33 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:.2f}\n"
                         prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:.2f}\n"
                 
+                # Budget info for this currency
+                if budgets_summary:
+                    curr_budgets = budgets_summary.get('budgets_by_currency', {}).get(currency, {})
+                    if curr_budgets:
+                        budget_allocated = curr_budgets.get('total_allocated', 0)
+                        budget_spent = curr_budgets.get('total_spent', 0)
+                        budget_remaining = curr_budgets.get('remaining', 0)
+                        budget_percentage = curr_budgets.get('percentage_used', 0)
+                        
+                        prompt += f"  📊 Active Budget: {currency_symbol}{budget_allocated:.2f}\n"
+                        prompt += f"  💸 Budget Spent: {currency_symbol}{budget_spent:.2f} ({budget_percentage:.1f}%)\n"
+                        prompt += f"  💰 Budget Left: {currency_symbol}{budget_remaining:.2f}\n"
+                        
+                        if budget_percentage >= 100:
+                            prompt += f"  ⚠️  BUDGET EXCEEDED!\n"
+                        elif budget_percentage >= 80:
+                            prompt += f"  🟡 High budget usage - caution needed\n"
+                
+                # Calculate available balance (after goals and considering budget)
+                available = data.get('balance', 0)
+                if goals_summary:
+                    curr_goals = [g for g in goals_summary.get('goals_by_currency', {}).get(currency, [])]
+                    if curr_goals:
+                        allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
+                        available -= allocated
+                
+                prompt += f"  ✨ Available Balance: {currency_symbol}{available:.2f}\n"
                 prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):.2f}\n"
                 prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):.2f}\n"
         
@@ -746,23 +963,41 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 achieved = [g for g in curr_goals if g.get('status') == 'achieved']
                 prompt += f"  {currency_name}: {len(active)} active, {len(achieved)} achieved\n"
         
+        # Budgets summary by currency
+        if budgets_summary and budgets_summary.get('budgets_by_currency'):
+            prompt += "\n📊 BUDGETS BY CURRENCY:\n"
+            for currency, curr_budget_data in budgets_summary['budgets_by_currency'].items():
+                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else "K"
+                
+                active_count = curr_budget_data.get('active_count', 0)
+                total_allocated = curr_budget_data.get('total_allocated', 0)
+                total_spent = curr_budget_data.get('total_spent', 0)
+                percentage = curr_budget_data.get('percentage_used', 0)
+                
+                status_icon = "🔴" if percentage >= 100 else ("🟡" if percentage >= 80 else "🟢")
+                
+                prompt += f"  {currency_name}: {active_count} active budget(s) - "
+                prompt += f"{currency_symbol}{total_spent:.2f}/{currency_symbol}{total_allocated:.2f} "
+                prompt += f"({percentage:.1f}%) {status_icon}\n"
+        
         prompt += f"""
 
-    ══════════════════════════════════════════════════
+    ╔══════════════════════════════════════════════════╗
                         FINANCIAL DATA
-    ══════════════════════════════════════════════════
+    ╚══════════════════════════════════════════════════╝
 
     {context}
 
-    {f"══════════════════════════════════════════════════\n                CONVERSATION HISTORY\n══════════════════════════════════════════════════{history_text}" if history_text else ""}
+    {f"╔══════════════════════════════════════════════════╗\n            CONVERSATION HISTORY\n╚══════════════════════════════════════════════════╝\n{history_text}" if history_text else ""}
 
-    ══════════════════════════════════════════════════
+    ╔══════════════════════════════════════════════════╗
                         USER QUESTION
-    ══════════════════════════════════════════════════
+    ╚══════════════════════════════════════════════════╝
 
     {message}
 
-    Please provide an accurate, helpful answer based on the financial data above. Remember to specify currencies when discussing amounts!"""
+    Please provide an accurate, helpful answer based on the financial data above. Remember to specify currencies when discussing amounts, and consider budgets, goals, and spending together!"""
         
         return prompt
     
@@ -777,6 +1012,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             processor = FinancialDataProcessor(user_id)
             summary = processor.get_financial_summary()
             goals = processor.get_user_goals()
+            budgets = processor.get_user_budgets()  # NEW: Get budgets
             
             # Calculate goals summary
             goals_summary = None
@@ -801,8 +1037,41 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "goals_by_currency": goals_by_currency
                 }
             
-            if summary.get("message") and not goals:
-                yield "I don't have access to your financial data yet. Please add some transactions or goals first!"
+            # Calculate budgets summary (NEW)
+            budgets_summary = None
+            if budgets:
+                # Group budgets by currency
+                budgets_by_currency = {}
+                for budget in budgets:
+                    curr = budget.get('currency', 'usd')
+                    if curr not in budgets_by_currency:
+                        budgets_by_currency[curr] = {
+                            'budgets': [],
+                            'active_count': 0,
+                            'total_allocated': 0,
+                            'total_spent': 0,
+                            'remaining': 0,
+                            'percentage_used': 0
+                        }
+                    
+                    budgets_by_currency[curr]['budgets'].append(budget)
+                    budgets_by_currency[curr]['active_count'] += 1
+                    budgets_by_currency[curr]['total_allocated'] += budget['total_budget']
+                    budgets_by_currency[curr]['total_spent'] += budget['total_spent']
+                
+                # Calculate remaining and percentage for each currency
+                for curr, data in budgets_by_currency.items():
+                    data['remaining'] = data['total_allocated'] - data['total_spent']
+                    data['percentage_used'] = (data['total_spent'] / data['total_allocated'] * 100) if data['total_allocated'] > 0 else 0
+                
+                budgets_summary = {
+                    "total_budgets": len(budgets),
+                    "active_budgets": len(budgets),
+                    "budgets_by_currency": budgets_by_currency
+                }
+            
+            if summary.get("message") and not goals and not budgets:
+                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!"
                 return
             
             # Get relevant context
@@ -814,12 +1083,14 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     # Detect query type
                     temporal_keywords = ["latest", "last", "recent", "newest", "today", "yesterday", "this week"]
                     goal_keywords = ["goal", "save", "saving", "target", "progress", "achieve", "reached"]
+                    budget_keywords = ["budget", "spending", "spend", "expense", "limit", "exceeded", "remaining"]  # NEW
                     
                     is_temporal = any(keyword in message.lower() for keyword in temporal_keywords)
                     is_goal_query = any(keyword in message.lower() for keyword in goal_keywords)
+                    is_budget_query = any(keyword in message.lower() for keyword in budget_keywords)  # NEW
                     
                     # Adjust retrieval strategy
-                    k_value = 12 if (is_temporal or is_goal_query) else 6
+                    k_value = 12 if (is_temporal or is_goal_query or is_budget_query) else 6  # NEW: include budget queries
                     
                     retriever = vector_store.as_retriever(
                         search_kwargs={"k": k_value}
@@ -827,7 +1098,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     relevant_docs = retriever.invoke(message)
                     
                     # Prioritize important documents
-                    if is_temporal or is_goal_query:
+                    if is_temporal or is_goal_query or is_budget_query:  # NEW
                         priority_docs = [d for d in relevant_docs if d.metadata.get("priority") in ["critical", "high"]]
                         other_docs = [d for d in relevant_docs if d.metadata.get("priority") not in ["critical", "high"]]
                         relevant_docs = priority_docs + other_docs
@@ -836,6 +1107,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                             print(f"🎯 Goal query detected - prioritized goals data")
                         if is_temporal:
                             print(f"📅 Temporal query detected - prioritized chronological index")
+                        if is_budget_query:  # NEW
+                            print(f"📊 Budget query detected - prioritized budgets data")
                     
                     context = "\n\n".join([doc.page_content for doc in relevant_docs])
                     
@@ -855,7 +1128,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             
             # Build prompts with response style
             system_prompt = self._build_system_prompt(today, response_style)
-            user_prompt = self._build_user_prompt(user, summary, goals_summary, context, history_text, message, today)
+            
+            user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text, message, today)
             
             # Stream response
             if not self.openai_api_key:
