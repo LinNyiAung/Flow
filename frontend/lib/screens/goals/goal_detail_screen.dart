@@ -22,7 +22,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   bool _isLoading = false;
   bool _isContributionLoading = false; // NEW: Separate loading state for contribution dialog
   late Goal _currentGoal;
-
+  
   @override
   void initState() {
     super.initState();
@@ -454,11 +454,15 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   void _showDeleteDialog() {
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+  final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
+  bool _isDeleteLoading = false;
+  
+  showDialog(
+    context: context,
+    barrierDismissible: false, // Prevent dismissal while deleting
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Text(localizations.deleteGoal, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
@@ -467,52 +471,62 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(localizations.dialogCancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+            onPressed: _isDeleteLoading ? null : () => Navigator.pop(context),
+            child: Text(
+              localizations.dialogCancel, 
+              style: GoogleFonts.poppins(color: _isDeleteLoading ? Colors.grey : Colors.grey[600])
+            ),
           ),
           ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              _deleteGoal(); // Call delete function
+            onPressed: _isDeleteLoading ? null : () async {
+              setDialogState(() {
+                _isDeleteLoading = true;
+              });
+              _deleteGoal();
+              // Don't reset loading state here as we're navigating away
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: _isDeleteLoading ? Colors.grey : Colors.red,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
             ),
-            child: Text(localizations.delete, style: GoogleFonts.poppins(color: Colors.white)),
+            child: _isDeleteLoading
+                ? SizedBox(
+                    height: responsive.iconSize(mobile: 16),
+                    width: responsive.iconSize(mobile: 16),
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : Text(localizations.delete, style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _deleteGoal() async {
-    setState(() {
-      _isLoading = true;
-    });
+  final goalProvider = Provider.of<GoalProvider>(context, listen: false);
+  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+  final localizations = AppLocalizations.of(context);
+  final success = await goalProvider.deleteGoal(_currentGoal.id);
 
-    final goalProvider = Provider.of<GoalProvider>(context, listen: false);
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    final localizations = AppLocalizations.of(context);
-    final success = await goalProvider.deleteGoal(_currentGoal.id);
-
-    if (success) {
-      await transactionProvider.fetchBalance();
-      Navigator.pop(context, 'deleted'); // Go back to goals screen
-      // No setState here since we're leaving the screen
-    } else {
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(goalProvider.error ?? localizations.failedToDeleteGoal, style: GoogleFonts.poppins(color: Colors.white)),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+  if (success) {
+    await transactionProvider.fetchBalance();
+    Navigator.pop(context); // Close dialog
+    Navigator.pop(context, 'deleted'); // Go back to goals screen
+  } else {
+    Navigator.pop(context); // Close dialog
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(goalProvider.error ?? localizations.failedToDeleteGoal, style: GoogleFonts.poppins(color: Colors.white)),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -553,21 +567,15 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.edit, color: Color(0xFF667eea)),
-            onPressed: _isLoading ? null : _showEditDialog, // NEW: Disable while loading
+            onPressed: _showEditDialog,
           ),
           IconButton(
             icon: Icon(Icons.delete_outline, color: Colors.red),
-            onPressed: _isLoading ? null : _showDeleteDialog, // NEW: Disable while loading
+            onPressed: _showDeleteDialog,
           ),
         ],
       ),
-      body: _isLoading
-          ? Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-        ),
-      )
-          : Container(
+      body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
