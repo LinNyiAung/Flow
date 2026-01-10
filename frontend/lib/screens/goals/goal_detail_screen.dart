@@ -174,67 +174,84 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           ],
         ),
         actions: [
-            TextButton(
-              onPressed: _isContributionLoading ? null : () => Navigator.pop(context), // NEW: Disable while loading
-              child: Text(localizations.dialogCancel, style: GoogleFonts.poppins(color: _isContributionLoading ? Colors.grey : Colors.grey[600])),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: responsive.sp8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Cancel Button
+                TextButton(
+                  onPressed: _isContributionLoading ? null : () => Navigator.pop(context),
+                  child: Text(
+                    localizations.dialogCancel,
+                    style: GoogleFonts.poppins(
+                      color: _isContributionLoading ? Colors.grey : Colors.grey[600],
+                      fontSize: responsive.fs12, // Reduced size to help fit
+                    ),
+                  ),
+                ),
+                SizedBox(width: responsive.sp8),
+
+                // Withdraw Button
+                if (_currentGoal.currentAmount > 0)
+                  Expanded( // Using Expanded ensures they share the width
+                    child: ElevatedButton(
+                      onPressed: _isContributionLoading ? null : () async {
+                        setDialogState(() => _isContributionLoading = true);
+                        await _contributeToGoal(false);
+                        if (mounted) setDialogState(() => _isContributionLoading = false);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFFFF5722),
+                        padding: EdgeInsets.symmetric(vertical: responsive.sp8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
+                      ),
+                      child: _isContributionLoading
+                          ? SizedBox(
+                        height: responsive.iconSize(mobile: 16),
+                        width: responsive.iconSize(mobile: 16),
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                          : Text(localizations.withdraw, style: GoogleFonts.poppins(color: Colors.white, fontSize: responsive.fs12)),
+                    ),
+                  ),
+
+                if (_currentGoal.currentAmount > 0 && _currentGoal.status == GoalStatus.active)
+                  SizedBox(width: responsive.sp8),
+
+                // Add Button
+                if (_currentGoal.status == GoalStatus.active)
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isContributionLoading ? null : () async {
+                        setDialogState(() => _isContributionLoading = true);
+                        await _contributeToGoal(true);
+                        if (mounted) setDialogState(() => _isContributionLoading = false);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFF4CAF50),
+                        padding: EdgeInsets.symmetric(vertical: responsive.sp8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
+                      ),
+                      child: _isContributionLoading
+                          ? SizedBox(
+                        height: responsive.iconSize(mobile: 16),
+                        width: responsive.iconSize(mobile: 16),
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                          : Text(localizations.add, style: GoogleFonts.poppins(color: Colors.white, fontSize: responsive.fs12)),
+                    ),
+                  ),
+              ],
             ),
-            if (_currentGoal.currentAmount > 0)
-              ElevatedButton(
-                onPressed: _isContributionLoading ? null : () async { // NEW: Disable while loading
-                  setDialogState(() {
-                    _isContributionLoading = true;
-                  });
-                  await _contributeToGoal(false);
-                  if (mounted) {
-                    setDialogState(() {
-                      _isContributionLoading = false;
-                    });
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFFFF5722),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
-                ),
-                child: _isContributionLoading
-                    ? SizedBox(
-                        height: responsive.iconSize(mobile: 16),
-                        width: responsive.iconSize(mobile: 16),
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(localizations.withdraw, style: GoogleFonts.poppins(color: Colors.white)),
-              ),
-            if (_currentGoal.status == GoalStatus.active)
-              ElevatedButton(
-                onPressed: _isContributionLoading ? null : () async { // NEW: Disable while loading
-                  setDialogState(() {
-                    _isContributionLoading = true;
-                  });
-                  await _contributeToGoal(true);
-                  if (mounted) {
-                    setDialogState(() {
-                      _isContributionLoading = false;
-                    });
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isContributionLoading ? Colors.grey : Color(0xFF4CAF50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
-                ),
-                child: _isContributionLoading
-                    ? SizedBox(
-                        height: responsive.iconSize(mobile: 16),
-                        width: responsive.iconSize(mobile: 16),
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(localizations.add, style: GoogleFonts.poppins(color: Colors.white)),
-              ),
-          ],
+          ),
+        ],
       ),
     ),
   );
