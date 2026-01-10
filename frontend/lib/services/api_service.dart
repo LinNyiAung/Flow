@@ -17,7 +17,7 @@ import '../models/user.dart';
 import '../models/transaction.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://flowfinancetest.onrender.com';
+  static const String baseUrl = 'http://10.80.21.130:8000';
 
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -83,6 +83,22 @@ class ApiService {
       throw Exception(error['detail'] ?? 'Login failed');
     }
   }
+
+
+  static Future<void> deleteAccount() async {
+  final response = await http.delete(
+    Uri.parse('$baseUrl/api/auth/delete-account'),
+    headers: await _getHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    await removeToken();
+    return;
+  } else {
+    final error = jsonDecode(response.body);
+    throw Exception(error['detail'] ?? 'Failed to delete account');
+  }
+}
 
   static Future<User> getCurrentUser() async {
     final response = await http.get(

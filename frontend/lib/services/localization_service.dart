@@ -545,6 +545,18 @@ class AppLocalizations {
       'emailAddress': 'Email Address',
       'emailCannotChanged':  'Email cannot be changed',
       'haveUnsavedChanges': 'You have unsaved changes',
+      'dangerZone': 'Danger Zone',
+      'dangerZoneDes': 'Deleting your account will permanently remove all your data including transactions, goals, budgets, and insights. This action cannot be undone.',
+      'deleteAccount': 'Delete Account',
+      'deleteAccountQ': 'Delete Account?',
+      'willPermanentlyDelete': 'This will permanently delete:',
+      'allYourTransactions': 'All your transactions',
+      'allYourFinancialGoals': 'All your financial goals',
+      'allYourBudgets': 'All your budgets',
+      'allYourAiInsights': 'All your AI insights',
+      'allYourChatHistory': 'All your chat history',
+      'yourAccountInformation': 'Your account information',
+      'actionCannotBeUndone': 'This action cannot be undone!',
 
 
       //currency settings screen
@@ -1121,6 +1133,19 @@ class AppLocalizations {
       'emailAddress': 'အီးမေးလ် လိပ်စာ',
       'emailCannotChanged':  'အီးမေးလ်ကို ပြောင်းလဲ၍ မရပါ',
       'haveUnsavedChanges': 'သင့်တွင် မသိမ်းဆည်းရသေးသော အပြောင်းအလဲများ ရှိသည်',
+      'dangerZone': 'အန္တရာယ်ရှိဇုန်',
+      'dangerZoneDes': 'သင့်အကောင့်ကို ဖျက်လိုက်ပါက သင်၏ ငွေလွှဲမှတ်တမ်းများ၊ ရည်မှန်းချက်များ၊ ဘတ်ဂျက်များနှင့် သုံးသပ်ချက်များ အပါအဝင် ဒေတာအားလုံးကို အပြီးတိုင် ဖယ်ရှားသွားမည်ဖြစ်သည်။ ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြင်ဆင်၍ မရနိုင်ပါ',
+      'deleteAccount': 'အကောင့်ဖျက်ပါ',
+      'deleteAccountQ': 'အကောင့်ကို ဖျက်မလား?',
+      'willPermanentlyDelete': 'ဤလုပ်ဆောင်ချက်သည် အောက်ပါတို့ကို အပြီးတိုင် ဖျက်ပစ်မည်ဖြစ်သည်-',
+      'allYourTransactions': 'သင်၏ ငွေလွှဲမှတ်တမ်းများ အားလုံး',
+      'allYourFinancialGoals': 'သင်၏ ဘဏ္ဍာရေးဆိုင်ရာ ရည်မှန်းချက်များ အားလုံး',
+      'allYourBudgets': 'သင်၏ ဘတ်ဂျက်များ အားလုံး',
+      'allYourAiInsights': 'သင်၏ AI သုံးသပ်ချက်များ အားလုံး',
+      'allYourChatHistory': 'သင်၏ Chat မှတ်တမ်းများ အားလုံး',
+      'yourAccountInformation': 'သင်၏ အကောင့် အချက်အလက်များ',
+      'actionCannotBeUndone': 'ဤလုပ်ဆောင်ချက်ကို ပြန်လည်ပြင်ဆင်၍ မရနိုင်ပါ',
+
 
       //currency settings screen
       'currencySettings': 'ငွေကြေး ဆက်တင်များ',
@@ -1730,6 +1755,19 @@ class AppLocalizations {
   String get emailAddress => translate('emailAddress');
   String get emailCannotChanged => translate('emailCannotChanged');
   String get haveUnsavedChanges => translate('haveUnsavedChanges');
+  String get dangerZone => translate('dangerZone');
+  String get dangerZoneDes => translate('dangerZoneDes');
+  String get deleteAccount => translate('deleteAccount');
+  String get deleteAccountQ => translate('deleteAccountQ');
+  String get willPermanentlyDelete => translate('willPermanentlyDelete');
+  String get allYourTransactions => translate('allYourTransactions');
+  String get allYourFinancialGoals => translate('allYourFinancialGoals');
+  String get allYourBudgets => translate('allYourBudgets');
+  String get allYourAiInsights => translate('allYourAiInsights');
+  String get allYourChatHistory => translate('allYourChatHistory');
+  String get yourAccountInformation => translate('yourAccountInformation');
+  String get actionCannotBeUndone => translate('actionCannotBeUndone');
+  
 
 
 

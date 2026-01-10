@@ -91,6 +91,24 @@ class AuthProvider with ChangeNotifier {
   }
 
 
+  Future<bool> deleteAccount() async {
+  _setLoading(true);
+  _setError(null);
+
+  try {
+    await ApiService.deleteAccount();
+    _user = null;
+    _setLoading(false);
+    notifyListeners();
+    return true;
+  } catch (e) {
+    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setLoading(false);
+    return false;
+  }
+}
+
+
   Future<bool> canAccessPremiumFeature(BuildContext context) async {
     if (isPremium) return true;
     

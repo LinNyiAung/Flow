@@ -9,7 +9,9 @@ from models import (
 )
 from database import users_collection
 from config import settings
-
+from database import (
+    transactions_collection, chat_sessions_collection, goals_collection, insights_collection, budgets_collection, notifications_collection, notification_preferences_collection
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -192,6 +194,45 @@ async def change_password(
     )
     
     return {"message": "Password changed successfully"}
+    
+    
+
+@router.delete("/delete-account")
+async def delete_account(
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete user account and all associated data"""
+    try:
+        user_id = current_user["_id"]
+        
+        # Delete all user data
+        transactions_collection.delete_many({"user_id": user_id})
+        goals_collection.delete_many({"user_id": user_id})
+        budgets_collection.delete_many({"user_id": user_id})
+        chat_sessions_collection.delete_many({"user_id": user_id})
+        insights_collection.delete_many({"user_id": user_id})
+        notifications_collection.delete_many({"user_id": user_id})
+        notification_preferences_collection.delete_many({"user_id": user_id})
+        
+        # Finally, delete the user account
+        result = users_collection.delete_one({"_id": user_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete account"
+            )
+        
+        return {"message": "Account deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting account: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete account"
+        )
     
     
 @router.put("/subscription", response_model=UserResponse)

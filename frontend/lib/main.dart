@@ -134,6 +134,7 @@ class _MyAppState extends State<MyApp> {
           '/currency-settings': (context) => CurrencySettingsScreen(),
           '/privacy-policy': (context) => PrivacyPolicyScreen(),
           '/terms-conditions': (context) => TermsAndConditionsScreen(),
+          '/login': (context) => LoginScreen(),
         },
         onGenerateRoute: (settings) {
           if (settings.name == '/language-settings') {

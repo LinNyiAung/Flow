@@ -412,6 +412,68 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                   ),
                 ],
+
+                SizedBox(height: responsive.sp32),
+
+                // Danger Zone
+                Container(
+                  padding: responsive.padding(all: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Colors.red, size: responsive.icon20),
+                          SizedBox(width: responsive.sp8),
+                          Text(
+                            localizations.dangerZone,
+                            style: GoogleFonts.poppins(
+                              fontSize: responsive.fs16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: responsive.sp12),
+                      Text(
+                        localizations.dangerZoneDes,
+                        style: GoogleFonts.poppins(
+                          fontSize: responsive.fs12,
+                          color: Colors.red[800],
+                        ),
+                      ),
+                      SizedBox(height: responsive.sp16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _isLoading ? null : () => _showDeleteAccountDialog(context),
+                          icon: Icon(Icons.delete_forever, color: Colors.red),
+                          label: Text(
+                            localizations.deleteAccount,
+                            style: GoogleFonts.poppins(
+                              fontSize: responsive.fs14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.red,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: Colors.red, width: 2),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                            ),
+                            padding: responsive.padding(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -419,4 +481,167 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
     );
   }
+
+
+Future<void> _showDeleteAccountDialog(BuildContext context) async {
+  final responsive = ResponsiveHelper(context);
+  final localizations = AppLocalizations.of(context);
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+      ),
+      title: Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.red, size: responsive.icon24),
+          SizedBox(width: responsive.sp8),
+          Text(
+            localizations.deleteAccountQ,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            localizations.willPermanentlyDelete,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              fontSize: responsive.fs14,
+            ),
+          ),
+          SizedBox(height: responsive.sp8),
+          _buildDeleteItem(responsive, '• ${localizations.allYourTransactions}'),
+          _buildDeleteItem(responsive, '• ${localizations.allYourFinancialGoals}'),
+          _buildDeleteItem(responsive, '• ${localizations.allYourBudgets}'),
+          _buildDeleteItem(responsive, '• ${localizations.allYourAiInsights}'),
+          _buildDeleteItem(responsive, '• ${localizations.allYourChatHistory}'),
+          _buildDeleteItem(responsive, '• ${localizations.yourAccountInformation}'),
+          SizedBox(height: responsive.sp16),
+          Container(
+            padding: responsive.padding(all: 12),
+            decoration: BoxDecoration(
+              color: Colors.red[50],
+              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+              border: Border.all(color: Colors.red[200]!),
+            ),
+            child: Text(
+              localizations.actionCannotBeUndone,
+              style: GoogleFonts.poppins(
+                fontSize: responsive.fs12,
+                color: Colors.red[900],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(
+            localizations.dialogCancel,
+            style: GoogleFonts.poppins(color: Colors.grey[600]),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+            ),
+          ),
+          child: Text(
+            localizations.deleteAccount,
+            style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed == true) {
+    await _deleteAccount(context);
+  }
+}
+
+Widget _buildDeleteItem(ResponsiveHelper responsive, String text) {
+  return Padding(
+    padding: responsive.padding(vertical: 4),
+    child: Text(
+      text,
+      style: GoogleFonts.poppins(
+        fontSize: responsive.fs13,
+        color: Colors.grey[700],
+      ),
+    ),
+  );
+}
+
+Future<void> _deleteAccount(BuildContext context) async {
+  final localizations = AppLocalizations.of(context);
+  
+  setState(() => _isLoading = true);
+
+  try {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final success = await authProvider.deleteAccount();
+    
+    setState(() => _isLoading = false);
+    
+    if (success) {
+      // Navigate to login screen
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/login',
+        (route) => false,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Account deleted successfully',
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            authProvider.error ?? 'Failed to delete account',
+            style: GoogleFonts.poppins(color: Colors.white),
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  } catch (e) {
+    setState(() => _isLoading = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'An error occurred: ${e.toString()}',
+          style: GoogleFonts.poppins(color: Colors.white),
+        ),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
 }
