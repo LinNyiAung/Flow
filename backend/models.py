@@ -14,6 +14,8 @@ class Currency(str, Enum):
     USD = "usd"
     MMK = "mmk"
     
+class LanguageUpdate(BaseModel):
+    language: str
     
 class CurrencyUpdate(BaseModel):
     default_currency: Currency

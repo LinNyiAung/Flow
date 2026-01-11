@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/localization_service.dart';
 import 'package:frontend/services/responsive_helper.dart';
@@ -30,23 +31,33 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
 
   Future<void> _changeLanguage(String languageCode) async {
     final responsive = ResponsiveHelper(context);
+
+    // NEW: Update language on backend
+    try {
+      await ApiService.updateLanguage(languageCode);
+    } catch (e) {
+      print('Failed to update language on backend: $e');
+    }
+
     await LocalizationService.setSelectedLanguage(languageCode);
     setState(() {
       _selectedLanguage = languageCode;
     });
     widget.onLanguageChanged(Locale(languageCode));
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          languageCode == 'en' 
-              ? 'Language changed to English' 
+          languageCode == 'en'
+              ? 'Language changed to English'
               : 'ဘာသာစကားကို မြန်မာသို့ပြောင်းလဲပြီးပါပြီ',
           style: GoogleFonts.poppins(color: Colors.white),
         ),
         backgroundColor: Color(0xFF4CAF50),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+        ),
       ),
     );
   }
@@ -57,7 +68,9 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _selectedLanguage == 'en' ? 'Language Settings' : 'ဘာသာစကားဆက်တင်များ',
+          _selectedLanguage == 'en'
+              ? 'Language Settings'
+              : 'ဘာသာစကားဆက်တင်များ',
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -74,10 +87,7 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
+            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
           ),
         ),
         child: ListView(
@@ -88,7 +98,9 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
               padding: responsive.padding(all: 20),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+                borderRadius: BorderRadius.circular(
+                  responsive.borderRadius(16),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.grey.withOpacity(0.1),
@@ -105,9 +117,15 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
                       gradient: LinearGradient(
                         colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                       ),
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                      borderRadius: BorderRadius.circular(
+                        responsive.borderRadius(12),
+                      ),
                     ),
-                    child: Icon(Icons.language, color: Colors.white, size: responsive.icon20),
+                    child: Icon(
+                      Icons.language,
+                      color: Colors.white,
+                      size: responsive.icon20,
+                    ),
                   ),
                   SizedBox(width: responsive.sp16),
                   Expanded(
@@ -115,8 +133,8 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _selectedLanguage == 'en' 
-                              ? 'Select Language' 
+                          _selectedLanguage == 'en'
+                              ? 'Select Language'
                               : 'ဘာသာစကားရွေးချယ်ပါ',
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs16,
@@ -168,7 +186,9 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
               padding: responsive.padding(all: 16),
               decoration: BoxDecoration(
                 color: Color(0xFF2196F3).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                borderRadius: BorderRadius.circular(
+                  responsive.borderRadius(12),
+                ),
                 border: Border.all(
                   color: Color(0xFF2196F3).withOpacity(0.3),
                   width: 1,
@@ -176,7 +196,11 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Color(0xFF2196F3), size: responsive.icon20),
+                  Icon(
+                    Icons.info_outline,
+                    color: Color(0xFF2196F3),
+                    size: responsive.icon20,
+                  ),
                   SizedBox(width: responsive.sp12),
                   Expanded(
                     child: Text(
@@ -216,7 +240,9 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
           border: Border.all(
-            color: isSelected ? Color(0xFF667eea) : Colors.grey.withOpacity(0.2),
+            color: isSelected
+                ? Color(0xFF667eea)
+                : Colors.grey.withOpacity(0.2),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected
@@ -237,10 +263,7 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
         ),
         child: Row(
           children: [
-            Text(
-              flag,
-              style: TextStyle(fontSize: responsive.fs32),
-            ),
+            Text(flag, style: TextStyle(fontSize: responsive.fs32)),
             SizedBox(width: responsive.sp16),
             Expanded(
               child: Column(

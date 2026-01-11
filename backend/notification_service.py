@@ -1,9 +1,80 @@
 from datetime import datetime, UTC, timedelta
 from typing import Dict, List, Optional
 import uuid
-from database import goals_collection, notification_preferences_collection
+from database import goals_collection, notification_preferences_collection, notifications_collection, budgets_collection, transactions_collection, users_collection
 
-from database import (notifications_collection, budgets_collection, transactions_collection, users_collection)
+
+# NEW: Translation dictionaries
+NOTIFICATION_TRANSLATIONS = {
+    "en": {
+        "goal_achieved_title": "Goal Achieved! 🥳",
+        "goal_achieved_msg": "Congratulations! You've officially achieved your '{goal_name}' goal! Amazing work!",
+        "goal_progress_title": "Goal Progress: {milestone}% {emoji}",
+        "goal_progress_msg": "You're {milestone}% of the way to your '{goal_name}'! Keep up the great momentum!",
+        "goal_milestone_title": "Milestone Reached! 🏆",
+        "goal_milestone_msg": "Fantastic! You've just saved {amount} towards your '{goal_name}' goal. Celebrate this win!",
+        "goal_approaching_title": "Goal Deadline Approaching 🗓️",
+        "goal_approaching_msg_with_remaining": "Your '{goal_name}' target date is just {days} away! You have {remaining} remaining. You're doing great working towards it! 🗓️",
+        "goal_approaching_msg_achieved": "Your '{goal_name}' target date is just {days} away! You've already reached your target amount! 🎯",
+        "budget_threshold_title": "Budget Alert: 80% Spent 📊",
+        "budget_threshold_msg": "You've spent 80% of your {label} budget in '{budget_name}'. Consider adjusting your spending.",
+        "budget_exceeded_title": "Budget Exceeded! ⚠️",
+        "budget_exceeded_msg": "You've exceeded your {label} budget in '{budget_name}'. Review your recent expenses.",
+        "budget_ending_soon_title": "Budget Ending Soon 📅",
+        "budget_ending_soon_msg": "Your '{budget_name}' budget period ends in 3 days. Review your spending to see how you did!",
+        "budget_now_active_title": "Budget Now Active! 🚀",
+        "budget_now_active_msg": "Your '{budget_name}' budget is now active! Total budget: {amount}",
+        "budget_started_title": "New Budget Started 🚀",
+        "budget_started_msg": "Your '{budget_name}' budget for {period} has started. Total budget: {amount}",
+        "budget_auto_created_title": "Budget Auto-Created 🔄",
+        "budget_auto_created_msg_ai": "Your '{budget_name}' budget has ended. A new budget for the next period has been created with AI optimization.",
+        "budget_auto_created_msg": "Your '{budget_name}' budget has ended. A new budget for the next period has been created based on your previous budget.",
+        "large_transaction_title": "Large Transaction Alert 💰",
+        "large_transaction_msg": "You had a large expense of {amount}{merchant} for {category}.",
+        "unusual_spending_title": "Unusual Spending Detected 📊",
+        "unusual_spending_msg": "Your spending on '{category}' is higher than usual this week ({this_week} vs usual {avg}). Would you like to review these transactions?",
+        "payment_reminder_title": "Upcoming Payment Reminder 📅",
+        "payment_reminder_msg": "Your '{description}' payment of {amount} is due in {days} days.",
+        "weekly_insights_title": "Weekly Insights Ready! 📊",
+        "weekly_insights_msg": "Your weekly financial insights powered by Flow Finance AI are now available. Check them out to see your financial progress!",
+        "monthly_insights_title": "Monthly Insights Ready! 📊",
+        "monthly_insights_msg": "Your monthly financial insights powered by Flow Finance AI are now available. Check them out to see your monthly financial progress!",
+    },
+    "my": {
+        "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
+        "goal_achieved_msg": "ဂုဏ်ယူပါတယ်! သင်၏ '{goal_name}' ရည်မှန်းချက်ကို အောင်မြင်စွာ အကောင်အထည်ဖော်နိုင်ခဲ့ပါပြီ။ တကယ်ကို ချီးကျူးစရာပါပဲ!",
+        "goal_progress_title": "ရည်မှန်းချက် တိုးတက်မှု: {milestone}% {emoji}",
+        "goal_progress_msg": "သင်၏ '{goal_name}' ရည်မှန်းချက်ရောက်ဖို့ {milestone}% ခရီးရောက်နေပါပြီ။ ဒီအတိုင်းပဲ ဆက်လက်ကြိုးစားပေးပါဦး!",
+        "goal_milestone_title": "မှတ်တိုင်သစ်တစ်ခုသို့ ရောက်ရှိ! 🏆",
+        "goal_milestone_msg": "ထူးချွန်ပါတယ်! သင်၏ '{goal_name}' ရည်မှန်းချက်အတွက် {amount} စုဆောင်းနိုင်ခဲ့ပါပြီ။ ဒီအောင်မြင်မှုကို အတူတူအောင်ပွဲခံကြစို့!",
+        "goal_approaching_title": "ရည်မှန်းချက် သတ်မှတ်ရက် နီးကပ်လာပြီ 🗓️",
+        "goal_approaching_msg_with_remaining": "'{goal_name}' ရည်မှန်းချက်အတွက် သတ်မှတ်ရက်ရောက်ဖို့ {days} ရက်ပဲ လိုပါတော့တယ်။ ကျန်ရှိငွေ {remaining} လိုအပ်ပါသေးတယ်။ အကောင်းဆုံး ဆက်လက်ကြိုးစားပေးပါ!",
+        "goal_approaching_msg_achieved": "'{goal_name}' ရည်မှန်းချက်အတွက် သတ်မှတ်ရက်ရောက်ဖို့ {days} ရက်ပဲ လိုပါတော့တယ်။ သင် သတ်မှတ်ထားတဲ့ ပမာဏကို ရောက်ရှိပြီးဖြစ်ပါတယ်! 🎯",
+        "budget_threshold_title": "ဘတ်ဂျက်သတိပေးချက်: ၈၀% သုံးစွဲပြီး 📊",
+        "budget_threshold_msg": "'{budget_name}' ထဲမှ {label} ဘတ်ဂျက်၏ ၈၀% ကို သင်သုံးစွဲပြီးပါပြီ။ အသုံးစရိတ်ကို ပြန်လည်စိစစ်ရန် အကြံပြုလိုပါတယ်။",
+        "budget_exceeded_title": "ဘတ်ဂျက် ကျော်လွန်သွားပါပြီ! ⚠️",
+        "budget_exceeded_msg": "'{budget_name}' ထဲမှ {label} ဘတ်ဂျက် ပမာဏထက် ကျော်လွန်သွားပါပြီ။ သင်၏ နောက်ဆုံးအသုံးစရိတ်များကို ပြန်လည်စစ်ဆေးကြည့်ပါ။",
+        "budget_ending_soon_title": "ဘတ်ဂျက်ကာလ ကုန်ဆုံးတော့မည် 📅",
+        "budget_ending_soon_msg": "'{budget_name}' ဘတ်ဂျက်ကာလကုန်ဆုံးရန် ၃ ရက်သာ လိုပါတော့တယ်။ သင်၏အသုံးစရိတ်များကို ပြန်လည်သုံးသပ်ကြည့်လိုက်ပါ။",
+        "budget_now_active_title": "ဘတ်ဂျက် စတင်အသက်ဝင်ပါပြီ! 🚀",
+        "budget_now_active_msg": "'{budget_name}' ဘတ်ဂျက်ကို ယခုစတင်အသုံးပြုနိုင်ပါပြီ။ စုစုပေါင်းဘတ်ဂျက်- {amount}",
+        "budget_started_title": "ဘတ်ဂျက်အသစ် စတင်ပါပြီ 🚀",
+        "budget_started_msg": "{period} အတွက် '{budget_name}' ဘတ်ဂျက် စတင်ပါပြီ။ စုစုပေါင်းဘတ်ဂျက်- {amount}",
+        "budget_auto_created_title": "ဘတ်ဂျက်အသစ် အလိုအလျောက်ဖန်တီးပြီး 🔄",
+        "budget_auto_created_msg_ai": "'{budget_name}' ဘတ်ဂျက်ကာလ ကုန်ဆုံးသွားပါပြီ။ AI အကူအညီဖြင့် နောက်ကာလအတွက် ဘတ်ဂျက်အသစ်တစ်ခုကို အလိုအလျောက် ဖန်တီးပေးထားပါသည်။",
+        "budget_auto_created_msg": "'{budget_name}' ဘတ်ဂျက်ကာလ ကုန်ဆုံးသွားပါပြီ။ ယခင်အသုံးစရိတ်များအပေါ် အခြေခံ၍ နောက်ကာလအတွက် ဘတ်ဂျက်အသစ်တစ်ခုကို အလိုအလျောက် ဖန်တီးပေးထားပါသည်။",
+        "large_transaction_title": "အသုံးစရိတ်ပမာဏ များပြားမှု သတိပေးချက် 💰",
+        "large_transaction_msg": "{category} အတွက် {merchant} တွင် {amount} ပမာဏရှိသော အသုံးစရိတ်တစ်ခု ရှိခဲ့ပါသည်။",
+        "unusual_spending_title": "ပုံမှန်မဟုတ်သော အသုံးစရိတ် တွေ့ရှိရသည် 📊",
+        "unusual_spending_msg": "ယခုအပတ်တွင် '{category}' အတွက် အသုံးစရိတ်သည် ပုံမှန်ထက် ပိုများနေပါသည် (ပုံမှန် {avg} ဖြစ်သော်လည်း ယခုအပတ်တွင် {this_week} ဖြစ်နေသည်)။ ဤအသုံးစရိတ်များကို ပြန်လည်စစ်ဆေးလိုပါသလား?",
+        "payment_reminder_title": "ပေးချေရန်ရှိသည်များကို သတိပေးခြင်း 📅",
+        "payment_reminder_msg": "'{description}' အတွက် ပေးချေရန် {amount} ရှိပြီး နောက်ထပ် {days} ရက်အတွင်း ပေးချေရပါမည်။",
+        "weekly_insights_title": "အပတ်စဉ်သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ! 📊",
+        "weekly_insights_msg": "Flow Finance AI မှ ထုတ်ပြန်ပေးသော သင်၏ အပတ်စဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ သင်၏ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။",
+        "monthly_insights_title": "လစဉ်သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ! 📊",
+        "monthly_insights_msg": "Flow Finance AI မှ ထုတ်ပြန်ပေးသော သင်၏ လစဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ တစ်လတာ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။"
+    }
+}
 
 
 def format_currency_amount(amount: float, currency: str) -> str:
@@ -13,12 +84,26 @@ def format_currency_amount(amount: float, currency: str) -> str:
     else:  # usd
         return f"${amount:,.2f}"
 
+
+def get_user_language(user_id: str) -> str:
+    """Get user's preferred language from user preferences or default to 'en'"""
+    # You can store language preference in users collection or a separate preferences collection
+    # For now, we'll add it to the user document
+    user = users_collection.find_one({"_id": user_id})
+    return user.get("language", "en") if user else "en"
+
+
+def translate(key: str, language: str, **kwargs) -> str:
+    """Get translated text with variable substitution"""
+    template = NOTIFICATION_TRANSLATIONS.get(language, NOTIFICATION_TRANSLATIONS["en"]).get(key, key)
+    return template.format(**kwargs)
+
+
 def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
     """Get user's notification preferences, return defaults if not set"""
     prefs = notification_preferences_collection.find_one({"user_id": user_id})
     
     if not prefs:
-        # Return default preferences (all enabled)
         default_prefs = {
             "goal_progress": True,
             "goal_milestone": True,
@@ -36,19 +121,18 @@ def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
             "recurring_transaction_created": True,
             "recurring_transaction_ended": True,
             "recurring_transaction_disabled": True,
-            "weekly_insights_generated": True,  # ADD
-            "monthly_insights_generated": True,  # NEW
+            "weekly_insights_generated": True,
+            "monthly_insights_generated": True,
         }
         return default_prefs
     
     return prefs.get("preferences", {})
 
 
-
 def should_send_notification(user_id: str, notification_type: str) -> bool:
     """Check if user wants to receive this type of notification"""
     preferences = get_user_notification_preferences(user_id)
-    return preferences.get(notification_type, True)  # Default to True if not set
+    return preferences.get(notification_type, True)
 
 
 def create_notification(
@@ -58,7 +142,7 @@ def create_notification(
     message: str,
     goal_id: Optional[str] = None,
     goal_name: Optional[str] = None,
-    currency: Optional[str] = None  # NEW parameter
+    currency: Optional[str] = None
 ) -> Optional[dict]:
     """Create a new notification (only if user has it enabled)"""
     
@@ -75,7 +159,7 @@ def create_notification(
         "message": message,
         "goal_id": goal_id,
         "goal_name": goal_name,
-        "currency": currency,  # NEW
+        "currency": currency,
         "created_at": datetime.now(UTC),
         "is_read": False
     }
@@ -83,46 +167,50 @@ def create_notification(
     print(f"✅ Created notification {notification_type} for user {user_id}")
     return notification
 
+
 def check_goal_notifications(user_id: str, goal_id: str, old_progress: float, new_progress: float, goal_name: str):
     """Check and create notifications based on goal progress"""
-    # Get goal to retrieve currency
     goal = goals_collection.find_one({"_id": goal_id})
     currency = goal.get("currency", "usd") if goal else "usd"
+    lang = get_user_language(user_id)
     
     milestones = [25, 50, 75, 100]
     
     for milestone in milestones:
         if old_progress < milestone <= new_progress:
             if milestone == 100:
+                title = translate("goal_achieved_title", lang)
+                message = translate("goal_achieved_msg", lang, goal_name=goal_name)
                 create_notification(
                     user_id=user_id,
                     notification_type="goal_achieved",
-                    title="Goal Achieved! 🥳",
-                    message=f"Congratulations! You've officially achieved your '{goal_name}' goal! Amazing work!",
+                    title=title,
+                    message=message,
                     goal_id=goal_id,
                     goal_name=goal_name,
-                    currency=currency  # NEW
+                    currency=currency
                 )
             elif milestone in [25, 50, 75]:
                 emoji = "💪" if milestone == 25 else "🎯" if milestone == 50 else "🎉"
+                title = translate("goal_progress_title", lang, milestone=milestone, emoji=emoji)
+                message = translate("goal_progress_msg", lang, milestone=milestone, goal_name=goal_name)
                 create_notification(
                     user_id=user_id,
                     notification_type="goal_progress",
-                    title=f"Goal Progress: {milestone}% {emoji}",
-                    message=f"You're {milestone}% of the way to your '{goal_name}'! Keep up the great momentum!",
+                    title=title,
+                    message=message,
                     goal_id=goal_id,
                     goal_name=goal_name,
-                    currency=currency  # NEW
+                    currency=currency
                 )
 
 def check_milestone_amount(user_id: str, goal_id: str, old_amount: float, new_amount: float, goal_name: str):
     """Check for milestone amounts (every $1000 or 1M K)"""
-    # Get goal to retrieve currency
     goal = goals_collection.find_one({"_id": goal_id})
     currency = goal.get("currency", "usd") if goal else "usd"
+    lang = get_user_language(user_id)
     
-    # Different milestone intervals for different currencies
-    milestone_interval = 1000000 if currency == "mmk" else 1000  # 1M K or $1000
+    milestone_interval = 1000000 if currency == "mmk" else 1000
     
     old_milestone = int(old_amount / milestone_interval)
     new_milestone = int(new_amount / milestone_interval)
@@ -131,15 +219,19 @@ def check_milestone_amount(user_id: str, goal_id: str, old_amount: float, new_am
         milestone_amount = new_milestone * milestone_interval
         formatted_amount = format_currency_amount(milestone_amount, currency)
         
+        title = translate("goal_milestone_title", lang)
+        message = translate("goal_milestone_msg", lang, amount=formatted_amount, goal_name=goal_name)
+        
         create_notification(
             user_id=user_id,
             notification_type="goal_milestone",
-            title="Milestone Reached! 🏆",
-            message=f"Fantastic! You've just saved {formatted_amount} towards your '{goal_name}' goal. Celebrate this win!",
+            title=title,
+            message=message,
             goal_id=goal_id,
             goal_name=goal_name,
-            currency=currency  # NEW
+            currency=currency
         )
+
 
 def check_approaching_target_dates():
     """Check all goals for approaching target dates (run daily)"""
@@ -162,7 +254,8 @@ def check_approaching_target_dates():
         goal_id = goal["_id"]
         goal_name = goal["name"]
         remaining = goal["target_amount"] - goal["current_amount"]
-        currency = goal.get("currency", "usd")  # NEW
+        currency = goal.get("currency", "usd")
+        lang = get_user_language(user_id)
         
         days_until = (target_date - now).days
         
@@ -176,59 +269,65 @@ def check_approaching_target_dates():
             
             if not existing:
                 time_text = f"{days_until} days" if days_until > 1 else "1 day"
-                formatted_remaining = format_currency_amount(remaining, currency)  # NEW
+                formatted_remaining = format_currency_amount(remaining, currency)
+                
+                title = translate("goal_approaching_title", lang)
                 
                 if remaining > 0:
-                    message = f"Your '{goal_name}' target date is just {time_text} away! You have {formatted_remaining} remaining. You're doing great working towards it! 🗓️"
+                    message = translate("goal_approaching_msg_with_remaining", lang, 
+                                      goal_name=goal_name, days=time_text, remaining=formatted_remaining)
                 else:
-                    message = f"Your '{goal_name}' target date is just {time_text} away! You've already reached your target amount! 🎯"
+                    message = translate("goal_approaching_msg_achieved", lang, 
+                                      goal_name=goal_name, days=time_text)
                 
                 create_notification(
                     user_id=user_id,
                     notification_type="goal_approaching_date",
-                    title=f"Goal Deadline Approaching 🗓️",
+                    title=title,
                     message=message,
                     goal_id=goal_id,
                     goal_name=goal_name,
-                    currency=currency  # NEW
+                    currency=currency
                 )
-                
-                
+
+
 def check_budget_notifications(user_id: str, budget_id: str, old_percentage: float, new_percentage: float, budget_name: str, category_name: str = None):
     """Check and create budget threshold/exceeded notifications"""
-    # Get budget to retrieve currency
     budget = budgets_collection.find_one({"_id": budget_id})
     currency = budget.get("currency", "usd") if budget else "usd"
+    lang = get_user_language(user_id)
     
-    budget_label = f"'{category_name}'" if category_name else "overall"
+    budget_label = f"'{category_name}'" if category_name else ("overall" if lang == "en" else "စုစုပေါင်း")
     
     if old_percentage < 80 <= new_percentage < 100:
+        title = translate("budget_threshold_title", lang)
+        message = translate("budget_threshold_msg", lang, label=budget_label, budget_name=budget_name)
         create_notification(
             user_id=user_id,
             notification_type="budget_threshold",
-            title=f"Budget Alert: 80% Spent 📊",
-            message=f"You've spent 80% of your {budget_label} budget in '{budget_name}'. Consider adjusting your spending.",
+            title=title,
+            message=message,
             goal_id=budget_id,
             goal_name=budget_name,
-            currency=currency  # NEW
+            currency=currency
         )
     
     if old_percentage < 100 <= new_percentage:
+        title = translate("budget_exceeded_title", lang)
+        message = translate("budget_exceeded_msg", lang, label=budget_label, budget_name=budget_name)
         create_notification(
             user_id=user_id,
             notification_type="budget_exceeded",
-            title=f"Budget Exceeded! ⚠️",
-            message=f"You've exceeded your {budget_label} budget in '{budget_name}'. Review your recent expenses.",
+            title=title,
+            message=message,
             goal_id=budget_id,
             goal_name=budget_name,
-            currency=currency  # NEW
+            currency=currency
         )
 
 
 def check_budget_period_notifications():
     """Check all budgets for period start/end notifications (run daily)"""
-    from datetime import datetime, UTC, timedelta
-    
     now = datetime.now(UTC)
     three_days_from_now = now + timedelta(days=3)
     
@@ -245,7 +344,8 @@ def check_budget_period_notifications():
         budget_id = budget["_id"]
         budget_name = budget["name"]
         end_date = budget["end_date"]
-        currency = budget.get("currency", "usd")  # NEW
+        currency = budget.get("currency", "usd")
+        lang = get_user_language(user_id)
         
         days_until_end = (end_date - now).days
         
@@ -258,14 +358,16 @@ def check_budget_period_notifications():
             })
             
             if not existing:
+                title = translate("budget_ending_soon_title", lang)
+                message = translate("budget_ending_soon_msg", lang, budget_name=budget_name)
                 create_notification(
                     user_id=user_id,
                     notification_type="budget_ending_soon",
-                    title="Budget Ending Soon 📅",
-                    message=f"Your '{budget_name}' budget period ends in 3 days. Review your spending to see how you did!",
+                    title=title,
+                    message=message,
                     goal_id=budget_id,
                     goal_name=budget_name,
-                    currency=currency  # NEW
+                    currency=currency
                 )
     
     budgets_now_active = budgets_collection.find({
@@ -278,8 +380,9 @@ def check_budget_period_notifications():
         budget_id = budget["_id"]
         budget_name = budget["name"]
         total_budget = budget["total_budget"]
-        currency = budget.get("currency", "usd")  # NEW
-        formatted_budget = format_currency_amount(total_budget, currency)  # NEW
+        currency = budget.get("currency", "usd")
+        lang = get_user_language(user_id)
+        formatted_budget = format_currency_amount(total_budget, currency)
         
         existing = notifications_collection.find_one({
             "user_id": user_id,
@@ -288,32 +391,37 @@ def check_budget_period_notifications():
         })
         
         if not existing:
+            title = translate("budget_now_active_title", lang)
+            message = translate("budget_now_active_msg", lang, budget_name=budget_name, amount=formatted_budget)
             create_notification(
                 user_id=user_id,
                 notification_type="budget_now_active",
-                title="Budget Now Active! 🚀",
-                message=f"Your '{budget_name}' budget is now active! Total budget: {formatted_budget}",
+                title=title,
+                message=message,
                 goal_id=budget_id,
                 goal_name=budget_name,
-                currency=currency  # NEW
+                currency=currency
             )
 
 
 def notify_budget_started(user_id: str, budget_id: str, budget_name: str, total_budget: float, period: str):
     """Notify when a new budget is created and started"""
-    # Get budget to retrieve currency
     budget = budgets_collection.find_one({"_id": budget_id})
     currency = budget.get("currency", "usd") if budget else "usd"
+    lang = get_user_language(user_id)
     formatted_budget = format_currency_amount(total_budget, currency)
+    
+    title = translate("budget_started_title", lang)
+    message = translate("budget_started_msg", lang, budget_name=budget_name, period=period, amount=formatted_budget)
     
     create_notification(
         user_id=user_id,
         notification_type="budget_started",
-        title="New Budget Started 🚀",
-        message=f"Your '{budget_name}' budget for {period} has started. Total budget: {formatted_budget}",
+        title=title,
+        message=message,
         goal_id=budget_id,
         goal_name=budget_name,
-        currency=currency  # NEW
+        currency=currency
     )
 
 
@@ -321,34 +429,38 @@ def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, w
     """Notify when a budget is auto-created"""
     budget = budgets_collection.find_one({"_id": budget_id})
     currency = budget.get("currency", "usd") if budget else "usd"
+    lang = get_user_language(user_id)
     
-    ai_text = "with AI optimization" if was_ai else "based on your previous budget"
+    title = translate("budget_auto_created_title", lang)
+    
+    if was_ai:
+        message = translate("budget_auto_created_msg_ai", lang, budget_name=budget_name)
+    else:
+        message = translate("budget_auto_created_msg", lang, budget_name=budget_name)
     
     create_notification(
         user_id=user_id,
         notification_type="budget_auto_created",
-        title="Budget Auto-Created 🔄",
-        message=f"Your '{budget_name}' budget has ended. A new budget for the next period has been created {ai_text}.",
+        title=title,
+        message=message,
         goal_id=budget_id,
         goal_name=budget_name,
-        currency=currency  # NEW
+        currency=currency
     )
-    
-    
+
+
 def check_large_transaction(user_id: str, transaction: Dict, user_spending_profile: Dict = None):
     """Check if a transaction is unusually large and notify"""
-    from datetime import datetime, UTC, timedelta
-    
     amount = transaction["amount"]
     transaction_type = transaction["type"]
     category = transaction["main_category"]
     description = transaction.get("description", "")
-    currency = transaction.get("currency", "usd")  # NEW
+    currency = transaction.get("currency", "usd")
+    lang = get_user_language(user_id)
     
     if transaction_type != "outflow":
         return
     
-    # Currency-aware threshold
     if user_spending_profile and "avg_transaction" in user_spending_profile:
         threshold = user_spending_profile["avg_transaction"] * 3
         threshold = max(threshold, 100000 if currency == "mmk" else 100)
@@ -364,29 +476,33 @@ def check_large_transaction(user_id: str, transaction: Dict, user_spending_profi
         
         if not existing:
             merchant_info = f" at {description}" if description else ""
-            formatted_amount = format_currency_amount(amount, currency)  # NEW
+            if lang == "my" and description:
+                merchant_info = f" {description} တွင်"
+            
+            formatted_amount = format_currency_amount(amount, currency)
+            
+            title = translate("large_transaction_title", lang)
+            message = translate("large_transaction_msg", lang, 
+                              amount=formatted_amount, merchant=merchant_info, category=category)
             
             create_notification(
                 user_id=user_id,
                 notification_type="large_transaction",
-                title="Large Transaction Alert 💰",
-                message=f"You had a large expense of {formatted_amount}{merchant_info} for {category}.",
+                title=title,
+                message=message,
                 goal_id=transaction["_id"],
                 goal_name=f"Large {category} expense",
-                currency=currency  # NEW
+                currency=currency
             )
 
 
 def analyze_unusual_spending(user_id: str):
     """Analyze spending patterns and notify about unusual activity"""
-    from datetime import datetime, UTC, timedelta
     from collections import defaultdict
-    import statistics
     
     now = datetime.now(UTC)
-    
-    # Analyze per currency
     currencies = transactions_collection.distinct("currency", {"user_id": user_id})
+    lang = get_user_language(user_id)
     
     for currency in currencies:
         this_week_start = now - timedelta(days=7)
@@ -425,8 +541,6 @@ def analyze_unusual_spending(user_id: str):
                 continue
             
             weekly_avg = last_month_by_category[category] / weeks_in_last_month
-            
-            # Currency-aware threshold
             min_diff = 50000 if currency == "mmk" else 50
             
             if this_week_amount > weekly_avg * 1.5 and this_week_amount - weekly_avg > min_diff:
@@ -442,31 +556,31 @@ def analyze_unusual_spending(user_id: str):
                     formatted_this_week = format_currency_amount(this_week_amount, currency)
                     formatted_avg = format_currency_amount(weekly_avg, currency)
                     
+                    title = translate("unusual_spending_title", lang)
+                    message = translate("unusual_spending_msg", lang, 
+                                      category=category, this_week=formatted_this_week, avg=formatted_avg)
+                    
                     create_notification(
                         user_id=user_id,
                         notification_type="unusual_spending",
-                        title="Unusual Spending Detected 📊",
-                        message=f"Your spending on '{category}' is higher than usual this week ({formatted_this_week} vs usual {formatted_avg}). Would you like to review these transactions?",
+                        title=title,
+                        message=message,
                         goal_id=None,
                         goal_name=category,
-                        currency=currency  # NEW
+                        currency=currency
                     )
 
 
 def detect_and_notify_recurring_payments():
     """Detect recurring payments and send reminders"""
-    from datetime import datetime, UTC, timedelta
     from collections import defaultdict
     
     now = datetime.now(UTC)
-    three_days_from_now = now + timedelta(days=3)
-    
     users = users_collection.find({})
     
     for user in users:
         user_id = user["_id"]
-        
-        # Analyze per currency
+        lang = get_user_language(user_id)
         currencies = transactions_collection.distinct("currency", {"user_id": user_id})
         
         for currency in currencies:
@@ -518,7 +632,6 @@ def detect_and_notify_recurring_payments():
                 if 28 <= avg_interval <= 32:
                     last_occurrence = occurrences[-1]["date"]
                     next_expected = last_occurrence + timedelta(days=int(avg_interval))
-                    
                     days_until = (next_expected - now).days
                     
                     if 2 <= days_until <= 4:
@@ -535,40 +648,52 @@ def detect_and_notify_recurring_payments():
                             description = occurrences[-1]["description"]
                             formatted_amount = format_currency_amount(last_amount, currency)
                             
+                            title = translate("payment_reminder_title", lang)
+                            message = translate("payment_reminder_msg", lang, 
+                                              description=description, amount=formatted_amount, days=days_until)
+                            
                             create_notification(
                                 user_id=user_id,
                                 notification_type="payment_reminder",
-                                title="Upcoming Payment Reminder 📅",
-                                message=f"Your '{description}' payment of {formatted_amount} is due in {days_until} days.",
+                                title=title,
+                                message=message,
                                 goal_id=None,
                                 goal_name=key,
-                                currency=currency  # NEW
+                                currency=currency
                             )
-                            
-                            
-                            
+
+
 def notify_monthly_insights_generated(user_id: str):
     """Notify when monthly insights are generated"""
+    lang = get_user_language(user_id)
+    
+    title = translate("monthly_insights_title", lang)
+    message = translate("monthly_insights_msg", lang)
+    
     create_notification(
         user_id=user_id,
         notification_type="monthly_insights_generated",
-        title="Monthly Insights Ready! 📊",
-        message=f"Your monthly financial insights powered by Flow Finance AI are now available. Check them out to see your monthly financial progress!",
+        title=title,
+        message=message,
         goal_id=None,
-        goal_name=f"Monthly Insights Tailored For You",
+        goal_name="Monthly Insights Tailored For You" if lang == "en" else "သင့်အတွက် ပြင်ဆင်ထားသော လစဉ်ထိုးထွင်းသိမြင်မှုများ",
         currency=None
     )
-    
-    
-    
+
+
 def notify_weekly_insights_generated(user_id: str):
-    """Notify when weekly insights are generated"""   
+    """Notify when weekly insights are generated"""
+    lang = get_user_language(user_id)
+    
+    title = translate("weekly_insights_title", lang)
+    message = translate("weekly_insights_msg", lang)
+    
     create_notification(
         user_id=user_id,
         notification_type="weekly_insights_generated",
-        title="Weekly Insights Ready! 📊",
-        message=f"Your weekly financial insights powered by Flow Finance Ai are now available. Check them out to see your financial progress!",
+        title=title,
+        message=message,
         goal_id=None,
-        goal_name=f"Weekly Insights Tailored For You",
+        goal_name="Weekly Insights Tailored For You" if lang == "en" else "သင့်အတွက် ပြင်ဆင်ထားသော အပတ်စဉ်ထိုးထွင်းသိမြင်မှုများ",
         currency=None
     )

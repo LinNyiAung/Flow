@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, status, Depends,  Path
 
 from utils import create_access_token, get_current_user, get_password_hash, verify_password
 from models import (
-    Currency, CurrencyUpdate, PasswordChange, ProfileUpdate, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType,
+    Currency, CurrencyUpdate, LanguageUpdate, PasswordChange, ProfileUpdate, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType,
 )
 from database import users_collection
 from config import settings
@@ -26,6 +26,7 @@ async def register(user_data: UserCreate):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
     user_id = str(uuid.uuid4())
+    # In the register endpoint, add:
     new_user = {
         "_id": user_id,
         "name": user_data.name,
@@ -33,7 +34,8 @@ async def register(user_data: UserCreate):
         "password": get_password_hash(user_data.password),
         "subscription_type": "free",
         "subscription_expires_at": None,
-        "default_currency": "usd",  # NEW
+        "default_currency": "usd",
+        "language": "en",  # NEW - Add this line
         "created_at": datetime.now(UTC)
     }
     users_collection.insert_one(new_user)
@@ -55,6 +57,36 @@ async def register(user_data: UserCreate):
             subscription_expires_at=None,
             default_currency=Currency.USD  # NEW
         )
+    )
+    
+    
+@router.put("/language", response_model=UserResponse)
+async def update_language(
+    language_data: LanguageUpdate,  # CHANGE: Use Pydantic model
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user's preferred language"""
+    if language_data.language not in ["en", "my"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid language. Must be 'en' or 'my'"
+        )
+    
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"language": language_data.language}}
+    )
+    
+    updated_user = users_collection.find_one({"_id": current_user["_id"]})
+    
+    return UserResponse(
+        id=updated_user["_id"],
+        name=updated_user["name"],
+        email=updated_user["email"],
+        created_at=updated_user["created_at"],
+        subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
+        subscription_expires_at=updated_user.get("subscription_expires_at"),
+        default_currency=Currency(updated_user.get("default_currency", "usd"))
     )
 
 

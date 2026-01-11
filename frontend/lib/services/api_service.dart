@@ -84,21 +84,33 @@ class ApiService {
     }
   }
 
+  static Future<void> updateLanguage(String language) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/api/auth/language'),
+      headers: await _getHeaders(),
+      body: jsonEncode({'language': language}),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to update language');
+    }
+  }
 
   static Future<void> deleteAccount() async {
-  final response = await http.delete(
-    Uri.parse('$baseUrl/api/auth/delete-account'),
-    headers: await _getHeaders(),
-  );
+    final response = await http.delete(
+      Uri.parse('$baseUrl/api/auth/delete-account'),
+      headers: await _getHeaders(),
+    );
 
-  if (response.statusCode == 200) {
-    await removeToken();
-    return;
-  } else {
-    final error = jsonDecode(response.body);
-    throw Exception(error['detail'] ?? 'Failed to delete account');
+    if (response.statusCode == 200) {
+      await removeToken();
+      return;
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to delete account');
+    }
   }
-}
 
   static Future<User> getCurrentUser() async {
     final response = await http.get(
@@ -821,7 +833,8 @@ class ApiService {
     AIProvider? aiProvider,
     String insightType = 'weekly', // NEW parameter
   }) async {
-    String url = '$baseUrl/api/insights?language=$language&insight_type=$insightType';
+    String url =
+        '$baseUrl/api/insights?language=$language&insight_type=$insightType';
 
     if (aiProvider != null) {
       url += '&ai_provider=${aiProvider.name}';
@@ -845,7 +858,8 @@ class ApiService {
     AIProvider? aiProvider,
     String insightType = 'weekly', // NEW parameter
   }) async {
-    String url = '$baseUrl/api/insights/regenerate?language=$language&insight_type=$insightType';
+    String url =
+        '$baseUrl/api/insights/regenerate?language=$language&insight_type=$insightType';
 
     if (aiProvider != null) {
       url += '&ai_provider=${aiProvider.name}';
@@ -881,8 +895,6 @@ class ApiService {
       throw Exception(error['detail'] ?? 'Failed to delete insights');
     }
   }
-
-  
 
   // NEW: Method to translate existing insights
   static Future<void> translateInsightsToMyanmar({
