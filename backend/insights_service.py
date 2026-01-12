@@ -182,6 +182,11 @@ Start by adding your first transaction or creating a financial goal. The more da
         from openai import AsyncOpenAI
         from google import genai
         
+        # NEW: Variables to track token usage
+        input_tokens = 0
+        output_tokens = 0
+        total_tokens = 0
+        
         if ai_provider == "gemini":
             client = genai.Client(api_key=GOOGLE_API_KEY)
             
@@ -196,6 +201,17 @@ Start by adding your first transaction or creating a financial goal. The more da
                 }
             )
             insights_content = response.text
+            
+            # NEW: Extract token usage from Gemini response
+            if hasattr(response, 'usage_metadata'):
+                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
+                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
+                total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
+                
+                logger.info(f"🔢 [GEMINI TOKEN USAGE - Weekly Insight] User: {user_id}")
+                logger.info(f"   📥 Input tokens: {input_tokens:,}")
+                logger.info(f"   📤 Output tokens: {output_tokens:,}")
+                logger.info(f"   📊 Total tokens: {total_tokens:,}")
         else:
             client = AsyncOpenAI(api_key=OPENAI_API_KEY)
             response = await client.chat.completions.create(
@@ -208,6 +224,18 @@ Start by adding your first transaction or creating a financial goal. The more da
                 max_tokens=2500
             )
             insights_content = response.choices[0].message.content
+            
+            # NEW: Extract token usage from OpenAI response
+            if hasattr(response, 'usage'):
+                input_tokens = response.usage.prompt_tokens
+                output_tokens = response.usage.completion_tokens
+                total_tokens = response.usage.total_tokens
+                
+                logger.info(f"🔢 [OPENAI TOKEN USAGE - Weekly Insight] User: {user_id}")
+                logger.info(f"   📥 Input tokens: {input_tokens:,}")
+                logger.info(f"   📤 Output tokens: {output_tokens:,}")
+                logger.info(f"   📊 Total tokens: {total_tokens:,}")
+                logger.info(f"   🤖 Model: {chatbot.gpt_model}")
         
         # Save to database
         insight_id = str(uuid.uuid4())
@@ -224,7 +252,13 @@ Start by adding your first transaction or creating a financial goal. The more da
             "insight_type": "weekly",
             "ai_provider": ai_provider,
             "expires_at": None,
-            "is_placeholder": False  # NEW: Flag to indicate this is real AI content
+            "is_placeholder": False,  # NEW: Flag to indicate this is real AI content
+            # NEW: Store token usage
+            "token_usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens
+            }
         }
         
         insights_collection.insert_one(new_insight)
