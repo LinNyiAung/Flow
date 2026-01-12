@@ -146,7 +146,7 @@ def initialize_categories():
                 "main_category": "Other & Adjustments",
                 "sub_categories": [
                     "Cash Withdrawal", "Currency Exchange Loss",
-                    "Correction / Adjustment", "Miscellaneous", "Other Expenses"
+                    "Correction / Adjustment", "Miscellaneous", "Emergency Expenses", "Other Expenses"
                 ]
             }
         ]
