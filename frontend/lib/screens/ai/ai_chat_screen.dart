@@ -382,7 +382,7 @@ class _AiChatScreenState extends State<AiChatScreen>
               ),
               child: Consumer<ChatProvider>(
                 builder: (context, chatProvider, _) => Icon(
-                  chatProvider.aiProvider.icon,
+                  Icons.smart_toy,
                   color: Colors.white,
                   size: responsive.icon20,
                 ),
@@ -463,16 +463,16 @@ class _AiChatScreenState extends State<AiChatScreen>
               return Container();
             },
           ),
-          Consumer<ChatProvider>(
-            builder: (context, chatProvider, child) {
-              return IconButton(
-                onPressed: () => _showAIProviderSelector(chatProvider),
-                icon: Icon(chatProvider.aiProvider.icon),
-                tooltip: 'Change AI Model',
-                color: chatProvider.aiProvider.color,
-              );
-            },
-          ),
+          // Consumer<ChatProvider>(
+          //   builder: (context, chatProvider, child) {
+          //     return IconButton(
+          //       onPressed: () => _showAIProviderSelector(chatProvider),
+          //       icon: Icon(chatProvider.aiProvider.icon),
+          //       tooltip: 'Change AI Model',
+          //       color: chatProvider.aiProvider.color,
+          //     );
+          //   },
+          // ),
           // NEW: Response style button
           Consumer<ChatProvider>(
             builder: (context, chatProvider, child) {

@@ -25,7 +25,7 @@ class ChatProvider with ChangeNotifier {
   ResponseStyle get responseStyle => _responseStyle; // NEW
 
   // NEW: AI Provider state
-  AIProvider _aiProvider = AIProvider.openai;
+  AIProvider _aiProvider = AIProvider.gemini;
 
   // NEW: Getter
   AIProvider get aiProvider => _aiProvider;

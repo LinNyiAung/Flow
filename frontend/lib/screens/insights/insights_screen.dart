@@ -357,34 +357,34 @@ class _InsightsScreenState extends State<InsightsScreen> {
           //     tooltip: 'Regenerate Insights',
           //     onPressed: _regenerateInsights,
           //   ),
-          Consumer<InsightProvider>(
-            builder: (context, insightProvider, child) {
-              return IconButton(
-                onPressed: () => _showAIProviderSelector(insightProvider),
-                icon: Container(
-                  padding: responsive.padding(all: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(
-                      responsive.borderRadius(12),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.1),
-                        spreadRadius: 1,
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    insightProvider.aiProvider.icon,
-                    color: insightProvider.aiProvider.color,
-                  ),
-                ),
-                tooltip: 'Change AI Model',
-              );
-            },
-          ),
+          // Consumer<InsightProvider>(
+          //   builder: (context, insightProvider, child) {
+          //     return IconButton(
+          //       onPressed: () => _showAIProviderSelector(insightProvider),
+          //       icon: Container(
+          //         padding: responsive.padding(all: 8),
+          //         decoration: BoxDecoration(
+          //           color: Colors.white,
+          //           borderRadius: BorderRadius.circular(
+          //             responsive.borderRadius(12),
+          //           ),
+          //           boxShadow: [
+          //             BoxShadow(
+          //               color: Colors.grey.withOpacity(0.1),
+          //               spreadRadius: 1,
+          //               blurRadius: 4,
+          //             ),
+          //           ],
+          //         ),
+          //         child: Icon(
+          //           insightProvider.aiProvider.icon,
+          //           color: insightProvider.aiProvider.color,
+          //         ),
+          //       ),
+          //       tooltip: 'Change AI Model',
+          //     );
+          //   },
+          // ),
           Padding(
             padding: responsive.padding(right: 16),
             child: Consumer<NotificationProvider>(
@@ -763,10 +763,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           padding: responsive.padding(all: 20),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                insightProvider.aiProvider.color,
-                insightProvider.aiProvider.color.withOpacity(0.7),
-              ],
+              colors: [Color(0xFF667eea), Color(0xFF764ba2)],
             ),
             borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
             boxShadow: [
@@ -841,7 +838,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     child: _buildInsightTypeButton(
                       insightProvider,
                       'weekly',
-                      'Weekly',
+                      localizations.weekly,
                       Icons.calendar_view_week,
                       responsive,
                     ),
@@ -851,7 +848,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                     child: _buildInsightTypeButton(
                       insightProvider,
                       'monthly',
-                      'Monthly',
+                      localizations.monthly,
                       Icons.calendar_month,
                       responsive,
                     ),
@@ -867,37 +864,37 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 runSpacing: 8,
                 children: [
                   // AI Model badge
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.25),
-                      borderRadius: BorderRadius.circular(
-                        responsive.borderRadius(8),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          insightProvider.aiProvider.icon,
-                          size: responsive.icon16,
-                          color: Colors.white,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          insightProvider.aiProvider.getDisplayName(context),
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  // Container(
+                  //   padding: EdgeInsets.symmetric(
+                  //     horizontal: 10,
+                  //     vertical: 6,
+                  //   ),
+                  //   decoration: BoxDecoration(
+                  //     color: Colors.white.withOpacity(0.25),
+                  //     borderRadius: BorderRadius.circular(
+                  //       responsive.borderRadius(8),
+                  //     ),
+                  //   ),
+                  //   child: Row(
+                  //     mainAxisSize: MainAxisSize.min,
+                  //     children: [
+                  //       Icon(
+                  //         insightProvider.aiProvider.icon,
+                  //         size: responsive.icon16,
+                  //         color: Colors.white,
+                  //       ),
+                  //       SizedBox(width: 6),
+                  //       Text(
+                  //         insightProvider.aiProvider.getDisplayName(context),
+                  //         style: GoogleFonts.poppins(
+                  //           fontSize: responsive.fs12,
+                  //           fontWeight: FontWeight.w600,
+                  //           color: Colors.white,
+                  //         ),
+                  //       ),
+                  //     ],
+                  //   ),
+                  // ),
                   // Language badge
                   Container(
                     padding: EdgeInsets.symmetric(

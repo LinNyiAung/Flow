@@ -8,7 +8,7 @@ class InsightProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   String _currentLanguage = 'en'; // NEW: Track current language
-  AIProvider _aiProvider = AIProvider.openai; // NEW
+  AIProvider _aiProvider = AIProvider.gemini; // NEW
   String _insightType = 'weekly';
 
   Insight? get insight => _insight;
