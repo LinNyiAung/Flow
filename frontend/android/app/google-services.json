@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "426088871228",
+    "project_id": "toepwar-ai",
+    "storage_bucket": "toepwar-ai.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:426088871228:android:4437a6acebfd74bd131a39",
+        "android_client_info": {
+          "package_name": "com.example.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIKS2yZ-GRIPd1LtNi7ACNJo57tC86Gc8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

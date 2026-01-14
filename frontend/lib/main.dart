@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/budget_provider.dart';
@@ -18,6 +19,7 @@ import 'package:frontend/screens/settings/privacy_policy_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
 import 'package:frontend/screens/settings/terms_and_conditions_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
+import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:provider/provider.dart';
@@ -31,8 +33,14 @@ import 'screens/ai/ai_chat_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // ADD THIS
   
-  // Initialize notification service
-  await NotificationService().initialize(); // ADD THIS
+  // Initialize Firebase
+  await Firebase.initializeApp();
+  
+  // Initialize FCM Service
+  await FCMService().initialize();
+  
+  // Initialize notification service (keep existing)
+  await NotificationService().initialize();
   
   runApp(MyApp());
 }

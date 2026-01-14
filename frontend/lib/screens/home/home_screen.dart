@@ -29,7 +29,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey =
       GlobalKey<ScaffoldState>(); // Key for the Scaffold to open the drawer
-  Timer? _notificationTimer;
+  
 
   @override
   void initState() {
@@ -37,30 +37,15 @@ class _HomeScreenState extends State<HomeScreen> {
     // Fetch initial data when the screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshData(); // Fetch transactions and balance
-      _startNotificationPolling();
+      
     });
   }
 
-  // ADD THIS METHOD
-  void _startNotificationPolling() {
-    final notificationProvider = Provider.of<NotificationProvider>(
-      context,
-      listen: false,
-    );
-
-    // Initial fetch
-    notificationProvider.fetchUnreadCount();
-
-    // Poll every 30 seconds
-    _notificationTimer = Timer.periodic(Duration(seconds: 30), (timer) {
-      notificationProvider.fetchNotifications();
-    });
-  }
 
   // ADD THIS METHOD
   @override
   void dispose() {
-    _notificationTimer?.cancel();
+    
     super.dispose();
   }
 

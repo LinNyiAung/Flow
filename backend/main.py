@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, status, Depends, Query, Path
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from firebase_service import initialize_firebase
 from utils import get_current_user, get_user_balance, require_premium
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
 from scheduler import start_scheduler
@@ -31,8 +32,7 @@ from notification_service import (
 
 
 from database import (
-    transactions_collection, categories_collection,
-    chat_sessions_collection, goals_collection, insights_collection, budgets_collection, notifications_collection, notification_preferences_collection
+    categories_collection, chat_sessions_collection, insights_collection, notifications_collection, notification_preferences_collection, users_collection
 )
 from ai_chatbot import financial_chatbot
 from ai_chatbot_gemini import gemini_financial_chatbot
@@ -57,6 +57,12 @@ try:
     print("✅ Notification scheduler started successfully")
 except Exception as e:
     print(f"⚠️ Failed to start notification scheduler: {e}")
+    
+    
+try:
+    initialize_firebase()
+except Exception as e:
+    print(f"⚠️  Failed to initialize Firebase: {e}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -636,6 +642,26 @@ async def manually_generate_weekly_insights(
         
         
 # ==================== NOTIFICATIONS ====================
+
+
+@app.post("/api/auth/update-fcm-token")
+async def update_fcm_token(
+    fcm_token: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user's FCM token"""
+    try:
+        users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"fcm_token": fcm_token["fcm_token"]}}
+        )
+        return {"message": "FCM token updated successfully"}
+    except Exception as e:
+        print(f"Error updating FCM token: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update FCM token"
+        )
 
 
 @app.get("/api/notifications/preferences", response_model=NotificationPreferencesResponse)

@@ -1,6 +1,7 @@
 from datetime import datetime, UTC, timedelta
 from typing import Dict, List, Optional
 import uuid
+from firebase_service import send_fcm_notification
 from database import goals_collection, notification_preferences_collection, notifications_collection, budgets_collection, transactions_collection, users_collection
 
 
@@ -165,6 +166,27 @@ def create_notification(
     }
     notifications_collection.insert_one(notification)
     print(f"✅ Created notification {notification_type} for user {user_id}")
+    
+    # NEW: Send FCM push notification
+    user = users_collection.find_one({"_id": user_id})
+    if user and user.get("fcm_token"):
+        fcm_data = {
+            "notification_id": notification_id,
+            "type": notification_type,
+            "goal_id": goal_id or "",
+            "goal_name": goal_name or "",
+            "currency": currency or "",
+        }
+        
+        send_fcm_notification(
+            fcm_token=user["fcm_token"],
+            title=title,
+            body=message,
+            data=fcm_data
+        )
+    else:
+        print(f"⚠️  User {user_id} has no FCM token")
+    
     return notification
 
 

@@ -42,6 +42,21 @@ class ApiService {
     };
   }
 
+
+  // Add this method to ApiService class
+  static Future<void> updateFCMToken(String fcmToken) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/update-fcm-token'),
+      headers: await _getHeaders(),
+      body: jsonEncode({'fcm_token': fcmToken}),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to update FCM token');
+    }
+  }
+
   // Auth methods (keeping existing ones)
   static Future<AuthResponse> register({
     required String name,
