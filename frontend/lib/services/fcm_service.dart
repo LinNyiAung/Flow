@@ -5,6 +5,8 @@ import 'package:frontend/models/notification.dart';
 import 'package:frontend/services/api_service.dart';
 import 'dart:io' show Platform;
 
+import 'package:frontend/services/notification_event_bus.dart';
+
 // Background message handler (must be top-level function)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -117,6 +119,8 @@ class FCMService {
   void _handleForegroundMessage(RemoteMessage message) {
     print('📨 Foreground message: ${message.notification?.title}');
     _showLocalNotification(message);
+    // NEW: Notify via event bus
+    NotificationEventBus().notifyReceived();
   }
 
   void _handleMessageOpenedApp(RemoteMessage message) {

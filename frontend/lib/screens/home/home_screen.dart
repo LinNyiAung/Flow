@@ -9,6 +9,7 @@ import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/services/notification_event_bus.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -27,6 +28,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  StreamSubscription? _notificationSubscription;
   final GlobalKey<ScaffoldState> _scaffoldKey =
       GlobalKey<ScaffoldState>(); // Key for the Scaffold to open the drawer
   
@@ -38,6 +40,16 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshData(); // Fetch transactions and balance
       
+      // NEW: Listen for notification events
+      _notificationSubscription = NotificationEventBus()
+          .onNotificationReceived
+          .listen((_) {
+        final notificationProvider = Provider.of<NotificationProvider>(
+          context,
+          listen: false,
+        );
+        notificationProvider.fetchUnreadCount();
+      });
     });
   }
 
@@ -45,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ADD THIS METHOD
   @override
   void dispose() {
-    
+    _notificationSubscription?.cancel();
     super.dispose();
   }
 
