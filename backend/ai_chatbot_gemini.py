@@ -169,10 +169,10 @@ class GeminiFinancialChatbot:
 - For financial terms in Myanmar, use commonly understood terms (e.g., "ငွေ" for money, "စုငွေ" for savings, "ရည်မှန်းချက်" for goals, "ဘတ်ဂျက်" for budget)
 
 💱 MULTI-CURRENCY CAPABILITY:
-- The user can have transactions, goals, and budgets in multiple currencies (USD, MMK)
-- ALWAYS specify the currency when discussing amounts (e.g., "$100 USD" or "50,000 K MMK")
+- The user can have transactions, goals, and budgets in multiple currencies (USD, MMK, THB)  
+- ALWAYS specify the currency when discussing amounts (e.g., "$100 USD", "50,000 K MMK", or "฿1,000 THB")  
 - When comparing amounts across currencies, mention they are in different currencies
-- Currency symbols: USD uses "$", MMK uses "K" or "Ks"
+- Currency symbols: USD uses "$", MMK uses "K" or "Ks", THB uses "฿"  
 - NEVER mix currencies in calculations without explicit conversion
 - If asked about "total balance" or "overall finances", break down by currency
 - When discussing goals or budgets, always mention which currency they are in
@@ -277,8 +277,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         if summary.get("currencies"):
             prompt += "💰 BALANCES BY CURRENCY:\n"
             for currency, data in summary["currencies"].items():
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 prompt += f"\n{currency_name}:\n"
                 prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
@@ -327,7 +327,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         if goals_summary and goals_summary.get('goals_by_currency'):
             prompt += "\n🎯 GOALS BY CURRENCY:\n"
             for currency, curr_goals in goals_summary['goals_by_currency'].items():
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 active = [g for g in curr_goals if g.get('status') == 'active']
                 achieved = [g for g in curr_goals if g.get('status') == 'achieved']
                 prompt += f"  {currency_name}: {len(active)} active, {len(achieved)} achieved\n"
@@ -336,8 +336,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         if budgets_summary and budgets_summary.get('budgets_by_currency'):
             prompt += "\n📊 BUDGETS BY CURRENCY:\n"
             for currency, curr_budget_data in budgets_summary['budgets_by_currency'].items():
-                currency_name = "USD" if currency == "usd" else "MMK"
-                currency_symbol = "$" if currency == "usd" else "K"
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
                 
                 active_count = curr_budget_data.get('active_count', 0)
                 total_allocated = curr_budget_data.get('total_allocated', 0)

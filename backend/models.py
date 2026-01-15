@@ -13,6 +13,7 @@ class TransactionType(str, Enum):
 class Currency(str, Enum):
     USD = "usd"
     MMK = "mmk"
+    THB = "thb"  
     
 class LanguageUpdate(BaseModel):
     language: str

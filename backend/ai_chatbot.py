@@ -202,8 +202,8 @@ class FinancialDataProcessor:
             goals_text += "═══════════════════════════════════════════════════\n\n"
             
             for currency, curr_goals in goals_by_currency.items():
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 active_goals = [g for g in curr_goals if g["status"] == "active"]
                 achieved_goals = [g for g in curr_goals if g["status"] == "achieved"]
@@ -280,8 +280,8 @@ class FinancialDataProcessor:
             budgets_text += "╚═══════════════════════════════════════════════════╝\n\n"
             
             for currency, curr_budgets in budgets_by_currency.items():
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 total_allocated = sum(b["total_budget"] for b in curr_budgets)
                 total_spent = sum(b["total_spent"] for b in curr_budgets)
@@ -358,8 +358,9 @@ class FinancialDataProcessor:
             days_ago = (datetime.now(timezone.utc) - date_obj).days
             
             currency = t.get("currency", "usd")
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
+
             
             recency_indicator = "🔴 TODAY" if days_ago == 0 else f"📅 {days_ago} days ago"
             
@@ -391,8 +392,8 @@ class FinancialDataProcessor:
         
         if summary.get("currencies"):
             for currency, data in summary["currencies"].items():
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 summary_text += f"💰 {currency_name} SUMMARY:\n"
                 summary_text += f"Current Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
@@ -433,8 +434,8 @@ class FinancialDataProcessor:
         # === INDIVIDUAL GOAL DETAILS (with currency) ===
         for goal in goals:
             currency = goal.get("currency", "usd")
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             goal_text = f"═══════════════════════════════════════════════════\n"
             goal_text += f"║   GOAL: {goal['name'][:40].center(40)}   ║\n"
@@ -495,8 +496,8 @@ class FinancialDataProcessor:
         # === INDIVIDUAL BUDGET DETAILS (with currency) ===
             for budget in budgets:
                 currency = budget.get("currency", "usd")
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 start_date = ensure_utc_datetime(budget["start_date"])
                 end_date = ensure_utc_datetime(budget["end_date"])
@@ -611,8 +612,8 @@ class FinancialDataProcessor:
             daily_text += f"Daily Summary: {len(daily_transactions)} transactions\n\n"
             
             for currency, totals in currency_totals.items():
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 daily_text += f"{currency_name}:\n"
                 daily_text += f"  Income: +{currency_symbol}{totals['inflow']:.2f}\n"
@@ -622,8 +623,8 @@ class FinancialDataProcessor:
             daily_text += "Transactions:\n"
             for t in daily_transactions:
                 currency = t.get("currency", "usd")
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 daily_text += f"  • {t['type'].title()}: {currency_symbol}{t['amount']:.2f} ({currency_name}) - {t['main_category']} > {t['sub_category']}"
                 if t.get("description"):
@@ -655,8 +656,8 @@ class FinancialDataProcessor:
             categories_by_currency[currency][cat_key]["total"] += t["amount"]
         
         for currency, categories in categories_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             for category, data in sorted(categories.items(), key=lambda x: x[1]["total"], reverse=True)[:8]:
                 category_text = f"─── Category: {category} ({currency_name}) ───\n\n"
@@ -802,10 +803,10 @@ class FinancialChatbot:
 - For financial terms in Myanmar, use commonly understood terms (e.g., "ငွေ" for money, "စုငွေ" for savings, "ရည်မှန်းချက်" for goals, "ဘတ်ဂျက်" for budget)
 
 💱 MULTI-CURRENCY CAPABILITY:
-- The user can have transactions, goals, and budgets in multiple currencies (USD, MMK)
-- ALWAYS specify the currency when discussing amounts (e.g., "$100 USD" or "50,000 K MMK")
+- The user can have transactions, goals, and budgets in multiple currencies (USD, MMK, THB)  
+- ALWAYS specify the currency when discussing amounts (e.g., "$100 USD", "50,000 K MMK", or "฿1,000 THB") 
 - When comparing amounts across currencies, mention they are in different currencies
-- Currency symbols: USD uses "$", MMK uses "K" or "Ks"
+- Currency symbols: USD uses "$", MMK uses "K" or "Ks", THB uses "฿"  
 - NEVER mix currencies in calculations without explicit conversion
 - If asked about "total balance" or "overall finances", break down by currency
 - When discussing goals or budgets, always mention which currency they are in
@@ -910,8 +911,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         if summary.get("currencies"):
             prompt += "💰 BALANCES BY CURRENCY:\n"
             for currency, data in summary["currencies"].items():
-                currency_symbol = "$" if currency == "usd" else "K"
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 prompt += f"\n{currency_name}:\n"
                 prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
@@ -967,8 +968,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         if budgets_summary and budgets_summary.get('budgets_by_currency'):
             prompt += "\n📊 BUDGETS BY CURRENCY:\n"
             for currency, curr_budget_data in budgets_summary['budgets_by_currency'].items():
-                currency_name = "USD" if currency == "usd" else "MMK"
-                currency_symbol = "$" if currency == "usd" else "K"
+                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 active_count = curr_budget_data.get('active_count', 0)
                 total_allocated = curr_budget_data.get('total_allocated', 0)

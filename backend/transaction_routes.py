@@ -465,12 +465,13 @@ RULES:
 5. Extract any description/notes
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Carefully analyze the text for currency indicators
-   - Look for currency symbols: $, USD, K, Ks, Kyat, etc.
-   - Look for currency codes: USD, MMK, etc.
-   - Look for currency names: dollars, kyat, myanmar Kyat, etc.
+   - Look for currency symbols: $, USD, K, Ks, Kyat, ฿, THB, etc.
+   - Look for currency codes: USD, MMK, THB, etc.
+   - Look for currency names: dollars, kyat, myanmar Kyat, baht, thai baht, etc.
    - Common patterns:
      * "$" or "USD" or "dollar" → use "usd"
      * "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
+     * "฿", "THB", "baht", "Baht" → use "thb"  
    - If NO currency is mentioned anywhere in the text, use the user's default currency: "{user_default_currency}"
    - Be thorough - check the entire text, not just near the amount
 7. Provide a confidence score (0.0-1.0) based on clarity
@@ -575,6 +576,7 @@ RULES:
      * Common patterns:
        - "$" or "USD" or "dollar" → use "usd"
        - "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
+       - "฿", "THB", "baht", "Baht" → use "thb"
      * If a transaction mentions no currency, use the user's default currency: "{user_default_currency}"
      * Each transaction can have a different currency
    - Provide a confidence score (0.0-1.0) based on clarity
@@ -755,13 +757,14 @@ RULES:
 5. Create a brief description including merchant name
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Look CAREFULLY at the receipt for currency indicators
-   - Check for currency symbols: $, K, Ks, etc.
-   - Check for currency codes: USD, MMK, etc.
-   - Check for country/language clues (Myanmar text → MMK, English with $ → USD)
-   - Look at price format (e.g., "1,000 K" or "Ks 1,000" → MMK)
+   - Check for currency symbols: $, K, Ks, ฿, etc.
+   - Check for currency codes: USD, MMK, THB, etc.
+   - Check for country/language clues (Myanmar text → MMK, English with $ → USD, Thai text → THB)
+   - Look at price format (e.g., "1,000 K" or "Ks 1,000" → MMK, "฿1,000" → THB)
    - Common patterns:
      * "$" or "USD" or "US Dollar" → use "usd"
-     * "K", "Ks", "Kyat", "ကျပ်", "MMK" → use "mmk"
+     * "K", "Ks", "Kyat", "กျပ်", "MMK" → use "mmk"
+     * "฿", "THB", "baht", "บาท" → use "thb"  
    - If NO currency indicators are visible on the receipt, use the user's default currency: "{user_default_currency}"
 7. Provide confidence score (0.0-1.0)
 8. Explain your reasoning

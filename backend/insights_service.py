@@ -346,7 +346,7 @@ CRITICAL RULES:
 - Celebrate when users stay within budget 
 - Provide ACTIONABLE recommendations, not generic advice
 - Be encouraging and supportive in tone
-- Format money as $X.XX (USD) or X K (MMK)
+- Format money as $X.XX (USD), X K (MMK), or ฿X.XX (THB)
 - Use markdown formatting for clarity
 - Add emojis for visual appeal
 - Keep it concise but comprehensive (800-1200 words)
@@ -401,8 +401,8 @@ Total Transactions: {len(current_week_transactions)}
         current_by_currency[currency]["categories"][cat_key] += t["amount"]
     
     for currency, data in current_by_currency.items():
-        currency_symbol = "$" if currency == "usd" else "K"
-        currency_name = "USD" if currency == "usd" else "MMK"
+        currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+        currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
         
         context += f"\n{currency_name}:\n"
         context += f"  Income: {currency_symbol}{data['inflow']:.2f}\n"
@@ -432,8 +432,8 @@ Total Transactions: {len(current_week_transactions)}
                 prev_by_currency[currency]["outflow"] += t["amount"]
         
         for currency in set(list(current_by_currency.keys()) + list(prev_by_currency.keys())):
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             current = current_by_currency.get(currency, {"inflow": 0, "outflow": 0})
             prev = prev_by_currency.get(currency, {"inflow": 0, "outflow": 0})
@@ -457,8 +457,8 @@ Total Transactions: {len(current_week_transactions)}
             goals_by_currency[currency].append(g)
         
         for currency, curr_goals in goals_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             active_goals = [g for g in curr_goals if g["status"] == "active"]
             
@@ -481,8 +481,8 @@ Total Transactions: {len(current_week_transactions)}
             budgets_by_currency[currency].append(b)
         
         for currency, curr_budgets in budgets_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             context += f"{currency_name} Budgets:\n"
             for budget in curr_budgets:
@@ -995,7 +995,7 @@ CRITICAL RULES:
 - Provide specific budget adjustment recommendations 
 - Provide DETAILED and ACTIONABLE recommendations
 - Be encouraging yet realistic in tone
-- Format money as $X.XX (USD) or X K (MMK)
+- Format money as $X.XX (USD), X K (MMK), or ฿X.XX (THB)
 - Use markdown formatting for clarity
 - Add emojis for visual appeal
 - Keep it comprehensive but readable (1000-1500 words)
@@ -1050,8 +1050,8 @@ Total Transactions: {len(current_month_transactions)}
         current_by_currency[currency]["categories"][cat_key] += t["amount"]
     
     for currency, data in current_by_currency.items():
-        currency_symbol = "$" if currency == "usd" else "K"
-        currency_name = "USD" if currency == "usd" else "MMK"
+        currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+        currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
         
         context += f"\n{currency_name}:\n"
         context += f"  Income: {currency_symbol}{data['inflow']:.2f}\n"
@@ -1081,8 +1081,8 @@ Total Transactions: {len(current_month_transactions)}
                 prev_by_currency[currency]["outflow"] += t["amount"]
         
         for currency in set(list(current_by_currency.keys()) + list(prev_by_currency.keys())):
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             current = current_by_currency.get(currency, {"inflow": 0, "outflow": 0})
             prev = prev_by_currency.get(currency, {"inflow": 0, "outflow": 0})
@@ -1106,8 +1106,8 @@ Total Transactions: {len(current_month_transactions)}
             goals_by_currency[currency].append(g)
         
         for currency, curr_goals in goals_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             active_goals = [g for g in curr_goals if g["status"] == "active"]
             
@@ -1131,8 +1131,8 @@ Total Transactions: {len(current_month_transactions)}
             budgets_by_currency[currency].append(b)
         
         for currency, curr_budgets in budgets_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else "K"
-            currency_name = "USD" if currency == "usd" else "MMK"
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
             context += f"{currency_name} Budgets:\n"
             for budget in curr_budgets:

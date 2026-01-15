@@ -13,7 +13,8 @@ enum SubscriptionType {
 
 enum Currency {
   usd,
-  mmk;
+  mmk,
+  thb;  // ADD THIS LINE
 
   static Currency fromString(String value) {
     return Currency.values.firstWhere(
@@ -28,6 +29,8 @@ enum Currency {
         return '\$';
       case Currency.mmk:
         return 'K';
+      case Currency.thb:  // ADD THIS CASE
+        return '฿';
     }
   }
   
@@ -37,6 +40,8 @@ enum Currency {
         return 'US Dollar (USD)';
       case Currency.mmk:
         return 'Myanmar Kyat (MMK)';
+      case Currency.thb:  // ADD THIS CASE
+        return 'Thai Baht (THB)';
     }
   }
 }

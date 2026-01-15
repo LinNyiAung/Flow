@@ -237,7 +237,8 @@ class BudgetAnalyzer:
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         
         
-        currency_symbol = "$" if currency == "usd" else "K"
+        
+        currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
         
         # Fetch available categories with sub-categories from database
         outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
