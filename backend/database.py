@@ -18,6 +18,10 @@ budgets_collection = database.budgets
 notifications_collection = database.notifications
 notification_preferences_collection = database.notification_preferences
 
+# Admin collections
+admins_collection = database.admins
+admin_action_logs_collection = database.admin_action_logs
+
 # Initialize default categories if they don't exist
 def initialize_categories():
     if categories_collection.count_documents({}) == 0:
@@ -162,6 +166,30 @@ def initialize_notification_preferences():
     # This will be called when a user first accesses notification settings
     pass
 
+
+def initialize_admin():
+    """Initialize default super admin if none exists"""
+    if admins_collection.count_documents({}) == 0:
+        from admin_utils import get_password_hash
+        import uuid
+        from datetime import datetime, UTC
+        
+        # Create default super admin
+        default_admin = {
+            "_id": str(uuid.uuid4()),
+            "name": "Super Admin",
+            "email": "admin@flowfinance.com",
+            "password": get_password_hash("admin123"),  # Change this in production!
+            "role": "super_admin",
+            "created_at": datetime.now(UTC),
+            "last_login": None
+        }
+        
+        admins_collection.insert_one(default_admin)
+        print("✅ Default super admin created (email: admin@flowfinance.com, password: admin123)")
+
+
 # Call this when the app starts
 initialize_categories()
 initialize_notification_preferences()
+initialize_admin()
