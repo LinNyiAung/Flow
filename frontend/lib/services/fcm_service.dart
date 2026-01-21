@@ -49,10 +49,6 @@ class FCMService {
         _fcmToken = await _fcm.getToken();
         print('📱 FCM Token: $_fcmToken');
 
-        // Send token to backend
-        if (_fcmToken != null) {
-          await _sendTokenToBackend(_fcmToken!);
-        }
 
         // Listen for token refresh
         _fcm.onTokenRefresh.listen((newToken) {
@@ -105,6 +101,14 @@ class FCMService {
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
+  }
+
+
+  // NEW: Method to send token when user is authenticated
+  Future<void> sendTokenToBackend() async {
+    if (_fcmToken != null) {
+      await _sendTokenToBackend(_fcmToken!);
+    }
   }
 
   Future<void> _sendTokenToBackend(String token) async {
@@ -208,6 +212,12 @@ class FCMService {
       case 'goal_approaching_date':
       case 'payment_reminder':
         return Color(0xFF2196F3);
+      case 'monthly_insights_generated':
+      return Color(0xFF764ba2);
+      case 'system_broadcast':  // NEW
+        return Color(0xFF667eea);
+      case 'admin_announcement':  // NEW
+        return Color(0xFFFF9800);
       default:
         return Color(0xFF667eea);
     }

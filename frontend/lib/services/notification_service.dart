@@ -161,6 +161,10 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFF667eea);
     case NotificationType.monthly_insights_generated:  // NEW
       return Color(0xFF764ba2);
+    case NotificationType.system_broadcast:  // NEW
+      return Color(0xFF667eea);
+    case NotificationType.admin_announcement:  // NEW
+      return Color(0xFFFF9800);
   }
 }
 }

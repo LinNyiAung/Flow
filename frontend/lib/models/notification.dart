@@ -17,6 +17,8 @@ enum NotificationType {
   recurring_transaction_disabled,
   weekly_insights_generated,
   monthly_insights_generated,
+  system_broadcast,  // NEW
+  admin_announcement,  // NEW
 }
 
 class AppNotification {
@@ -80,6 +82,8 @@ class AppNotification {
   String getCurrencySymbol() {
     if (currency == 'mmk') {
       return 'K';
+    } else if (currency == 'thb') {
+      return '฿';
     }
     return '\$';
   }

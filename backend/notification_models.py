@@ -22,6 +22,8 @@ class NotificationType(str, Enum):
     RECURRING_TRANSACTION_DISABLED = "recurring_transaction_disabled"
     WEEKLY_INSIGHTS_GENERATED = "weekly_insights_generated"
     MONTHLY_INSIGHTS_GENERATED = "monthly_insights_generated"
+    SYSTEM_BROADCAST = "system_broadcast"  # NEW
+    ADMIN_ANNOUNCEMENT = "admin_announcement"  # NEW
 
 class NotificationResponse(BaseModel):
     id: str

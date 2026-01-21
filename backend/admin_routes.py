@@ -21,12 +21,16 @@ from admin_models import (
     AdminResponse,
     AdminRole,
     AdminToken,
+    BroadcastNotificationRequest,
+    BroadcastNotificationResponse,
     SystemStatsResponse,
     UpdateUserSubscriptionRequest,
     UserDetailResponse,
     UserListResponse,
     UserStatsResponse
 )
+from firebase_service import send_fcm_to_multiple
+from notification_service import should_send_notification
 from models import Currency, SubscriptionType
 from database import (
     admins_collection,
@@ -544,6 +548,147 @@ async def get_system_stats(current_admin: dict = Depends(require_admin_or_super)
         active_users_today=len(active_today),
         active_users_this_week=len(active_week)
     )
+    
+    
+    
+# ==================== NOTIFICATION BROADCAST ====================
+
+@router.post("/broadcast-notification", response_model=BroadcastNotificationResponse)
+async def broadcast_notification(
+    broadcast_data: BroadcastNotificationRequest,
+    current_admin: dict = Depends(require_admin_or_super)
+):
+    """Broadcast notification to users based on criteria"""
+    try:
+        # Build user query based on target
+        query = {}
+        if broadcast_data.target_users == "free":
+            query["subscription_type"] = "free"
+        elif broadcast_data.target_users == "premium":
+            query["subscription_type"] = "premium"
+        # else "all" - no filter
+        
+        # Get target users
+        users = list(users_collection.find(query))
+        total_users = len(users)
+        
+        if total_users == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No users found matching the criteria"
+            )
+        
+        # Create notifications and collect FCM tokens
+        notifications_sent = 0
+        fcm_tokens = []
+        
+        for user in users:
+            user_id = user["_id"]
+            
+            # Check if user has this notification type enabled
+            if not should_send_notification(user_id, broadcast_data.notification_type):
+                continue
+            
+            # Create in-app notification
+            notification_id = str(uuid.uuid4())
+            notification = {
+                "_id": notification_id,
+                "user_id": user_id,
+                "type": broadcast_data.notification_type,
+                "title": broadcast_data.title,
+                "message": broadcast_data.message,
+                "goal_id": None,
+                "goal_name": None,
+                "currency": None,
+                "created_at": datetime.now(UTC),
+                "is_read": False
+            }
+            
+            notifications_collection.insert_one(notification)
+            notifications_sent += 1
+            
+            # Collect FCM token if available
+            if user.get("fcm_token"):
+                fcm_tokens.append(user["fcm_token"])
+        
+        # Send FCM push notifications in batch
+        fcm_result = {"success": 0, "failure": 0}
+        if fcm_tokens:
+            fcm_data = {
+                "type": broadcast_data.notification_type,
+                "is_broadcast": "true"
+            }
+            fcm_result = send_fcm_to_multiple(
+                fcm_tokens=fcm_tokens,
+                title=broadcast_data.title,
+                body=broadcast_data.message,
+                data=fcm_data
+            )
+        
+        # Log admin action
+        await log_admin_action(
+            admin_id=current_admin["_id"],
+            admin_email=current_admin["email"],
+            action="broadcast_notification",
+            details=f"Sent '{broadcast_data.title}' to {broadcast_data.target_users} users ({notifications_sent} notifications, {fcm_result['success']} FCM sent)"
+        )
+        
+        return BroadcastNotificationResponse(
+            message=f"Broadcast notification sent successfully",
+            total_users=total_users,
+            notifications_sent=notifications_sent,
+            fcm_sent=fcm_result["success"],
+            fcm_failed=fcm_result["failure"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error broadcasting notification: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to broadcast notification: {str(e)}"
+        )
+
+
+@router.get("/broadcast-stats")
+async def get_broadcast_stats(
+    current_admin: dict = Depends(require_admin_or_super)
+):
+    """Get statistics for potential broadcast reach"""
+    try:
+        total_users = users_collection.count_documents({})
+        free_users = users_collection.count_documents({"subscription_type": "free"})
+        premium_users = users_collection.count_documents({"subscription_type": "premium"})
+        
+        # Count users with FCM tokens
+        users_with_fcm = users_collection.count_documents({"fcm_token": {"$exists": True, "$ne": None}})
+        free_with_fcm = users_collection.count_documents({
+            "subscription_type": "free",
+            "fcm_token": {"$exists": True, "$ne": None}
+        })
+        premium_with_fcm = users_collection.count_documents({
+            "subscription_type": "premium",
+            "fcm_token": {"$exists": True, "$ne": None}
+        })
+        
+        return {
+            "total_users": total_users,
+            "free_users": free_users,
+            "premium_users": premium_users,
+            "users_with_push_enabled": users_with_fcm,
+            "free_with_push": free_with_fcm,
+            "premium_with_push": premium_with_fcm
+        }
+        
+    except Exception as e:
+        print(f"Error getting broadcast stats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get broadcast statistics"
+        )
 
 
 # ==================== ADMIN ACTION LOGS ====================

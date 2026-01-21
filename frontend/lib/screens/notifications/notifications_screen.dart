@@ -69,6 +69,10 @@ IconData _getNotificationIcon(NotificationType type) {
       return Icons.insights;
     case NotificationType.monthly_insights_generated:  // NEW
       return Icons.calendar_month;
+    case NotificationType.system_broadcast:  // NEW
+      return Icons.campaign;
+    case NotificationType.admin_announcement:  // NEW
+      return Icons.announcement;
   }
 }
 
@@ -110,6 +114,10 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFF667eea);
     case NotificationType.monthly_insights_generated:  // NEW
       return Color(0xFF764ba2);
+        case NotificationType.system_broadcast:  // NEW
+      return Color(0xFF667eea);
+    case NotificationType.admin_announcement:  // NEW
+      return Color(0xFFFF9800);
   }
 }
 
@@ -152,18 +160,19 @@ Future<void> _handleNotificationTap(AppNotification notification) async {
   } else if (notification.type == NotificationType.large_transaction ||
              notification.type == NotificationType.unusual_spending ||
              notification.type == NotificationType.payment_reminder ||
-             notification.type == NotificationType.recurring_transaction_created ||   // ADD
-             notification.type == NotificationType.recurring_transaction_ended ||     // ADD
-             notification.type == NotificationType.recurring_transaction_disabled) {  // ADD
+             notification.type == NotificationType.recurring_transaction_created ||
+             notification.type == NotificationType.recurring_transaction_ended ||
+             notification.type == NotificationType.recurring_transaction_disabled) {
     // Transaction notifications - navigate to transactions list
     Navigator.pushNamed(context, '/transactions').then((_) => _refreshNotifications());
-  } else if (notification.type == NotificationType.weekly_insights_generated) {
+  } else if (notification.type == NotificationType.weekly_insights_generated ||
+             notification.type == NotificationType.monthly_insights_generated) {
     // Navigate to insights screen
     Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
-  }else if (notification.type == NotificationType.weekly_insights_generated ||
-             notification.type == NotificationType.monthly_insights_generated) {  // UPDATE THIS LINE
-    // Navigate to insights screen
-    Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
+  } else if (notification.type == NotificationType.system_broadcast ||  // NEW
+             notification.type == NotificationType.admin_announcement) {  // NEW
+    // Broadcast notifications - just dismiss or show detail
+    // No specific navigation needed
   }
 }
 

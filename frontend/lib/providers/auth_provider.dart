@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/services/fcm_service.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
 
@@ -27,6 +28,17 @@ class AuthProvider with ChangeNotifier {
   void _setError(String? error) {
     _error = error;
     notifyListeners();
+  }
+
+
+  // ADD THIS HELPER METHOD
+  Future<void> _sendFCMToken() async {
+    try {
+      await FCMService().sendTokenToBackend();
+    } catch (e) {
+      print('⚠️ Could not send FCM token: $e');
+      // Don't fail authentication if FCM token fails
+    }
   }
 
   Future<bool> updateDefaultCurrency({required Currency currency}) async {
@@ -59,6 +71,10 @@ class AuthProvider with ChangeNotifier {
         password: password,
       );
       _user = authResponse.user;
+      
+      // Send FCM token after successful registration
+      await _sendFCMToken();  // ADD THIS
+      
       _setLoading(false);
       return true;
     } catch (e) {
@@ -81,6 +97,10 @@ class AuthProvider with ChangeNotifier {
         password: password,
       );
       _user = authResponse.user;
+      
+      // Send FCM token after successful login
+      await _sendFCMToken();  // ADD THIS
+      
       _setLoading(false);
       return true;
     } catch (e) {
@@ -142,6 +162,12 @@ class AuthProvider with ChangeNotifier {
   Future<void> checkAuthStatus() async {
     try {
       _user = await ApiService.getCurrentUser();
+      
+      // Send FCM token if user is already authenticated
+      if (_user != null) {
+        await _sendFCMToken();  // ADD THIS
+      }
+      
       notifyListeners();
     } catch (e) {
       _user = null;

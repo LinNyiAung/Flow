@@ -114,3 +114,18 @@ class SystemStatsResponse(BaseModel):
     new_users_this_month: int
     active_users_today: int
     active_users_this_week: int
+    
+    
+class BroadcastNotificationRequest(BaseModel):
+    title: str
+    message: str
+    target_users: str = "all"  # "all", "free", "premium"
+    notification_type: str = "system_broadcast"  # You can add this to NotificationType enum
+
+
+class BroadcastNotificationResponse(BaseModel):
+    message: str
+    total_users: int
+    notifications_sent: int
+    fcm_sent: int
+    fcm_failed: int

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, DollarSign, Target } from 'lucide-react';
+import { Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, DollarSign, Target, Send } from 'lucide-react';
 
 // API Configuration
 const API_BASE_URL = 'http://localhost:8000';
@@ -96,6 +96,27 @@ const api = {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch logs');
+    return response.json();
+  },
+
+    async getBroadcastStats(token) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/broadcast-stats`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error('Failed to fetch broadcast stats');
+    return response.json();
+  },
+  
+  async sendBroadcastNotification(token, data) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/broadcast-notification`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error('Failed to send broadcast notification');
     return response.json();
   }
 };
@@ -209,6 +230,14 @@ const Dashboard = ({ token, admin, onLogout }) => {
   const [subscriptionFilter, setSubscriptionFilter] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [broadcastStats, setBroadcastStats] = useState(null);
+  const [broadcastForm, setBroadcastForm] = useState({
+    title: '',
+    message: '',
+    target_users: 'all',
+    notification_type: 'system_broadcast'
+  });
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -231,6 +260,9 @@ const Dashboard = ({ token, admin, onLogout }) => {
         params.limit = 100;
         const usersData = await api.getUsers(token, params);
         setUsers(usersData);
+      } else if (activeTab === 'broadcast') {  // ADD THIS
+        const stats = await api.getBroadcastStats(token);
+        setBroadcastStats(stats);
       } else if (activeTab === 'admins' && admin.role === 'super_admin') {
         const adminsData = await api.getAdmins(token);
         setAdmins(adminsData);
@@ -250,6 +282,45 @@ const Dashboard = ({ token, admin, onLogout }) => {
       loadData();
     }
   };
+
+
+  const handleSendBroadcast = async () => {
+  if (!broadcastForm.title.trim() || !broadcastForm.message.trim()) {
+    alert('Please fill in both title and message');
+    return;
+  }
+
+  if (!window.confirm(`Send notification to ${broadcastForm.target_users} users?`)) {
+    return;
+  }
+
+  setBroadcastLoading(true);
+  try {
+    const result = await api.sendBroadcastNotification(token, broadcastForm);
+    
+    alert(
+      `Broadcast sent successfully!\n\n` +
+      `Total Users: ${result.total_users}\n` +
+      `Notifications Sent: ${result.notifications_sent}\n` +
+      `Push Notifications: ${result.fcm_sent} sent, ${result.fcm_failed} failed`
+    );
+    
+    // Reset form
+    setBroadcastForm({
+      title: '',
+      message: '',
+      target_users: 'all',
+      notification_type: 'system_broadcast'
+    });
+    
+    // Reload stats
+    loadData();
+  } catch (error) {
+    alert('Failed to send broadcast: ' + error.message);
+  } finally {
+    setBroadcastLoading(false);
+  }
+};
 
   const handleUpdateSubscription = async (userId, subscriptionType, expiresAt) => {
     try {
@@ -298,13 +369,14 @@ const Dashboard = ({ token, admin, onLogout }) => {
         {/* Navigation */}
         <nav className="flex-1 space-y-2">
           {[
-            { id: 'overview', icon: BarChart3, label: 'Overview' },
-            { id: 'users', icon: Users, label: 'Users' },
-            ...(admin.role === 'super_admin' ? [
-              { id: 'admins', icon: Shield, label: 'Admins' },
-              { id: 'logs', icon: Activity, label: 'Activity Logs' }
-            ] : [])
-          ].map(tab => (
+              { id: 'overview', icon: BarChart3, label: 'Overview' },
+              { id: 'users', icon: Users, label: 'Users' },
+              { id: 'broadcast', icon: Send, label: 'Broadcast' }, // ADD THIS LINE
+              ...(admin.role === 'super_admin' ? [
+                { id: 'admins', icon: Shield, label: 'Admins' },
+                { id: 'logs', icon: Activity, label: 'Activity Logs' }
+              ] : [])
+            ].map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -639,6 +711,174 @@ const Dashboard = ({ token, admin, onLogout }) => {
                   No activity logs found
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+
+
+        {/* Broadcast Tab */}
+        {activeTab === 'broadcast' && (
+          <div className="animate-slideIn">
+            <div className="mb-8">
+              <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+                Broadcast Notifications
+              </h1>
+              <p className="text-slate-400 font-medium">
+                Send notifications to all users or specific groups
+              </p>
+            </div>
+
+            {/* Stats Cards */}
+            {broadcastStats && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {[
+                  { label: 'Total Users', value: broadcastStats.total_users, sublabel: `${broadcastStats.users_with_push_enabled} with push`, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+                  { label: 'Free Users', value: broadcastStats.free_users, sublabel: `${broadcastStats.free_with_push} with push`, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+                  { label: 'Premium Users', value: broadcastStats.premium_users, sublabel: `${broadcastStats.premium_with_push} with push`, color: 'text-amber-500', bg: 'bg-amber-500/10' }
+                ].map((stat, index) => (
+                  <div
+                    key={index}
+                    className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-7 rounded-2xl border border-white/5 shadow-xl"
+                  >
+                    <div className="flex justify-between items-start mb-5">
+                      <div className={`w-14 h-14 ${stat.bg} rounded-2xl flex items-center justify-center`}>
+                        <Users size={28} className={stat.color} strokeWidth={2} />
+                      </div>
+                    </div>
+                    <div className="text-4xl font-bold text-slate-100 mb-2">
+                      {stat.value.toLocaleString()}
+                    </div>
+                    <div className="text-sm text-slate-400 font-medium mb-1">
+                      {stat.label}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {stat.sublabel}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Broadcast Form */}
+            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-8">
+              <h2 className="text-2xl font-bold mb-6 text-slate-100">
+                Send Broadcast Notification
+              </h2>
+              
+              <div className="space-y-6">
+                {/* Target Users */}
+                <div>
+                  <label className="block text-slate-300 text-sm font-semibold mb-3">
+                    Target Users
+                  </label>
+                  <div className="grid grid-cols-3 gap-4">
+                    {[
+                      { value: 'all', label: 'All Users', count: broadcastStats?.total_users },
+                      { value: 'free', label: 'Free Users', count: broadcastStats?.free_users },
+                      { value: 'premium', label: 'Premium Users', count: broadcastStats?.premium_users }
+                    ].map(option => (
+                      <button
+                        key={option.value}
+                        onClick={() => setBroadcastForm({...broadcastForm, target_users: option.value})}
+                        className={`p-4 rounded-xl border-2 transition-all ${
+                          broadcastForm.target_users === option.value
+                            ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                            : 'border-slate-600/30 bg-slate-800/50 text-slate-400 hover:border-slate-500/50'
+                        }`}
+                      >
+                        <div className="text-lg font-bold mb-1">{option.label}</div>
+                        <div className="text-sm opacity-70">{option.count?.toLocaleString() || 0} users</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Notification Type */}
+                <div>
+                  <label className="block text-slate-300 text-sm font-semibold mb-3">
+                    Notification Type
+                  </label>
+                  <select
+                    value={broadcastForm.notification_type}
+                    onChange={(e) => setBroadcastForm({...broadcastForm, notification_type: e.target.value})}
+                    className="w-full px-4 py-3.5 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none cursor-pointer focus:border-blue-500"
+                  >
+                    <option value="system_broadcast">System Broadcast</option>
+                    <option value="admin_announcement">Admin Announcement</option>
+                  </select>
+                </div>
+
+                {/* Title */}
+                <div>
+                  <label className="block text-slate-300 text-sm font-semibold mb-3">
+                    Title
+                  </label>
+                  <input
+                    type="text"
+                    value={broadcastForm.title}
+                    onChange={(e) => setBroadcastForm({...broadcastForm, title: e.target.value})}
+                    placeholder="Enter notification title..."
+                    className="w-full px-4 py-3.5 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none transition-all duration-200 focus:border-blue-500 focus:bg-slate-800/80"
+                    maxLength={100}
+                  />
+                  <div className="text-xs text-slate-500 mt-2">
+                    {broadcastForm.title.length}/100 characters
+                  </div>
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label className="block text-slate-300 text-sm font-semibold mb-3">
+                    Message
+                  </label>
+                  <textarea
+                    value={broadcastForm.message}
+                    onChange={(e) => setBroadcastForm({...broadcastForm, message: e.target.value})}
+                    placeholder="Enter notification message..."
+                    rows={6}
+                    className="w-full px-4 py-3.5 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none transition-all duration-200 focus:border-blue-500 focus:bg-slate-800/80 resize-none"
+                    maxLength={500}
+                  />
+                  <div className="text-xs text-slate-500 mt-2">
+                    {broadcastForm.message.length}/500 characters
+                  </div>
+                </div>
+
+                {/* Send Button */}
+                <button
+                  onClick={handleSendBroadcast}
+                  disabled={broadcastLoading || !broadcastForm.title.trim() || !broadcastForm.message.trim()}
+                  className={`w-full py-4 rounded-xl text-white text-base font-semibold transition-all duration-300 shadow-lg flex items-center justify-center gap-3 ${
+                    broadcastLoading || !broadcastForm.title.trim() || !broadcastForm.message.trim()
+                      ? 'bg-slate-600 cursor-not-allowed'
+                      : 'bg-gradient-to-br from-blue-500 to-violet-500 hover:-translate-y-0.5 hover:shadow-blue-500/40 shadow-blue-500/30'
+                  }`}
+                >
+                  {broadcastLoading ? (
+                    <>
+                      <RefreshCw size={20} className="animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send size={20} />
+                      Send Broadcast Notification
+                    </>
+                  )}
+                </button>
+
+                {/* Warning */}
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
+                  <AlertCircle size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-amber-300">
+                    <strong>Note:</strong> This will send notifications to{' '}
+                    {broadcastForm.target_users === 'all' ? 'all users' :
+                    broadcastForm.target_users === 'free' ? 'all free users' : 'all premium users'}.
+                    Users who have disabled this notification type in their settings will not receive it.
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
