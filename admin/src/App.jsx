@@ -118,13 +118,23 @@ const api = {
     });
     if (!response.ok) throw new Error('Failed to send broadcast notification');
     return response.json();
+  },
+
+  
+  async deleteAdmin(token, adminId) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/admins/${adminId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error('Failed to delete admin');
+    return response.json();
   }
 };
 
 // Login Component
 const LoginPage = ({ onLogin }) => {
-  const [email, setEmail] = useState('admin@flowfinance.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -210,9 +220,7 @@ const LoginPage = ({ onLogin }) => {
           </button>
         </form>
 
-        <p className="text-center text-slate-500 text-xs mt-6">
-          Default: admin@flowfinance.com / admin123
-        </p>
+        
       </div>
     </div>
   );
@@ -238,6 +246,14 @@ const Dashboard = ({ token, admin, onLogout }) => {
     notification_type: 'system_broadcast'
   });
   const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
+  const [createAdminForm, setCreateAdminForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'admin'
+  });
+  const [createAdminLoading, setCreateAdminLoading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -282,6 +298,55 @@ const Dashboard = ({ token, admin, onLogout }) => {
       loadData();
     }
   };
+
+
+  const handleCreateAdmin = async () => {
+  if (!createAdminForm.name.trim() || !createAdminForm.email.trim() || !createAdminForm.password.trim()) {
+    alert('Please fill in all fields');
+    return;
+  }
+
+  if (createAdminForm.password.length < 8) {
+    alert('Password must be at least 8 characters');
+    return;
+  }
+
+  setCreateAdminLoading(true);
+  try {
+    await api.createAdmin(token, createAdminForm);
+    alert('Admin created successfully!');
+    
+    // Reset form and close modal
+    setCreateAdminForm({
+      name: '',
+      email: '',
+      password: '',
+      role: 'admin'
+    });
+    setShowCreateAdmin(false);
+    
+    // Reload admins list
+    loadData();
+  } catch (error) {
+    alert('Failed to create admin: ' + error.message);
+  } finally {
+    setCreateAdminLoading(false);
+  }
+};
+
+const handleDeleteAdmin = async (adminId) => {
+  if (!window.confirm('Are you sure you want to delete this admin? This action cannot be undone.')) {
+    return;
+  }
+  
+  try {
+    await api.deleteAdmin(token, adminId);
+    alert('Admin deleted successfully');
+    loadData();
+  } catch (error) {
+    alert('Failed to delete admin: ' + error.message);
+  }
+};
 
 
   const handleSendBroadcast = async () => {
@@ -619,45 +684,103 @@ const Dashboard = ({ token, admin, onLogout }) => {
         {/* Admins Tab */}
         {activeTab === 'admins' && admin.role === 'super_admin' && (
           <div className="animate-slideIn">
-            <div className="mb-8">
-              <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
-                Admin Management
-              </h1>
-              <p className="text-slate-400 font-medium">
-                Manage administrator accounts
-              </p>
+            <div className="mb-8 flex items-center justify-between">
+              <div>
+                <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+                  Admin Management
+                </h1>
+                <p className="text-slate-400 font-medium">
+                  Manage administrator accounts and permissions
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCreateAdmin(true)}
+                className="px-6 py-3.5 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl text-white text-[15px] font-semibold flex items-center gap-2 hover:-translate-y-0.5 transition-transform shadow-lg shadow-blue-500/30"
+              >
+                <Shield size={18} />
+                Create New Admin
+              </button>
             </div>
 
-            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-8">
-              {admins.map((adm, index) => (
-                <div
-                  key={adm.id}
-                  className="flex items-center justify-between p-5 bg-slate-900/40 rounded-xl mb-4 border border-white/5 animate-slideIn"
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-violet-500 to-pink-500 rounded-xl flex items-center justify-center text-lg font-bold text-white shadow-md">
-                      {adm.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="text-base font-semibold text-slate-100 mb-1 flex items-center gap-2">
-                        {adm.name}
-                        {adm.role === 'super_admin' && <Crown size={16} className="text-amber-500" />}
-                      </div>
-                      <div className="text-sm text-slate-500">
-                        {adm.email}
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold border capitalize ${
-                    adm.role === 'super_admin' 
-                    ? 'bg-amber-500/15 border-amber-500/30 text-amber-500' 
-                    : 'bg-violet-500/15 border-violet-500/30 text-violet-400'
-                  }`}>
-                    {adm.role.replace('_', ' ')}
-                  </div>
+            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900/50 border-b border-white/5">
+                      {['Admin', 'Email', 'Role', 'Last Login', 'Created', 'Actions'].map((header, i) => (
+                        <th key={i} className={`px-6 py-4 text-left text-slate-400 text-xs font-semibold tracking-wider uppercase ${i === 5 ? 'text-center' : ''}`}>
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {admins.map((adm, index) => (
+                      <tr
+                        key={adm.id}
+                        className="border-b border-white/5 hover:bg-slate-800/50 transition-colors animate-slideIn"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                      >
+                        <td className="px-6 py-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-11 h-11 bg-gradient-to-br from-violet-500 to-pink-500 rounded-xl flex items-center justify-center text-white font-bold shadow-md">
+                              {adm.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="text-[15px] font-semibold text-slate-100 flex items-center gap-2">
+                              {adm.name}
+                              {adm.role === 'super_admin' && <Crown size={16} className="text-amber-500" />}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-sm text-slate-300">
+                          {adm.email}
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-semibold border capitalize ${
+                            adm.role === 'super_admin' 
+                              ? 'bg-amber-500/15 border-amber-500/30 text-amber-500' 
+                              : adm.role === 'admin'
+                              ? 'bg-violet-500/15 border-violet-500/30 text-violet-400'
+                              : 'bg-blue-500/15 border-blue-500/30 text-blue-400'
+                          }`}>
+                            {adm.role.replace('_', ' ')}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-sm text-slate-400">
+                          {adm.last_login 
+                            ? new Date(adm.last_login).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : 'Never'
+                          }
+                        </td>
+                        <td className="px-6 py-5 text-sm text-slate-400">
+                          {new Date(adm.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </td>
+                        <td className="px-6 py-5 text-center">
+                          {adm.id !== admin.id && (
+                            <button
+                              onClick={() => handleDeleteAdmin(adm.id)}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-500/15 border border-red-500/30 rounded-lg text-red-400 text-[13px] font-semibold hover:bg-red-500/25 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          )}
+                          {adm.id === admin.id && (
+                            <span className="text-[13px] text-slate-500 font-medium">
+                              Current User
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {admins.length === 0 && (
+                <div className="p-16 text-center text-slate-400">
+                  No admins found
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
@@ -982,6 +1105,129 @@ const Dashboard = ({ token, admin, onLogout }) => {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+
+      {/* Create Admin Modal */}
+      {showCreateAdmin && (
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn"
+          onClick={() => setShowCreateAdmin(false)}
+        >
+          <div
+            className="bg-gradient-to-br from-slate-800 to-slate-700 rounded-3xl p-10 max-w-lg w-[90%] border border-white/10 shadow-2xl animate-slideIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl flex items-center justify-center">
+                <Shield size={24} className="text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-slate-100">
+                Create New Admin
+              </h2>
+            </div>
+
+            <div className="space-y-5 mb-8">
+              <div>
+                <label className="block text-slate-300 text-sm font-semibold mb-2">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={createAdminForm.name}
+                  onChange={(e) => setCreateAdminForm({...createAdminForm, name: e.target.value})}
+                  placeholder="Enter admin name..."
+                  className="w-full px-4 py-3.5 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none transition-all duration-200 focus:border-blue-500 focus:bg-slate-800/80"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 text-sm font-semibold mb-2">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={createAdminForm.email}
+                  onChange={(e) => setCreateAdminForm({...createAdminForm, email: e.target.value})}
+                  placeholder="Enter admin email..."
+                  className="w-full px-4 py-3.5 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none transition-all duration-200 focus:border-blue-500 focus:bg-slate-800/80"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 text-sm font-semibold mb-2">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={createAdminForm.password}
+                  onChange={(e) => setCreateAdminForm({...createAdminForm, password: e.target.value})}
+                  placeholder="Minimum 8 characters..."
+                  className="w-full px-4 py-3.5 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none transition-all duration-200 focus:border-blue-500 focus:bg-slate-800/80"
+                />
+                <div className="text-xs text-slate-500 mt-2">
+                  Password must be at least 8 characters
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 text-sm font-semibold mb-3">
+                  Role
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { value: 'moderator', label: 'Moderator', desc: 'Basic access' },
+                    { value: 'admin', label: 'Admin', desc: 'Full access' },
+                    { value: 'super_admin', label: 'Super Admin', desc: 'All privileges' }
+                  ].map(role => (
+                    <button
+                      key={role.value}
+                      onClick={() => setCreateAdminForm({...createAdminForm, role: role.value})}
+                      className={`p-3 rounded-xl border-2 transition-all text-left ${
+                        createAdminForm.role === role.value
+                          ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                          : 'border-slate-600/30 bg-slate-800/50 text-slate-400 hover:border-slate-500/50'
+                      }`}
+                    >
+                      <div className="text-sm font-bold mb-1">{role.label}</div>
+                      <div className="text-xs opacity-70">{role.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCreateAdmin(false)}
+                className="flex-1 p-3.5 bg-slate-500/20 border border-slate-500/30 rounded-xl text-slate-400 text-sm font-semibold hover:bg-slate-500/30 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateAdmin}
+                disabled={createAdminLoading}
+                className={`flex-1 p-3.5 rounded-xl text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                  createAdminLoading
+                    ? 'bg-slate-600 cursor-not-allowed'
+                    : 'bg-gradient-to-br from-blue-500 to-violet-500 hover:-translate-y-0.5 shadow-lg shadow-blue-500/30'
+                }`}
+              >
+                {createAdminLoading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Shield size={16} />
+                    Create Admin
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
