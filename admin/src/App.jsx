@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, DollarSign, Target, Send } from 'lucide-react';
 
 // API Configuration
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://flowfinance.onrender.com';
 
 // API Service (Kept exactly as original)
 const api = {
