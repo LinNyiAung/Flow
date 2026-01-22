@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, DollarSign, Target, Send } from 'lucide-react';
+import { Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, DollarSign, Target, Send, Menu, X } from 'lucide-react';
 
 // API Configuration
 const API_BASE_URL = 'https://flowfinance.onrender.com';
@@ -98,15 +98,13 @@ const api = {
     if (!response.ok) throw new Error('Failed to fetch logs');
     return response.json();
   },
-
-    async getBroadcastStats(token) {
+  async getBroadcastStats(token) {
     const response = await fetch(`${API_BASE_URL}/api/admin/broadcast-stats`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch broadcast stats');
     return response.json();
   },
-  
   async sendBroadcastNotification(token, data) {
     const response = await fetch(`${API_BASE_URL}/api/admin/broadcast-notification`, {
       method: 'POST',
@@ -119,8 +117,6 @@ const api = {
     if (!response.ok) throw new Error('Failed to send broadcast notification');
     return response.json();
   },
-
-  
   async deleteAdmin(token, adminId) {
     const response = await fetch(`${API_BASE_URL}/api/admin/admins/${adminId}`, {
       method: 'DELETE',
@@ -154,12 +150,12 @@ const LoginPage = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 flex items-center justify-center font-sans relative overflow-hidden text-slate-200">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 flex items-center justify-center font-sans relative overflow-hidden text-slate-200 p-4">
       {/* Animated background elements */}
-      <div className="absolute top-[10%] left-[5%] w-[500px] h-[500px] rounded-full bg-blue-500/15 blur-[60px] animate-float" />
-      <div className="absolute bottom-[10%] right-[5%] w-[400px] h-[400px] rounded-full bg-purple-500/15 blur-[60px] animate-float-reverse" />
+      <div className="absolute top-[10%] left-[5%] w-[300px] md:w-[500px] h-[300px] md:h-[500px] rounded-full bg-blue-500/15 blur-[60px] animate-float" />
+      <div className="absolute bottom-[10%] right-[5%] w-[250px] md:w-[400px] h-[250px] md:h-[400px] rounded-full bg-purple-500/15 blur-[60px] animate-float-reverse" />
 
-      <div className="bg-slate-900/70 backdrop-blur-xl rounded-3xl p-12 w-full max-w-md shadow-2xl border border-white/10 relative z-10 animate-slideUp">
+      <div className="bg-slate-900/70 backdrop-blur-xl rounded-3xl p-8 md:p-12 w-full max-w-md shadow-2xl border border-white/10 relative z-10 animate-slideUp">
         {/* Logo/Icon */}
         <div className="w-[72px] h-[72px] bg-gradient-to-br from-blue-500 to-violet-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-500/30">
           <Shield size={36} className="text-white" strokeWidth={2.5} />
@@ -219,8 +215,6 @@ const LoginPage = ({ onLogin }) => {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-
-        
       </div>
     </div>
   );
@@ -254,6 +248,9 @@ const Dashboard = ({ token, admin, onLogout }) => {
     role: 'admin'
   });
   const [createAdminLoading, setCreateAdminLoading] = useState(false);
+  
+  // NEW: State for mobile sidebar
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -276,7 +273,7 @@ const Dashboard = ({ token, admin, onLogout }) => {
         params.limit = 100;
         const usersData = await api.getUsers(token, params);
         setUsers(usersData);
-      } else if (activeTab === 'broadcast') {  // ADD THIS
+      } else if (activeTab === 'broadcast') {
         const stats = await api.getBroadcastStats(token);
         setBroadcastStats(stats);
       } else if (activeTab === 'admins' && admin.role === 'super_admin') {
@@ -299,93 +296,88 @@ const Dashboard = ({ token, admin, onLogout }) => {
     }
   };
 
+  // Helper to switch tabs and close sidebar on mobile
+  const handleNavClick = (tabId) => {
+    setActiveTab(tabId);
+    setIsSidebarOpen(false);
+  };
 
   const handleCreateAdmin = async () => {
-  if (!createAdminForm.name.trim() || !createAdminForm.email.trim() || !createAdminForm.password.trim()) {
-    alert('Please fill in all fields');
-    return;
-  }
+    if (!createAdminForm.name.trim() || !createAdminForm.email.trim() || !createAdminForm.password.trim()) {
+      alert('Please fill in all fields');
+      return;
+    }
 
-  if (createAdminForm.password.length < 8) {
-    alert('Password must be at least 8 characters');
-    return;
-  }
+    if (createAdminForm.password.length < 8) {
+      alert('Password must be at least 8 characters');
+      return;
+    }
 
-  setCreateAdminLoading(true);
-  try {
-    await api.createAdmin(token, createAdminForm);
-    alert('Admin created successfully!');
+    setCreateAdminLoading(true);
+    try {
+      await api.createAdmin(token, createAdminForm);
+      alert('Admin created successfully!');
+      setCreateAdminForm({
+        name: '',
+        email: '',
+        password: '',
+        role: 'admin'
+      });
+      setShowCreateAdmin(false);
+      loadData();
+    } catch (error) {
+      alert('Failed to create admin: ' + error.message);
+    } finally {
+      setCreateAdminLoading(false);
+    }
+  };
+
+  const handleDeleteAdmin = async (adminId) => {
+    if (!window.confirm('Are you sure you want to delete this admin? This action cannot be undone.')) {
+      return;
+    }
     
-    // Reset form and close modal
-    setCreateAdminForm({
-      name: '',
-      email: '',
-      password: '',
-      role: 'admin'
-    });
-    setShowCreateAdmin(false);
-    
-    // Reload admins list
-    loadData();
-  } catch (error) {
-    alert('Failed to create admin: ' + error.message);
-  } finally {
-    setCreateAdminLoading(false);
-  }
-};
-
-const handleDeleteAdmin = async (adminId) => {
-  if (!window.confirm('Are you sure you want to delete this admin? This action cannot be undone.')) {
-    return;
-  }
-  
-  try {
-    await api.deleteAdmin(token, adminId);
-    alert('Admin deleted successfully');
-    loadData();
-  } catch (error) {
-    alert('Failed to delete admin: ' + error.message);
-  }
-};
-
+    try {
+      await api.deleteAdmin(token, adminId);
+      alert('Admin deleted successfully');
+      loadData();
+    } catch (error) {
+      alert('Failed to delete admin: ' + error.message);
+    }
+  };
 
   const handleSendBroadcast = async () => {
-  if (!broadcastForm.title.trim() || !broadcastForm.message.trim()) {
-    alert('Please fill in both title and message');
-    return;
-  }
+    if (!broadcastForm.title.trim() || !broadcastForm.message.trim()) {
+      alert('Please fill in both title and message');
+      return;
+    }
 
-  if (!window.confirm(`Send notification to ${broadcastForm.target_users} users?`)) {
-    return;
-  }
+    if (!window.confirm(`Send notification to ${broadcastForm.target_users} users?`)) {
+      return;
+    }
 
-  setBroadcastLoading(true);
-  try {
-    const result = await api.sendBroadcastNotification(token, broadcastForm);
-    
-    alert(
-      `Broadcast sent successfully!\n\n` +
-      `Total Users: ${result.total_users}\n` +
-      `Notifications Sent: ${result.notifications_sent}\n` +
-      `Push Notifications: ${result.fcm_sent} sent, ${result.fcm_failed} failed`
-    );
-    
-    // Reset form
-    setBroadcastForm({
-      title: '',
-      message: '',
-      target_users: 'all',
-      notification_type: 'system_broadcast'
-    });
-    
-    // Reload stats
-    loadData();
-  } catch (error) {
-    alert('Failed to send broadcast: ' + error.message);
-  } finally {
-    setBroadcastLoading(false);
-  }
-};
+    setBroadcastLoading(true);
+    try {
+      const result = await api.sendBroadcastNotification(token, broadcastForm);
+      alert(
+        `Broadcast sent successfully!\n\n` +
+        `Total Users: ${result.total_users}\n` +
+        `Notifications Sent: ${result.notifications_sent}\n` +
+        `Push Notifications: ${result.fcm_sent} sent, ${result.fcm_failed} failed`
+      );
+      setBroadcastForm({
+        title: '',
+        message: '',
+        target_users: 'all',
+        notification_type: 'system_broadcast'
+      });
+      loadData();
+    } catch (error) {
+      alert('Failed to send broadcast: ' + error.message);
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
 
   const handleUpdateSubscription = async (userId, subscriptionType, expiresAt) => {
     try {
@@ -418,8 +410,47 @@ const handleDeleteAdmin = async (adminId) => {
   return (
     <div className="min-h-screen bg-[#0A0F1E] font-sans text-slate-200">
       
+      {/* Mobile Header - Visible only on small screens */}
+      <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-white/5 sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-violet-500 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <Shield size={18} className="text-white" strokeWidth={2.5} />
+          </div>
+          <div>
+            <div className="text-base font-bold text-slate-100 leading-none">Flow Finance</div>
+          </div>
+        </div>
+        <button 
+          onClick={() => setIsSidebarOpen(true)}
+          className="p-2 text-slate-400 hover:text-white bg-slate-800/50 rounded-lg border border-white/5"
+        >
+          <Menu size={24} />
+        </button>
+      </div>
+
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm animate-fadeIn"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="fixed left-0 top-0 bottom-0 w-[280px] bg-gradient-to-b from-slate-900 to-slate-800 border-r border-white/5 p-8 flex flex-col z-10">
+      <div className={`
+        fixed left-0 top-0 bottom-0 w-[280px] bg-gradient-to-b from-slate-900 to-slate-800 border-r border-white/5 p-8 flex flex-col z-50 
+        transition-transform duration-300 ease-in-out
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+        md:translate-x-0
+      `}>
+        {/* Mobile Close Button */}
+        <button 
+          onClick={() => setIsSidebarOpen(false)}
+          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white md:hidden"
+        >
+          <X size={20} />
+        </button>
+
         {/* Logo */}
         <div className="flex items-center gap-3 mb-10 pb-6 border-b border-white/10">
           <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -432,11 +463,11 @@ const handleDeleteAdmin = async (adminId) => {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-2">
+        <nav className="flex-1 space-y-2 overflow-y-auto custom-scrollbar">
           {[
               { id: 'overview', icon: BarChart3, label: 'Overview' },
               { id: 'users', icon: Users, label: 'Users' },
-              { id: 'broadcast', icon: Send, label: 'Broadcast' }, // ADD THIS LINE
+              { id: 'broadcast', icon: Send, label: 'Broadcast' },
               ...(admin.role === 'super_admin' ? [
                 { id: 'admins', icon: Shield, label: 'Admins' },
                 { id: 'logs', icon: Activity, label: 'Activity Logs' }
@@ -444,7 +475,7 @@ const handleDeleteAdmin = async (adminId) => {
             ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleNavClick(tab.id)}
               className={`w-full p-3.5 flex items-center gap-3 rounded-xl text-[15px] font-semibold transition-all duration-200 text-left ${
                 activeTab === tab.id 
                   ? 'bg-blue-500/15 border border-blue-500/30 text-blue-400' 
@@ -458,47 +489,49 @@ const handleDeleteAdmin = async (adminId) => {
         </nav>
 
         {/* Admin Info */}
-        <div className="p-4 bg-slate-800/50 rounded-xl border border-white/5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold shadow-sm">
-              {admin.name.charAt(0)}
+        <div className="mt-4 pt-4 border-t border-white/5">
+            <div className="p-4 bg-slate-800/50 rounded-xl border border-white/5">
+            <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold shadow-sm">
+                {admin.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-slate-100 mb-0.5 truncate">
+                    {admin.name}
+                </div>
+                <div className="text-xs text-slate-400 capitalize flex items-center gap-1">
+                    {admin.role === 'super_admin' && <Crown size={12} className="text-amber-500" />}
+                    {admin.role.replace('_', ' ')}
+                </div>
+                </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-100 mb-0.5 truncate">
-                {admin.name}
-              </div>
-              <div className="text-xs text-slate-400 capitalize flex items-center gap-1">
-                {admin.role === 'super_admin' && <Crown size={12} className="text-amber-500" />}
-                {admin.role.replace('_', ' ')}
-              </div>
+            <button
+                onClick={onLogout}
+                className="w-full p-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors"
+            >
+                <LogOut size={16} />
+                Sign Out
+            </button>
             </div>
-          </div>
-          <button
-            onClick={onLogout}
-            className="w-full p-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors"
-          >
-            <LogOut size={16} />
-            Sign Out
-          </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="ml-[280px] p-10">
+      {/* Main Content - Responsive Margins and Padding */}
+      <div className="md:ml-[280px] p-4 md:p-10 transition-all duration-300">
         {/* Overview Tab */}
         {activeTab === 'overview' && stats && systemStats && (
           <div className="animate-slideIn">
-            <div className="mb-8">
-              <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+            <div className="mb-8 mt-2 md:mt-0">
+              <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
                 Dashboard Overview
               </h1>
-              <p className="text-slate-400 font-medium">
+              <p className="text-slate-400 font-medium text-sm md:text-base">
                 Welcome back, {admin.name}. Here's what's happening today.
               </p>
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8 md:mb-10">
               {[
                 { label: 'Total Users', value: stats.total_users, icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10' },
                 { label: 'Premium Users', value: stats.premium_users, icon: Crown, color: 'text-amber-500', bg: 'bg-amber-500/10' },
@@ -511,15 +544,15 @@ const handleDeleteAdmin = async (adminId) => {
               ].map((stat, index) => (
                 <div
                   key={index}
-                  className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-7 rounded-2xl border border-white/5 shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 animate-slideIn"
+                  className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-5 md:p-7 rounded-2xl border border-white/5 shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 animate-slideIn"
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
-                  <div className="flex justify-between items-start mb-5">
-                    <div className={`w-14 h-14 ${stat.bg} rounded-2xl flex items-center justify-center`}>
-                      <stat.icon size={28} className={stat.color} strokeWidth={2} />
+                  <div className="flex justify-between items-start mb-4 md:mb-5">
+                    <div className={`w-12 h-12 md:w-14 md:h-14 ${stat.bg} rounded-2xl flex items-center justify-center`}>
+                      <stat.icon size={24} className={`md:w-7 md:h-7 ${stat.color}`} strokeWidth={2} />
                     </div>
                   </div>
-                  <div className="text-4xl font-bold text-slate-100 mb-2">
+                  <div className="text-3xl md:text-4xl font-bold text-slate-100 mb-2">
                     {stat.value.toLocaleString()}
                   </div>
                   <div className="text-sm text-slate-400 font-medium">
@@ -530,11 +563,11 @@ const handleDeleteAdmin = async (adminId) => {
             </div>
 
             {/* Activity Summary */}
-            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-8 rounded-2xl border border-white/5">
-              <h2 className="text-2xl font-bold mb-6 text-slate-100">
+            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-6 md:p-8 rounded-2xl border border-white/5">
+              <h2 className="text-xl md:text-2xl font-bold mb-6 text-slate-100">
                 Recent Activity
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {[
                     { label: 'New Today', value: systemStats.new_users_today, color: 'text-blue-500' },
                     { label: 'New This Week', value: systemStats.new_users_this_week, color: 'text-violet-500' },
@@ -542,8 +575,8 @@ const handleDeleteAdmin = async (adminId) => {
                     { label: 'Active This Week', value: systemStats.active_users_this_week, color: 'text-emerald-500' }
                 ].map((item, idx) => (
                     <div key={idx}>
-                        <div className="text-sm text-slate-400 mb-2">{item.label}</div>
-                        <div className={`text-3xl font-bold ${item.color}`}>
+                        <div className="text-xs md:text-sm text-slate-400 mb-2">{item.label}</div>
+                        <div className={`text-2xl md:text-3xl font-bold ${item.color}`}>
                             {item.value}
                         </div>
                     </div>
@@ -556,18 +589,18 @@ const handleDeleteAdmin = async (adminId) => {
         {/* Users Tab */}
         {activeTab === 'users' && (
           <div className="animate-slideIn">
-            <div className="mb-8">
-              <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+            <div className="mb-6 md:mb-8 mt-2 md:mt-0">
+              <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
                 User Management
               </h1>
-              <p className="text-slate-400 font-medium">
+              <p className="text-slate-400 font-medium text-sm md:text-base">
                 Manage user accounts and subscriptions
               </p>
             </div>
 
             {/* Search and Filters */}
-            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-6 rounded-2xl border border-white/5 mb-6 flex gap-4 flex-wrap">
-              <div className="flex-1 min-w-[250px]">
+            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-4 md:p-6 rounded-2xl border border-white/5 mb-6 flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
                 <input
                   type="text"
                   placeholder="Search by name or email..."
@@ -577,35 +610,36 @@ const handleDeleteAdmin = async (adminId) => {
                   className="w-full px-4 py-3.5 bg-slate-900/50 border border-slate-600/20 rounded-xl text-slate-100 text-[15px] outline-none focus:border-blue-500/50"
                 />
               </div>
-              <select
-                value={subscriptionFilter}
-                onChange={(e) => setSubscriptionFilter(e.target.value)}
-                className="px-4 py-3.5 bg-slate-900/50 border border-slate-600/20 rounded-xl text-slate-100 text-[15px] outline-none cursor-pointer focus:border-blue-500/50"
-              >
-                <option value="">All Subscriptions</option>
-                <option value="free">Free</option>
-                <option value="premium">Premium</option>
-              </select>
-              <button
-                onClick={handleSearch}
-                className="px-6 py-3.5 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl text-white text-[15px] font-semibold flex items-center gap-2 hover:-translate-y-0.5 transition-transform"
-              >
-                <Search size={18} />
-                Search
-              </button>
-              <button
-                onClick={() => { setSearchQuery(''); setSubscriptionFilter(''); loadData(); }}
-                className="px-6 py-3.5 bg-slate-500/20 border border-slate-400/20 rounded-xl text-slate-400 text-[15px] font-semibold flex items-center gap-2 hover:bg-slate-500/30 transition-colors"
-              >
-                <RefreshCw size={18} />
-                Reset
-              </button>
+              <div className="flex gap-4">
+                  <select
+                    value={subscriptionFilter}
+                    onChange={(e) => setSubscriptionFilter(e.target.value)}
+                    className="flex-1 md:flex-none px-4 py-3.5 bg-slate-900/50 border border-slate-600/20 rounded-xl text-slate-100 text-[15px] outline-none cursor-pointer focus:border-blue-500/50"
+                  >
+                    <option value="">All Subscriptions</option>
+                    <option value="free">Free</option>
+                    <option value="premium">Premium</option>
+                  </select>
+                  <button
+                    onClick={handleSearch}
+                    className="px-6 py-3.5 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl text-white text-[15px] font-semibold flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-transform"
+                  >
+                    <Search size={18} />
+                    <span className="hidden md:inline">Search</span>
+                  </button>
+                  <button
+                    onClick={() => { setSearchQuery(''); setSubscriptionFilter(''); loadData(); }}
+                    className="px-4 py-3.5 bg-slate-500/20 border border-slate-400/20 rounded-xl text-slate-400 text-[15px] font-semibold flex items-center justify-center gap-2 hover:bg-slate-500/30 transition-colors"
+                  >
+                    <RefreshCw size={18} />
+                  </button>
+              </div>
             </div>
 
             {/* Users Table */}
             <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
+                <table className="w-full border-collapse min-w-[800px]">
                   <thead>
                     <tr className="bg-slate-900/50 border-b border-white/5">
                       {['User', 'Subscription', 'Activity', 'Joined', 'Actions'].map((header, i) => (
@@ -619,7 +653,7 @@ const handleDeleteAdmin = async (adminId) => {
                     {users.map((user, index) => (
                       <tr
                         key={user.id}
-                        className="border-b border-white/5 hover:bg-slate-800/50 hover:translate-x-1 transition-all duration-200 animate-slideIn"
+                        className="border-b border-white/5 hover:bg-slate-800/50 transition-all duration-200 animate-slideIn"
                         style={{ animationDelay: `${index * 50}ms` }}
                       >
                         <td className="px-6 py-5">
@@ -684,18 +718,18 @@ const handleDeleteAdmin = async (adminId) => {
         {/* Admins Tab */}
         {activeTab === 'admins' && admin.role === 'super_admin' && (
           <div className="animate-slideIn">
-            <div className="mb-8 flex items-center justify-between">
+            <div className="mb-6 md:mb-8 mt-2 md:mt-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+                <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
                   Admin Management
                 </h1>
-                <p className="text-slate-400 font-medium">
+                <p className="text-slate-400 font-medium text-sm md:text-base">
                   Manage administrator accounts and permissions
                 </p>
               </div>
               <button
                 onClick={() => setShowCreateAdmin(true)}
-                className="px-6 py-3.5 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl text-white text-[15px] font-semibold flex items-center gap-2 hover:-translate-y-0.5 transition-transform shadow-lg shadow-blue-500/30"
+                className="w-full md:w-auto px-6 py-3.5 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl text-white text-[15px] font-semibold flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-transform shadow-lg shadow-blue-500/30"
               >
                 <Shield size={18} />
                 Create New Admin
@@ -704,7 +738,7 @@ const handleDeleteAdmin = async (adminId) => {
 
             <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
+                <table className="w-full border-collapse min-w-[900px]">
                   <thead>
                     <tr className="bg-slate-900/50 border-b border-white/5">
                       {['Admin', 'Email', 'Role', 'Last Login', 'Created', 'Actions'].map((header, i) => (
@@ -788,25 +822,25 @@ const handleDeleteAdmin = async (adminId) => {
         {/* Logs Tab */}
         {activeTab === 'logs' && admin.role === 'super_admin' && (
           <div className="animate-slideIn">
-            <div className="mb-8">
-              <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+            <div className="mb-6 md:mb-8 mt-2 md:mt-0">
+              <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
                 Activity Logs
               </h1>
-              <p className="text-slate-400 font-medium">
+              <p className="text-slate-400 font-medium text-sm md:text-base">
                 Audit trail of all admin actions
               </p>
             </div>
 
-            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-8">
+            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-4 md:p-8">
               {logs.map((log, index) => (
                 <div
                   key={log.id}
-                  className="p-5 bg-slate-900/40 rounded-xl mb-3 border border-white/5 animate-slideIn"
+                  className="p-4 md:p-5 bg-slate-900/40 rounded-xl mb-3 border border-white/5 animate-slideIn"
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
-                  <div className="flex justify-between items-start mb-3">
+                  <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-3 gap-2">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 bg-blue-500/15 rounded-lg flex items-center justify-center">
+                      <div className="w-9 h-9 bg-blue-500/15 rounded-lg flex items-center justify-center flex-shrink-0">
                         <Activity size={18} className="text-blue-500" />
                       </div>
                       <div>
@@ -818,12 +852,12 @@ const handleDeleteAdmin = async (adminId) => {
                         </div>
                       </div>
                     </div>
-                    <div className="text-[13px] text-slate-500">
+                    <div className="text-[13px] text-slate-500 pl-12 md:pl-0">
                       {new Date(log.timestamp).toLocaleString()}
                     </div>
                   </div>
                   {log.details && (
-                    <div className="p-3 bg-slate-800/50 rounded-lg text-[13px] text-slate-400 font-mono">
+                    <div className="p-3 bg-slate-800/50 rounded-lg text-[13px] text-slate-400 font-mono ml-0 md:ml-12">
                       {log.details}
                     </div>
                   )}
@@ -838,23 +872,21 @@ const handleDeleteAdmin = async (adminId) => {
           </div>
         )}
 
-
-
         {/* Broadcast Tab */}
         {activeTab === 'broadcast' && (
           <div className="animate-slideIn">
-            <div className="mb-8">
-              <h1 className="text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+            <div className="mb-6 md:mb-8 mt-2 md:mt-0">
+              <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
                 Broadcast Notifications
               </h1>
-              <p className="text-slate-400 font-medium">
+              <p className="text-slate-400 font-medium text-sm md:text-base">
                 Send notifications to all users or specific groups
               </p>
             </div>
 
             {/* Stats Cards */}
             {broadcastStats && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
                 {[
                   { label: 'Total Users', value: broadcastStats.total_users, sublabel: `${broadcastStats.users_with_push_enabled} with push`, color: 'text-blue-500', bg: 'bg-blue-500/10' },
                   { label: 'Free Users', value: broadcastStats.free_users, sublabel: `${broadcastStats.free_with_push} with push`, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
@@ -862,14 +894,14 @@ const handleDeleteAdmin = async (adminId) => {
                 ].map((stat, index) => (
                   <div
                     key={index}
-                    className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-7 rounded-2xl border border-white/5 shadow-xl"
+                    className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-5 md:p-7 rounded-2xl border border-white/5 shadow-xl"
                   >
                     <div className="flex justify-between items-start mb-5">
-                      <div className={`w-14 h-14 ${stat.bg} rounded-2xl flex items-center justify-center`}>
-                        <Users size={28} className={stat.color} strokeWidth={2} />
+                      <div className={`w-12 h-12 md:w-14 md:h-14 ${stat.bg} rounded-2xl flex items-center justify-center`}>
+                        <Users size={24} className={`md:w-7 md:h-7 ${stat.color}`} strokeWidth={2} />
                       </div>
                     </div>
-                    <div className="text-4xl font-bold text-slate-100 mb-2">
+                    <div className="text-3xl md:text-4xl font-bold text-slate-100 mb-2">
                       {stat.value.toLocaleString()}
                     </div>
                     <div className="text-sm text-slate-400 font-medium mb-1">
@@ -884,8 +916,8 @@ const handleDeleteAdmin = async (adminId) => {
             )}
 
             {/* Broadcast Form */}
-            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-8">
-              <h2 className="text-2xl font-bold mb-6 text-slate-100">
+            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-6 md:p-8">
+              <h2 className="text-xl md:text-2xl font-bold mb-6 text-slate-100">
                 Send Broadcast Notification
               </h2>
               
@@ -895,7 +927,7 @@ const handleDeleteAdmin = async (adminId) => {
                   <label className="block text-slate-300 text-sm font-semibold mb-3">
                     Target Users
                   </label>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
                     {[
                       { value: 'all', label: 'All Users', count: broadcastStats?.total_users },
                       { value: 'free', label: 'Free Users', count: broadcastStats?.free_users },
@@ -1010,22 +1042,22 @@ const handleDeleteAdmin = async (adminId) => {
       {/* User Detail Modal */}
       {selectedUser && (
         <div 
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn"
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4"
           onClick={() => setSelectedUser(null)}
         >
           <div
-            className="bg-gradient-to-br from-slate-800 to-slate-700 rounded-3xl p-10 max-w-xl w-[90%] max-h-[80vh] overflow-y-auto border border-white/10 shadow-2xl animate-slideIn"
+            className="bg-gradient-to-br from-slate-800 to-slate-700 rounded-3xl p-6 md:p-10 max-w-xl w-full max-h-[90vh] overflow-y-auto border border-white/10 shadow-2xl animate-slideIn"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-4 mb-8">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-violet-500 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-violet-500 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg flex-shrink-0">
                 {selectedUser.name.charAt(0).toUpperCase()}
               </div>
-              <div className="flex-1">
-                <h2 className="text-2xl font-bold text-slate-100 mb-1">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-2xl font-bold text-slate-100 mb-1 truncate">
                   {selectedUser.name}
                 </h2>
-                <div className="text-sm text-slate-400">
+                <div className="text-sm text-slate-400 truncate">
                   {selectedUser.email}
                 </div>
               </div>
@@ -1035,7 +1067,7 @@ const handleDeleteAdmin = async (adminId) => {
               <h3 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">
                 Subscription
               </h3>
-              <div className="flex gap-3 mb-4">
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
                 <button
                   onClick={() => handleUpdateSubscription(selectedUser.id, 'premium', new Date(Date.now() + 365*24*60*60*1000).toISOString())}
                   className="flex-1 p-3.5 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-transform"
@@ -1074,9 +1106,9 @@ const handleDeleteAdmin = async (adminId) => {
                   <div key={index} className="p-4 bg-slate-900/40 rounded-xl border border-white/5">
                     <div className="flex items-center gap-2 mb-2">
                       <stat.icon size={16} className="text-slate-500" />
-                      <div className="text-[13px] text-slate-500">{stat.label}</div>
+                      <div className="text-[13px] text-slate-500 truncate">{stat.label}</div>
                     </div>
-                    <div className="text-xl font-bold text-slate-100">
+                    <div className="text-lg md:text-xl font-bold text-slate-100 truncate">
                       {stat.value}
                     </div>
                   </div>
@@ -1109,19 +1141,18 @@ const handleDeleteAdmin = async (adminId) => {
         </div>
       )}
 
-
       {/* Create Admin Modal */}
       {showCreateAdmin && (
         <div 
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn"
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn p-4"
           onClick={() => setShowCreateAdmin(false)}
         >
           <div
-            className="bg-gradient-to-br from-slate-800 to-slate-700 rounded-3xl p-10 max-w-lg w-[90%] border border-white/10 shadow-2xl animate-slideIn"
+            className="bg-gradient-to-br from-slate-800 to-slate-700 rounded-3xl p-6 md:p-10 max-w-lg w-full border border-white/10 shadow-2xl animate-slideIn max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-8">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl flex items-center justify-center flex-shrink-0">
                 <Shield size={24} className="text-white" />
               </div>
               <h2 className="text-2xl font-bold text-slate-100">
@@ -1176,7 +1207,7 @@ const handleDeleteAdmin = async (adminId) => {
                 <label className="block text-slate-300 text-sm font-semibold mb-3">
                   Role
                 </label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {[
                     { value: 'moderator', label: 'Moderator', desc: 'Basic access' },
                     { value: 'admin', label: 'Admin', desc: 'Full access' },
