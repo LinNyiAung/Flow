@@ -43,6 +43,11 @@ class AdminPasswordChange(BaseModel):
     current_password: str
     new_password: str
     confirm_password: str
+    
+    
+class AdminUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
 
 
 class UserListResponse(BaseModel):

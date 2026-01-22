@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, DollarSign, Target, Send, Menu, X } from 'lucide-react';
+import { 
+  Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, 
+  AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, 
+  DollarSign, Target, Send, Menu, X, Settings, Lock // <--- Added Settings, Lock
+} from 'lucide-react';
 
 // API Configuration
 const API_BASE_URL = 'https://flowfinance.onrender.com';
@@ -124,6 +128,37 @@ const api = {
     });
     if (!response.ok) throw new Error('Failed to delete admin');
     return response.json();
+  },
+  async updateProfile(token, data) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/me`, {
+      method: 'PUT',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to update profile');
+    }
+    return response.json();
+  },
+
+  async changePassword(token, data) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/change-password`, {
+      method: 'PUT',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to change password');
+    }
+    return response.json();
   }
 };
 
@@ -220,6 +255,177 @@ const LoginPage = ({ onLogin }) => {
   );
 };
 
+
+const ProfileSettings = ({ token, admin, onUpdateAdmin, onLogout }) => {
+  const [profileForm, setProfileForm] = useState({
+    name: admin.name,
+    email: admin.email
+  });
+  const [passwordForm, setPasswordForm] = useState({
+    current_password: '',
+    new_password: '',
+    confirm_password: ''
+  });
+  const [loading, setLoading] = useState({ profile: false, password: false });
+  
+  const handleProfileUpdate = async (e) => {
+    e.preventDefault();
+    setLoading(prev => ({ ...prev, profile: true }));
+    try {
+      const updatedAdmin = await api.updateProfile(token, profileForm);
+      
+      // If email changed, we must force logout as token is invalid
+      if (updatedAdmin.email !== admin.email) {
+        alert('Email updated successfully. Please log in again with your new email.');
+        onLogout();
+      } else {
+        alert('Profile updated successfully');
+        onUpdateAdmin(updatedAdmin);
+      }
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(prev => ({ ...prev, profile: false }));
+    }
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      alert("New passwords don't match");
+      return;
+    }
+    
+    setLoading(prev => ({ ...prev, password: true }));
+    try {
+      await api.changePassword(token, {
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password,
+        confirm_password: passwordForm.confirm_password
+      });
+      alert('Password changed successfully');
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(prev => ({ ...prev, password: false }));
+    }
+  };
+
+  return (
+    <div className="animate-slideIn max-w-4xl">
+      <div className="mb-8 mt-2 md:mt-0">
+        <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">
+          Admin Settings
+        </h1>
+        <p className="text-slate-400 font-medium text-sm md:text-base">
+          Manage your profile and security settings
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Profile Details Card */}
+        <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-6 md:p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
+              <Users size={20} className="text-blue-500" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-100">Profile Details</h2>
+          </div>
+
+          <form onSubmit={handleProfileUpdate} className="space-y-5">
+            <div>
+              <label className="block text-slate-300 text-sm font-semibold mb-2">
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={profileForm.name}
+                onChange={(e) => setProfileForm({...profileForm, name: e.target.value})}
+                className="w-full px-4 py-3.5 bg-slate-900/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none focus:border-blue-500 focus:bg-slate-900/80 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-300 text-sm font-semibold mb-2">
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={profileForm.email}
+                onChange={(e) => setProfileForm({...profileForm, email: e.target.value})}
+                className="w-full px-4 py-3.5 bg-slate-900/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none focus:border-blue-500 focus:bg-slate-900/80 transition-all"
+              />
+              <p className="text-xs text-amber-500/80 mt-2">
+                Note: Changing your email will require you to log in again.
+              </p>
+            </div>
+            <button
+              type="submit"
+              disabled={loading.profile}
+              className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading.profile ? <RefreshCw size={18} className="animate-spin" /> : 'Update Profile'}
+            </button>
+          </form>
+        </div>
+
+        {/* Security Card */}
+        <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-6 md:p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-violet-500/10 rounded-lg flex items-center justify-center">
+              <Lock size={20} className="text-violet-500" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-100">Security</h2>
+          </div>
+
+          <form onSubmit={handlePasswordChange} className="space-y-5">
+            <div>
+              <label className="block text-slate-300 text-sm font-semibold mb-2">
+                Current Password
+              </label>
+              <input
+                type="password"
+                value={passwordForm.current_password}
+                onChange={(e) => setPasswordForm({...passwordForm, current_password: e.target.value})}
+                className="w-full px-4 py-3.5 bg-slate-900/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none focus:border-violet-500 focus:bg-slate-900/80 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-300 text-sm font-semibold mb-2">
+                New Password
+              </label>
+              <input
+                type="password"
+                value={passwordForm.new_password}
+                onChange={(e) => setPasswordForm({...passwordForm, new_password: e.target.value})}
+                className="w-full px-4 py-3.5 bg-slate-900/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none focus:border-violet-500 focus:bg-slate-900/80 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-300 text-sm font-semibold mb-2">
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                value={passwordForm.confirm_password}
+                onChange={(e) => setPasswordForm({...passwordForm, confirm_password: e.target.value})}
+                className="w-full px-4 py-3.5 bg-slate-900/50 border border-slate-600/30 rounded-xl text-slate-100 text-[15px] outline-none focus:border-violet-500 focus:bg-slate-900/80 transition-all"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading.password}
+              className="w-full py-3.5 bg-violet-500 hover:bg-violet-600 active:bg-violet-700 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading.password ? <RefreshCw size={18} className="animate-spin" /> : 'Change Password'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Dashboard Component
 const Dashboard = ({ token, admin, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -248,9 +454,8 @@ const Dashboard = ({ token, admin, onLogout }) => {
     role: 'admin'
   });
   const [createAdminLoading, setCreateAdminLoading] = useState(false);
-  
-  // NEW: State for mobile sidebar
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [currentAdmin, setCurrentAdmin] = useState(admin);
 
   useEffect(() => {
     loadData();
@@ -470,6 +675,7 @@ const Dashboard = ({ token, admin, onLogout }) => {
               { id: 'broadcast', icon: Send, label: 'Broadcast' },
               ...(admin.role === 'super_admin' ? [
                 { id: 'admins', icon: Shield, label: 'Admins' },
+                { id: 'settings', icon: Settings, label: 'Settings' },
                 { id: 'logs', icon: Activity, label: 'Activity Logs' }
               ] : [])
             ].map(tab => (
@@ -817,6 +1023,19 @@ const Dashboard = ({ token, admin, onLogout }) => {
               )}
             </div>
           </div>
+        )}
+
+
+        {activeTab === 'settings' && (
+          <ProfileSettings 
+              token={token} 
+              admin={currentAdmin} 
+              onUpdateAdmin={(updated) => {
+                  setCurrentAdmin(updated);
+                  localStorage.setItem('admin_info', JSON.stringify(updated));
+              }}
+              onLogout={onLogout}
+          />
         )}
 
         {/* Logs Tab */}

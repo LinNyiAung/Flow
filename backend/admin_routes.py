@@ -21,6 +21,7 @@ from admin_models import (
     AdminResponse,
     AdminRole,
     AdminToken,
+    AdminUpdate,
     BroadcastNotificationRequest,
     BroadcastNotificationResponse,
     SystemStatsResponse,
@@ -135,6 +136,63 @@ async def admin_change_password(
     )
     
     return {"message": "Password changed successfully"}
+
+
+@router.put("/me", response_model=AdminResponse)
+async def update_admin_profile(
+    update_data: AdminUpdate,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Update current admin profile"""
+    update_fields = {}
+    
+    if update_data.name and update_data.name != current_admin["name"]:
+        update_fields["name"] = update_data.name
+        
+    if update_data.email and update_data.email != current_admin["email"]:
+        # Check if email already exists
+        if admins_collection.find_one({"email": update_data.email}):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use"
+            )
+        update_fields["email"] = update_data.email
+        
+    if not update_fields:
+        # No changes needed, return current info
+        return AdminResponse(
+            id=current_admin["_id"],
+            name=current_admin["name"],
+            email=current_admin["email"],
+            role=AdminRole(current_admin["role"]),
+            created_at=current_admin["created_at"],
+            last_login=current_admin.get("last_login")
+        )
+
+    admins_collection.update_one(
+        {"_id": current_admin["_id"]},
+        {"$set": update_fields}
+    )
+    
+    # Log action
+    await log_admin_action(
+        admin_id=current_admin["_id"],
+        admin_email=current_admin["email"], # Log using the old email for continuity
+        action="updated_profile",
+        details=f"Updated profile fields: {', '.join(update_fields.keys())}"
+    )
+    
+    # Fetch updated document
+    updated_admin = admins_collection.find_one({"_id": current_admin["_id"]})
+    
+    return AdminResponse(
+        id=updated_admin["_id"],
+        name=updated_admin["name"],
+        email=updated_admin["email"],
+        role=AdminRole(updated_admin["role"]),
+        created_at=updated_admin["created_at"],
+        last_login=updated_admin.get("last_login")
+    )
 
 
 # ==================== ADMIN MANAGEMENT (Super Admin Only) ====================
