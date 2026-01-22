@@ -85,14 +85,11 @@ class AppDrawer extends StatelessWidget {
                     ),
                     // NEW: Show expiry date if premium
                     if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs10,
-                            color: Colors.white.withOpacity(0.7),
-                          ),
+                      Text(
+                        '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
+                        style: GoogleFonts.poppins(
+                          fontSize: responsive.fs10,
+                          color: Colors.white.withOpacity(0.7),
                         ),
                       ),
                   ],

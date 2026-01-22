@@ -73,7 +73,7 @@ class AppLocalizations {
       'outflowAnalytics': 'Outflow Analytics',
       'financialReports': 'Financial Reports',
       'settings': 'Settings',
-      'expiresOn': 'Expires:',
+      'expiresOn': 'Expires',
 
       // Additions for Add Transaction Screen
       'addTransactionTitle': 'Add Transaction',
@@ -670,7 +670,7 @@ class AppLocalizations {
       'outflowAnalytics': 'ထွက်ငွေ ခွဲခြမ်းစိတ်ဖြာမှု',
       'financialReports': 'ငွေကြေး အစီရင်ခံစာများ',
       'settings': 'ဆက်တင်များ',
-      'expiresOn': 'သက်တမ်းကုန်ဆုံးမည့်ရက်:',
+      'expiresOn': 'သက်တမ်းကုန်ဆုံးမည့်ရက်',
 
       // Additions for Add Transaction Screen
       'addTransactionTitle': 'ငွေစာရင်းသွင်းရန်',
