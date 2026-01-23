@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, 
   AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, 
-  DollarSign, Target, Send, Menu, X, Settings, Lock // <--- Added Settings, Lock
+  DollarSign, Target, Send, Menu, X, Settings, Lock, User // <--- Added Settings, Lock
 } from 'lucide-react';
 
 // API Configuration
@@ -1284,31 +1284,176 @@ const Dashboard = ({ token, admin, onLogout }) => {
 
             <div className="mb-8">
               <h3 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">
-                Subscription
+                Subscription Management
               </h3>
-              <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                <button
-                  onClick={() => handleUpdateSubscription(selectedUser.id, 'premium', new Date(Date.now() + 365*24*60*60*1000).toISOString())}
-                  className="flex-1 p-3.5 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-transform"
-                >
-                  <Crown size={16} />
-                  Upgrade to Premium
-                </button>
-                <button
-                  onClick={() => handleUpdateSubscription(selectedUser.id, 'free', null)}
-                  className="flex-1 p-3.5 bg-slate-500/20 border border-slate-500/30 rounded-xl text-slate-400 text-sm font-semibold hover:bg-slate-500/30 transition-colors"
-                >
-                  Downgrade to Free
-                </button>
-              </div>
-              <div className={`inline-flex items-center gap-1.5 px-3.5 py-2 border rounded-xl text-sm font-semibold ${
-                selectedUser.subscription_type === 'premium' 
-                ? 'bg-amber-500/15 border-amber-500/30 text-amber-500' 
-                : 'bg-slate-500/15 border-slate-500/30 text-slate-400'
-              }`}>
-                {selectedUser.subscription_type === 'premium' && <Crown size={16} />}
-                Current: {selectedUser.subscription_type.toUpperCase()}
-              </div>
+              
+              {/* Show upgrade options only for free users */}
+              {selectedUser.subscription_type === 'free' && (
+                <>
+                  {/* Current Expiry Info */}
+                  <div className="p-4 bg-slate-500/10 border border-slate-500/30 rounded-xl mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <User size={18} className="text-slate-500" />
+                        <span className="text-sm font-semibold text-slate-400">Free User</span>
+                      </div>
+                      
+                    </div>
+                  </div>
+
+                  {/* Quick Duration Presets */}
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {[
+                      { label: '1 Month', days: 30 },
+                      { label: '3 Months', days: 90 },
+                      { label: '6 Months', days: 180 },
+                      { label: '1 Year', days: 365 }
+                    ].map((preset) => (
+                      <button
+                        key={preset.days}
+                        onClick={() => handleUpdateSubscription(
+                          selectedUser.id, 
+                          'premium', 
+                          new Date(Date.now() + preset.days*24*60*60*1000).toISOString()
+                        )}
+                        className="p-3 bg-gradient-to-br from-amber-500/20 to-orange-600/20 border border-amber-500/30 rounded-xl text-amber-400 text-sm font-semibold hover:from-amber-500/30 hover:to-orange-600/30 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Crown size={14} />
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom Expiry Date */}
+                  <div className="p-4 bg-slate-900/40 rounded-xl border border-white/5 space-y-3">
+                    <label className="block text-slate-300 text-sm font-semibold">
+                      Or Set Custom Premium Period
+                    </label>
+                    <input
+                      type="date"
+                      id={`expire-date-${selectedUser.id}`}
+                      min={new Date().toISOString().split('T')[0]}
+                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-sm outline-none focus:border-blue-500 focus:bg-slate-800/80 transition-all"
+                    />
+                    <button
+                      onClick={() => {
+                        const dateInput = document.getElementById(`expire-date-${selectedUser.id}`);
+                        if (!dateInput.value) {
+                          alert('Please select an expiry date');
+                          return;
+                        }
+                        const expiryDate = new Date(dateInput.value);
+                        expiryDate.setHours(23, 59, 59, 999);
+                        handleUpdateSubscription(selectedUser.id, 'premium', expiryDate.toISOString());
+                      }}
+                      className="w-full p-3 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-semibold hover:bg-blue-500/25 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Crown size={16} />
+                      Upgrade to Premium
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Show extend/modify options for premium users */}
+              {selectedUser.subscription_type === 'premium' && (
+                <>
+                  {/* Current Expiry Info */}
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Crown size={18} className="text-amber-500" />
+                        <span className="text-sm font-semibold text-amber-400">Premium Active</span>
+                      </div>
+                      {selectedUser.subscription_expires_at && (
+                        <div className="text-xs text-amber-400/80">
+                          Expires: {new Date(selectedUser.subscription_expires_at).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    {selectedUser.subscription_expires_at && (
+                      <div className="text-xs text-amber-400/70">
+                        {Math.ceil((new Date(selectedUser.subscription_expires_at) - new Date()) / (1000 * 60 * 60 * 24))} days remaining
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Extend Premium */}
+                  <div className="mb-3">
+                    <label className="block text-slate-300 text-sm font-semibold mb-2">
+                      Extend Premium Period
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: '+1 Month', days: 30 },
+                        { label: '+3 Months', days: 90 },
+                        { label: '+6 Months', days: 180 },
+                        { label: '+1 Year', days: 365 }
+                      ].map((preset) => (
+                        <button
+                          key={preset.days}
+                          onClick={() => {
+                            const currentExpiry = selectedUser.subscription_expires_at 
+                              ? new Date(selectedUser.subscription_expires_at)
+                              : new Date();
+                            const newExpiry = new Date(currentExpiry.getTime() + preset.days*24*60*60*1000);
+                            handleUpdateSubscription(selectedUser.id, 'premium', newExpiry.toISOString());
+                          }}
+                          className="p-3 bg-gradient-to-br from-blue-500/20 to-violet-600/20 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-semibold hover:from-blue-500/30 hover:to-violet-600/30 transition-all"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Change Expiry Date */}
+                  <div className="p-4 bg-slate-900/40 rounded-xl border border-white/5 space-y-3 mb-3">
+                    <label className="block text-slate-300 text-sm font-semibold">
+                      Or Set New Expiry Date
+                    </label>
+                    <input
+                      type="date"
+                      id={`expire-date-${selectedUser.id}`}
+                      min={new Date().toISOString().split('T')[0]}
+                      defaultValue={selectedUser.subscription_expires_at ? new Date(selectedUser.subscription_expires_at).toISOString().split('T')[0] : ''}
+                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-sm outline-none focus:border-blue-500 focus:bg-slate-800/80 transition-all"
+                    />
+                    <button
+                      onClick={() => {
+                        const dateInput = document.getElementById(`expire-date-${selectedUser.id}`);
+                        if (!dateInput.value) {
+                          alert('Please select an expiry date');
+                          return;
+                        }
+                        const expiryDate = new Date(dateInput.value);
+                        expiryDate.setHours(23, 59, 59, 999);
+                        handleUpdateSubscription(selectedUser.id, 'premium', expiryDate.toISOString());
+                      }}
+                      className="w-full p-3 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-semibold hover:bg-blue-500/25 transition-colors"
+                    >
+                      Update Expiry Date
+                    </button>
+                  </div>
+
+                  {/* Downgrade Button */}
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to downgrade this user to Free? This will remove their premium benefits immediately.')) {
+                        handleUpdateSubscription(selectedUser.id, 'free', null);
+                      }
+                    }}
+                    className="w-full p-3.5 bg-slate-500/10 border border-slate-500/30 rounded-xl text-slate-400 text-sm font-semibold hover:bg-slate-500/20 transition-colors"
+                  >
+                    Downgrade to Free
+                  </button>
+                </>
+              )}
+
             </div>
 
             <div className="mb-8">
