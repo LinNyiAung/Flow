@@ -62,6 +62,25 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     return user
 
 
+def ensure_utc_datetime(dt) -> datetime:
+    """Ensure datetime is timezone-aware UTC"""
+    if dt is None:
+        return None
+    
+    # If it's a string, parse it
+    if isinstance(dt, str):
+        dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+    
+    # If naive (no timezone), make it UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    # If has timezone but not UTC, convert to UTC
+    elif dt.tzinfo != UTC:
+        dt = dt.astimezone(UTC)
+    
+    return dt
+
+
 async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict:
     """
     Calculate user's financial balance including goal allocations
@@ -137,9 +156,12 @@ def require_premium(current_user: dict = Depends(get_current_user)):
     if subscription_type == "premium":
         # Check if subscription hasn't expired
         expires_at = current_user.get("subscription_expires_at")
-        if expires_at and expires_at > datetime.now(UTC):
-            return current_user
-        elif not expires_at:  # Lifetime premium
+        if expires_at:
+            # FIX: Ensure expires_at is timezone-aware before comparison
+            expires_at_utc = ensure_utc_datetime(expires_at)
+            if expires_at_utc > datetime.now(UTC):
+                return current_user
+        elif not expires_at:  # Lifetime premium (no expiration date)
             return current_user
     
     raise HTTPException(
