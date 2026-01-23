@@ -6,6 +6,8 @@ from database import users_collection, insights_collection, budgets_collection
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
 from ai_chatbot_gemini import gemini_financial_chatbot
 import logging
+from ai_usage_service import track_ai_usage
+from ai_usage_models import AIFeatureType, AIProviderType
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +214,17 @@ Start by adding your first transaction or creating a financial goal. The more da
                 logger.info(f"   📥 Input tokens: {input_tokens:,}")
                 logger.info(f"   📤 Output tokens: {output_tokens:,}")
                 logger.info(f"   📊 Total tokens: {total_tokens:,}")
+
+                # NEW: Track usage
+                track_ai_usage(
+                    user_id=user_id,
+                    feature_type=AIFeatureType.WEEKLY_INSIGHT,
+                    provider=AIProviderType.GEMINI,
+                    model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens
+                )
         else:
             client = AsyncOpenAI(api_key=OPENAI_API_KEY)
             response = await client.chat.completions.create(
@@ -236,6 +249,17 @@ Start by adding your first transaction or creating a financial goal. The more da
                 logger.info(f"   📤 Output tokens: {output_tokens:,}")
                 logger.info(f"   📊 Total tokens: {total_tokens:,}")
                 logger.info(f"   🤖 Model: {chatbot.gpt_model}")
+
+                # NEW: Track usage
+                track_ai_usage(
+                    user_id=user_id,
+                    feature_type=AIFeatureType.WEEKLY_INSIGHT,
+                    provider=AIProviderType.OPENAI,
+                    model_name=chatbot.gpt_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens
+                )
         
         # Save to database
         insight_id = str(uuid.uuid4())
@@ -563,7 +587,7 @@ def generate_weekly_insights_for_all_users():
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
 
 
-async def translate_insight_to_myanmar(english_content: str, ai_provider: str = "openai") -> str:
+async def translate_insight_to_myanmar(english_content: str, ai_provider: str = "openai", user_id: str = None) -> str:
     """Translate English insights to Myanmar language"""
     try:
                 # NEW: Check if this is a placeholder insight by checking for the welcome message
@@ -651,6 +675,25 @@ Translate naturally while keeping the professional yet friendly tone."""
             )
             
             myanmar_content = response.text
+
+
+            # NEW: Track translation usage
+            if hasattr(response, 'usage_metadata'):
+                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
+                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
+                total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
+                
+                # Get user_id from the insight being translated
+                # You'll need to pass user_id to this function
+                track_ai_usage(
+                    user_id=user_id,  # Add user_id parameter to function
+                    feature_type=AIFeatureType.TRANSLATION,
+                    provider=AIProviderType.GEMINI,
+                    model_name="gemini-2.5-pro",
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens
+                )
             
         else:  # OpenAI
             from openai import AsyncOpenAI
@@ -671,6 +714,23 @@ Translate naturally while keeping the professional yet friendly tone."""
             )
             
             myanmar_content = response.choices[0].message.content
+
+
+            # NEW: Track translation usage
+            if hasattr(response, 'usage'):
+                input_tokens = response.usage.prompt_tokens
+                output_tokens = response.usage.completion_tokens
+                total_tokens = response.usage.total_tokens
+                
+                track_ai_usage(
+                    user_id=user_id,  # Add user_id parameter to function
+                    feature_type=AIFeatureType.TRANSLATION,
+                    provider=AIProviderType.OPENAI,
+                    model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens
+                )
         
         return myanmar_content
         
@@ -865,6 +925,23 @@ Start by adding your first transaction or creating a financial goal. The more da
                 }
             )
             insights_content = response.text
+
+
+            # NEW: Track usage
+            if hasattr(response, 'usage_metadata'):
+                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
+                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
+                total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
+                
+                track_ai_usage(
+                    user_id=user_id,
+                    feature_type=AIFeatureType.MONTHLY_INSIGHT,
+                    provider=AIProviderType.GEMINI,
+                    model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens
+                )
         else:
             client = AsyncOpenAI(api_key=OPENAI_API_KEY)
             response = await client.chat.completions.create(
@@ -877,6 +954,23 @@ Start by adding your first transaction or creating a financial goal. The more da
                 max_tokens=3000
             )
             insights_content = response.choices[0].message.content
+
+
+            # NEW: Track usage
+            if hasattr(response, 'usage'):
+                input_tokens = response.usage.prompt_tokens
+                output_tokens = response.usage.completion_tokens
+                total_tokens = response.usage.total_tokens
+                
+                track_ai_usage(
+                    user_id=user_id,
+                    feature_type=AIFeatureType.MONTHLY_INSIGHT,
+                    provider=AIProviderType.OPENAI,
+                    model_name=chatbot.gpt_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens
+                )
         
         # Save to database
         insight_id = str(uuid.uuid4())

@@ -409,6 +409,39 @@ async def transcribe_audio(
                     language="en"
                 )
             
+            # NEW: Track AI usage for audio transcription
+            # Note: Whisper API doesn't return token counts, so we estimate based on audio duration
+            # We'll use a fixed cost estimation for now
+            from ai_usage_service import track_ai_usage
+            from ai_usage_models import AIFeatureType, AIProviderType
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            # Estimate tokens based on transcription length (rough approximation)
+            # Whisper doesn't provide token counts, so we estimate
+            transcription_length = len(transcript.text)
+            estimated_input_tokens = int(transcription_length / 4)  # Rough estimate
+            estimated_output_tokens = int(transcription_length / 4)
+            estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
+            
+            logger.info(f"🎤 [OPENAI TOKEN USAGE - Audio Transcription] User: {current_user['_id']}")
+            logger.info(f"   📥 Estimated input tokens: {estimated_input_tokens:,}")
+            logger.info(f"   📤 Estimated output tokens: {estimated_output_tokens:,}")
+            logger.info(f"   📊 Estimated total tokens: {estimated_total_tokens:,}")
+            logger.info(f"   🤖 Model: whisper-1")
+            logger.info(f"   📝 Transcription length: {transcription_length} characters")
+            
+            track_ai_usage(
+                user_id=current_user["_id"],
+                feature_type=AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION,
+                provider=AIProviderType.OPENAI,
+                model_name="whisper-1",
+                input_tokens=estimated_input_tokens,
+                output_tokens=estimated_output_tokens,
+                total_tokens=estimated_total_tokens
+            )
+            
             return {"transcription": transcript.text}
         finally:
             # Clean up temp file
@@ -502,6 +535,34 @@ Respond in JSON format:
             response_format={"type": "json_object"},
             temperature=0.3
         )
+
+        # NEW: Track AI usage
+        if hasattr(response, 'usage'):
+            from ai_usage_service import track_ai_usage
+            from ai_usage_models import AIFeatureType, AIProviderType
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            total_tokens = response.usage.total_tokens
+            
+            logger.info(f"📝 [OPENAI TOKEN USAGE - Text Extraction] User: {current_user['_id']}")
+            logger.info(f"   📥 Input tokens: {input_tokens:,}")
+            logger.info(f"   📤 Output tokens: {output_tokens:,}")
+            logger.info(f"   📊 Total tokens: {total_tokens:,}")
+            logger.info(f"   🤖 Model: gpt-4o-mini")
+            
+            track_ai_usage(
+                user_id=current_user["_id"],
+                feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
+                provider=AIProviderType.OPENAI,
+                model_name="gpt-4o-mini",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens
+            )
         
         result = json.loads(response.choices[0].message.content)
         
@@ -619,6 +680,35 @@ Respond in JSON format:
             response_format={"type": "json_object"},
             temperature=0.3
         )
+
+
+        # NEW: Track AI usage
+        if hasattr(response, 'usage'):
+            from ai_usage_service import track_ai_usage
+            from ai_usage_models import AIFeatureType, AIProviderType
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            total_tokens = response.usage.total_tokens
+            
+            logger.info(f"📝 [OPENAI TOKEN USAGE - Multiple Text Extraction] User: {current_user['_id']}")
+            logger.info(f"   📥 Input tokens: {input_tokens:,}")
+            logger.info(f"   📤 Output tokens: {output_tokens:,}")
+            logger.info(f"   📊 Total tokens: {total_tokens:,}")
+            logger.info(f"   🤖 Model: gpt-4o-mini")
+            
+            track_ai_usage(
+                user_id=current_user["_id"],
+                feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
+                provider=AIProviderType.OPENAI,
+                model_name="gpt-4o-mini",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens
+            )
         
         result = json.loads(response.choices[0].message.content)
         
@@ -812,6 +902,35 @@ Respond in JSON format:
             max_tokens=1000,
             temperature=0.3
         )
+
+
+        # NEW: Track AI usage
+        if hasattr(response, 'usage'):
+            from ai_usage_service import track_ai_usage
+            from ai_usage_models import AIFeatureType, AIProviderType
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            total_tokens = response.usage.total_tokens
+            
+            logger.info(f"📸 [OPENAI TOKEN USAGE - Image Extraction] User: {current_user['_id']}")
+            logger.info(f"   📥 Input tokens: {input_tokens:,}")
+            logger.info(f"   📤 Output tokens: {output_tokens:,}")
+            logger.info(f"   📊 Total tokens: {total_tokens:,}")
+            logger.info(f"   🤖 Model: gpt-4o")
+            
+            track_ai_usage(
+                user_id=current_user["_id"],
+                feature_type=AIFeatureType.TRANSACTION_IMAGE_EXTRACTION,
+                provider=AIProviderType.OPENAI,
+                model_name="gpt-4o",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens
+            )
         
         result = json.loads(response.choices[0].message.content)
         

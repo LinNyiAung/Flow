@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, UTC
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
 
@@ -41,8 +41,10 @@ from database import (
     goals_collection,
     budgets_collection,
     chat_sessions_collection,
-    notifications_collection
+    notifications_collection,
+    ai_usage_collection
 )
+from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
 from config import settings
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -746,6 +748,418 @@ async def get_broadcast_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get broadcast statistics"
+        )
+    
+
+
+# ==================== AI USAGE MONITORING ====================
+
+@router.get("/ai-usage/stats", response_model=AIUsageStatsResponse)
+async def get_ai_usage_stats(
+    current_admin: dict = Depends(require_admin_or_super),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None)
+):
+    """Get overall AI usage statistics"""
+    try:
+        query = {}
+        
+        if start_date or end_date:
+            query["created_at"] = {}
+            if start_date:
+                query["created_at"]["$gte"] = start_date
+            if end_date:
+                query["created_at"]["$lte"] = end_date
+        
+        # Aggregate statistics
+        pipeline = [
+            {"$match": query} if query else {"$match": {}},
+            {
+                "$group": {
+                    "_id": None,
+                    "total_requests": {"$sum": 1},
+                    "total_tokens": {"$sum": "$total_tokens"},
+                    "total_cost": {"$sum": "$estimated_cost_usd"},
+                    "openai_cost": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$provider", "openai"]}, "$estimated_cost_usd", 0]
+                        }
+                    },
+                    "gemini_cost": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$provider", "gemini"]}, "$estimated_cost_usd", 0]
+                        }
+                    },
+                    "weekly_insights": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$feature_type", "weekly_insight"]}, 1, 0]
+                        }
+                    },
+                    "monthly_insights": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$feature_type", "monthly_insight"]}, 1, 0]
+                        }
+                    },
+                    "chat_requests": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$feature_type", "chat"]}, 1, 0]
+                        }
+                    },
+                    "translations": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$feature_type", "translation"]}, 1, 0]
+                        }
+                    }
+                }
+            }
+        ]
+        
+        result = list(ai_usage_collection.aggregate(pipeline))
+        
+        if not result:
+            return AIUsageStatsResponse(
+                total_users=0,
+                total_requests=0,
+                total_tokens=0,
+                total_cost_usd=0.0,
+                openai_total_cost=0.0,
+                gemini_total_cost=0.0,
+                weekly_insights_requests=0,
+                monthly_insights_requests=0,
+                chat_requests=0,
+                translation_requests=0
+            )
+        
+        stats = result[0]
+        
+        # Get unique users count
+        unique_users = len(ai_usage_collection.distinct("user_id", query))
+        
+        return AIUsageStatsResponse(
+            total_users=unique_users,
+            total_requests=stats["total_requests"],
+            total_tokens=stats["total_tokens"],
+            total_cost_usd=round(stats["total_cost"], 4),
+            openai_total_cost=round(stats["openai_cost"], 4),
+            gemini_total_cost=round(stats["gemini_cost"], 4),
+            weekly_insights_requests=stats["weekly_insights"],
+            monthly_insights_requests=stats["monthly_insights"],
+            chat_requests=stats["chat_requests"],
+            translation_requests=stats["translations"]
+        )
+        
+    except Exception as e:
+        print(f"Error getting AI usage stats: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get AI usage statistics"
+        )
+
+
+@router.get("/ai-usage/users", response_model=List[UserAIUsageStats])
+async def get_users_ai_usage(
+    current_admin: dict = Depends(require_admin_or_super),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    sort_by: str = Query("total_cost", regex="^(total_cost|total_tokens|total_requests)$")
+):
+    """Get AI usage statistics per user"""
+    try:
+        # Aggregate by user
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$user_id",
+                    "total_requests": {"$sum": 1},
+                    "total_input_tokens": {"$sum": "$input_tokens"},
+                    "total_output_tokens": {"$sum": "$output_tokens"},
+                    "total_tokens": {"$sum": "$total_tokens"},
+                    "total_cost": {"$sum": "$estimated_cost_usd"},
+                    "weekly_insights": {
+                        "$sum": {"$cond": [{"$eq": ["$feature_type", "weekly_insight"]}, 1, 0]}
+                    },
+                    "monthly_insights": {
+                        "$sum": {"$cond": [{"$eq": ["$feature_type", "monthly_insight"]}, 1, 0]}
+                    },
+                    "chat_requests": {
+                        "$sum": {"$cond": [{"$eq": ["$feature_type", "chat"]}, 1, 0]}
+                    },
+                    "translations": {
+                        "$sum": {"$cond": [{"$eq": ["$feature_type", "translation"]}, 1, 0]}
+                    },
+                    "openai_cost": {
+                        "$sum": {"$cond": [{"$eq": ["$provider", "openai"]}, "$estimated_cost_usd", 0]}
+                    },
+                    "gemini_cost": {
+                        "$sum": {"$cond": [{"$eq": ["$provider", "gemini"]}, "$estimated_cost_usd", 0]}
+                    }
+                }
+            },
+            {"$sort": {sort_by.replace("total_cost", "total_cost"): -1}},
+            {"$skip": skip},
+            {"$limit": limit}
+        ]
+        
+        results = list(ai_usage_collection.aggregate(pipeline))
+        
+        # Get user details
+        user_stats = []
+        for result in results:
+            user = users_collection.find_one({"_id": result["_id"]})
+            if user:
+                user_stats.append(UserAIUsageStats(
+                    user_id=result["_id"],
+                    user_name=user["name"],
+                    user_email=user["email"],
+                    total_requests=result["total_requests"],
+                    total_input_tokens=result["total_input_tokens"],
+                    total_output_tokens=result["total_output_tokens"],
+                    total_tokens=result["total_tokens"],
+                    total_cost_usd=round(result["total_cost"], 4),
+                    weekly_insights_count=result["weekly_insights"],
+                    monthly_insights_count=result["monthly_insights"],
+                    chat_requests_count=result["chat_requests"],
+                    translation_count=result["translations"],
+                    openai_cost=round(result["openai_cost"], 4),
+                    gemini_cost=round(result["gemini_cost"], 4)
+                ))
+        
+        return user_stats
+        
+    except Exception as e:
+        print(f"Error getting users AI usage: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get users AI usage"
+        )
+
+
+@router.get("/ai-usage/user/{user_id}", response_model=List[AIUsageResponse])
+async def get_user_ai_usage_detail(
+    user_id: str = Path(...),
+    current_admin: dict = Depends(require_admin_or_super),
+    limit: int = Query(100, ge=1, le=500),
+    feature_type: Optional[AIFeatureType] = Query(None)
+):
+    """Get detailed AI usage for a specific user"""
+    try:
+        query = {"user_id": user_id}
+        
+        if feature_type:
+            query["feature_type"] = feature_type.value
+        
+        usage_records = list(
+            ai_usage_collection
+            .find(query)
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        
+        return [
+            AIUsageResponse(
+                id=record["_id"],
+                user_id=record["user_id"],
+                feature_type=AIFeatureType(record["feature_type"]),
+                provider=AIProviderType(record["provider"]),
+                model_name=record["model_name"],
+                input_tokens=record["input_tokens"],
+                output_tokens=record["output_tokens"],
+                total_tokens=record["total_tokens"],
+                estimated_cost_usd=record["estimated_cost_usd"],
+                created_at=record["created_at"]
+            )
+            for record in usage_records
+        ]
+        
+    except Exception as e:
+        print(f"Error getting user AI usage detail: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user AI usage detail"
+        )
+    
+
+
+@router.get("/ai-usage/stats/budgets", response_model=Dict)
+async def get_budget_ai_usage_stats(
+    current_admin: dict = Depends(require_admin_or_super),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None)
+):
+    """Get AI usage statistics specifically for budget features"""
+    try:
+        query = {
+            "feature_type": {"$in": ["budget_suggestion", "budget_auto_create"]}
+        }
+        
+        if start_date or end_date:
+            query["created_at"] = {}
+            if start_date:
+                query["created_at"]["$gte"] = start_date
+            if end_date:
+                query["created_at"]["$lte"] = end_date
+        
+        # Aggregate statistics
+        pipeline = [
+            {"$match": query},
+            {
+                "$group": {
+                    "_id": "$feature_type",
+                    "total_requests": {"$sum": 1},
+                    "total_tokens": {"$sum": "$total_tokens"},
+                    "total_cost": {"$sum": "$estimated_cost_usd"},
+                    "unique_users": {"$addToSet": "$user_id"}
+                }
+            }
+        ]
+        
+        results = list(ai_usage_collection.aggregate(pipeline))
+        
+        stats = {
+            "budget_suggestion": {
+                "requests": 0,
+                "tokens": 0,
+                "cost": 0.0,
+                "unique_users": 0
+            },
+            "budget_auto_create": {
+                "requests": 0,
+                "tokens": 0,
+                "cost": 0.0,
+                "unique_users": 0
+            },
+            "total": {
+                "requests": 0,
+                "tokens": 0,
+                "cost": 0.0,
+                "unique_users": set()
+            }
+        }
+        
+        for result in results:
+            feature = result["_id"]
+            stats[feature]["requests"] = result["total_requests"]
+            stats[feature]["tokens"] = result["total_tokens"]
+            stats[feature]["cost"] = round(result["total_cost"], 4)
+            stats[feature]["unique_users"] = len(result["unique_users"])
+            
+            stats["total"]["requests"] += result["total_requests"]
+            stats["total"]["tokens"] += result["total_tokens"]
+            stats["total"]["cost"] += result["total_cost"]
+            stats["total"]["unique_users"].update(result["unique_users"])
+        
+        stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
+        stats["total"]["cost"] = round(stats["total"]["cost"], 4)
+        
+        return stats
+        
+    except Exception as e:
+        print(f"Error getting budget AI usage stats: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get budget AI usage statistics"
+        )
+    
+
+
+@router.get("/ai-usage/stats/transactions", response_model=Dict)
+async def get_transaction_extraction_ai_usage_stats(
+    current_admin: dict = Depends(require_admin_or_super),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None)
+):
+    """Get AI usage statistics specifically for transaction extraction features"""
+    try:
+        query = {
+            "feature_type": {
+                "$in": [
+                    "transaction_text_extraction",
+                    "transaction_image_extraction",
+                    "transaction_audio_transcription"
+                ]
+            }
+        }
+        
+        if start_date or end_date:
+            query["created_at"] = {}
+            if start_date:
+                query["created_at"]["$gte"] = start_date
+            if end_date:
+                query["created_at"]["$lte"] = end_date
+        
+        # Aggregate statistics
+        pipeline = [
+            {"$match": query},
+            {
+                "$group": {
+                    "_id": "$feature_type",
+                    "total_requests": {"$sum": 1},
+                    "total_tokens": {"$sum": "$total_tokens"},
+                    "total_cost": {"$sum": "$estimated_cost_usd"},
+                    "unique_users": {"$addToSet": "$user_id"}
+                }
+            }
+        ]
+        
+        results = list(ai_usage_collection.aggregate(pipeline))
+        
+        stats = {
+            "transaction_text_extraction": {
+                "requests": 0,
+                "tokens": 0,
+                "cost": 0.0,
+                "unique_users": 0
+            },
+            "transaction_image_extraction": {
+                "requests": 0,
+                "tokens": 0,
+                "cost": 0.0,
+                "unique_users": 0
+            },
+            "transaction_audio_transcription": {
+                "requests": 0,
+                "tokens": 0,
+                "cost": 0.0,
+                "unique_users": 0
+            },
+            "total": {
+                "requests": 0,
+                "tokens": 0,
+                "cost": 0.0,
+                "unique_users": set()
+            }
+        }
+        
+        for result in results:
+            feature = result["_id"]
+            stats[feature]["requests"] = result["total_requests"]
+            stats[feature]["tokens"] = result["total_tokens"]
+            stats[feature]["cost"] = round(result["total_cost"], 4)
+            stats[feature]["unique_users"] = len(result["unique_users"])
+            
+            stats["total"]["requests"] += result["total_requests"]
+            stats["total"]["tokens"] += result["total_tokens"]
+            stats["total"]["cost"] += result["total_cost"]
+            stats["total"]["unique_users"].update(result["unique_users"])
+        
+        stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
+        stats["total"]["cost"] = round(stats["total"]["cost"], 4)
+        
+        return stats
+        
+    except Exception as e:
+        print(f"Error getting transaction extraction AI usage stats: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get transaction extraction AI usage statistics"
         )
 
 

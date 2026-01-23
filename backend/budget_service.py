@@ -12,8 +12,11 @@ from budget_models import (
     BudgetPeriod, CategoryBudget, AIBudgetSuggestion, BudgetStatus
 )
 from config import settings
+import logging
 
 _auto_create_locks = {}
+
+logger = logging.getLogger(__name__)
 
 
 class BudgetAnalyzer:
@@ -347,6 +350,31 @@ REMEMBER:
             response_format={"type": "json_object"},
             temperature=0.3
         )
+
+        # NEW: Track AI usage
+        if hasattr(response, 'usage'):
+            from ai_usage_service import track_ai_usage
+            from ai_usage_models import AIFeatureType, AIProviderType
+            
+            input_tokens = response.usage.prompt_tokens
+            output_tokens = response.usage.completion_tokens
+            total_tokens = response.usage.total_tokens
+            
+            logger.info(f"📊 [OPENAI TOKEN USAGE - AI Budget Suggestion] User: {self.user_id}")
+            logger.info(f"   📥 Input tokens: {input_tokens:,}")
+            logger.info(f"   📤 Output tokens: {output_tokens:,}")
+            logger.info(f"   📊 Total tokens: {total_tokens:,}")
+            logger.info(f"   🤖 Model: gpt-4o-mini")
+            
+            track_ai_usage(
+                user_id=self.user_id,
+                feature_type=AIFeatureType.WEEKLY_INSIGHT,  # We'll create a new type
+                provider=AIProviderType.OPENAI,
+                model_name="gpt-4o-mini",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens
+            )
         
         result = json.loads(response.choices[0].message.content)
         
@@ -963,6 +991,35 @@ REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list 
                 response_format={"type": "json_object"},
                 temperature=0.3
             )
+
+
+            # NEW: Track AI usage for auto-create
+            if hasattr(response, 'usage'):
+                from ai_usage_service import track_ai_usage
+                from ai_usage_models import AIFeatureType, AIProviderType
+                import logging
+                
+                logger = logging.getLogger(__name__)
+                
+                input_tokens = response.usage.prompt_tokens
+                output_tokens = response.usage.completion_tokens
+                total_tokens = response.usage.total_tokens
+                
+                logger.info(f"💰 [OPENAI TOKEN USAGE - Auto Budget Creation] User: {user_id}")
+                logger.info(f"   📥 Input tokens: {input_tokens:,}")
+                logger.info(f"   📤 Output tokens: {output_tokens:,}")
+                logger.info(f"   📊 Total tokens: {total_tokens:,}")
+                logger.info(f"   🤖 Model: gpt-4o-mini")
+                
+                track_ai_usage(
+                    user_id=user_id,
+                    feature_type=AIFeatureType.BUDGET_AUTO_CREATE,
+                    provider=AIProviderType.OPENAI,
+                    model_name="gpt-4o-mini",
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens
+                )
             
             result = json.loads(response.choices[0].message.content)
             

@@ -43,6 +43,7 @@ class GeminiFinancialChatbot:
     """AI Chatbot with Gemini + Optimized RAG"""
     
     def __init__(self):
+        self.last_usage = {}
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
         if not self.google_api_key:
             print("Warning: GOOGLE_API_KEY not found")
@@ -522,16 +523,60 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "max_output_tokens": 3000,
                 }
             )
+
+            # NEW: Variables to track token counts
+            chunk_count = 0
             
             # Stream the response
             for chunk in response:
+                chunk_count += 1
                 if chunk.text:
                     yield chunk.text
+
+            try:
+                # Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+                estimated_input = len(full_prompt) // 4
+                estimated_output = len("".join([c.text for c in response if hasattr(c, 'text')])) // 4
+                
+                # Try to get actual usage if available
+                if hasattr(response, 'usage_metadata'):
+                    actual_input = getattr(response.usage_metadata, 'prompt_token_count', estimated_input)
+                    actual_output = getattr(response.usage_metadata, 'candidates_token_count', estimated_output)
+                    actual_total = getattr(response.usage_metadata, 'total_token_count', actual_input + actual_output)
+                else:
+                    # Use estimates
+                    actual_input = estimated_input
+                    actual_output = estimated_output
+                    actual_total = estimated_input + estimated_output
+                
+                # Store usage info
+                self.last_usage = {
+                    'input_tokens': actual_input,
+                    'output_tokens': actual_output,
+                    'total_tokens': actual_total,
+                    'model_name': self.gemini_model
+                }
+                
+                # Log token usage
+                if actual_total > 0:
+                    print(f"📊 [GEMINI CHAT TOKEN USAGE] User: {user_id}")
+                    print(f"   📥 Input tokens: {actual_input:,}")
+                    print(f"   📤 Output tokens: {actual_output:,}")
+                    print(f"   📊 Total tokens: {actual_total:,}")
+                    print(f"   🤖 Model: {self.gemini_model}")
+                    
+            except Exception as usage_error:
+                print(f"⚠️ Could not capture token usage: {usage_error}")
+                self.last_usage = {}
             
         except Exception as e:
             print(f"❌ Gemini streaming chat error: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            # Reset usage on error
+            self.last_usage = {}
+            
             yield f"I encountered an error: {str(e)}"
 
 

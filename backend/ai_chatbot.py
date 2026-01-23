@@ -692,6 +692,7 @@ class FinancialChatbot:
     """AI Chatbot with GPT-4 + Optimized RAG (Recommended Approach)"""
     
     def __init__(self):
+        self.last_usage = {}
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             print("Warning: OPENAI_API_KEY not found")
@@ -1155,17 +1156,49 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 ],
                 temperature=temperature_map.get(response_style, 0.3),
                 max_tokens=1000,
-                stream=True
+                stream=True,
+                stream_options={"include_usage": True}  # NEW: Include usage in stream
             )
+
+            # NEW: Variables to accumulate usage
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_tokens = 0
             
             async for chunk in stream:
+                # NEW: Capture usage from final chunk
+                if hasattr(chunk, 'usage') and chunk.usage is not None:
+                    total_input_tokens = chunk.usage.prompt_tokens
+                    total_output_tokens = chunk.usage.completion_tokens
+                    total_tokens = chunk.usage.total_tokens
+                
                 if chunk.choices[0].delta.content is not None:
                     yield chunk.choices[0].delta.content
+            
+            # NEW: Store usage info for tracking
+            self.last_usage = {
+                'input_tokens': total_input_tokens,
+                'output_tokens': total_output_tokens,
+                'total_tokens': total_tokens,
+                'model_name': self.gpt_model
+            }
+            
+            # NEW: Log token usage
+            if total_tokens > 0:
+                print(f"📊 [OPENAI CHAT TOKEN USAGE] User: {user_id}")
+                print(f"   📥 Input tokens: {total_input_tokens:,}")
+                print(f"   📤 Output tokens: {total_output_tokens:,}")
+                print(f"   📊 Total tokens: {total_tokens:,}")
+                print(f"   🤖 Model: {self.gpt_model}")
             
         except Exception as e:
             print(f"❌ Streaming chat error: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            # Reset usage on error
+            self.last_usage = {}
+            
             yield f"I encountered an error: {str(e)}"
             
 # Global chatbot instance

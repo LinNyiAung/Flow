@@ -17,6 +17,7 @@ insights_collection = database.insights
 budgets_collection = database.budgets
 notifications_collection = database.notifications
 notification_preferences_collection = database.notification_preferences
+ai_usage_collection = database.ai_usage
 
 # Admin collections
 admins_collection = database.admins

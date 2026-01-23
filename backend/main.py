@@ -36,6 +36,8 @@ from database import (
 )
 from ai_chatbot import financial_chatbot
 from ai_chatbot_gemini import gemini_financial_chatbot
+from ai_usage_service import track_ai_usage
+from ai_usage_models import AIFeatureType, AIProviderType
 from config import settings
 
 
@@ -191,16 +193,23 @@ async def stream_chat_with_ai(
     # Get response style from request (default to "normal")
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
     
+    # NEW: Variables to track tokens
+    input_tokens = 0
+    output_tokens = 0
+    full_response = ""
+    
     async def generate_stream():
+        nonlocal input_tokens, output_tokens, full_response
+        
         try:
-            stream = chatbot.stream_chat(  # Use selected chatbot
+            # NEW: Pass a callback to track tokens
+            stream = chatbot.stream_chat(
                 user_id=current_user["_id"],
                 message=chat_request.message,
                 chat_history=chat_history,
                 response_style=response_style
             )
             
-            full_response = ""
             async for chunk in stream:
                 full_response += chunk
                 data = {
@@ -220,6 +229,28 @@ async def stream_chat_with_ai(
             yield f"data: {json.dumps(final_data)}\n\n"
             
             await save_chat_session(current_user["_id"], chat_request.message, full_response, chat_history)
+            
+            # NEW: Get token usage from chatbot after streaming completes
+            if hasattr(chatbot, 'last_usage'):
+                usage = chatbot.last_usage
+                input_tokens = usage.get('input_tokens', 0)
+                output_tokens = usage.get('output_tokens', 0)
+                total_tokens = usage.get('total_tokens', 0)
+                model_name = usage.get('model_name', '')
+                
+                # Track usage
+                if input_tokens > 0 or output_tokens > 0:
+                    provider = AIProviderType.GEMINI if chat_request.ai_provider == AIProvider.GEMINI else AIProviderType.OPENAI
+                    
+                    track_ai_usage(
+                        user_id=current_user["_id"],
+                        feature_type=AIFeatureType.CHAT,
+                        provider=provider,
+                        model_name=model_name,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens
+                    )
             
         except Exception as e:
             error_data = {

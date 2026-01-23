@@ -4,6 +4,7 @@ import {
   AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, 
   DollarSign, Target, Send, Menu, X, Settings, Lock, User // <--- Added Settings, Lock
 } from 'lucide-react';
+import AIUsageStats from './AIUsageStats';
 
 // API Configuration
 const API_BASE_URL = 'https://flowfinance.onrender.com';
@@ -673,6 +674,7 @@ const Dashboard = ({ token, admin, onLogout }) => {
               { id: 'overview', icon: BarChart3, label: 'Overview' },
               { id: 'users', icon: Users, label: 'Users' },
               { id: 'broadcast', icon: Send, label: 'Broadcast' },
+              { id: 'ai-usage', icon: Zap, label: 'AI Usage & Costs' },
               ...(admin.role === 'super_admin' ? [
                 { id: 'admins', icon: Shield, label: 'Admins' },
                 { id: 'settings', icon: Settings, label: 'Settings' },
@@ -790,6 +792,11 @@ const Dashboard = ({ token, admin, onLogout }) => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* AI Usage Tab */}
+        {activeTab === 'ai-usage' && (
+          <AIUsageStats token={token} />
         )}
 
         {/* Users Tab */}
