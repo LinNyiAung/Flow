@@ -27,6 +27,12 @@ const AIUsageStats = ({ token }) => {
     loadData();
   }, [sortBy, startDate, endDate]);
 
+  useEffect(() => {
+    if (selectedUser) {
+      loadUserDetail(selectedUser.user_id);
+    }
+  }, [featureFilter]);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -452,7 +458,6 @@ const AIUsageStats = ({ token }) => {
                 value={featureFilter}
                 onChange={(e) => {
                   setFeatureFilter(e.target.value);
-                  loadUserDetail(selectedUser.user_id);
                 }}
                 className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600/30 rounded-xl text-slate-100 outline-none"
               >
