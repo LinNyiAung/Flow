@@ -765,6 +765,7 @@ async def batch_create_transactions(
                 "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
                 "description": transaction_data.description,
                 "amount": transaction_data.amount,
+                "currency": transaction_data.currency.value,  
                 "created_at": now,
                 "updated_at": now
             }
@@ -781,6 +782,7 @@ async def batch_create_transactions(
                     date=transaction_data.date,
                     description=transaction_data.description,
                     amount=transaction_data.amount,
+                    currency=transaction_data.currency,
                     created_at=now,
                     updated_at=now
                 ))
