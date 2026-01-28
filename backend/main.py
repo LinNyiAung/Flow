@@ -163,7 +163,7 @@ async def stream_chat_with_ai(
 ):
     """Stream chat response from AI with response style and provider support"""
     
-    # NEW: Select chatbot based on provider
+    # Select chatbot based on provider
     if chat_request.ai_provider == AIProvider.GEMINI:
         chatbot = gemini_financial_chatbot
         if chatbot is None:
@@ -193,7 +193,7 @@ async def stream_chat_with_ai(
     # Get response style from request (default to "normal")
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
     
-    # NEW: Variables to track tokens
+    # Variables to track tokens
     input_tokens = 0
     output_tokens = 0
     full_response = ""
@@ -202,7 +202,7 @@ async def stream_chat_with_ai(
         nonlocal input_tokens, output_tokens, full_response
         
         try:
-            # NEW: Pass a callback to track tokens
+            # Pass a callback to track tokens
             stream = chatbot.stream_chat(
                 user_id=current_user["_id"],
                 message=chat_request.message,
@@ -230,7 +230,7 @@ async def stream_chat_with_ai(
             
             await save_chat_session(current_user["_id"], chat_request.message, full_response, chat_history)
             
-            # NEW: Get token usage from chatbot after streaming completes
+            # Get token usage from chatbot after streaming completes
             if hasattr(chatbot, 'last_usage'):
                 usage = chatbot.last_usage
                 input_tokens = usage.get('input_tokens', 0)
@@ -326,15 +326,14 @@ async def clear_chat_history(current_user: dict = Depends(get_current_user)):
         )
 
 
-
 @app.post("/api/chat/refresh-data")
 async def refresh_ai_data(
-    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),  # NEW
+    ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     current_user: dict = Depends(get_current_user)
 ):
     """Manually refresh user's AI data"""
     try:
-        # NEW: Refresh based on provider
+        # Refresh based on provider
         if ai_provider == AIProvider.GEMINI:
             if gemini_financial_chatbot:
                 gemini_financial_chatbot.refresh_user_data(current_user["_id"])
@@ -370,7 +369,7 @@ async def refresh_ai_data(
 async def get_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
-    insight_type: Optional[str] = Query(default="weekly", regex="^(weekly|monthly)$"),  # NEW
+    insight_type: Optional[str] = Query(default="weekly", regex="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
     """Get latest AI-generated financial insights"""
@@ -379,7 +378,7 @@ async def get_insights(
         latest_insight = insights_collection.find_one({
             "user_id": current_user["_id"],
             "ai_provider": ai_provider.value,
-            "insight_type": insight_type  # NEW
+            "insight_type": insight_type
         }, sort=[("generated_at", -1)])
         
         if latest_insight:
@@ -393,7 +392,8 @@ async def get_insights(
                 
                 myanmar_content = await translate_insight_to_myanmar(
                     latest_insight["content"],
-                    ai_provider.value
+                    ai_provider.value,
+                    user_id=current_user["_id"]  # ✅ PASSED USER_ID
                 )
                 
                 insights_collection.update_one(
@@ -409,7 +409,6 @@ async def get_insights(
                 content=latest_insight["content"],
                 content_mm=latest_insight.get("content_mm"),
                 generated_at=latest_insight["generated_at"],
-                data_hash=latest_insight.get("data_hash", ""),
                 expires_at=latest_insight.get("expires_at")
             )
         
@@ -443,7 +442,8 @@ async def get_insights(
             
             myanmar_content = await translate_insight_to_myanmar(
                 new_insight["content"],
-                ai_provider.value
+                ai_provider.value,
+                user_id=current_user["_id"]  # ✅ PASSED USER_ID
             )
                 
             insights_collection.update_one(
@@ -461,7 +461,6 @@ async def get_insights(
             content=new_insight["content"],
             content_mm=new_insight.get("content_mm"),
             generated_at=new_insight["generated_at"],
-            data_hash=new_insight.get("data_hash", ""),
             expires_at=new_insight.get("expires_at")
         )
         
@@ -478,7 +477,7 @@ async def get_insights(
 @app.delete("/api/insights")
 async def delete_insights(
     ai_provider: Optional[AIProvider] = Query(default=None),
-    insight_type: Optional[str] = Query(default=None, regex="^(weekly|monthly)$"),  # NEW
+    insight_type: Optional[str] = Query(default=None, regex="^(weekly|monthly)$"),
     current_user: dict = Depends(get_current_user)
 ):
     """Delete cached insights"""
@@ -488,7 +487,7 @@ async def delete_insights(
         if ai_provider:
             query["ai_provider"] = ai_provider.value
         
-        if insight_type:  # NEW
+        if insight_type:
             query["insight_type"] = insight_type
         
         result = insights_collection.delete_many(query)
@@ -511,7 +510,7 @@ async def delete_insights(
 async def regenerate_insights(
     language: Optional[str] = Query(default="en", regex="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
-    insight_type: Optional[str] = Query(default="weekly", regex="^(weekly|monthly)$"),  # NEW
+    insight_type: Optional[str] = Query(default="weekly", regex="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
     """Force regenerate insights (admin/testing purpose)"""
@@ -545,7 +544,8 @@ async def regenerate_insights(
             
             myanmar_content = await translate_insight_to_myanmar(
                 new_insight["content"],
-                ai_provider.value
+                ai_provider.value,
+                user_id=current_user["_id"]  # ✅ PASSED USER_ID
             )
                 
             insights_collection.update_one(
@@ -563,7 +563,6 @@ async def regenerate_insights(
             content=new_insight["content"],
             content_mm=new_insight.get("content_mm"),
             generated_at=new_insight["generated_at"],
-            data_hash=new_insight.get("data_hash", ""),
             expires_at=new_insight.get("expires_at")
         )
         
@@ -588,7 +587,7 @@ async def translate_insights_to_myanmar(
         insight = insights_collection.find_one({
             "user_id": current_user["_id"],
             "ai_provider": ai_provider.value,
-            "insight_type": "weekly"  # NEW
+            "insight_type": "weekly"
         }, sort=[("generated_at", -1)])
         
         if not insight:
@@ -610,7 +609,8 @@ async def translate_insights_to_myanmar(
         
         myanmar_content = await translate_insight_to_myanmar(
             insight["content"],
-            ai_provider.value
+            ai_provider.value,
+            user_id=current_user["_id"]  # ✅ PASSED USER_ID
         )
         
         # Update with Myanmar translation
@@ -853,7 +853,7 @@ async def get_notifications(
                 message=n["message"],
                 goal_id=n.get("goal_id"),
                 goal_name=n.get("goal_name"),
-                currency=n.get("currency"),  # NEW
+                currency=n.get("currency"),
                 created_at=n["created_at"],
                 is_read=n["is_read"]
             )
