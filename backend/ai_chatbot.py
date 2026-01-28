@@ -494,87 +494,84 @@ class FinancialDataProcessor:
         
         
         # === INDIVIDUAL BUDGET DETAILS (with currency) ===
-            for budget in budgets:
-                currency = budget.get("currency", "usd")
-                currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
-                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-                
-                start_date = ensure_utc_datetime(budget["start_date"])
-                end_date = ensure_utc_datetime(budget["end_date"])
-                days_remaining = (end_date - datetime.now(timezone.utc)).days
-                days_total = (end_date - start_date).days + 1
-                days_elapsed = days_total - days_remaining
-                
-                budget_text = f"╔═══════════════════════════════════════════════════╗\n"
-                budget_text += f"║   BUDGET: {budget['name'][:40].center(40)}   ║\n"
-                budget_text += f"╚═══════════════════════════════════════════════════╝\n\n"
-                
-                budget_text += f"Currency: {currency_name}\n"
-                budget_text += f"Period: {budget['period'].title()}\n"
-                budget_text += f"Start Date: {start_date.strftime('%B %d, %Y')}\n"
-                budget_text += f"End Date: {end_date.strftime('%B %d, %Y')}\n"
-                budget_text += f"Days Elapsed: {days_elapsed} / {days_total}\n"
-                budget_text += f"Days Remaining: {days_remaining}\n\n"
-                
-                budget_text += f"💰 OVERALL BUDGET:\n"
-                budget_text += f"Total Budget: {currency_symbol}{budget['total_budget']:.2f}\n"
-                budget_text += f"Total Spent: {currency_symbol}{budget['total_spent']:.2f}\n"
-                budget_text += f"Remaining: {currency_symbol}{budget['remaining_budget']:.2f}\n"
-                budget_text += f"Usage: {budget['percentage_used']:.1f}%\n"
-                
-                if budget['percentage_used'] >= 100:
-                    budget_text += f"⚠️  BUDGET EXCEEDED by {currency_symbol}{budget['total_spent'] - budget['total_budget']:.2f}\n"
-                elif budget['percentage_used'] >= 80:
-                    budget_text += f"⚠️  CAUTION: High usage - {currency_symbol}{budget['remaining_budget']:.2f} remaining\n"
-                
-                # Daily rate analysis
-                if days_remaining > 0:
-                    daily_rate_current = budget['total_spent'] / days_elapsed if days_elapsed > 0 else 0
-                    daily_budget_remaining = budget['remaining_budget'] / days_remaining
-                    
-                    budget_text += f"\n📊 SPENDING RATE:\n"
-                    budget_text += f"Current Daily Avg: {currency_symbol}{daily_rate_current:.2f}\n"
-                    budget_text += f"Daily Budget Left: {currency_symbol}{daily_budget_remaining:.2f}\n"
-                    
-                    if daily_rate_current > daily_budget_remaining:
-                        budget_text += f"⚠️  Spending faster than budget allows!\n"
-                
-                budget_text += f"\n📋 CATEGORY BUDGETS:\n\n"
-                for cat in budget['category_budgets']:
-                    cat_name = cat['main_category']
-                    cat_allocated = cat['allocated_amount']
-                    cat_spent = cat['spent_amount']
-                    cat_remaining = cat_allocated - cat_spent
-                    cat_percentage = cat.get('percentage_used', 0)
-                    
-                    budget_text += f"──── {cat_name} ────\n"
-                    budget_text += f"Allocated: {currency_symbol}{cat_allocated:.2f}\n"
-                    budget_text += f"Spent: {currency_symbol}{cat_spent:.2f}\n"
-                    budget_text += f"Remaining: {currency_symbol}{cat_remaining:.2f}\n"
-                    budget_text += f"Usage: {cat_percentage:.1f}%\n"
-                    
-                    if cat.get('is_exceeded'):
-                        budget_text += f"🔴 EXCEEDED by {currency_symbol}{abs(cat_remaining):.2f}\n"
-                    elif cat_percentage >= 80:
-                        budget_text += f"🟡 HIGH USAGE - approaching limit\n"
-                    else:
-                        budget_text += f"🟢 ON TRACK\n"
-                    
-                    budget_text += "\n"
-                
-                documents.append(Document(
-                    page_content=budget_text,
-                    metadata={
-                        "type": "budget_detail",
-                        "user_id": self.user_id,
-                        "budget_id": budget["_id"],
-                        "budget_name": budget["name"],
-                        "currency": currency
-                    }
-                ))
+        for budget in budgets:
+            currency = budget.get("currency", "usd")
+            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
+            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
-            print(f"✅ Created {len(documents)} optimized documents for GPT-4 (including {len(goals)} goals, {len(budgets)} budgets, multi-currency)")
-            return documents
+            start_date = ensure_utc_datetime(budget["start_date"])
+            end_date = ensure_utc_datetime(budget["end_date"])
+            days_remaining = (end_date - datetime.now(timezone.utc)).days
+            days_total = (end_date - start_date).days + 1
+            days_elapsed = days_total - days_remaining
+            
+            budget_text = f"╔═══════════════════════════════════════════════════╗\n"
+            budget_text += f"║   BUDGET: {budget['name'][:40].center(40)}   ║\n"
+            budget_text += f"╚═══════════════════════════════════════════════════╝\n\n"
+            
+            budget_text += f"Currency: {currency_name}\n"
+            budget_text += f"Period: {budget['period'].title()}\n"
+            budget_text += f"Start Date: {start_date.strftime('%B %d, %Y')}\n"
+            budget_text += f"End Date: {end_date.strftime('%B %d, %Y')}\n"
+            budget_text += f"Days Elapsed: {days_elapsed} / {days_total}\n"
+            budget_text += f"Days Remaining: {days_remaining}\n\n"
+            
+            budget_text += f"💰 OVERALL BUDGET:\n"
+            budget_text += f"Total Budget: {currency_symbol}{budget['total_budget']:.2f}\n"
+            budget_text += f"Total Spent: {currency_symbol}{budget['total_spent']:.2f}\n"
+            budget_text += f"Remaining: {currency_symbol}{budget['remaining_budget']:.2f}\n"
+            budget_text += f"Usage: {budget['percentage_used']:.1f}%\n"
+            
+            if budget['percentage_used'] >= 100:
+                budget_text += f"⚠️  BUDGET EXCEEDED by {currency_symbol}{budget['total_spent'] - budget['total_budget']:.2f}\n"
+            elif budget['percentage_used'] >= 80:
+                budget_text += f"⚠️  CAUTION: High usage - {currency_symbol}{budget['remaining_budget']:.2f} remaining\n"
+            
+            # Daily rate analysis
+            if days_remaining > 0:
+                daily_rate_current = budget['total_spent'] / days_elapsed if days_elapsed > 0 else 0
+                daily_budget_remaining = budget['remaining_budget'] / days_remaining
+                
+                budget_text += f"\n📊 SPENDING RATE:\n"
+                budget_text += f"Current Daily Avg: {currency_symbol}{daily_rate_current:.2f}\n"
+                budget_text += f"Daily Budget Left: {currency_symbol}{daily_budget_remaining:.2f}\n"
+                
+                if daily_rate_current > daily_budget_remaining:
+                    budget_text += f"⚠️  Spending faster than budget allows!\n"
+            
+            budget_text += f"\n📋 CATEGORY BUDGETS:\n\n"
+            for cat in budget['category_budgets']:
+                cat_name = cat['main_category']
+                cat_allocated = cat['allocated_amount']
+                cat_spent = cat['spent_amount']
+                cat_remaining = cat_allocated - cat_spent
+                cat_percentage = cat.get('percentage_used', 0)
+                
+                budget_text += f"──── {cat_name} ────\n"
+                budget_text += f"Allocated: {currency_symbol}{cat_allocated:.2f}\n"
+                budget_text += f"Spent: {currency_symbol}{cat_spent:.2f}\n"
+                budget_text += f"Remaining: {currency_symbol}{cat_remaining:.2f}\n"
+                budget_text += f"Usage: {cat_percentage:.1f}%\n"
+                
+                if cat.get('is_exceeded'):
+                    budget_text += f"🔴 EXCEEDED by {currency_symbol}{abs(cat_remaining):.2f}\n"
+                elif cat_percentage >= 80:
+                    budget_text += f"🟡 HIGH USAGE - approaching limit\n"
+                else:
+                    budget_text += f"🟢 ON TRACK\n"
+                
+                budget_text += "\n"
+            
+            documents.append(Document(
+                page_content=budget_text,
+                metadata={
+                    "type": "budget_detail",
+                    "user_id": self.user_id,
+                    "budget_id": budget["_id"],
+                    "budget_name": budget["name"],
+                    "currency": currency
+                }
+            ))
 
         # === DAILY SUMMARIES (Last 30 days, multi-currency) ===
         transactions_by_date = {}
@@ -684,7 +681,7 @@ class FinancialDataProcessor:
                     }
                 ))
         
-        print(f"✅ Created {len(documents)} optimized documents for GPT-4 (including {len(goals)} goals, multi-currency)")
+        print(f"✅ Created {len(documents)} optimized documents for GPT-4 (including {len(goals)} goals, {len(budgets)} budgets, multi-currency)")
         return documents
 
 
