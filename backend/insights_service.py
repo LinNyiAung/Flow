@@ -2,7 +2,7 @@ import uuid
 import os
 from datetime import datetime, timedelta, UTC
 from notification_service import create_notification, notify_monthly_insights_generated, notify_weekly_insights_generated
-from database import users_collection, insights_collection, budgets_collection
+from database import users_collection, insights_collection, budgets_collection, transactions_collection
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
 from ai_chatbot_gemini import gemini_financial_chatbot
 import logging
@@ -75,42 +75,43 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
             logger.error(f"User not found: {user_id}")
             return None
         
-        # Get financial data processor
+        # Get financial data processor for other data (goals/budgets)
         processor = FinancialDataProcessor(user_id)
         
-        # Get current week transactions
-        current_week_transactions = processor.get_user_transactions()
-        current_week_transactions = [
-            t for t in current_week_transactions
-            if week_start <= processor.ensure_utc_datetime(t["date"]) <= week_end
-        ]
+        # ✅ FIXED: Direct DB query for CURRENT week only
+        # No longer fetching all history into RAM
+        current_week_transactions = list(transactions_collection.find({
+            "user_id": user_id,
+            "date": {
+                "$gte": week_start,
+                "$lte": week_end
+            }
+        }))
         
-        # Get previous week transactions
-        prev_week_transactions = processor.get_user_transactions()
-        prev_week_transactions = [
-            t for t in prev_week_transactions
-            if prev_week_start <= processor.ensure_utc_datetime(t["date"]) <= prev_week_end
-        ]
+        # ✅ FIXED: Direct DB query for PREVIOUS week only
+        prev_week_transactions = list(transactions_collection.find({
+            "user_id": user_id,
+            "date": {
+                "$gte": prev_week_start,
+                "$lte": prev_week_end
+            }
+        }))
         
-        # Get goals
+        # Get goals & budgets (usually small datasets, safe to fetch all)
         goals = processor.get_user_goals()
-        
-        
-        # Get budgets
         budgets = processor.get_user_budgets()
         
-        # NEW: Check if user has any financial activity at all
-        all_transactions = processor.get_user_transactions()
-        has_activity = len(all_transactions) > 0 or len(goals) > 0 or len(budgets) > 0
+        # ✅ FIXED: Efficient check for activity using find_one (returns None if empty)
+        # Instead of loading 5000+ items to check len() > 0
+        has_any_transaction = transactions_collection.find_one({"user_id": user_id}) is not None
+        has_activity = has_any_transaction or len(goals) > 0 or len(budgets) > 0
         
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
-            # Return a placeholder insight without calling AI
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
             
             placeholder_content = """## 👋 Welcome to Flow Finance!
-
 ### 🎯 Get Started with Your Financial Journey
 
 It looks like you're just getting started with Flow Finance. To generate personalized AI insights, you'll need to add some financial activities first.
@@ -154,7 +155,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "insight_type": "weekly",
                 "ai_provider": ai_provider,
                 "expires_at": None,
-                "is_placeholder": True  # NEW: Flag to indicate this is a placeholder
+                "is_placeholder": True
             }
             
             insights_collection.insert_one(new_insight)
@@ -166,7 +167,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             sort=[("generated_at", -1)]
         )
         
-        # Build context for weekly insights
+        # Build context (remains the same)
         context = _build_weekly_context(
             user, 
             current_week_transactions, 
@@ -178,33 +179,25 @@ Start by adding your first transaction or creating a financial goal. The more da
             previous_insight
         )
         
-        # Generate insights using AI
         system_prompt = _build_weekly_system_prompt()
         
         from openai import AsyncOpenAI
         from google import genai
         
-        # NEW: Variables to track token usage
         input_tokens = 0
         output_tokens = 0
         total_tokens = 0
         
         if ai_provider == "gemini":
             client = genai.Client(api_key=GOOGLE_API_KEY)
-            
             full_prompt = f"{system_prompt}\n\n{context}"
-            
             response = client.models.generate_content(
                 model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 contents=full_prompt,
-                config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 8192,
-                }
+                config={"temperature": 0.7, "max_output_tokens": 8192}
             )
             insights_content = response.text
             
-            # NEW: Extract token usage from Gemini response
             if hasattr(response, 'usage_metadata'):
                 input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
                 output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
@@ -214,8 +207,6 @@ Start by adding your first transaction or creating a financial goal. The more da
                 logger.info(f"   📥 Input tokens: {input_tokens:,}")
                 logger.info(f"   📤 Output tokens: {output_tokens:,}")
                 logger.info(f"   📊 Total tokens: {total_tokens:,}")
-
-                # NEW: Track usage
                 track_ai_usage(
                     user_id=user_id,
                     feature_type=AIFeatureType.WEEKLY_INSIGHT,
@@ -238,7 +229,6 @@ Start by adding your first transaction or creating a financial goal. The more da
             )
             insights_content = response.choices[0].message.content
             
-            # NEW: Extract token usage from OpenAI response
             if hasattr(response, 'usage'):
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
@@ -249,8 +239,6 @@ Start by adding your first transaction or creating a financial goal. The more da
                 logger.info(f"   📤 Output tokens: {output_tokens:,}")
                 logger.info(f"   📊 Total tokens: {total_tokens:,}")
                 logger.info(f"   🤖 Model: {chatbot.gpt_model}")
-
-                # NEW: Track usage
                 track_ai_usage(
                     user_id=user_id,
                     feature_type=AIFeatureType.WEEKLY_INSIGHT,
@@ -261,7 +249,6 @@ Start by adding your first transaction or creating a financial goal. The more da
                     total_tokens=total_tokens
                 )
         
-        # Save to database
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
         
@@ -276,8 +263,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             "insight_type": "weekly",
             "ai_provider": ai_provider,
             "expires_at": None,
-            "is_placeholder": False,  # NEW: Flag to indicate this is real AI content
-            # NEW: Store token usage
+            "is_placeholder": False,
             "token_usage": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
@@ -286,10 +272,7 @@ Start by adding your first transaction or creating a financial goal. The more da
         }
         
         insights_collection.insert_one(new_insight)
-        
-        # Notify user that weekly insights are ready
         notify_weekly_insights_generated(user_id)
-        
         logger.info(f"✅ Weekly insight generated for user {user_id} using {ai_provider}")
         return new_insight
         
@@ -803,40 +786,39 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
         # Get financial data processor
         processor = FinancialDataProcessor(user_id)
         
-        # Get current month transactions
-        current_month_transactions = processor.get_user_transactions()
-        current_month_transactions = [
-            t for t in current_month_transactions
-            if month_start <= processor.ensure_utc_datetime(t["date"]) <= month_end
-        ]
+        # ✅ FIXED: Direct DB query for CURRENT month only
+        current_month_transactions = list(transactions_collection.find({
+            "user_id": user_id,
+            "date": {
+                "$gte": month_start,
+                "$lte": month_end
+            }
+        }))
         
-        # Get previous month transactions
-        prev_month_transactions = processor.get_user_transactions()
-        prev_month_transactions = [
-            t for t in prev_month_transactions
-            if prev_month_start <= processor.ensure_utc_datetime(t["date"]) <= prev_month_end
-        ]
+        # ✅ FIXED: Direct DB query for PREVIOUS month only
+        prev_month_transactions = list(transactions_collection.find({
+            "user_id": user_id,
+            "date": {
+                "$gte": prev_month_start,
+                "$lte": prev_month_end
+            }
+        }))
         
-        # Get goals
+        # Get goals & budgets
         goals = processor.get_user_goals()
-        
-        
-        # Get budgets
         budgets = processor.get_user_budgets()
         
-        
-        # NEW: Check if user has any financial activity at all
-        all_transactions = processor.get_user_transactions()
-        has_activity = len(all_transactions) > 0 or len(goals) > 0 or len(budgets) > 0
+        # ✅ FIXED: Efficient check for activity
+        has_any_transaction = transactions_collection.find_one({"user_id": user_id}) is not None
+        has_activity = has_any_transaction or len(goals) > 0 or len(budgets) > 0
         
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
-            # Return a placeholder insight without calling AI
+            
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
             
             placeholder_content = """## 👋 Welcome to Flow Finance!
-
 ### 🎯 Get Started with Your Financial Journey
 
 It looks like you're just getting started with Flow Finance. To generate personalized monthly AI insights, you'll need to add some financial activities first.
@@ -881,19 +863,19 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "insight_type": "monthly",
                 "ai_provider": ai_provider,
                 "expires_at": None,
-                "is_placeholder": True  # NEW: Flag to indicate this is a placeholder
+                "is_placeholder": True
             }
             
             insights_collection.insert_one(new_insight)
             return new_insight
         
-        # Get previous month's insight for comparison
+        # Get previous month's insight
         previous_insight = insights_collection.find_one(
             {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "monthly"},
             sort=[("generated_at", -1)]
         )
         
-        # Build context for monthly insights
+        # Build context
         context = _build_monthly_context(
             user, 
             current_month_transactions, 
@@ -905,7 +887,8 @@ Start by adding your first transaction or creating a financial goal. The more da
             previous_insight
         )
         
-        # Generate insights using AI
+        # ... (Rest of the function: AI generation, token tracking, saving to DB) ...
+        # [Copy the rest of the original function logic here]
         system_prompt = _build_monthly_system_prompt()
         
         from openai import AsyncOpenAI
@@ -913,21 +896,14 @@ Start by adding your first transaction or creating a financial goal. The more da
         
         if ai_provider == "gemini":
             client = genai.Client(api_key=GOOGLE_API_KEY)
-            
             full_prompt = f"{system_prompt}\n\n{context}"
-            
             response = client.models.generate_content(
                 model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 contents=full_prompt,
-                config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 8192,
-                }
+                config={"temperature": 0.7, "max_output_tokens": 8192}
             )
             insights_content = response.text
-
-
-            # NEW: Track usage
+            
             if hasattr(response, 'usage_metadata'):
                 input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
                 output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
@@ -954,9 +930,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 max_tokens=3000
             )
             insights_content = response.choices[0].message.content
-
-
-            # NEW: Track usage
+            
             if hasattr(response, 'usage'):
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
@@ -972,7 +946,6 @@ Start by adding your first transaction or creating a financial goal. The more da
                     total_tokens=total_tokens
                 )
         
-        # Save to database
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
         
@@ -987,14 +960,11 @@ Start by adding your first transaction or creating a financial goal. The more da
             "insight_type": "monthly",
             "ai_provider": ai_provider,
             "expires_at": None,
-            "is_placeholder": False  # NEW: Flag to indicate this is real AI content
+            "is_placeholder": False
         }
         
         insights_collection.insert_one(new_insight)
-        
-        # Notify user that monthly insights are ready
         notify_monthly_insights_generated(user_id)
-        
         logger.info(f"✅ Monthly insight generated for user {user_id} using {ai_provider}")
         return new_insight
         
