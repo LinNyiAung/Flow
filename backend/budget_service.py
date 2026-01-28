@@ -12,6 +12,7 @@ from budget_models import (
     BudgetPeriod, CategoryBudget, AIBudgetSuggestion, BudgetStatus
 )
 from config import settings
+from pymongo.errors import DuplicateKeyError
 import logging
 
 _auto_create_locks = {}
@@ -854,6 +855,11 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         )
         
         return new_budget_id
+    
+    except DuplicateKeyError:
+        # Gracefully handle the race condition
+        print(f"Race condition avoided: Budget already exists for {budget_id}")
+        return None
         
     except Exception as e:
         print(f"❌ Error auto-creating budget: {str(e)}")

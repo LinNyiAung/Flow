@@ -1,4 +1,4 @@
-from pymongo import MongoClient
+from pymongo import ASCENDING, MongoClient
 from config import settings
 
 client = MongoClient(settings.MONGODB_URL)
@@ -162,6 +162,26 @@ def initialize_categories():
         
         
         
+def create_db_indexes():
+    """Create indexes to ensure data integrity and fix race conditions"""
+    try:
+        # Create a unique compound index for budgets
+        # This prevents the "Double Budget" race condition
+        budgets_collection.create_index(
+            [
+                ("user_id", ASCENDING),
+                ("parent_budget_id", ASCENDING),
+                ("start_date", ASCENDING)
+            ],
+            unique=True,
+            background=True  # Build in background to avoid blocking
+        )
+        print("✅ Database indexes verified/created")
+    except Exception as e:
+        print(f"⚠️ Failed to create indexes: {e}")
+        
+        
+        
 def initialize_notification_preferences():
     """Initialize default notification preferences for users who don't have them"""
     # This will be called when a user first accesses notification settings
@@ -194,3 +214,4 @@ def initialize_admin():
 initialize_categories()
 initialize_notification_preferences()
 initialize_admin()
+create_db_indexes()
