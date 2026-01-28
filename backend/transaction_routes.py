@@ -4,7 +4,8 @@ import uuid
 from datetime import datetime, UTC, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Query, Path
+# Added BackgroundTasks to imports
+from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
 
 from utils import get_current_user, refresh_ai_data_silent, require_premium
 from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
@@ -26,12 +27,12 @@ from config import settings
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
-
 # ==================== TRANSACTIONS ====================
 
 @router.post("", response_model=TransactionResponse)
 async def create_transaction(
     transaction_data: TransactionCreate,
+    background_tasks: BackgroundTasks,  # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Create new transaction"""
@@ -47,7 +48,7 @@ async def create_transaction(
         "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
         "description": transaction_data.description,
         "amount": transaction_data.amount,
-        "currency": transaction_data.currency.value,  # NEW
+        "currency": transaction_data.currency.value,
         "created_at": now,
         "updated_at": now,
     }
@@ -74,7 +75,7 @@ async def create_transaction(
         user_transactions = list(transactions_collection.find({
             "user_id": current_user["_id"],
             "type": "outflow",
-            "currency": transaction_data.currency.value  # NEW - filter by currency
+            "currency": transaction_data.currency.value
         }).limit(50))
         
         if user_transactions:
@@ -91,8 +92,9 @@ async def create_transaction(
     except Exception as e:
         print(f"Error checking large transaction: {e}")
     
-    refresh_ai_data_silent(current_user["_id"])
-    update_all_user_budgets(current_user["_id"])
+    # ✅ FIX: Moved heavy sync operations to background tasks
+    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
 
     recurrence_obj = None
     if new_transaction.get("recurrence"):
@@ -107,13 +109,12 @@ async def create_transaction(
         date=transaction_data.date,
         description=transaction_data.description,
         amount=transaction_data.amount,
-        currency=transaction_data.currency,  # NEW
+        currency=transaction_data.currency,
         created_at=now,
         updated_at=now,
         recurrence=recurrence_obj,
         parent_transaction_id=new_transaction["recurrence"].get("parent_transaction_id")
     )
-
 
 
 @router.get("", response_model=List[TransactionResponse])
@@ -124,7 +125,7 @@ async def get_transactions(
     transaction_type: Optional[TransactionType] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    currency: Optional[Currency] = None  # NEW
+    currency: Optional[Currency] = None
 ):
     """Get user transactions with filters"""
     query = {"user_id": current_user["_id"]}
@@ -132,7 +133,7 @@ async def get_transactions(
     if transaction_type:
         query["type"] = transaction_type.value
     
-    if currency:  # NEW
+    if currency:
         query["currency"] = currency.value
     
     if start_date or end_date:
@@ -166,7 +167,7 @@ async def get_transactions(
             date=t["date"],
             description=t.get("description"),
             amount=t["amount"],
-            currency=Currency(t.get("currency", "usd")),  # NEW
+            currency=Currency(t.get("currency", "usd")),
             created_at=t["created_at"],
             updated_at=t.get("updated_at", t["created_at"]),
             recurrence=recurrence_obj,
@@ -179,6 +180,7 @@ async def get_transactions(
 @router.post("/{transaction_id}/disable-recurrence")
 async def disable_transaction_recurrence(
     transaction_id: str = Path(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for a transaction"""
@@ -190,8 +192,9 @@ async def disable_transaction_recurrence(
             detail="Transaction not found or recurrence not enabled"
         )
     
-    refresh_ai_data_silent(current_user["_id"])
-    update_all_user_budgets(current_user["_id"])
+    # ✅ FIX: Moved heavy sync operations to background tasks
+    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
     
     return {"message": "Recurrence disabled successfully"}
 
@@ -199,6 +202,7 @@ async def disable_transaction_recurrence(
 @router.post("/{transaction_id}/disable-parent-recurrence")
 async def disable_parent_transaction_recurrence(
     transaction_id: str = Path(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
@@ -230,8 +234,9 @@ async def disable_parent_transaction_recurrence(
             detail="Parent transaction not found"
         )
     
-    refresh_ai_data_silent(current_user["_id"])
-    update_all_user_budgets(current_user["_id"])
+    # ✅ FIX: Moved heavy sync operations to background tasks
+    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
     
     return {"message": "Parent transaction recurrence disabled successfully"}
 
@@ -292,7 +297,7 @@ async def get_transaction(
         date=transaction["date"],
         description=transaction.get("description"),
         amount=transaction["amount"],
-        currency=Currency(transaction.get("currency", "usd")),  # NEW
+        currency=Currency(transaction.get("currency", "usd")),
         created_at=transaction["created_at"],
         updated_at=transaction.get("updated_at", transaction["created_at"]),
         recurrence=recurrence_obj,
@@ -304,6 +309,7 @@ async def get_transaction(
 async def update_transaction(
     transaction_id: str = Path(...),
     transaction_data: TransactionUpdate = ...,
+    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Update transaction"""
@@ -317,7 +323,7 @@ async def update_transaction(
 
     update_data = {"updated_at": datetime.now(UTC)}
     
-    for field in ["type", "main_category", "sub_category", "date", "description", "amount", "currency"]:  # Added currency
+    for field in ["type", "main_category", "sub_category", "date", "description", "amount", "currency"]:
         value = getattr(transaction_data, field, None)
         if value is not None:
             update_data[field] = value.value if field in ["type", "currency"] else value
@@ -333,8 +339,10 @@ async def update_transaction(
     )
 
     updated_transaction = transactions_collection.find_one({"_id": transaction_id})
-    refresh_ai_data_silent(current_user["_id"])
-    update_all_user_budgets(current_user["_id"])
+    
+    # ✅ FIX: Moved heavy sync operations to background tasks
+    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
 
     recurrence_obj = None
     if updated_transaction.get("recurrence"):
@@ -349,7 +357,7 @@ async def update_transaction(
         date=updated_transaction["date"],
         description=updated_transaction["description"],
         amount=updated_transaction["amount"],
-        currency=Currency(updated_transaction.get("currency", "usd")),  # NEW
+        currency=Currency(updated_transaction.get("currency", "usd")),
         created_at=updated_transaction["created_at"],
         updated_at=updated_transaction["updated_at"],
         recurrence=recurrence_obj,
@@ -360,6 +368,7 @@ async def update_transaction(
 @router.delete("/{transaction_id}")
 async def delete_transaction(
     transaction_id: str = Path(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Delete transaction"""
@@ -371,8 +380,10 @@ async def delete_transaction(
     if result.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete transaction")
 
-    refresh_ai_data_silent(current_user["_id"])
-    update_all_user_budgets(current_user["_id"])
+    # ✅ FIX: Moved heavy sync operations to background tasks
+    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
+    
     return {"message": "Transaction deleted successfully"}
 
 
@@ -409,19 +420,15 @@ async def transcribe_audio(
                     language="en"
                 )
             
-            # NEW: Track AI usage for audio transcription
-            # Note: Whisper API doesn't return token counts, so we estimate based on audio duration
-            # We'll use a fixed cost estimation for now
+            # Track AI usage for audio transcription
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
             import logging
             
             logger = logging.getLogger(__name__)
             
-            # Estimate tokens based on transcription length (rough approximation)
-            # Whisper doesn't provide token counts, so we estimate
             transcription_length = len(transcript.text)
-            estimated_input_tokens = int(transcription_length / 4)  # Rough estimate
+            estimated_input_tokens = int(transcription_length / 4)
             estimated_output_tokens = int(transcription_length / 4)
             estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
             
@@ -536,7 +543,7 @@ Respond in JSON format:
             temperature=0.3
         )
 
-        # NEW: Track AI usage
+        # Track AI usage
         if hasattr(response, 'usage'):
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
@@ -682,7 +689,7 @@ Respond in JSON format:
         )
 
 
-        # NEW: Track AI usage
+        # Track AI usage
         if hasattr(response, 'usage'):
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
@@ -745,6 +752,7 @@ Respond in JSON format:
 @router.post("/batch-create", response_model=List[TransactionResponse])
 async def batch_create_transactions(
     transactions_data: List[TransactionCreate],
+    background_tasks: BackgroundTasks, # <--- Injected BackgroundTasks
     current_user: dict = Depends(require_premium)
 ):
     """Create multiple transactions at once"""
@@ -791,8 +799,9 @@ async def batch_create_transactions(
     
     # Refresh AI data and budgets once after all transactions
     if created_transactions:
-        refresh_ai_data_silent(current_user["_id"])
-        update_all_user_budgets(current_user["_id"])
+        # ✅ FIX: Moved heavy sync operations to background tasks
+        background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+        background_tasks.add_task(update_all_user_budgets, current_user["_id"])
     
     if errors and not created_transactions:
         raise HTTPException(
@@ -906,7 +915,7 @@ Respond in JSON format:
         )
 
 
-        # NEW: Track AI usage
+        # Track AI usage
         if hasattr(response, 'usage'):
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
