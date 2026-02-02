@@ -408,6 +408,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             SizedBox(height: responsive.sp32),
 
+
+            _buildSettingCard(
+              icon: Icons.feedback_outlined,
+              title: 'Send Feedback',
+              subtitle: 'Report bugs or request features',
+              gradientColors: [Color(0xFFE91E63), Color(0xFFC2185B)],
+              onTap: () {
+                Navigator.pushNamed(context, '/feedback');
+              },
+            ),
+
+            SizedBox(height: responsive.sp32),
+
             // Logout Button
             Container(
               width: double.infinity,

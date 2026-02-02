@@ -129,3 +129,25 @@ class MultipleTransactionExtraction(BaseModel):
     total_count: int
     overall_confidence: float
     analysis: Optional[str] = None
+    
+    
+class FeedbackCategory(str, Enum):
+    BUG = "bug"
+    FEATURE = "feature_request"
+    GENERAL = "general"
+    USABILITY = "usability"
+
+class FeedbackCreate(BaseModel):
+    category: FeedbackCategory
+    message: str
+    rating: Optional[int] = None  # 1 to 5 stars
+    screenshot_url: Optional[str] = None # Optional: if you plan to upload images later
+
+class FeedbackResponse(BaseModel):
+    id: str
+    user_id: str
+    category: FeedbackCategory
+    message: str
+    rating: Optional[int]
+    created_at: datetime
+    status: str = "pending" # pending, reviewed, resolved

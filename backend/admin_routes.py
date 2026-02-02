@@ -16,6 +16,7 @@ from admin_utils import (
 from admin_models import (
     AdminActionLog,
     AdminCreate,
+    AdminFeedbackListResponse,
     AdminLogin,
     AdminPasswordChange,
     AdminResponse,
@@ -42,7 +43,8 @@ from database import (
     budgets_collection,
     chat_sessions_collection,
     notifications_collection,
-    ai_usage_collection
+    ai_usage_collection,
+    feedback_collection
 )
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
 from config import settings
@@ -1193,3 +1195,77 @@ async def get_admin_logs(
         )
         for log in logs
     ]
+    
+    
+# ==================== FEEDBACK MANAGEMENT ====================
+
+@router.get("/feedback", response_model=List[AdminFeedbackListResponse])
+async def get_all_feedback(
+    current_admin: dict = Depends(require_admin_or_super),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    category: Optional[str] = None
+):
+    """Get all user feedback"""
+    query = {}
+    if category:
+        query["category"] = category
+        
+    feedbacks = list(
+        feedback_collection
+        .find(query)
+        .sort("created_at", -1)
+        .skip(skip)
+        .limit(limit)
+    )
+    
+    return [
+        AdminFeedbackListResponse(
+            id=fb["_id"],
+            user_id=fb["user_id"],
+            user_name=fb.get("user_name", "Unknown"),
+            user_email=fb.get("user_email", "Unknown"),
+            category=fb["category"],
+            message=fb["message"],
+            rating=fb.get("rating"),
+            created_at=fb["created_at"],
+            status=fb.get("status", "pending")
+        )
+        for fb in feedbacks
+    ]
+
+@router.put("/feedback/{feedback_id}/status")
+async def update_feedback_status(
+    feedback_id: str = Path(...),
+    status_update: str = Query(..., regex="^(pending|reviewed|resolved)$"),
+    current_admin: dict = Depends(require_admin_or_super)
+):
+    """Update feedback status"""
+    result = feedback_collection.update_one(
+        {"_id": feedback_id},
+        {"$set": {"status": status_update}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Feedback not found"
+        )
+        
+    return {"message": "Feedback status updated"}
+
+@router.delete("/feedback/{feedback_id}")
+async def delete_feedback(
+    feedback_id: str = Path(...),
+    current_admin: dict = Depends(require_super_admin)
+):
+    """Delete feedback (Super Admin only)"""
+    result = feedback_collection.delete_one({"_id": feedback_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Feedback not found"
+        )
+        
+    return {"message": "Feedback deleted successfully"}

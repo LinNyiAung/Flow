@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp, 
   AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar, 
-  DollarSign, Target, Send, Menu, X, Settings, Lock, User // <--- Added Settings, Lock
+  DollarSign, Target, Send, Menu, X, Settings, Lock, User, MessageSquare
 } from 'lucide-react';
 import AIUsageStats from './AIUsageStats';
+import FeedbackManagement from './FeedbackManagement';
 
 // API Configuration
 const API_BASE_URL = 'https://flowfinance.onrender.com';
@@ -675,9 +676,10 @@ const Dashboard = ({ token, admin, onLogout }) => {
               { id: 'users', icon: Users, label: 'Users' },
               { id: 'broadcast', icon: Send, label: 'Broadcast' },
               { id: 'ai-usage', icon: Zap, label: 'AI Usage & Costs' },
+              { id: 'feedback', label: 'Feedback', icon: MessageSquare },
+              { id: 'settings', icon: Settings, label: 'Settings' },
               ...(admin.role === 'super_admin' ? [
                 { id: 'admins', icon: Shield, label: 'Admins' },
-                { id: 'settings', icon: Settings, label: 'Settings' },
                 { id: 'logs', icon: Activity, label: 'Activity Logs' }
               ] : [])
             ].map(tab => (
@@ -798,6 +800,10 @@ const Dashboard = ({ token, admin, onLogout }) => {
         {activeTab === 'ai-usage' && (
           <AIUsageStats token={token} />
         )}
+
+        
+        {/* Feedback Tab*/}
+        {activeTab === 'feedback' && <FeedbackManagement token={token} />}
 
         {/* Users Tab */}
         {activeTab === 'users' && (

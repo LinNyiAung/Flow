@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/budget_provider.dart';
+import 'package:frontend/providers/feedback_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
@@ -13,6 +14,7 @@ import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
 import 'package:frontend/screens/settings/currency_settings_screen.dart';
+import 'package:frontend/screens/settings/feedback_screen.dart';
 import 'package:frontend/screens/settings/language_settings_screen.dart';
 import 'package:frontend/screens/settings/notification_settings_screen.dart';
 import 'package:frontend/screens/settings/privacy_policy_screen.dart';
@@ -83,6 +85,7 @@ class _MyAppState extends State<MyApp> {
         ChangeNotifierProvider(create: (_) => InsightProvider()),
         ChangeNotifierProvider(create: (_) => BudgetProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
+        ChangeNotifierProvider(create: (_) => FeedbackProvider()),
       ],
       child: MaterialApp(
         title: 'Flow Finance',
@@ -143,6 +146,7 @@ class _MyAppState extends State<MyApp> {
           '/privacy-policy': (context) => PrivacyPolicyScreen(),
           '/terms-conditions': (context) => TermsAndConditionsScreen(),
           '/login': (context) => LoginScreen(),
+          '/feedback': (context) => FeedbackScreen(),
         },
         onGenerateRoute: (settings) {
           if (settings.name == '/language-settings') {

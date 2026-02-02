@@ -47,6 +47,7 @@ from auth_routes import router as auth_router
 from budget_routes import router as budget_router
 from report_routes import router as report_router
 from admin_routes import router as admin_router
+from feedback_routes import router as feedback_router
 
 app = FastAPI(title="Flow Finance API", version="1.0.0")
 app.include_router(transaction_router)
@@ -55,6 +56,7 @@ app.include_router(goal_router)
 app.include_router(budget_router)
 app.include_router(report_router)
 app.include_router(admin_router)
+app.include_router(feedback_router)
 
 try:
     scheduler = start_scheduler()

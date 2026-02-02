@@ -134,3 +134,15 @@ class BroadcastNotificationResponse(BaseModel):
     notifications_sent: int
     fcm_sent: int
     fcm_failed: int
+    
+    
+class AdminFeedbackListResponse(BaseModel):
+    id: str
+    user_id: str
+    user_name: str
+    user_email: str
+    category: str
+    message: str
+    rating: Optional[int] = None
+    created_at: datetime
+    status: str

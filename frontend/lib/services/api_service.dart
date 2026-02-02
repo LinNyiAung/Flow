@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
+import 'package:frontend/models/feedback.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/notification.dart';
@@ -1567,6 +1568,20 @@ class ApiService {
       return data['unread_count'];
     } else {
       throw Exception('Failed to get unread count');
+    }
+  }
+
+
+  static Future<void> submitFeedback(FeedbackCreate feedback) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/feedback'),
+      headers: await _getHeaders(),
+      body: jsonEncode(feedback.toJson()),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to submit feedback');
     }
   }
 }
