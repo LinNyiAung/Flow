@@ -624,6 +624,30 @@ class AppLocalizations {
       'aiInsightsDes': 'Get deep insights into your spending habits',
       'premiumPlan': 'Premium Plan',
       'tryCancelAnytime': 'Try 30 days • Cancel anytime',
+
+
+
+      // Feedback Screen
+      'sendFeedback': 'Send Feedback',
+      'weValueYourInput': 'We value your input',
+      'feedbackHeaderSubtitle': 'Help us improve Flow Finance by sharing your thoughts or reporting issues.',
+      'whatIsThisRegarding': 'What is this regarding?',
+      'howRateExperience': 'How would you rate your experience?',
+      'tellUsMore': 'Tell us more',
+      'feedbackHint': 'Describe your issue or share your ideas...',
+      'submitFeedback': 'Submit Feedback',
+      'pleaseSelectRating': 'Please select a rating',
+      'feedbackSubmittedSuccess': 'Thank you for your feedback!',
+      'feedbackFailed': 'Failed to submit feedback',
+      'pleaseEnterMessage': 'Please enter a message',
+      'feedbackMinLength': 'Please provide more details (at least 10 characters)',
+      // Feedback Categories
+      'feedbackCategoryGeneral': 'General Inquiry',
+      'feedbackCategoryBug': 'Report a Bug',
+      'feedbackCategoryFeature': 'Feature Request',
+      'feedbackCategoryUsability': 'Usability Issue',
+      'feedbackCategoryOther': 'Other',
+      'feedbackDesc': 'Report bugs or request features',
     },
     'my': {
       // Home Screen
@@ -1207,6 +1231,29 @@ class AppLocalizations {
       'aiInsightsDes': 'သင်၏ သုံးစွဲမှုအလေ့အထများကို အသေးစိတ် ခွဲခြမ်းစိတ်ဖြာချက်များ ရယူပါ',
       'premiumPlan': 'ပရီမီယံ အစီအစဉ်',
       'tryCancelAnytime': 'ရက် ၃၀ စမ်းသပ်ပါ • အချိန်မရွေး ပယ်ဖျက်နိုင်သည်',
+
+
+      // Feedback Screen
+      'sendFeedback': 'အကြံပြုချက် ပေးပို့ရန်',
+      'weValueYourInput': 'သင့်အကြံပြုချက်ကို တန်ဖိုးထားပါသည်',
+      'feedbackHeaderSubtitle': 'Flow Finance ကို ပိုမိုကောင်းမွန်အောင် ပြုလုပ်ရန် သင့်အကြံဉာဏ်များ မျှဝေပါ သို့မဟုတ် ပြဿနာများကို တိုင်ကြားပါ',
+      'whatIsThisRegarding': 'မည်သည့်အကြောင်းအရာနှင့် ပတ်သက်ပါသလဲ?',
+      'howRateExperience': 'သင့်အတွေ့အကြုံကို မည်သို့ အဆင့်သတ်မှတ်လိုပါသလဲ?',
+      'tellUsMore': 'ပိုမို ပြောပြပါ',
+      'feedbackHint': 'သင့်ပြဿနာ သို့မဟုတ် အကြံဉာဏ်များကို ဖော်ပြပါ...',
+      'submitFeedback': 'အကြံပြုချက် တင်သွင်းရန်',
+      'pleaseSelectRating': 'ကျေးဇူးပြု၍ အဆင့်သတ်မှတ်ချက် ရွေးချယ်ပါ',
+      'feedbackSubmittedSuccess': 'သင့်အကြံပြုချက်အတွက် ကျေးဇူးတင်ပါသည်!',
+      'feedbackFailed': 'အကြံပြုချက် ပေးပို့ရန် မအောင်မြင်ပါ',
+      'pleaseEnterMessage': 'ကျေးဇူးပြု၍ စာသား ရိုက်ထည့်ပါ',
+      'feedbackMinLength': 'ကျေးဇူးပြု၍ အသေးစိတ် ပိုမိုဖြည့်သွင်းပါ (အနည်းဆုံး စာလုံး ၁၀ လုံး)',
+      // Feedback Categories
+      'feedbackCategoryGeneral': 'အထွေထွေ မေးမြန်းချက်',
+      'feedbackCategoryBug': 'ချို့ယွင်းချက် တိုင်ကြားရန်',
+      'feedbackCategoryFeature': 'လုပ်ဆောင်ချက် အသစ် တောင်းဆိုရန်',
+      'feedbackCategoryUsability': 'အသုံးပြုမှုဆိုင်ရာ ပြဿနာ',
+      'feedbackCategoryOther': 'အခြား',
+      'feedbackDesc': 'ချို့ယွင်းချက်များတင်ပြရန် သို့မဟုတ် လုပ်ဆောင်ချက်အသစ်များတောင်းဆိုရန်',
     }
   };
 
@@ -1840,6 +1887,28 @@ class AppLocalizations {
   String get premiumPlan => translate('premiumPlan');
   String get tryCancelAnytime => translate('tryCancelAnytime');
 
+
+
+  // Feedback Screen Getters
+  String get sendFeedback => translate('sendFeedback');
+  String get weValueYourInput => translate('weValueYourInput');
+  String get feedbackHeaderSubtitle => translate('feedbackHeaderSubtitle');
+  String get whatIsThisRegarding => translate('whatIsThisRegarding');
+  String get howRateExperience => translate('howRateExperience');
+  String get tellUsMore => translate('tellUsMore');
+  String get feedbackHint => translate('feedbackHint');
+  String get submitFeedback => translate('submitFeedback');
+  String get pleaseSelectRating => translate('pleaseSelectRating');
+  String get feedbackSubmittedSuccess => translate('feedbackSubmittedSuccess');
+  String get feedbackFailed => translate('feedbackFailed');
+  String get pleaseEnterMessage => translate('pleaseEnterMessage');
+  String get feedbackMinLength => translate('feedbackMinLength');
+  String get feedbackCategoryGeneral => translate('feedbackCategoryGeneral');
+  String get feedbackCategoryBug => translate('feedbackCategoryBug');
+  String get feedbackCategoryFeature => translate('feedbackCategoryFeature');
+  String get feedbackCategoryUsability => translate('feedbackCategoryUsability');
+  String get feedbackCategoryOther => translate('feedbackCategoryOther');
+  String get feedbackDesc => translate('feedbackDesc');
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

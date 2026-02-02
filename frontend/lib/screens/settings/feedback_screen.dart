@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/feedback_provider.dart';
 import '../../services/responsive_helper.dart';
+import '../../services/localization_service.dart';
 
 class FeedbackScreen extends StatefulWidget {
   @override
@@ -23,6 +24,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   }
 
   void _submitFeedback() async {
+    final localizations = AppLocalizations.of(context);
     if (!_formKey.currentState!.validate()) return;
     
     // For general feedback or usability, require a rating
@@ -31,7 +33,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
          _rating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please select a rating'),
+          content: Text(localizations.pleaseSelectRating),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -49,7 +51,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Thank you for your feedback!'),
+          content: Text(localizations.feedbackSubmittedSuccess),
           backgroundColor: Color(0xFF4CAF50),
           behavior: SnackBarBehavior.floating,
         ),
@@ -60,7 +62,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         SnackBar(
           content: Text(
             Provider.of<FeedbackProvider>(context, listen: false).error ?? 
-            'Failed to submit feedback',
+            localizations.feedbackFailed,
           ),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
@@ -73,11 +75,12 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
     final feedbackProvider = Provider.of<FeedbackProvider>(context);
+    final localizations = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Send Feedback',
+          localizations.sendFeedback,
           style: GoogleFonts.poppins(
             fontSize: responsive.fs20,
             fontWeight: FontWeight.bold,
@@ -144,7 +147,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'We value your input',
+                              localizations.weValueYourInput,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs18,
                                 fontWeight: FontWeight.bold,
@@ -153,7 +156,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                             ),
                             SizedBox(height: 4),
                             Text(
-                              'Help us improve Flow Finance by sharing your thoughts or reporting issues.',
+                              localizations.feedbackHeaderSubtitle,
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs12,
                                 color: Colors.white.withOpacity(0.9),
@@ -170,7 +173,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
                 // Category Dropdown
                 Text(
-                  'What is this regarding?',
+                  localizations.whatIsThisRegarding,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -194,7 +197,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                         return DropdownMenuItem(
                           value: category,
                           child: Text(
-                            category.displayName,
+                            // FIXED: Use getDisplayName(context) instead of .displayName
+                            category.getDisplayName(context),
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs14,
                               color: Color(0xFF333333),
@@ -215,7 +219,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
                 // Star Rating
                 Text(
-                  'How would you rate your experience?',
+                  localizations.howRateExperience,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -251,7 +255,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
                 // Message Input
                 Text(
-                  'Tell us more',
+                  localizations.tellUsMore,
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs14,
                     fontWeight: FontWeight.w600,
@@ -263,7 +267,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   controller: _messageController,
                   maxLines: 5,
                   decoration: InputDecoration(
-                    hintText: 'Describe your issue or share your ideas...',
+                    hintText: localizations.feedbackHint,
                     hintStyle: GoogleFonts.poppins(color: Colors.grey[400]),
                     filled: true,
                     fillColor: Colors.white,
@@ -282,10 +286,10 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Please enter a message';
+                      return localizations.pleaseEnterMessage;
                     }
                     if (value.trim().length < 10) {
-                      return 'Please provide more details (at least 10 characters)';
+                      return localizations.feedbackMinLength;
                     }
                     return null;
                   },
@@ -317,7 +321,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                             ),
                           )
                         : Text(
-                            'Submit Feedback',
+                            localizations.submitFeedback,
                             style: GoogleFonts.poppins(
                               fontSize: responsive.fs16,
                               fontWeight: FontWeight.w600,

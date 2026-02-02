@@ -18,7 +18,7 @@ import '../models/user.dart';
 import '../models/transaction.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://10.80.21.130:8000';
+  static const String baseUrl = 'https://flowfinance.onrender.com';
 
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();

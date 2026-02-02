@@ -411,8 +411,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             _buildSettingCard(
               icon: Icons.feedback_outlined,
-              title: 'Send Feedback',
-              subtitle: 'Report bugs or request features',
+              title: localizations.sendFeedback,
+              subtitle: localizations.feedbackDesc,
               gradientColors: [Color(0xFFE91E63), Color(0xFFC2185B)],
               onTap: () {
                 Navigator.pushNamed(context, '/feedback');

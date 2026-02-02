@@ -1,19 +1,23 @@
+import 'package:flutter/material.dart';
+import '../services/localization_service.dart';
+
 enum FeedbackCategory {
   bug,
   feature_request,
   general,
   usability;
 
-  String get displayName {
+  String getDisplayName(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     switch (this) {
       case FeedbackCategory.bug:
-        return 'Report a Bug';
+        return localizations.feedbackCategoryBug;
       case FeedbackCategory.feature_request:
-        return 'Feature Request';
+        return localizations.feedbackCategoryFeature;
       case FeedbackCategory.general:
-        return 'General Feedback';
+        return localizations.feedbackCategoryGeneral;
       case FeedbackCategory.usability:
-        return 'Usability Issue';
+        return localizations.feedbackCategoryUsability;
     }
   }
 
