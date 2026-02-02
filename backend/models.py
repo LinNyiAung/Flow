@@ -66,10 +66,6 @@ class Token(BaseModel):
     token_type: str
     user: UserResponse
 
-# NEW: Subscription update model
-class SubscriptionUpdate(BaseModel):
-    subscription_type: SubscriptionType
-    subscription_expires_at: Optional[datetime] = None
 
 class TransactionCreate(BaseModel):
     type: TransactionType
