@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends,
 from utils import get_current_user, refresh_ai_data_silent, require_premium
 from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
-from budget_service import update_all_user_budgets
+from budget_service import update_all_user_budgets, update_relevant_budgets
 from models import (
     Currency, MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction, 
     TransactionCreate, TransactionResponse, TransactionType,
@@ -94,7 +94,12 @@ async def create_transaction(
     
     # ✅ FIX: Moved heavy sync operations to background tasks
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
+    background_tasks.add_task(
+    update_relevant_budgets, 
+    current_user["_id"], 
+    transaction_data.date,  # or new_transaction["date"]
+    transaction_data.currency.value  # or new_transaction["currency"]
+    )
 
     recurrence_obj = None
     if new_transaction.get("recurrence"):
@@ -184,6 +189,18 @@ async def disable_transaction_recurrence(
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for a transaction"""
+    # Fetch transaction first to get date and currency
+    transaction = transactions_collection.find_one({
+        "_id": transaction_id,
+        "user_id": current_user["_id"]
+    })
+    
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found"
+        )
+    
     success = disable_recurrence_for_transaction(transaction_id, current_user["_id"])
     
     if not success:
@@ -192,9 +209,14 @@ async def disable_transaction_recurrence(
             detail="Transaction not found or recurrence not enabled"
         )
     
-    # ✅ FIX: Moved heavy sync operations to background tasks
+    # ✅ FIX: Update only relevant budgets
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
+    background_tasks.add_task(
+        update_relevant_budgets, 
+        current_user["_id"], 
+        transaction["date"],
+        transaction["currency"]
+    )
     
     return {"message": "Recurrence disabled successfully"}
 
@@ -234,9 +256,14 @@ async def disable_parent_transaction_recurrence(
             detail="Parent transaction not found"
         )
     
-    # ✅ FIX: Moved heavy sync operations to background tasks
+    # ✅ FIX: Update only relevant budgets
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
+    background_tasks.add_task(
+        update_relevant_budgets, 
+        current_user["_id"], 
+        transaction["date"],
+        transaction["currency"]
+    )
     
     return {"message": "Parent transaction recurrence disabled successfully"}
 
@@ -334,15 +361,20 @@ async def update_transaction(
             update_data["recurrence"]["last_created_date"] = update_data.get("date", transaction["date"])
 
     transactions_collection.update_one(
-        {"_id": transaction_id},
-        {"$set": update_data}
+    {"_id": transaction_id, "user_id": current_user["_id"]}, 
+    {"$set": update_data}
     )
 
     updated_transaction = transactions_collection.find_one({"_id": transaction_id})
     
     # ✅ FIX: Moved heavy sync operations to background tasks
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
+    background_tasks.add_task(
+    update_relevant_budgets, 
+    current_user["_id"], 
+    transaction_data.date,  # or new_transaction["date"]
+    transaction_data.currency.value  # or new_transaction["currency"]
+    )
 
     recurrence_obj = None
     if updated_transaction.get("recurrence"):
@@ -372,17 +404,37 @@ async def delete_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete transaction"""
-    if not transactions_collection.find_one({"_id": transaction_id, "user_id": current_user["_id"]}):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    # Fetch transaction first to get date and currency for budget updates
+    transaction = transactions_collection.find_one({
+        "_id": transaction_id, 
+        "user_id": current_user["_id"]
+    })
+    
+    if not transaction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Transaction not found"
+        )
 
-    result = transactions_collection.delete_one({"_id": transaction_id, "user_id": current_user["_id"]})
+    result = transactions_collection.delete_one({
+        "_id": transaction_id, 
+        "user_id": current_user["_id"]
+    })
     
     if result.deleted_count == 0:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete transaction")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Failed to delete transaction"
+        )
 
-    # ✅ FIX: Moved heavy sync operations to background tasks
+    # ✅ FIX: Update only relevant budgets
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(update_all_user_budgets, current_user["_id"])
+    background_tasks.add_task(
+        update_relevant_budgets, 
+        current_user["_id"], 
+        transaction["date"],
+        transaction["currency"]
+    )
     
     return {"message": "Transaction deleted successfully"}
 
@@ -801,7 +853,12 @@ async def batch_create_transactions(
     if created_transactions:
         # ✅ FIX: Moved heavy sync operations to background tasks
         background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-        background_tasks.add_task(update_all_user_budgets, current_user["_id"])
+        background_tasks.add_task(
+        update_relevant_budgets, 
+        current_user["_id"], 
+        transaction_data.date,  # or new_transaction["date"]
+        transaction_data.currency.value  # or new_transaction["currency"]
+        )
     
     if errors and not created_transactions:
         raise HTTPException(

@@ -15,7 +15,6 @@ from config import settings
 from pymongo.errors import DuplicateKeyError
 import logging
 
-_auto_create_locks = {}
 
 logger = logging.getLogger(__name__)
 
@@ -714,6 +713,30 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
                     asyncio.run(auto_create_next_budget(updated_budget))
             except Exception as e:
                 print(f"Error triggering auto-create: {e}")
+                
+                
+                
+def update_relevant_budgets(user_id: str, transaction_date: datetime, transaction_currency: str):
+    """Update only budgets that are affected by the transaction"""
+    # Ensure transaction_date is timezone-aware
+    if transaction_date.tzinfo is None:
+        transaction_date = transaction_date.replace(tzinfo=timezone.utc)
+    
+    # Only find budgets that:
+    # 1. Cover this transaction's date
+    # 2. Match the transaction's currency
+    query = {
+        "user_id": user_id,
+        "currency": transaction_currency,  # Important: match currency
+        "start_date": {"$lte": transaction_date},
+        "end_date": {"$gte": transaction_date}
+    }
+    
+    relevant_budgets = list(budgets_collection.find(query))
+    
+    # Typically this will be 0-3 budgets (most users have 1-2 active budgets)
+    for budget in relevant_budgets:
+        update_budget_spent_amounts(user_id, budget["_id"])
 
 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
@@ -758,10 +781,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     """
     budget_id = budget["_id"]
     
-    # NEW: Check if this budget is already being processed
-    if _auto_create_locks.get(budget_id, False):
-        print(f"Auto-create already in progress for budget {budget_id}")
-        return None
+    
     
     if not budget.get("auto_create_enabled", False):
         return None
@@ -785,8 +805,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         print(f"Next budget already exists for budget {budget_id}: {existing['_id']}")
         return None
     
-    # NEW: Set lock before processing
-    _auto_create_locks[budget_id] = True
+    
     
     try:
         # Calculate new dates based on period
@@ -866,9 +885,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         import traceback
         traceback.print_exc()
         return None
-    finally:
-        # Always release lock
-        _auto_create_locks.pop(budget_id, None)
+    
 
 
 async def _generate_ai_category_budgets(

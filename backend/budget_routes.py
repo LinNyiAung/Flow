@@ -185,12 +185,6 @@ async def get_budgets(
         
         budgets = list(budgets_collection.find(query).sort("created_at", -1))
         
-        # Update all budgets before returning
-        for budget in budgets:
-            update_budget_spent_amounts(current_user["_id"], budget["_id"])
-        
-        # Fetch updated budgets
-        budgets = list(budgets_collection.find(query).sort("created_at", -1))
         
         return [
             BudgetResponse(
@@ -240,12 +234,7 @@ async def get_budgets_summary(
         
         budgets = list(budgets_collection.find(query))
         
-        # Update all budgets
-        for budget in budgets:
-            update_budget_spent_amounts(current_user["_id"], budget["_id"])
         
-        # Fetch updated budgets
-        budgets = list(budgets_collection.find(query))
         
         total_budgets = len(budgets)
         active_budgets = len([b for b in budgets if b["is_active"] and b["status"] == "active"])
@@ -287,12 +276,7 @@ async def get_multi_currency_budgets_summary(
     try:
         all_budgets = list(budgets_collection.find({"user_id": current_user["_id"]}))
         
-        # Update all budgets
-        for budget in all_budgets:
-            update_budget_spent_amounts(current_user["_id"], budget["_id"])
         
-        # Fetch updated budgets
-        all_budgets = list(budgets_collection.find({"user_id": current_user["_id"]}))
         
         total_budgets = len(all_budgets)
         active_budgets = len([b for b in all_budgets if b["is_active"] and b["status"] == "active"])
@@ -364,11 +348,6 @@ async def get_budget(
                 detail="Budget not found"
             )
         
-        # Update spent amounts
-        update_budget_spent_amounts(current_user["_id"], budget_id)
-        
-        # Fetch updated budget
-        budget = budgets_collection.find_one({"_id": budget_id})
         
         return BudgetResponse(
             id=budget["_id"],
