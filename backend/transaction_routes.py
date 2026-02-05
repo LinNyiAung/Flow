@@ -179,8 +179,8 @@ async def get_transactions(
 
 @router.post("/{transaction_id}/disable-recurrence")
 async def disable_transaction_recurrence(
+    background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for a transaction"""
@@ -201,8 +201,8 @@ async def disable_transaction_recurrence(
 
 @router.post("/{transaction_id}/disable-parent-recurrence")
 async def disable_parent_transaction_recurrence(
+    background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
@@ -307,9 +307,9 @@ async def get_transaction(
 
 @router.put("/{transaction_id}", response_model=TransactionResponse)
 async def update_transaction(
+    background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
     transaction_data: TransactionUpdate = ...,
-    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Update transaction"""
@@ -367,8 +367,8 @@ async def update_transaction(
 
 @router.delete("/{transaction_id}")
 async def delete_transaction(
+    background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(), # <--- Injected BackgroundTasks
     current_user: dict = Depends(get_current_user)
 ):
     """Delete transaction"""
