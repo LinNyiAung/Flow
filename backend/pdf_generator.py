@@ -28,8 +28,8 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
     if currency is None:
         currency = report.currency if hasattr(report, 'currency') else Currency.USD
     
-    currency_symbol = "$" if currency == Currency.USD else "K"
-    currency_name = "USD" if currency == Currency.USD else "MMK"
+    currency_symbol = "$" if currency == Currency.USD else ("K" if currency == Currency.MMK else "฿")
+    currency_name = "USD" if currency == Currency.USD else ("MMK" if currency == Currency.MMK else "THB")
     
     # Convert UTC times to user's local time
     user_tz = timezone(timedelta(minutes=user_timezone_offset))

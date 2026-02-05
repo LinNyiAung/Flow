@@ -82,8 +82,10 @@ def format_currency_amount(amount: float, currency: str) -> str:
     """Format amount with appropriate currency symbol"""
     if currency == "mmk":
         return f"{amount:,.0f} K"
-    else:  # usd
+    elif currency == "usd":  # usd
         return f"${amount:,.2f}"
+    else:  
+        return f"฿{amount:,.2f}"
 
 
 def get_user_language(user_id: str) -> str:
