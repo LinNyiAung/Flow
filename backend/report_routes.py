@@ -151,15 +151,157 @@ async def generate_report(
         if currency is None:
             currency = Currency(current_user.get("default_currency", "usd"))
         
-        # Fetch transactions for this currency only
-        transactions = list(transactions_collection.find({
-            "user_id": current_user["_id"],
-            "currency": currency.value,
-            "date": {"$gte": start_date, "$lte": end_date}
-        }))
+        # ✅ OPTIMIZED: Use MongoDB aggregation pipeline instead of loading all data
+        pipeline = [
+            {
+                "$match": {
+                    "user_id": current_user["_id"],
+                    "currency": currency.value,
+                    "date": {"$gte": start_date, "$lte": end_date}
+                }
+            },
+            {
+                "$facet": {
+                    # Calculate totals
+                    "totals": [
+                        {
+                            "$group": {
+                                "_id": None,
+                                "total_inflow": {
+                                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
+                                },
+                                "total_outflow": {
+                                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
+                                },
+                                "inflow_count": {
+                                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, 1, 0]}
+                                },
+                                "outflow_count": {
+                                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, 1, 0]}
+                                },
+                                "total_count": {"$sum": 1}
+                            }
+                        }
+                    ],
+                    # Group by category for inflows
+                    "inflow_categories": [
+                        {"$match": {"type": "inflow"}},
+                        {
+                            "$group": {
+                                "_id": {
+                                    "main": "$main_category",
+                                    "sub": "$sub_category"
+                                },
+                                "amount": {"$sum": "$amount"},
+                                "count": {"$sum": 1}
+                            }
+                        },
+                        {"$sort": {"amount": -1}}
+                    ],
+                    # Group by category for outflows
+                    "outflow_categories": [
+                        {"$match": {"type": "outflow"}},
+                        {
+                            "$group": {
+                                "_id": {
+                                    "main": "$main_category",
+                                    "sub": "$sub_category"
+                                },
+                                "amount": {"$sum": "$amount"},
+                                "count": {"$sum": 1}
+                            }
+                        },
+                        {"$sort": {"amount": -1}}
+                    ]
+                }
+            }
+        ]
         
-        # Generate currency-specific report
-        currency_report = generate_currency_report(transactions, currency, start_date, end_date)
+        result = list(transactions_collection.aggregate(pipeline))
+        
+        # Handle empty result
+        if not result or not result[0]["totals"]:
+            # No transactions found - return empty report
+            goals = list(goals_collection.find({
+                "user_id": current_user["_id"],
+                "currency": currency.value
+            }))
+            
+            goals_progress = [
+                GoalProgress(
+                    goal_id=g["_id"],
+                    name=g["name"],
+                    target_amount=g["target_amount"],
+                    current_amount=g["current_amount"],
+                    progress_percentage=(g["current_amount"] / g["target_amount"] * 100) if g["target_amount"] > 0 else 0,
+                    status=g["status"],
+                    currency=currency
+                )
+                for g in goals
+            ]
+            
+            total_allocated = sum(g["current_amount"] for g in goals)
+            
+            return FinancialReport(
+                period=report_request.period,
+                start_date=start_date,
+                end_date=end_date,
+                total_inflow=0,
+                total_outflow=0,
+                net_balance=0,
+                inflow_by_category=[],
+                outflow_by_category=[],
+                goals=goals_progress,
+                total_allocated_to_goals=total_allocated,
+                total_transactions=0,
+                inflow_count=0,
+                outflow_count=0,
+                top_income_category=None,
+                top_expense_category=None,
+                average_daily_inflow=0,
+                average_daily_outflow=0,
+                currency=currency,
+                generated_at=datetime.now(UTC)
+            )
+        
+        # Extract aggregated data
+        data = result[0]
+        totals = data["totals"][0]
+        
+        total_inflow = totals["total_inflow"]
+        total_outflow = totals["total_outflow"]
+        inflow_count = totals["inflow_count"]
+        outflow_count = totals["outflow_count"]
+        total_transactions = totals["total_count"]
+        
+        # Process inflow categories
+        inflow_by_category = [
+            CategoryBreakdown(
+                category=f"{cat['_id']['main']} > {cat['_id']['sub']}",
+                main_category=cat['_id']['main'],
+                amount=cat['amount'],
+                percentage=(cat['amount'] / total_inflow * 100) if total_inflow > 0 else 0,
+                transaction_count=cat['count']
+            )
+            for cat in data["inflow_categories"]
+        ]
+        
+        # Process outflow categories
+        outflow_by_category = [
+            CategoryBreakdown(
+                category=f"{cat['_id']['main']} > {cat['_id']['sub']}",
+                main_category=cat['_id']['main'],
+                amount=cat['amount'],
+                percentage=(cat['amount'] / total_outflow * 100) if total_outflow > 0 else 0,
+                transaction_count=cat['count']
+            )
+            for cat in data["outflow_categories"]
+        ]
+        
+        # Calculate daily averages
+        days_in_period = (end_date - start_date).days + 1
+        avg_daily_inflow = total_inflow / days_in_period if days_in_period > 0 else 0
+        avg_daily_outflow = total_outflow / days_in_period if days_in_period > 0 else 0
         
         # Get goals for this currency
         goals = list(goals_collection.find({
@@ -183,27 +325,27 @@ async def generate_report(
         total_allocated = sum(g["current_amount"] for g in goals)
         
         # Top categories
-        top_income = currency_report.inflow_by_category[0].category if currency_report.inflow_by_category else None
-        top_expense = currency_report.outflow_by_category[0].category if currency_report.outflow_by_category else None
+        top_income = inflow_by_category[0].category if inflow_by_category else None
+        top_expense = outflow_by_category[0].category if outflow_by_category else None
         
         report = FinancialReport(
             period=report_request.period,
             start_date=start_date,
             end_date=end_date,
-            total_inflow=currency_report.total_inflow,
-            total_outflow=currency_report.total_outflow,
-            net_balance=currency_report.net_balance,
-            inflow_by_category=currency_report.inflow_by_category,
-            outflow_by_category=currency_report.outflow_by_category,
+            total_inflow=total_inflow,
+            total_outflow=total_outflow,
+            net_balance=total_inflow - total_outflow,
+            inflow_by_category=inflow_by_category,
+            outflow_by_category=outflow_by_category,
             goals=goals_progress,
             total_allocated_to_goals=total_allocated,
-            total_transactions=currency_report.total_transactions,
-            inflow_count=currency_report.inflow_count,
-            outflow_count=currency_report.outflow_count,
+            total_transactions=total_transactions,
+            inflow_count=inflow_count,
+            outflow_count=outflow_count,
             top_income_category=top_income,
             top_expense_category=top_expense,
-            average_daily_inflow=currency_report.average_daily_inflow,
-            average_daily_outflow=currency_report.average_daily_outflow,
+            average_daily_inflow=avg_daily_inflow,
+            average_daily_outflow=avg_daily_outflow,
             currency=currency,
             generated_at=datetime.now(UTC)
         )
