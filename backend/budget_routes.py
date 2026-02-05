@@ -474,7 +474,7 @@ async def update_budget(
             status=BudgetStatus(updated_budget["status"]),
             description=updated_budget.get("description"),
             is_active=updated_budget["is_active"],
-            currency=Currency(budget.get("currency", "usd")),
+            currency=Currency(updated_budget.get("currency", "usd")),
             created_at=updated_budget["created_at"],
             updated_at=updated_budget["updated_at"]
         )
