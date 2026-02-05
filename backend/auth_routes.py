@@ -267,34 +267,6 @@ async def delete_account(
         )
     
     
-@router.put("/subscription", response_model=UserResponse)
-async def update_subscription(
-    subscription_data: SubscriptionUpdate,
-    current_user: dict = Depends(get_current_user)
-):
-    """Update user subscription (admin use or after payment)"""
-    update_data = {
-        "subscription_type": subscription_data.subscription_type.value,
-        "subscription_expires_at": subscription_data.subscription_expires_at
-    }
-    
-    users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": update_data}
-    )
-    
-    updated_user = users_collection.find_one({"_id": current_user["_id"]})
-    
-    return UserResponse(
-        id=updated_user["_id"],
-        name=updated_user["name"],
-        email=updated_user["email"],
-        created_at=updated_user["created_at"],
-        subscription_type=SubscriptionType(updated_user["subscription_type"]),
-        subscription_expires_at=updated_user.get("subscription_expires_at"),
-        default_currency=Currency(updated_user.get("default_currency", "usd"))  # NEW
-    )
-    
     
     
 @router.get("/subscription-status")

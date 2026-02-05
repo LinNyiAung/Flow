@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -14,112 +13,12 @@ class SubscriptionScreen extends StatefulWidget {
 }
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
-  bool _isLoading = false;
-
-  // Demo function to simulate premium upgrade
-  // In production, this would integrate with a payment gateway
-  Future<void> _upgradeToPremium() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
-    // Set premium with 1 month expiration
-    // In production, this would happen after successful payment
-    final expiryDate = DateTime.now().add(Duration(days: 30));
-    
-    final success = await authProvider.updateSubscription(
-      subscriptionType: SubscriptionType.premium,
-      subscriptionExpiresAt: expiryDate,
-    );
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (success) {
-      _showSuccessDialog();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to upgrade subscription'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _showSuccessDialog() {
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: responsive.padding(all: 16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
-                ),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.star, color: Colors.white, size: responsive.iconSize(mobile: 48)),
-            ),
-            SizedBox(height: responsive.sp24),
-            Text(
-              localizations.welcomeToPremium,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: responsive.sp12),
-            Text(
-              localizations.accessAllPremiumFeatures,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs14,
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFF667eea),
-              minimumSize: Size(double.infinity, 48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-              ),
-            ),
-            child: Text(
-              localizations.getStarted,
-              style: GoogleFonts.poppins(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -226,7 +125,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             SizedBox(height: responsive.sp32),
                           ],
 
-                          // Premium Features
+                          // Premium Features List
                           Text(
                             localizations.premiumFeatures,
                             style: GoogleFonts.poppins(
@@ -267,11 +166,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             description: localizations.aiInsightsDes,
                             gradient: [Color(0xFFFFB74D), Color(0xFFFF9800)],
                           ),
-                          
 
                           SizedBox(height: responsive.sp32),
 
-                          // Pricing Card (if not premium)
+                          // Contact Admin / Info Card (if not premium)
                           if (!isPremium) ...[
                             Container(
                               width: double.infinity,
@@ -280,12 +178,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
                                 border: Border.all(
-                                  color: Color(0xFFFFD700),
-                                  width: 2,
+                                  color: Colors.grey.withOpacity(0.3),
+                                  width: 1,
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.grey.withOpacity(0.1),
+                                    color: Colors.grey.withOpacity(0.05),
                                     spreadRadius: 2,
                                     blurRadius: 8,
                                   ),
@@ -302,6 +200,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                     ),
                                   ),
                                   SizedBox(height: 8),
+                                  // Optional: Keep price visible or remove if irrelevant
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,42 +234,42 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                     ],
                                   ),
                                   SizedBox(height: responsive.sp24),
-                                  SizedBox(
+                                  
+                                  // REPLACED BUTTON WITH CONTACT INFO
+                                  Container(
                                     width: double.infinity,
-                                    height: 56,
-                                    child: ElevatedButton(
-                                      onPressed: _isLoading ? null : _upgradeToPremium,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Color(0xFFFFD700),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                        ),
-                                      ),
-                                      child: _isLoading
-                                          ? CircularProgressIndicator(color: Colors.black)
-                                          : Row(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Icon(Icons.star, color: Colors.black),
-                                                SizedBox(width: responsive.sp8),
-                                                Text(
-                                                  'Upgrade Now',
-                                                  style: GoogleFonts.poppins(
-                                                    fontSize: responsive.fs18,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.black,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: responsive.sp16,
+                                      horizontal: responsive.sp20
                                     ),
-                                  ),
-                                  SizedBox(height: responsive.sp12),
-                                  Text(
-                                    localizations.tryCancelAnytime,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs12,
-                                      color: Colors.grey[600],
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[100],
+                                      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+                                      border: Border.all(color: Colors.grey[300]!),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Icon(Icons.lock_outline, color: Colors.grey[600], size: 28),
+                                        SizedBox(height: 8),
+                                        Text(
+                                          localizations.contactAdmin,
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: responsive.fs16,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.grey[800],
+                                          ),
+                                        ),
+                                        SizedBox(height: 4),
+                                        Text(
+                                          localizations.contactSupport,
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: responsive.fs12,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],

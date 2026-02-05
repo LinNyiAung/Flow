@@ -624,7 +624,8 @@ class AppLocalizations {
       'aiInsightsDes': 'Get deep insights into your spending habits',
       'premiumPlan': 'Premium Plan',
       'tryCancelAnytime': 'Try 30 days • Cancel anytime',
-
+      'contactAdmin': 'Contact Admin to Upgrade',
+      'contactSupport' : 'Please contact Admin support to activate Premium.',
 
 
       // Feedback Screen
@@ -1231,6 +1232,8 @@ class AppLocalizations {
       'aiInsightsDes': 'သင်၏ သုံးစွဲမှုအလေ့အထများကို အသေးစိတ် ခွဲခြမ်းစိတ်ဖြာချက်များ ရယူပါ',
       'premiumPlan': 'ပရီမီယံ အစီအစဉ်',
       'tryCancelAnytime': 'ရက် ၃၀ စမ်းသပ်ပါ • အချိန်မရွေး ပယ်ဖျက်နိုင်သည်',
+      'contactAdmin': 'အဆင့်မြှင့်ရန် Admin ကိုဆက်သွယ်ပါ',
+      'contactSupport' : 'Premium activate လုပ်ရန် Admin Support ကို ဆက်သွယ်ပါ',
 
 
       // Feedback Screen
@@ -1886,6 +1889,9 @@ class AppLocalizations {
   String get aiInsightsDes => translate('aiInsightsDes');
   String get premiumPlan => translate('premiumPlan');
   String get tryCancelAnytime => translate('tryCancelAnytime');
+  String get contactAdmin => translate('contactAdmin');
+  String get contactSupport => translate('contactSupport');
+
 
 
 
