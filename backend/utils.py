@@ -127,25 +127,76 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
             "total_outflow": total_outflow
         }
     else:
-        # Get balances for all currencies
-        # Get all unique currencies from transactions
-        currencies_pipeline = [
+        # Get all transactions grouped by currency
+        tx_pipeline = [
             {"$match": {"user_id": user_id}},
-            {"$group": {"_id": "$currency"}}
+            {
+                "$group": {
+                    "_id": "$currency",
+                    "total_inflow": {
+                        "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
+                    },
+                    "total_outflow": {
+                        "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
+                    }
+                }
+            }
         ]
-        currencies_result = list(transactions_collection.aggregate(currencies_pipeline))
-        currencies = [c["_id"] for c in currencies_result if c["_id"]]
         
-        # If no transactions, use default currency
-        if not currencies:
+        # Get allocations grouped by currency
+        goals_pipeline = [
+            {"$match": {"user_id": user_id}},
+            {"$group": {"_id": "$currency", "total_allocated": {"$sum": "$current_amount"}}}
+        ]
+        
+        tx_results = list(transactions_collection.aggregate(tx_pipeline))
+        goal_results = list(goals_collection.aggregate(goals_pipeline))
+        
+        # Map transaction data for easy lookup
+        tx_map = {
+            res["_id"]: {
+                "inflow": res["total_inflow"],
+                "outflow": res["total_outflow"]
+            }
+            for res in tx_results if res["_id"]  # Skip None currencies
+        }
+        
+        # Collect all currencies from both transactions and goals
+        all_currencies = set(tx_map.keys())
+        for g in goal_results:
+            if g["_id"]:  # Skip None currencies
+                all_currencies.add(g["_id"])
+        
+        # If no currencies found, use default from user profile
+        if not all_currencies:
             user = users_collection.find_one({"_id": user_id})
-            currencies = [user.get("default_currency", "usd")]
+            default_currency = user.get("default_currency", "usd") if user else "usd"
+            all_currencies = {default_currency}
         
         balances = {}
-        for curr in currencies:
-            balance_data = await get_user_balance(user_id, curr)
-            balances[curr] = balance_data
-        
+        for curr in all_currencies:
+            tx_data = tx_map.get(curr, {"inflow": 0, "outflow": 0})
+            inflow = tx_data["inflow"]
+            outflow = tx_data["outflow"]
+            
+            # Find allocated amount for this currency
+            allocated = 0
+            for g in goal_results:
+                if g["_id"] == curr:
+                    allocated = g["total_allocated"]
+                    break
+            
+            total_balance = inflow - outflow
+            
+            balances[curr] = {
+                "currency": curr,
+                "balance": total_balance,
+                "available_balance": total_balance - allocated,
+                "allocated_to_goals": allocated,
+                "total_inflow": inflow,
+                "total_outflow": outflow
+            }
+            
         return {"balances": balances}
 
 
