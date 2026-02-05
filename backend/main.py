@@ -165,7 +165,9 @@ async def stream_chat_with_ai(
 ):
     """Stream chat response from AI with response style and provider support"""
     
-    # Select chatbot based on provider
+    # 1. Select chatbot and Pre-fetch Model Name
+    model_name = "unknown-model" # Fallback
+    
     if chat_request.ai_provider == AIProvider.GEMINI:
         chatbot = gemini_financial_chatbot
         if chatbot is None:
@@ -173,6 +175,9 @@ async def stream_chat_with_ai(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Gemini AI service is currently unavailable"
             )
+        # Extract model name safely from Gemini instance
+        model_name = getattr(chatbot, 'gemini_model', 'gemini-2.5-flash')
+        
     else:  # Default to OpenAI
         chatbot = financial_chatbot
         if chatbot is None:
@@ -180,6 +185,10 @@ async def stream_chat_with_ai(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="OpenAI AI service is currently unavailable"
             )
+        # Extract model name safely from OpenAI instance (checking common attribute names)
+        model_name = getattr(chatbot, 'model_name', getattr(chatbot, 'model', 'gpt-4o'))
+    
+    # ... [Chat history setup remains the same] ...
     
     chat_history = None
     if chat_request.chat_history:
@@ -192,19 +201,20 @@ async def stream_chat_with_ai(
             for msg in chat_request.chat_history
         ]
     
-    # Get response style from request (default to "normal")
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
     
     # Variables to track tokens
     input_tokens = 0
     output_tokens = 0
+    total_tokens = 0
     full_response = ""
     
+    # Note: 'model_name' is already set above, so we don't need to initialize it to "unknown" here.
+    
     async def generate_stream():
-        nonlocal input_tokens, output_tokens, full_response
+        nonlocal input_tokens, output_tokens, total_tokens, model_name, full_response
         
         try:
-            # Pass a callback to track tokens
             stream = chatbot.stream_chat(
                 user_id=current_user["_id"],
                 message=chat_request.message,
@@ -212,16 +222,26 @@ async def stream_chat_with_ai(
                 response_style=response_style
             )
             
-            async for chunk in stream:
-                full_response += chunk
-                data = {
-                    "chunk": chunk,
-                    "done": False,
-                    "timestamp": datetime.now(UTC).isoformat()
-                }
-                yield f"data: {json.dumps(data)}\n\n"
-                await asyncio.sleep(0.01)
+            async for chunk_text, usage_data in stream:
+                if chunk_text:
+                    full_response += chunk_text
+                    data = {
+                        "chunk": chunk_text,
+                        "done": False,
+                        "timestamp": datetime.now(UTC).isoformat()
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+                    await asyncio.sleep(0.01)
+                
+                if usage_data:
+                    input_tokens = usage_data.get('input_tokens', 0)
+                    output_tokens = usage_data.get('output_tokens', 0)
+                    total_tokens = usage_data.get('total_tokens', 0)
+                    # Update model_name if the API returns a specific version (e.g., 'gpt-4o-2024-05-13')
+                    if usage_data.get('model_name'):
+                        model_name = usage_data['model_name']
             
+            # 3. Final 'Done' Message
             final_data = {
                 "chunk": "",
                 "done": True,
@@ -230,29 +250,24 @@ async def stream_chat_with_ai(
             }
             yield f"data: {json.dumps(final_data)}\n\n"
             
-            await save_chat_session(current_user["_id"], chat_request.message, full_response, chat_history)
+            # 4. Save to DB (Safe now because we have local full_response)
+            if full_response:
+                await save_chat_session(current_user["_id"], chat_request.message, full_response, chat_history)
             
-            # Get token usage from chatbot after streaming completes
-            if hasattr(chatbot, 'last_usage'):
-                usage = chatbot.last_usage
-                input_tokens = usage.get('input_tokens', 0)
-                output_tokens = usage.get('output_tokens', 0)
-                total_tokens = usage.get('total_tokens', 0)
-                model_name = usage.get('model_name', '')
+            # 5. Track Usage
+            if input_tokens > 0 or output_tokens > 0:
+                # FIXED: Define provider based on request
+                provider = AIProviderType.GEMINI if chat_request.ai_provider == AIProvider.GEMINI else AIProviderType.OPENAI
                 
-                # Track usage
-                if input_tokens > 0 or output_tokens > 0:
-                    provider = AIProviderType.GEMINI if chat_request.ai_provider == AIProvider.GEMINI else AIProviderType.OPENAI
-                    
-                    track_ai_usage(
-                        user_id=current_user["_id"],
-                        feature_type=AIFeatureType.CHAT,
-                        provider=provider,
-                        model_name=model_name,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        total_tokens=total_tokens
-                    )
+                track_ai_usage(
+                    user_id=current_user["_id"],
+                    feature_type=AIFeatureType.CHAT,
+                    provider=provider,      # FIXED: Passed correctly
+                    model_name=model_name,  # FIXED: Passed correctly
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens # FIXED: Passed correctly
+                )
             
         except Exception as e:
             error_data = {

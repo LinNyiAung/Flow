@@ -1003,9 +1003,13 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None, response_style: str = "normal"):
         """Stream chat response using GPT-4 with enhanced RAG and response style"""
         try:
+            if not self.openai_api_key:
+                yield "AI service is not available. OpenAI API key not configured.", None # ✅ FIXED
+                return
+
             user = users_collection.find_one({"_id": user_id})
             if not user:
-                yield "User not found. Please log in again."
+                yield "User not found. Please log in again.", None
                 return
             
             processor = FinancialDataProcessor(user_id)
@@ -1070,7 +1074,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 }
             
             if summary.get("message") and not goals and not budgets:
-                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!"
+                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!", None # ✅ FIXED
                 return
             
             # Get relevant context
@@ -1138,6 +1142,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=self.openai_api_key)
             
+            
             # Adjust temperature based on style
             temperature_map = {
                 "normal": 0.3,
@@ -1145,58 +1150,43 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 "explanatory": 0.4  # Slightly more creative for explanations
             }
             
+            # --- CHANGED SECTION STARTS HERE ---
+            
             stream = await client.chat.completions.create(
                 model=self.gpt_model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": system_prompt}, # Ensure you have system_prompt var
+                    {"role": "user", "content": user_prompt}      # Ensure you have user_prompt var
                 ],
                 temperature=temperature_map.get(response_style, 0.3),
                 max_tokens=1000,
                 stream=True,
-                stream_options={"include_usage": True}  # NEW: Include usage in stream
+                stream_options={"include_usage": True}  # REQUIRED for usage tracking
             )
 
-            # NEW: Variables to accumulate usage
-            total_input_tokens = 0
-            total_output_tokens = 0
-            total_tokens = 0
+            final_usage_data = None
             
             async for chunk in stream:
-                # NEW: Capture usage from final chunk
+                # 1. Capture Usage (usually in the last chunk)
                 if hasattr(chunk, 'usage') and chunk.usage is not None:
-                    total_input_tokens = chunk.usage.prompt_tokens
-                    total_output_tokens = chunk.usage.completion_tokens
-                    total_tokens = chunk.usage.total_tokens
+                    final_usage_data = {
+                        'input_tokens': chunk.usage.prompt_tokens,
+                        'output_tokens': chunk.usage.completion_tokens,
+                        'total_tokens': chunk.usage.total_tokens,
+                        'model_name': self.gpt_model
+                    }
                 
-                if chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
-            
-            # NEW: Store usage info for tracking
-            self.last_usage = {
-                'input_tokens': total_input_tokens,
-                'output_tokens': total_output_tokens,
-                'total_tokens': total_tokens,
-                'model_name': self.gpt_model
-            }
-            
-            # NEW: Log token usage
-            if total_tokens > 0:
-                print(f"📊 [OPENAI CHAT TOKEN USAGE] User: {user_id}")
-                print(f"   📥 Input tokens: {total_input_tokens:,}")
-                print(f"   📤 Output tokens: {total_output_tokens:,}")
-                print(f"   📊 Total tokens: {total_tokens:,}")
-                print(f"   🤖 Model: {self.gpt_model}")
+                # 2. Capture Content
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    yield content, None
+
+            # 3. Yield final usage packet
+            yield "", final_usage_data
             
         except Exception as e:
             print(f"❌ Streaming chat error: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            
-            # Reset usage on error
-            self.last_usage = {}
-            
-            yield f"I encountered an error: {str(e)}"
+            yield f"I encountered an error: {str(e)}", None
             
 # Global chatbot instance
 try:

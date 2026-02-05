@@ -375,12 +375,14 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         """Stream chat response using Gemini with enhanced RAG and response style"""
         try:
             if not self.client:
-                yield "Gemini service is not available. Google API key not configured or client initialization failed."
+                # Yield tuple: (content, usage_data)
+                yield "Gemini service is not available.", None
                 return
             
             user = users_collection.find_one({"_id": user_id})
             if not user:
-                yield "User not found. Please log in again."
+                # FIXED: Added ", None" to prevent crash in main.py
+                yield "User not found. Please log in again.", None
                 return
             
             processor = FinancialDataProcessor(user_id)
@@ -411,7 +413,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "goals_by_currency": goals_by_currency
                 }
             
-            # Calculate budgets summary (NEW)
+            # Calculate budgets summary
             budgets_summary = None
             if budgets:
                 # Group budgets by currency
@@ -445,7 +447,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 }
             
             if summary.get("message") and not goals and not budgets:
-                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!"
+                # FIXED: Added ", None" to prevent crash in main.py
+                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!", None
                 return
             
             # Get relevant context
@@ -481,7 +484,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                             print(f"🎯 Goal query detected - prioritized goals data")
                         if is_temporal:
                             print(f"📅 Temporal query detected - prioritized chronological index")
-                        if is_budget_query:  # NEW
+                        if is_budget_query: 
                             print(f"📊 Budget query detected - prioritized budgets data")
                             
                     context = "\n\n".join([doc.page_content for doc in relevant_docs])
@@ -514,7 +517,6 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             # Combine system and user prompts for Gemini
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             
-            # Use the new API with streaming
             response = self.client.models.generate_content_stream(
                 model=self.gemini_model,
                 contents=full_prompt,
@@ -524,60 +526,48 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 }
             )
 
-            # NEW: Variables to track token counts
-            chunk_count = 0
+            full_response_text = ""
             
-            # Stream the response
+            # FIX 1 & 2: Accumulate text AND yield tuple structure
+            # We yield (text_chunk, None) for content
             for chunk in response:
-                chunk_count += 1
                 if chunk.text:
-                    yield chunk.text
+                    full_response_text += chunk.text
+                    yield chunk.text, None
 
+            # FIX 3: Calculate tokens AFTER loop using accumulated text
             try:
-                # Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+                # Estimate tokens correctly now
                 estimated_input = len(full_prompt) // 4
-                estimated_output = len("".join([c.text for c in response if hasattr(c, 'text')])) // 4
+                estimated_output = len(full_response_text) // 4
                 
-                # Try to get actual usage if available
+                # Try to get actual usage if the object has it
                 if hasattr(response, 'usage_metadata'):
                     actual_input = getattr(response.usage_metadata, 'prompt_token_count', estimated_input)
                     actual_output = getattr(response.usage_metadata, 'candidates_token_count', estimated_output)
                     actual_total = getattr(response.usage_metadata, 'total_token_count', actual_input + actual_output)
                 else:
-                    # Use estimates
                     actual_input = estimated_input
                     actual_output = estimated_output
                     actual_total = estimated_input + estimated_output
                 
-                # Store usage info
-                self.last_usage = {
+                usage_data = {
                     'input_tokens': actual_input,
                     'output_tokens': actual_output,
                     'total_tokens': actual_total,
                     'model_name': self.gemini_model
                 }
                 
-                # Log token usage
-                if actual_total > 0:
-                    print(f"📊 [GEMINI CHAT TOKEN USAGE] User: {user_id}")
-                    print(f"   📥 Input tokens: {actual_input:,}")
-                    print(f"   📤 Output tokens: {actual_output:,}")
-                    print(f"   📊 Total tokens: {actual_total:,}")
-                    print(f"   🤖 Model: {self.gemini_model}")
+                # FIX 4: Yield usage as the FINAL packet
+                yield "", usage_data
                     
             except Exception as usage_error:
                 print(f"⚠️ Could not capture token usage: {usage_error}")
-                self.last_usage = {}
+                yield "", None
             
         except Exception as e:
             print(f"❌ Gemini streaming chat error: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            
-            # Reset usage on error
-            self.last_usage = {}
-            
-            yield f"I encountered an error: {str(e)}"
+            yield f"I encountered an error: {str(e)}", None
 
 
 # Global Gemini chatbot instance
