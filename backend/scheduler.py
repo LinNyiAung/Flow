@@ -77,11 +77,13 @@ def start_scheduler():
     
     
     
-    # Generate weekly insights every Sunday at 6 AM
+   # Generate weekly insights every Sunday at 6 AM
     def generate_all_users_weekly_insights():
         """Generate weekly insights for all premium users"""
+        import asyncio
         from insights_service import generate_weekly_insights_for_all_users
-        generate_weekly_insights_for_all_users()
+        # FIX: Run the async service function in a new event loop
+        asyncio.run(generate_weekly_insights_for_all_users())
     
     scheduler.add_job(
         func=generate_all_users_weekly_insights,
@@ -99,8 +101,10 @@ def start_scheduler():
     # Generate monthly insights on 1st of every month at 6 AM
     def generate_all_users_monthly_insights():
         """Generate monthly insights for all premium users"""
+        import asyncio
         from insights_service import generate_monthly_insights_for_all_users
-        generate_monthly_insights_for_all_users()
+        # FIX: Run the async service function in a new event loop
+        asyncio.run(generate_monthly_insights_for_all_users())
 
     scheduler.add_job(
         func=generate_all_users_monthly_insights,

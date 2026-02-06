@@ -522,8 +522,8 @@ Total Transactions: {len(current_week_transactions)}
     return context
 
 
-def generate_weekly_insights_for_all_users():
-    """Generate weekly insights for all premium users"""
+async def generate_weekly_insights_for_all_users():
+    """Generate weekly insights for all premium users (ASYNC)"""
     logger.info("🔄 Starting weekly insights generation for all premium users...")
     
     # Find all premium users
@@ -548,9 +548,8 @@ def generate_weekly_insights_for_all_users():
             for provider in ["openai", "gemini"]:
                 result = None
                 try:
-                    # Use sync wrapper for async function
-                    import asyncio
-                    result = asyncio.run(generate_weekly_insight(user_id, provider))
+                    # FIX: Directly await the async function instead of using asyncio.run()
+                    result = await generate_weekly_insight(user_id, provider)
                     
                     if result:
                         success_count += 1
@@ -1227,8 +1226,8 @@ Total Transactions: {len(current_month_transactions)}
     return context
 
 
-def generate_monthly_insights_for_all_users():
-    """Generate monthly insights for all premium users"""
+async def generate_monthly_insights_for_all_users():
+    """Generate monthly insights for all premium users (ASYNC)"""
     logger.info("📅 Starting monthly insights generation for all premium users...")
     
     # Find all premium users
@@ -1253,8 +1252,8 @@ def generate_monthly_insights_for_all_users():
             for provider in ["openai", "gemini"]:
                 result = None
                 try:
-                    import asyncio
-                    result = asyncio.run(generate_monthly_insight(user_id, provider))
+                    # FIX: Directly await the async function instead of using asyncio.run()
+                    result = await generate_monthly_insight(user_id, provider)
                     
                     if result:
                         success_count += 1
