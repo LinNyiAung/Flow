@@ -48,16 +48,26 @@ class FinancialDataProcessor:
         """Ensure datetime is timezone-aware UTC (instance method wrapper)"""
         return ensure_utc_datetime(dt)
         
-    def get_user_transactions(self, days_back: Optional[int] = None) -> List[Dict]:
-        """Get user transactions from last N days, or all if days_back is None"""
+    def get_user_transactions(self, days_back: int = 90, limit: int = 500) -> List[Dict]:
+        """
+        Get recent user transactions.
+        Defaults to last 90 days or max 500 items to prevent OOM.
+        """
         query = {"user_id": self.user_id}
-        if days_back is not None:
+        
+        # 1. Apply Date Filter (Default 90 days)
+        if days_back:
             cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
             query["date"] = {"$gte": cutoff_date}
         
         try:
-            transactions = list(transactions_collection.find(query).sort("date", -1))
-            print(f"Found {len(transactions)} transactions for user {self.user_id}")
+            # 2. Apply Hard Limit (Default 500 docs) to prevent memory explosion
+            transactions = list(
+                transactions_collection.find(query)
+                .sort("date", -1)
+                .limit(limit)
+            )
+            print(f"Found {len(transactions)} transactions for user {self.user_id} (Limit: {limit}, Days: {days_back})")
             return transactions
         except Exception as e:
             print(f"Error fetching transactions: {e}")
@@ -104,81 +114,97 @@ class FinancialDataProcessor:
             return []
     
     def get_financial_summary(self) -> Dict[str, Any]:
-        """Generate comprehensive financial summary with multi-currency support"""
-        transactions = self.get_user_transactions()
-        
-        if not transactions:
-            return {"message": "No financial data available"}
-        
-        # Group by currency
-        currency_summaries = {}
-        
-        for t in transactions:
-            currency = t.get("currency", "usd")
+        """
+        Generate comprehensive financial summary using optimized MongoDB Aggregation.
+        Replaces Python-side processing to prevent OOM errors on large datasets.
+        """
+        try:
+            pipeline = [
+                {"$match": {"user_id": self.user_id}},
+                {"$facet": {
+                    # 1. General stats per currency
+                    "currency_stats": [
+                        {"$group": {
+                            "_id": "$currency",
+                            "total_inflow": {"$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}},
+                            "total_outflow": {"$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}},
+                            "count": {"$sum": 1},
+                            "total_amount_sum": {"$sum": "$amount"},
+                            "min_date": {"$min": "$date"},
+                            "max_date": {"$max": "$date"}
+                        }}
+                    ],
+                    # 2. Category breakdowns per currency and type
+                    "category_stats": [
+                        {"$group": {
+                            "_id": {
+                                "currency": "$currency",
+                                "type": "$type",
+                                "category": {"$concat": ["$main_category", " > ", "$sub_category"]}
+                            },
+                            "total": {"$sum": "$amount"}
+                        }},
+                        {"$sort": {"total": -1}}
+                    ]
+                }}
+            ]
+
+            # Execute single DB query
+            result = list(transactions_collection.aggregate(pipeline))[0]
             
-            if currency not in currency_summaries:
+            # Process results into expected structure
+            currency_summaries = {}
+            total_transactions_all = 0
+            
+            # Initialize currency objects
+            for stat in result.get("currency_stats", []):
+                currency = stat["_id"] if stat["_id"] else "usd"
+                total_transactions_all += stat["count"]
+                
                 currency_summaries[currency] = {
-                    "transactions": [],
-                    "total_inflow": 0,
-                    "total_outflow": 0,
-                    "inflow_by_category": {},
-                    "outflow_by_category": {},
-                    "monthly_data": {}
+                    "total_inflow": stat["total_inflow"],
+                    "total_outflow": stat["total_outflow"],
+                    "balance": stat["total_inflow"] - stat["total_outflow"],
+                    "total_transactions": stat["count"],
+                    "avg_transaction_amount": stat["total_amount_sum"] / stat["count"] if stat["count"] > 0 else 0,
+                    "date_range": {
+                        "from": ensure_utc_datetime(stat["min_date"]).isoformat() if stat["min_date"] else None,
+                        "to": ensure_utc_datetime(stat["max_date"]).isoformat() if stat["max_date"] else None
+                    },
+                    "top_inflow_categories": {},
+                    "top_outflow_categories": {}
                 }
+
+            # Populate categories (already sorted by DB)
+            for cat in result.get("category_stats", []):
+                curr = cat["_id"].get("currency", "usd")
+                tx_type = cat["_id"].get("type")
+                cat_name = cat["_id"].get("category")
+                amount = cat["total"]
+                
+                if curr not in currency_summaries:
+                    continue
+                    
+                # Fill top 10 categories
+                target_dict = (
+                    currency_summaries[curr]["top_inflow_categories"] 
+                    if tx_type == "inflow" 
+                    else currency_summaries[curr]["top_outflow_categories"]
+                )
+                
+                if len(target_dict) < 10:
+                    target_dict[cat_name] = amount
+
+            print(f"✅ Generated summary for user {self.user_id} using Aggregation Pipeline")
             
-            currency_summaries[currency]["transactions"].append(t)
-            
-            if t["type"] == "inflow":
-                currency_summaries[currency]["total_inflow"] += t["amount"]
-            else:
-                currency_summaries[currency]["total_outflow"] += t["amount"]
-            
-            # Category breakdown
-            category_key = f"{t['main_category']} > {t['sub_category']}"
-            if t["type"] == "inflow":
-                currency_summaries[currency]["inflow_by_category"][category_key] = \
-                    currency_summaries[currency]["inflow_by_category"].get(category_key, 0) + t["amount"]
-            else:
-                currency_summaries[currency]["outflow_by_category"][category_key] = \
-                    currency_summaries[currency]["outflow_by_category"].get(category_key, 0) + t["amount"]
-            
-            # Monthly trends
-            date_obj = ensure_utc_datetime(t["date"])
-            month_key = date_obj.strftime("%Y-%m")
-            if month_key not in currency_summaries[currency]["monthly_data"]:
-                currency_summaries[currency]["monthly_data"][month_key] = {"inflow": 0, "outflow": 0}
-            currency_summaries[currency]["monthly_data"][month_key][t["type"]] += t["amount"]
-        
-        # Calculate per-currency summaries
-        for currency, data in currency_summaries.items():
-            txs = data["transactions"]
-            data["total_transactions"] = len(txs)
-            data["balance"] = data["total_inflow"] - data["total_outflow"]
-            data["avg_transaction_amount"] = sum(t["amount"] for t in txs) / len(txs)
-            
-            all_dates = [ensure_utc_datetime(t["date"]) for t in txs]
-            data["date_range"] = {
-                "from": min(all_dates).isoformat(),
-                "to": max(all_dates).isoformat()
+            return {
+                "currencies": currency_summaries,
+                "total_transactions": total_transactions_all
             }
-            
-            # Top categories
-            data["top_inflow_categories"] = dict(sorted(
-                data["inflow_by_category"].items(), 
-                key=lambda x: x[1], 
-                reverse=True
-            )[:10])
-            
-            data["top_outflow_categories"] = dict(sorted(
-                data["outflow_by_category"].items(), 
-                key=lambda x: x[1], 
-                reverse=True
-            )[:10])
-        
-        return {
-            "currencies": currency_summaries,
-            "total_transactions": len(transactions)
-        }
+
+        except Exception as e:
+            print(f"Error generating financial summary: {e}")
+            return {"message": "Error generating financial summary"}
     
     def create_financial_documents(self) -> List[Document]:
         """Create optimized documents for GPT-4 with multi-currency support"""
