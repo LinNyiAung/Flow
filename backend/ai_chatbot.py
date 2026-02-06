@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 from typing import List, Dict, Any, Optional
@@ -1007,15 +1008,21 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 yield "AI service is not available. OpenAI API key not configured.", None # ✅ FIXED
                 return
 
-            user = users_collection.find_one({"_id": user_id})
+            # Run DB lookup in thread
+            user = await asyncio.to_thread(users_collection.find_one, {"_id": user_id})
             if not user:
                 yield "User not found. Please log in again.", None
                 return
             
             processor = FinancialDataProcessor(user_id)
-            summary = processor.get_financial_summary()
-            goals = processor.get_user_goals()
-            budgets = processor.get_user_budgets()  # NEW: Get budgets
+            
+            # Fetch all financial data in parallel threads to prevent blocking
+            summary_task = asyncio.to_thread(processor.get_financial_summary)
+            goals_task = asyncio.to_thread(processor.get_user_goals)
+            budgets_task = asyncio.to_thread(processor.get_user_budgets)
+            
+            # Wait for all data concurrently
+            summary, goals, budgets = await asyncio.gather(summary_task, goals_task, budgets_task)
             
             # Calculate goals summary
             goals_summary = None
@@ -1079,7 +1086,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             
             # Get relevant context
             context = ""
-            vector_store = self._get_or_create_vector_store(user_id)
+            # Run vector store creation/fetching in thread (Heavy CPU/Embedding)
+            vector_store = await asyncio.to_thread(self._get_or_create_vector_store, user_id)
             
             if vector_store:
                 try:
@@ -1093,12 +1101,13 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     is_budget_query = any(keyword in message.lower() for keyword in budget_keywords)  # NEW
                     
                     # Adjust retrieval strategy
-                    k_value = 12 if (is_temporal or is_goal_query or is_budget_query) else 6  # NEW: include budget queries
+                    k_value = 12 if (is_temporal or is_goal_query or is_budget_query) else 6
                     
                     retriever = vector_store.as_retriever(
                         search_kwargs={"k": k_value}
-                    )
-                    relevant_docs = retriever.invoke(message)
+                    )            
+                    # Run the retrieval search in a thread
+                    relevant_docs = await asyncio.to_thread(retriever.invoke, message)
                     
                     # Prioritize important documents
                     if is_temporal or is_goal_query or is_budget_query:  # NEW

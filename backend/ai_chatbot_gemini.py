@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 from typing import List, Dict, Any, Optional
@@ -379,16 +380,20 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 yield "Gemini service is not available.", None
                 return
             
-            user = users_collection.find_one({"_id": user_id})
+            user = await asyncio.to_thread(users_collection.find_one, {"_id": user_id})
             if not user:
-                # FIXED: Added ", None" to prevent crash in main.py
                 yield "User not found. Please log in again.", None
                 return
             
             processor = FinancialDataProcessor(user_id)
-            summary = processor.get_financial_summary()
-            goals = processor.get_user_goals()
-            budgets = processor.get_user_budgets()
+            
+            # Fetch all financial data in parallel threads
+            summary_task = asyncio.to_thread(processor.get_financial_summary)
+            goals_task = asyncio.to_thread(processor.get_user_goals)
+            budgets_task = asyncio.to_thread(processor.get_user_budgets)
+            
+            # Wait for all concurrently
+            summary, goals, budgets = await asyncio.gather(summary_task, goals_task, budgets_task)
             
             # Calculate goals summary
             goals_summary = None
@@ -453,7 +458,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             
             # Get relevant context
             context = ""
-            vector_store = self._get_or_create_vector_store(user_id)
+            # Run vector store creation/fetching in thread
+            vector_store = await asyncio.to_thread(self._get_or_create_vector_store, user_id)
             
             if vector_store:
                 try:
@@ -472,7 +478,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     retriever = vector_store.as_retriever(
                         search_kwargs={"k": k_value}
                     )
-                    relevant_docs = retriever.invoke(message)
+                    # Run retrieval in thread
+                    relevant_docs = await asyncio.to_thread(retriever.invoke, message)
                     
                     # Prioritize important documents
                     if is_temporal or is_goal_query or is_budget_query:
