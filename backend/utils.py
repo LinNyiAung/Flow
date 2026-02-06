@@ -221,12 +221,3 @@ def require_premium(current_user: dict = Depends(get_current_user)):
     )
     
     
-def refresh_ai_data_silent(user_id: str):
-    """Silently refresh AI data without failing on error"""
-    try:
-        # 1. Update Gemini/OpenAI Context
-        if financial_chatbot:
-            financial_chatbot.refresh_user_data(user_id)
-        
-    except Exception as e:
-        print(f"Error refreshing AI data: {e}")

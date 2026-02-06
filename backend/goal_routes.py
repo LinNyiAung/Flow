@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Path
 
 from models import Currency
-from utils import get_current_user, get_user_balance, refresh_ai_data_silent
+from utils import get_current_user, get_user_balance
 from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
@@ -13,7 +13,7 @@ from notification_service import (
     check_milestone_amount,
 )
 
-from database import goals_collection
+from database import goals_collection, users_collection
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
@@ -67,7 +67,11 @@ async def create_goal(
             detail="Failed to create goal"
         )
     
-    refresh_ai_data_silent(current_user["_id"])
+    # Mark AI data as stale
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
+    )
     
     return GoalResponse(
         id=goal_id,
@@ -231,7 +235,11 @@ async def update_goal(
     )
     
     updated_goal = goals_collection.find_one({"_id": goal_id})
-    refresh_ai_data_silent(current_user["_id"])
+    #  Mark AI data as stale
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
+    )
     
     return GoalResponse(
         id=updated_goal["_id"],
@@ -356,7 +364,11 @@ async def contribute_to_goal(
         )
     
     updated_goal = goals_collection.find_one({"_id": goal_id})
-    refresh_ai_data_silent(current_user["_id"])
+    # Mark AI data as stale
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
+    )
     
     return GoalResponse(
         id=updated_goal["_id"],
@@ -405,7 +417,11 @@ async def delete_goal(
             detail="Failed to delete goal"
         )
     
-    refresh_ai_data_silent(current_user["_id"])
+    # Mark AI data as stale
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
+    )
     
     return {
         "message": "Goal deleted successfully",

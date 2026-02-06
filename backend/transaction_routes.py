@@ -7,7 +7,7 @@ from typing import List, Optional
 # Added BackgroundTasks to imports
 from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
 
-from utils import get_current_user, refresh_ai_data_silent, require_premium
+from utils import get_current_user, require_premium
 from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
 from budget_service import update_all_user_budgets, update_relevant_budgets
@@ -19,7 +19,7 @@ from models import (
 
 from notification_service import check_large_transaction
 
-from database import transactions_collection, categories_collection
+from database import transactions_collection, categories_collection, users_collection
     
 from config import settings
 
@@ -92,12 +92,19 @@ async def create_transaction(
     except Exception as e:
         print(f"Error checking large transaction: {e}")
     
-    # ✅ FIX: Moved heavy sync operations to background tasks
-    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    
+    
     update_relevant_budgets(
         current_user["_id"], 
         transaction_data.date,
         transaction_data.currency.value
+    )
+
+
+    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
     )
 
     recurrence_obj = None
@@ -209,12 +216,18 @@ async def disable_transaction_recurrence(
         )
     
     # ✅ FIX: Update only relevant budgets
-    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    
     
     update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
+    )
+
+    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
     )
     
     return {"message": "Recurrence disabled successfully"}
@@ -256,12 +269,18 @@ async def disable_parent_transaction_recurrence(
         )
     
     # ✅ FIX: Update only relevant budgets
-    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    
     # FIX: Run budget update synchronously
     update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
+    )
+
+    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
     )
     
     return {"message": "Parent transaction recurrence disabled successfully"}
@@ -366,13 +385,19 @@ async def update_transaction(
 
     updated_transaction = transactions_collection.find_one({"_id": transaction_id})
     
-    # ✅ FIX: Moved heavy sync operations to background tasks
-    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    
+    
     # FIX: Run budget update synchronously
     update_relevant_budgets(
         current_user["_id"], 
         transaction_data.date,  # or new_transaction["date"]
         transaction_data.currency.value  # or new_transaction["currency"]
+    )
+
+    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
     )
     
 
@@ -428,12 +453,18 @@ async def delete_transaction(
         )
 
     # ✅ FIX: Update only relevant budgets
-    background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
+    
     # FIX: Run budget update synchronously using the fetched transaction data
     update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
+    )
+
+    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"ai_data_stale": True}}
     )
     
     return {"message": "Transaction deleted successfully"}
@@ -804,7 +835,6 @@ Respond in JSON format:
 @router.post("/batch-create", response_model=List[TransactionResponse])
 async def batch_create_transactions(
     transactions_data: List[TransactionCreate],
-    background_tasks: BackgroundTasks, # <--- Injected BackgroundTasks
     current_user: dict = Depends(require_premium)
 ):
     """Create multiple transactions at once"""
@@ -849,11 +879,16 @@ async def batch_create_transactions(
         except Exception as e:
             errors.append(f"Transaction {idx + 1}: {str(e)}")
     
-    # Refresh AI data and budgets once after all transactions
+    # Process updates only if transactions were actually created
     if created_transactions:
-        # ✅ FIX: Moved heavy sync operations to background tasks
-        background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
         update_all_user_budgets(current_user["_id"])
+        
+        # 2. Mark AI Data as Stale (Fast & Lazy)
+        # This prevents unnecessary AI processing until the user actually chats
+        users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"ai_data_stale": True}}
+        )
     
     if errors and not created_transactions:
         raise HTTPException(

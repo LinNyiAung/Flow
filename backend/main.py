@@ -167,6 +167,32 @@ async def stream_chat_with_ai(
     
     # 1. Select chatbot and Pre-fetch Model Name
     model_name = "unknown-model" # Fallback
+
+    user_doc = users_collection.find_one({"_id": current_user["_id"]}, {"ai_data_stale": 1})
+    
+    if user_doc and user_doc.get("ai_data_stale", False):
+        print(f"🔄 Data is stale for user {current_user['_id']}, refreshing before chat...")
+        
+        try:
+            # Refresh the specific provider requested
+            if chat_request.ai_provider == AIProvider.GEMINI:
+                if gemini_financial_chatbot:
+                    gemini_financial_chatbot.refresh_user_data(current_user["_id"])
+            else:
+                if financial_chatbot:
+                    financial_chatbot.refresh_user_data(current_user["_id"])
+            
+            # Reset the flag ONLY if refresh succeeded
+            users_collection.update_one(
+                {"_id": current_user["_id"]},
+                {"$set": {"ai_data_stale": False}}
+            )
+            print("✅ AI data refreshed and flag cleared.")
+            
+        except Exception as e:
+            # Log error but let the chat proceed (with potentially stale data) 
+            # so the user isn't blocked completely
+            print(f"⚠️ Failed to refresh stale AI data: {e}")
     
     if chat_request.ai_provider == AIProvider.GEMINI:
         chatbot = gemini_financial_chatbot

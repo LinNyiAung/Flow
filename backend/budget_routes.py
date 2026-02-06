@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
 
 
 from models import Currency
-from utils import get_current_user, refresh_ai_data_silent, require_premium
+from utils import get_current_user, require_premium
 
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
 from budget_service import BudgetAnalyzer, is_budget_active, update_budget_spent_amounts
@@ -15,7 +15,7 @@ from budget_service import BudgetAnalyzer, is_budget_active, update_budget_spent
 from notification_service import notify_budget_started
 
 
-from database import budgets_collection
+from database import budgets_collection, users_collection
 
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
@@ -124,8 +124,12 @@ async def create_budget(
                 period=budget_data.period.value
             )
         
-        # Refresh AI data
-        refresh_ai_data_silent(current_user["_id"])
+        
+        # Mark AI data as stale
+        users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"ai_data_stale": True}}
+        )
         
         # Get updated budget
         updated_budget = budgets_collection.find_one({"_id": budget_id})
@@ -432,8 +436,11 @@ async def update_budget(
         # Recalculate spent amounts
         update_budget_spent_amounts(current_user["_id"], budget_id)
         
-        # Refresh AI data
-        refresh_ai_data_silent(current_user["_id"])
+        # Mark AI data as stale
+        users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"ai_data_stale": True}}
+        )
         
         # Fetch updated budget
         updated_budget = budgets_collection.find_one({"_id": budget_id})
@@ -499,8 +506,11 @@ async def delete_budget(
                 detail="Failed to delete budget"
             )
         
-        # Refresh AI data
-        refresh_ai_data_silent(current_user["_id"])
+        # Mark AI data as stale
+        users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": {"ai_data_stale": True}}
+        )
         
         return {"message": "Budget deleted successfully"}
         

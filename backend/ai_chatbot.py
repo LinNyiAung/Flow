@@ -771,16 +771,20 @@ class FinancialChatbot:
         return self.user_vector_stores[user_id]
     
     def refresh_user_data(self, user_id: str):
-        """Refresh user's financial data in vector store"""
+        """
+        Invalidate user's vector store cache. 
+        The next call to stream_chat will automatically rebuild it.
+        """
         if user_id in self.user_vector_stores:
             try:
+                # Optional: Explicitly clean up if needed, though GC handles objects usually
                 self.user_vector_stores[user_id].delete_collection()
-            except:
-                pass
+            except Exception as e:
+                print(f"⚠️ Error clearing vector store for {user_id}: {e}")
+            
+            # Just remove it from memory
             del self.user_vector_stores[user_id]
-        
-        self._get_or_create_vector_store(user_id)
-        print(f"✅ Refreshed data for user {user_id}")
+            print(f"🗑️ Invalidated cache for user {user_id}")
     
     def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
         """Build enhanced system prompt for GPT-4 with Myanmar language support and response style"""
