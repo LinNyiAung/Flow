@@ -1,4 +1,5 @@
 from datetime import datetime, UTC, timedelta
+import threading
 from typing import Dict, List, Optional
 import uuid
 from firebase_service import send_fcm_notification
@@ -169,25 +170,33 @@ def create_notification(
     notifications_collection.insert_one(notification)
     print(f"✅ Created notification {notification_type} for user {user_id}")
     
-    # NEW: Send FCM push notification
-    user = users_collection.find_one({"_id": user_id})
-    if user and user.get("fcm_token"):
-        fcm_data = {
-            "notification_id": notification_id,
-            "type": notification_type,
-            "goal_id": goal_id or "",
-            "goal_name": goal_name or "",
-            "currency": currency or "",
-        }
-        
-        send_fcm_notification(
-            fcm_token=user["fcm_token"],
-            title=title,
-            body=message,
-            data=fcm_data
-        )
-    else:
-        print(f"⚠️  User {user_id} has no FCM token")
+    # NEW: Send FCM push notification in a separate thread to prevent blocking
+    # This ensures the user gets the API response immediately, even if Firebase is slow.
+    def send_background_fcm():
+        try:
+            user = users_collection.find_one({"_id": user_id})
+            if user and user.get("fcm_token"):
+                fcm_data = {
+                    "notification_id": notification_id,
+                    "type": notification_type,
+                    "goal_id": goal_id or "",
+                    "goal_name": goal_name or "",
+                    "currency": currency or "",
+                }
+                
+                send_fcm_notification(
+                    fcm_token=user["fcm_token"],
+                    title=title,
+                    body=message,
+                    data=fcm_data
+                )
+            else:
+                print(f"⚠️  User {user_id} has no FCM token")
+        except Exception as e:
+            print(f"❌ Error sending background FCM: {e}")
+
+    # Fire and forget
+    threading.Thread(target=send_background_fcm, daemon=True).start()
     
     return notification
 

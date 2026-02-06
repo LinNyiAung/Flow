@@ -94,11 +94,10 @@ async def create_transaction(
     
     # ✅ FIX: Moved heavy sync operations to background tasks
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(
-    update_relevant_budgets, 
-    current_user["_id"], 
-    transaction_data.date,  # or new_transaction["date"]
-    transaction_data.currency.value  # or new_transaction["currency"]
+    update_relevant_budgets(
+        current_user["_id"], 
+        transaction_data.date,
+        transaction_data.currency.value
     )
 
     recurrence_obj = None
@@ -211,8 +210,8 @@ async def disable_transaction_recurrence(
     
     # ✅ FIX: Update only relevant budgets
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(
-        update_relevant_budgets, 
+    
+    update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
@@ -258,8 +257,8 @@ async def disable_parent_transaction_recurrence(
     
     # ✅ FIX: Update only relevant budgets
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(
-        update_relevant_budgets, 
+    # FIX: Run budget update synchronously
+    update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
@@ -369,12 +368,13 @@ async def update_transaction(
     
     # ✅ FIX: Moved heavy sync operations to background tasks
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(
-    update_relevant_budgets, 
-    current_user["_id"], 
-    transaction_data.date,  # or new_transaction["date"]
-    transaction_data.currency.value  # or new_transaction["currency"]
+    # FIX: Run budget update synchronously
+    update_relevant_budgets(
+        current_user["_id"], 
+        transaction_data.date,  # or new_transaction["date"]
+        transaction_data.currency.value  # or new_transaction["currency"]
     )
+    
 
     recurrence_obj = None
     if updated_transaction.get("recurrence"):
@@ -429,8 +429,8 @@ async def delete_transaction(
 
     # ✅ FIX: Update only relevant budgets
     background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-    background_tasks.add_task(
-        update_relevant_budgets, 
+    # FIX: Run budget update synchronously using the fetched transaction data
+    update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
@@ -853,12 +853,7 @@ async def batch_create_transactions(
     if created_transactions:
         # ✅ FIX: Moved heavy sync operations to background tasks
         background_tasks.add_task(refresh_ai_data_silent, current_user["_id"])
-        background_tasks.add_task(
-        update_relevant_budgets, 
-        current_user["_id"], 
-        transaction_data.date,  # or new_transaction["date"]
-        transaction_data.currency.value  # or new_transaction["currency"]
-        )
+        update_all_user_budgets(current_user["_id"])
     
     if errors and not created_transactions:
         raise HTTPException(

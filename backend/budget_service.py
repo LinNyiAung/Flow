@@ -575,9 +575,15 @@ def is_budget_active(budget: Dict, current_date: datetime) -> bool:
     return is_active
 
 
-def update_budget_spent_amounts(user_id: str, budget_id: str):
-    """Recalculate spent amounts for a budget based on transactions"""
-    budget = budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
+def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Optional[Dict] = None):
+    """Recalculate spent amounts for a budget based on transactions (Optimized)"""
+    
+    # OPTIMIZATION 1: Use provided doc if available to save a DB read
+    if budget_doc:
+        budget = budget_doc
+    else:
+        budget = budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
+    
     if not budget:
         return
     
@@ -588,18 +594,22 @@ def update_budget_spent_amounts(user_id: str, budget_id: str):
         old_category_percentages[cat_budget["main_category"]] = cat_budget.get("percentage_used", 0)
     
     # Get budget currency
-    budget_currency = budget.get("currency", "usd")  # NEW: get budget currency
+    budget_currency = budget.get("currency", "usd")
     
-    # Get all transactions in budget period WITH SAME CURRENCY
-    transactions = list(transactions_collection.find({
-        "user_id": user_id,
-        "type": "outflow",
-        "currency": budget_currency,  # NEW: filter by currency
-        "date": {
-            "$gte": budget["start_date"],
-            "$lte": budget["end_date"]
-        }
-    }))
+    # OPTIMIZATION 2: Use Projection to fetch ONLY necessary fields (drastically reduces memory/bandwidth)
+    # We only need amount, categories, and ID. Description, notes, etc. are skipped.
+    transactions = list(transactions_collection.find(
+        {
+            "user_id": user_id,
+            "type": "outflow",
+            "currency": budget_currency,
+            "date": {
+                "$gte": budget["start_date"],
+                "$lte": budget["end_date"]
+            }
+        },
+        {"amount": 1, "main_category": 1, "sub_category": 1, "_id": 1} 
+    ))
     
     # Track which transactions have been counted for total_spent
     counted_transaction_ids = set()
@@ -722,21 +732,19 @@ def update_relevant_budgets(user_id: str, transaction_date: datetime, transactio
     if transaction_date.tzinfo is None:
         transaction_date = transaction_date.replace(tzinfo=timezone.utc)
     
-    # Only find budgets that:
-    # 1. Cover this transaction's date
-    # 2. Match the transaction's currency
     query = {
         "user_id": user_id,
-        "currency": transaction_currency,  # Important: match currency
+        "currency": transaction_currency,
         "start_date": {"$lte": transaction_date},
         "end_date": {"$gte": transaction_date}
     }
     
+    # OPTIMIZATION: We are fetching the full budget here
     relevant_budgets = list(budgets_collection.find(query))
     
-    # Typically this will be 0-3 budgets (most users have 1-2 active budgets)
     for budget in relevant_budgets:
-        update_budget_spent_amounts(user_id, budget["_id"])
+        # OPTIMIZATION: Pass the full budget document to avoid re-fetching it inside the function
+        update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)
 
 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
