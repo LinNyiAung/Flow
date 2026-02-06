@@ -166,8 +166,6 @@ def initialize_categories():
 def create_db_indexes():
     """Create indexes to ensure data integrity and fix race conditions"""
     try:
-        # Create a unique compound index for budgets
-        # This prevents the "Double Budget" race condition
         budgets_collection.create_index(
             [
                 ("user_id", ASCENDING),
@@ -175,7 +173,10 @@ def create_db_indexes():
                 ("start_date", ASCENDING)
             ],
             unique=True,
-            background=True  # Build in background to avoid blocking
+            background=True,
+            partialFilterExpression={
+                "parent_budget_id": {"$type": "string"} 
+            }
         )
         print("✅ Database indexes verified/created")
     except Exception as e:
