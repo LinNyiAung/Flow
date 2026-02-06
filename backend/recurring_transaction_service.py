@@ -171,7 +171,8 @@ def check_and_create_recurring_transactions():
             created_count += 1
             
             # Get currency symbol for notification
-            currency_symbol = "$" if transaction.get("currency", "usd") else ("K" if transaction.get("currency", "mmk") else "฿")
+            currency_map = {"usd": "$", "mmk": "K", "thb": "฿"}
+            currency_symbol = currency_map.get(transaction.get("currency", "usd"), "$")
             
             # Notify user
             create_notification(
