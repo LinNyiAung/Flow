@@ -264,7 +264,8 @@ async def contribute_to_goal(
     contribution: GoalContribution = ...,
     current_user: dict = Depends(get_current_user)
 ):
-    """Add or reduce amount from a goal"""
+    """Add or reduce amount from a goal (Thread-Safe with Optimistic Locking)"""
+    # 1. READ: Fetch the goal state
     goal = goals_collection.find_one({
         "_id": goal_id,
         "user_id": current_user["_id"]
@@ -276,32 +277,37 @@ async def contribute_to_goal(
             detail="Goal not found"
         )
     
+    # 2. CAPTURE STATE: Store the version we are basing our logic on
+    # We will use this in the update query to ensure no one else touched it
+    original_amount = goal["current_amount"]
+    
     if goal["status"] == GoalStatus.ACHIEVED.value and contribution.amount > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot add funds to an achieved goal"
         )
     
-    goal_currency = goal.get("currency", "usd")  # NEW - get goal currency
+    goal_currency = goal.get("currency", "usd")
     
     # Store old values for notification checks
-    old_amount = goal["current_amount"]
-    old_progress = (old_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+    old_progress = (original_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
     
-    # Calculate what the new amount would be
-    new_amount = goal["current_amount"] + contribution.amount
+    # Calculate what the new amount would be based on our READ
+    new_amount = original_amount + contribution.amount
+    
+    # --- VALIDATION LOGIC ---
     
     # For adding money to goal
     if contribution.amount > 0:
         # Check if adding this amount would exceed the target
         if new_amount > goal["target_amount"]:
-            max_can_add = goal["target_amount"] - goal["current_amount"]
+            max_can_add = goal["target_amount"] - original_amount
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot exceed target amount. Maximum you can add: {goal_currency.upper()} {max_can_add:.2f}"
             )
         
-        # Check available balance for the GOAL'S CURRENCY - UPDATED
+        # Check available balance
         balance_data = await get_user_balance(current_user["_id"], goal_currency)
         available_balance = balance_data["available_balance"]
         
@@ -313,40 +319,59 @@ async def contribute_to_goal(
     
     # For reducing money from goal
     if contribution.amount < 0:
-        if abs(contribution.amount) > goal["current_amount"]:
+        if abs(contribution.amount) > original_amount:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot reduce more than current amount: {goal_currency.upper()} {goal['current_amount']:.2f}"
+                detail=f"Cannot reduce more than current amount: {goal_currency.upper()} {original_amount:.2f}"
             )
     
-    # Determine new status
+    # --- STATUS CALCULATION ---
+    
     new_status = goal["status"]
     achieved_at = goal.get("achieved_at")
+    now = datetime.now(UTC)
     
     if new_amount >= goal["target_amount"] and new_status == GoalStatus.ACTIVE.value:
         new_status = GoalStatus.ACHIEVED.value
-        achieved_at = datetime.now(UTC)
+        achieved_at = now
     elif new_amount < goal["target_amount"] and new_status == GoalStatus.ACHIEVED.value:
         new_status = GoalStatus.ACTIVE.value
         achieved_at = None
     
-    # Calculate new progress
-    new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+    # --- CRITICAL FIX: ATOMIC WRITE (OPTIMISTIC LOCKING) ---
     
-    goals_collection.update_one(
-        {"_id": goal_id},
+    # We only update IF the "current_amount" in DB matches "original_amount" we read.
+    result = goals_collection.update_one(
+        {
+            "_id": goal_id,
+            "current_amount": original_amount  # <--- THE GUARD CONDITION
+        },
         {
             "$set": {
                 "current_amount": new_amount,
                 "status": new_status,
-                "updated_at": datetime.now(UTC),
+                "updated_at": now,
                 "achieved_at": achieved_at
             }
         }
     )
     
+    # If modified_count is 0, it means 'current_amount' changed while we were calculating.
+    if result.modified_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Transaction failed due to concurrent modification. Please try again."
+        )
+
+    # --- POST-UPDATE ACTIONS ---
+    
+    # Calculate new progress for notifications
+    new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+    
     # Check and create notifications (only for additions)
     if contribution.amount > 0:
+        # Note: These are fire-and-forget or background tasks usually, 
+        # checking notifications doesn't need to be atomic with the transaction
         check_goal_notifications(
             user_id=current_user["_id"],
             goal_id=goal_id,
@@ -358,12 +383,14 @@ async def contribute_to_goal(
         check_milestone_amount(
             user_id=current_user["_id"],
             goal_id=goal_id,
-            old_amount=old_amount,
+            old_amount=original_amount,
             new_amount=new_amount,
             goal_name=goal["name"]
         )
     
+    # Fetch the final updated goal to return
     updated_goal = goals_collection.find_one({"_id": goal_id})
+    
     # Mark AI data as stale
     users_collection.update_one(
         {"_id": current_user["_id"]},
@@ -380,12 +407,11 @@ async def contribute_to_goal(
         goal_type=GoalType(updated_goal["goal_type"]),
         status=GoalStatus(updated_goal["status"]),
         progress_percentage=(updated_goal["current_amount"] / updated_goal["target_amount"] * 100) if updated_goal["target_amount"] > 0 else 0,
-        currency=Currency(updated_goal.get("currency", "usd")),  # NEW
+        currency=Currency(updated_goal.get("currency", "usd")),
         created_at=updated_goal["created_at"],
         updated_at=updated_goal["updated_at"],
         achieved_at=updated_goal.get("achieved_at")
     )
-
 
 @router.delete("/{goal_id}")
 async def delete_goal(
