@@ -78,24 +78,8 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         # Get financial data processor for other data (goals/budgets)
         processor = FinancialDataProcessor(user_id)
         
-        # ✅ FIXED: Direct DB query for CURRENT week only
-        # No longer fetching all history into RAM
-        current_week_transactions = list(transactions_collection.find({
-            "user_id": user_id,
-            "date": {
-                "$gte": week_start,
-                "$lte": week_end
-            }
-        }))
-        
-        # ✅ FIXED: Direct DB query for PREVIOUS week only
-        prev_week_transactions = list(transactions_collection.find({
-            "user_id": user_id,
-            "date": {
-                "$gte": prev_week_start,
-                "$lte": prev_week_end
-            }
-        }))
+        current_week_data = get_financial_summary(user_id, week_start, week_end)
+        prev_week_data = get_financial_summary(user_id, prev_week_start, prev_week_end)
         
         # Get goals & budgets (usually small datasets, safe to fetch all)
         goals = processor.get_user_goals()
@@ -103,8 +87,8 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         
         # ✅ FIXED: Efficient check for activity using find_one (returns None if empty)
         # Instead of loading 5000+ items to check len() > 0
-        has_any_transaction = transactions_collection.find_one({"user_id": user_id}) is not None
-        has_activity = has_any_transaction or len(goals) > 0 or len(budgets) > 0
+        total_tx_count = sum(item['count'] for item in current_week_data.get('summary', []))
+        has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
         
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
@@ -170,8 +154,8 @@ Start by adding your first transaction or creating a financial goal. The more da
         # Build context (remains the same)
         context = _build_weekly_context(
             user, 
-            current_week_transactions, 
-            prev_week_transactions,
+            current_week_data,  # Now accepts aggregation result
+            prev_week_data, 
             goals,
             budgets,
             week_start,
@@ -281,6 +265,80 @@ Start by adding your first transaction or creating a financial goal. The more da
         import traceback
         traceback.print_exc()
         return None
+    
+
+
+def get_financial_summary(user_id, start_date, end_date):
+    """
+    Efficiently calculate financial totals and top categories using MongoDB Aggregation.
+    Returns summary stats instead of raw documents to prevent OOM errors.
+    """
+    pipeline = [
+        # 1. Match transactions for this user in the date range
+        {
+            "$match": {
+                "user_id": user_id,
+                "date": {"$gte": start_date, "$lte": end_date}
+            }
+        },
+        # 2. Split into two calculation branches
+        {
+            "$facet": {
+                # Branch A: Calculate Totals by Currency
+                "summary": [
+                    {
+                        "$group": {
+                            "_id": "$currency",
+                            "inflow": {
+                                "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
+                            },
+                            "outflow": {
+                                "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
+                            },
+                            "count": {"$sum": 1}
+                        }
+                    }
+                ],
+                # Branch B: Get Top Spending Categories by Currency
+                "categories": [
+                    {"$match": {"type": "outflow"}},
+                    {
+                        "$group": {
+                            "_id": {
+                                "currency": "$currency",
+                                "name": {"$concat": ["$main_category", " > ", "$sub_category"]}
+                            },
+                            "amount": {"$sum": "$amount"}
+                        }
+                    },
+                    {"$sort": {"amount": -1}},
+                    {
+                        "$group": {
+                            "_id": "$_id.currency",
+                            "top_items": {
+                                "$push": {"category": "$_id.name", "amount": "$amount"}
+                            }
+                        }
+                    },
+                    # Keep only top 5 categories per currency
+                    {
+                        "$project": {
+                            "top_items": {"$slice": ["$top_items", 5]}
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+    
+    # Execute pipeline
+    result = list(transactions_collection.aggregate(pipeline))
+    
+    # Default structure if no results
+    if not result:
+        return {"summary": [], "categories": []}
+        
+    return result[0]
 
 
 def _build_weekly_system_prompt():
@@ -366,15 +424,25 @@ Remember: This report is generated on Monday morning, reviewing the complete wee
 
 def _build_weekly_context(
     user, 
-    current_week_transactions, 
-    prev_week_transactions,
+    current_week_data,  # Now accepts aggregation result
+    prev_week_data,     # Now accepts aggregation result
     goals,
     budgets,
     week_start,
     week_end,
     previous_insight
 ):
-    """Build context for weekly insights generation"""
+    """Build context for weekly insights using aggregated data"""
+    
+    # Extract data for easier lookup
+    curr_summary = {item['_id']: item for item in current_week_data.get('summary', [])}
+    curr_cats = {item['_id']: item['top_items'] for item in current_week_data.get('categories', [])}
+    
+    prev_summary = {item['_id']: item for item in prev_week_data.get('summary', [])}
+
+    # Calculate total transactions across all currencies
+    total_tx = sum(item['count'] for item in curr_summary.values())
+
     context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
@@ -384,67 +452,52 @@ LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.str
 
 === LAST WEEK'S FINANCIAL ACTIVITY ===
 
-Total Transactions: {len(current_week_transactions)}
+Total Transactions: {total_tx}
 
 """
     
-    # Group current week by currency
-    current_by_currency = {}
-    for t in current_week_transactions:
-        currency = t.get("currency", "usd")
-        if currency not in current_by_currency:
-            current_by_currency[currency] = {"inflow": 0, "outflow": 0, "transactions": [], "categories": {}}
-        
-        current_by_currency[currency]["transactions"].append(t)
-        if t["type"] == "inflow":
-            current_by_currency[currency]["inflow"] += t["amount"]
-        else:
-            current_by_currency[currency]["outflow"] += t["amount"]
-        
-        # Track categories
-        cat_key = f"{t['main_category']} > {t['sub_category']}"
-        if cat_key not in current_by_currency[currency]["categories"]:
-            current_by_currency[currency]["categories"][cat_key] = 0
-        current_by_currency[currency]["categories"][cat_key] += t["amount"]
-    
-    for currency, data in current_by_currency.items():
+    # Process Current Week Data
+    for currency, data in curr_summary.items():
+        # Fallback for currency code if missing
+        if not currency: currency = "usd"
+            
         currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
         currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
+        
+        net = data['inflow'] - data['outflow']
         
         context += f"\n{currency_name}:\n"
         context += f"  Income: {currency_symbol}{data['inflow']:.2f}\n"
         context += f"  Expenses: {currency_symbol}{data['outflow']:.2f}\n"
-        context += f"  Net: {currency_symbol}{data['inflow'] - data['outflow']:.2f}\n"
-        context += f"  Transactions: {len(data['transactions'])}\n"
+        context += f"  Net: {currency_symbol}{net:.2f}\n"
+        context += f"  Transactions: {data['count']}\n"
         
-        # Top spending categories
+        # Top spending categories from aggregation
         context += f"\n  Top Spending Categories:\n"
-        sorted_cats = sorted(data['categories'].items(), key=lambda x: x[1], reverse=True)
-        for cat, amount in sorted_cats[:5]:
-            context += f"    - {cat}: {currency_symbol}{amount:.2f}\n"
+        top_items = curr_cats.get(currency, [])
+        if top_items:
+            for item in top_items:
+                context += f"    - {item['category']}: {currency_symbol}{item['amount']:.2f}\n"
+        else:
+            context += "    - No expenses recorded\n"
     
     # Previous week comparison
-    if prev_week_transactions:
+    if prev_summary:
         context += "\n\n=== WEEK BEFORE LAST COMPARISON ===\n\n"
         
-        prev_by_currency = {}
-        for t in prev_week_transactions:
-            currency = t.get("currency", "usd")
-            if currency not in prev_by_currency:
-                prev_by_currency[currency] = {"inflow": 0, "outflow": 0}
-            
-            if t["type"] == "inflow":
-                prev_by_currency[currency]["inflow"] += t["amount"]
-            else:
-                prev_by_currency[currency]["outflow"] += t["amount"]
+        # Union of all currencies found in both weeks
+        all_currencies = set(list(curr_summary.keys()) + list(prev_summary.keys()))
         
-        for currency in set(list(current_by_currency.keys()) + list(prev_by_currency.keys())):
+        for currency in all_currencies:
+            if not currency: continue
+            
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
             currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
-            current = current_by_currency.get(currency, {"inflow": 0, "outflow": 0})
-            prev = prev_by_currency.get(currency, {"inflow": 0, "outflow": 0})
+            current = curr_summary.get(currency, {"inflow": 0, "outflow": 0})
+            prev = prev_summary.get(currency, {"inflow": 0, "outflow": 0})
             
+            # Calculate % change
             income_change = ((current["inflow"] - prev["inflow"]) / prev["inflow"] * 100) if prev["inflow"] > 0 else 0
             expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
             
@@ -452,73 +505,62 @@ Total Transactions: {len(current_week_transactions)}
             context += f"  Income: {currency_symbol}{prev['inflow']:.2f} → {currency_symbol}{current['inflow']:.2f} ({income_change:+.1f}%)\n"
             context += f"  Expenses: {currency_symbol}{prev['outflow']:.2f} → {currency_symbol}{current['outflow']:.2f} ({expense_change:+.1f}%)\n\n"
     
+    # --- GOALS & BUDGETS Logic remains exactly the same as before ---
+    
     # Goals progress
     if goals:
         context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
-        
         goals_by_currency = {}
         for g in goals:
-            currency = g.get("currency", "usd")
-            if currency not in goals_by_currency:
-                goals_by_currency[currency] = []
-            goals_by_currency[currency].append(g)
+            curr = g.get("currency", "usd")
+            if curr not in goals_by_currency: goals_by_currency[curr] = []
+            goals_by_currency[curr].append(g)
         
-        for currency, curr_goals in goals_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
-            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-            
+        for curr, curr_goals in goals_by_currency.items():
+            sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
+            name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
             active_goals = [g for g in curr_goals if g["status"] == "active"]
             
-            context += f"{currency_name} Goals:\n"
+            context += f"{name} Goals:\n"
             for goal in active_goals[:5]:
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-                context += f"  - {goal['name']}: {currency_symbol}{goal['current_amount']:.2f} / {currency_symbol}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
+                context += f"  - {goal['name']}: {sym}{goal['current_amount']:.2f} / {sym}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
             context += "\n"
-            
-            
+
     # Budgets progress
     if budgets:
         context += "\n=== ACTIVE BUDGETS ===\n\n"
-        
         budgets_by_currency = {}
         for b in budgets:
-            currency = b.get("currency", "usd")
-            if currency not in budgets_by_currency:
-                budgets_by_currency[currency] = []
-            budgets_by_currency[currency].append(b)
+            curr = b.get("currency", "usd")
+            if curr not in budgets_by_currency: budgets_by_currency[curr] = []
+            budgets_by_currency[curr].append(b)
         
-        for currency, curr_budgets in budgets_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
-            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
+        for curr, curr_budgets in budgets_by_currency.items():
+            sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
+            name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
             
-            context += f"{currency_name} Budgets:\n"
+            context += f"{name} Budgets:\n"
             for budget in curr_budgets:
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
-                
                 context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
-                context += f"     Total: {currency_symbol}{budget['total_spent']:.2f} / {currency_symbol}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
+                context += f"     Total: {sym}{budget['total_spent']:.2f} / {sym}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
                 
                 # Show category breakdowns
-                for cat_budget in budget['category_budgets'][:5]:  # Top 5 categories
+                for cat_budget in budget.get('category_budgets', [])[:5]:
                     cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {currency_symbol}{cat_budget['spent_amount']:.2f} / {currency_symbol}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
-                
+                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:.2f} / {sym}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
                 context += "\n"
     
-    # Previous insight summary (if exists)
+    # Previous insight summary
     if previous_insight:
         context += "\n=== PREVIOUS WEEK'S KEY RECOMMENDATIONS ===\n"
         context += f"(Review to see if user followed through)\n\n"
-        # Extract a brief summary from previous content if possible
         prev_content = previous_insight.get("content", "")
-        if len(prev_content) > 500:
-            context += prev_content[:500] + "...\n"
-        else:
-            context += prev_content + "\n"
+        context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
     
     context += "\n\nGenerate a comprehensive weekly financial insight report based on the above data."
-    
     return context
 
 
@@ -785,31 +827,17 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
         # Get financial data processor
         processor = FinancialDataProcessor(user_id)
         
-        # ✅ FIXED: Direct DB query for CURRENT month only
-        current_month_transactions = list(transactions_collection.find({
-            "user_id": user_id,
-            "date": {
-                "$gte": month_start,
-                "$lte": month_end
-            }
-        }))
-        
-        # ✅ FIXED: Direct DB query for PREVIOUS month only
-        prev_month_transactions = list(transactions_collection.find({
-            "user_id": user_id,
-            "date": {
-                "$gte": prev_month_start,
-                "$lte": prev_month_end
-            }
-        }))
+        # ✅ REAL FIX: Use Aggregation for Monthly Data (RAM Safe)
+        current_month_data = get_financial_summary(user_id, month_start, month_end)
+        prev_month_data = get_financial_summary(user_id, prev_month_start, prev_month_end)
         
         # Get goals & budgets
         goals = processor.get_user_goals()
         budgets = processor.get_user_budgets()
         
-        # ✅ FIXED: Efficient check for activity
-        has_any_transaction = transactions_collection.find_one({"user_id": user_id}) is not None
-        has_activity = has_any_transaction or len(goals) > 0 or len(budgets) > 0
+        # Check for activity using the aggregation result count
+        total_tx_count = sum(item['count'] for item in current_month_data.get('summary', []))
+        has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
         
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
@@ -877,8 +905,8 @@ Start by adding your first transaction or creating a financial goal. The more da
         # Build context
         context = _build_monthly_context(
             user, 
-            current_month_transactions, 
-            prev_month_transactions,
+            current_month_data, # Passing aggregated data, not raw list
+            prev_month_data,    # Passing aggregated data, not raw list
             goals,
             budgets,
             month_start,
@@ -1071,15 +1099,25 @@ Remember: This report is generated on the 1st of the month, reviewing the comple
 
 def _build_monthly_context(
     user, 
-    current_month_transactions, 
-    prev_month_transactions,
+    current_month_data, 
+    prev_month_data,
     goals,
     budgets,
     month_start,
     month_end,
     previous_insight
 ):
-    """Build context for monthly insights generation"""
+    """Build context for monthly insights using aggregated data"""
+    
+    # Extract data from aggregation structure
+    curr_summary = {item['_id']: item for item in current_month_data.get('summary', [])}
+    curr_cats = {item['_id']: item['top_items'] for item in current_month_data.get('categories', [])}
+    
+    prev_summary = {item['_id']: item for item in prev_month_data.get('summary', [])}
+
+    # Calculate total transactions
+    total_tx = sum(item['count'] for item in curr_summary.values())
+
     context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
@@ -1089,67 +1127,50 @@ LAST MONTH'S PERIOD: {month_start.strftime('%B %d, %Y')} to {month_end.strftime(
 
 === LAST MONTH'S FINANCIAL ACTIVITY ===
 
-Total Transactions: {len(current_month_transactions)}
+Total Transactions: {total_tx}
 
 """
     
-    # Group current month by currency
-    current_by_currency = {}
-    for t in current_month_transactions:
-        currency = t.get("currency", "usd")
-        if currency not in current_by_currency:
-            current_by_currency[currency] = {"inflow": 0, "outflow": 0, "transactions": [], "categories": {}}
-        
-        current_by_currency[currency]["transactions"].append(t)
-        if t["type"] == "inflow":
-            current_by_currency[currency]["inflow"] += t["amount"]
-        else:
-            current_by_currency[currency]["outflow"] += t["amount"]
-        
-        # Track categories
-        cat_key = f"{t['main_category']} > {t['sub_category']}"
-        if cat_key not in current_by_currency[currency]["categories"]:
-            current_by_currency[currency]["categories"][cat_key] = 0
-        current_by_currency[currency]["categories"][cat_key] += t["amount"]
-    
-    for currency, data in current_by_currency.items():
+    # Process Current Month Data
+    for currency, data in curr_summary.items():
+        if not currency: currency = "usd"
+            
         currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
         currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
+        
+        net = data['inflow'] - data['outflow']
         
         context += f"\n{currency_name}:\n"
         context += f"  Income: {currency_symbol}{data['inflow']:.2f}\n"
         context += f"  Expenses: {currency_symbol}{data['outflow']:.2f}\n"
-        context += f"  Net: {currency_symbol}{data['inflow'] - data['outflow']:.2f}\n"
-        context += f"  Transactions: {len(data['transactions'])}\n"
+        context += f"  Net: {currency_symbol}{net:.2f}\n"
+        context += f"  Transactions: {data['count']}\n"
         
         # Top spending categories
         context += f"\n  Top Spending Categories:\n"
-        sorted_cats = sorted(data['categories'].items(), key=lambda x: x[1], reverse=True)
-        for cat, amount in sorted_cats[:10]:  # Show more categories for monthly
-            context += f"    - {cat}: {currency_symbol}{amount:.2f}\n"
+        top_items = curr_cats.get(currency, [])
+        if top_items:
+            for item in top_items:
+                context += f"    - {item['category']}: {currency_symbol}{item['amount']:.2f}\n"
+        else:
+            context += "    - No expenses recorded\n"
     
-    # Previous month comparison
-    if prev_month_transactions:
+    # Previous Month Comparison
+    if prev_summary:
         context += "\n\n=== PREVIOUS MONTH COMPARISON ===\n\n"
         
-        prev_by_currency = {}
-        for t in prev_month_transactions:
-            currency = t.get("currency", "usd")
-            if currency not in prev_by_currency:
-                prev_by_currency[currency] = {"inflow": 0, "outflow": 0}
-            
-            if t["type"] == "inflow":
-                prev_by_currency[currency]["inflow"] += t["amount"]
-            else:
-                prev_by_currency[currency]["outflow"] += t["amount"]
+        all_currencies = set(list(curr_summary.keys()) + list(prev_summary.keys()))
         
-        for currency in set(list(current_by_currency.keys()) + list(prev_by_currency.keys())):
+        for currency in all_currencies:
+            if not currency: continue
+            
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
             currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
             
-            current = current_by_currency.get(currency, {"inflow": 0, "outflow": 0})
-            prev = prev_by_currency.get(currency, {"inflow": 0, "outflow": 0})
+            current = curr_summary.get(currency, {"inflow": 0, "outflow": 0})
+            prev = prev_summary.get(currency, {"inflow": 0, "outflow": 0})
             
+            # Calculate % change
             income_change = ((current["inflow"] - prev["inflow"]) / prev["inflow"] * 100) if prev["inflow"] > 0 else 0
             expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
             
@@ -1157,72 +1178,60 @@ Total Transactions: {len(current_month_transactions)}
             context += f"  Income: {currency_symbol}{prev['inflow']:.2f} → {currency_symbol}{current['inflow']:.2f} ({income_change:+.1f}%)\n"
             context += f"  Expenses: {currency_symbol}{prev['outflow']:.2f} → {currency_symbol}{current['outflow']:.2f} ({expense_change:+.1f}%)\n\n"
     
-    # Goals progress (same as weekly)
+    # Goals - Logic remains same
     if goals:
         context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
-        
         goals_by_currency = {}
         for g in goals:
-            currency = g.get("currency", "usd")
-            if currency not in goals_by_currency:
-                goals_by_currency[currency] = []
-            goals_by_currency[currency].append(g)
+            curr = g.get("currency", "usd")
+            if curr not in goals_by_currency: goals_by_currency[curr] = []
+            goals_by_currency[curr].append(g)
         
-        for currency, curr_goals in goals_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
-            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-            
+        for curr, curr_goals in goals_by_currency.items():
+            sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
+            name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
             active_goals = [g for g in curr_goals if g["status"] == "active"]
             
-            context += f"{currency_name} Goals:\n"
+            context += f"{name} Goals:\n"
             for goal in active_goals[:5]:
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-                context += f"  - {goal['name']}: {currency_symbol}{goal['current_amount']:.2f} / {currency_symbol}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
+                context += f"  - {goal['name']}: {sym}{goal['current_amount']:.2f} / {sym}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
             context += "\n"
-            
-            
-        
-    ## Budgets progress
+
+    # Budgets - Logic remains same
     if budgets:
         context += "\n=== ACTIVE BUDGETS ===\n\n"
-        
         budgets_by_currency = {}
         for b in budgets:
-            currency = b.get("currency", "usd")
-            if currency not in budgets_by_currency:
-                budgets_by_currency[currency] = []
-            budgets_by_currency[currency].append(b)
+            curr = b.get("currency", "usd")
+            if curr not in budgets_by_currency: budgets_by_currency[curr] = []
+            budgets_by_currency[curr].append(b)
         
-        for currency, curr_budgets in budgets_by_currency.items():
-            currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
-            currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
+        for curr, curr_budgets in budgets_by_currency.items():
+            sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
+            name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
             
-            context += f"{currency_name} Budgets:\n"
+            context += f"{name} Budgets:\n"
             for budget in curr_budgets:
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
-                
                 context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
-                context += f"     Total: {currency_symbol}{budget['total_spent']:.2f} / {currency_symbol}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
+                context += f"     Total: {sym}{budget['total_spent']:.2f} / {sym}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
                 
-                for cat_budget in budget['category_budgets'][:8]:  # More categories for monthly
+                # Show category breakdowns
+                for cat_budget in budget.get('category_budgets', [])[:8]:
                     cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {currency_symbol}{cat_budget['spent_amount']:.2f} / {currency_symbol}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
-                
+                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:.2f} / {sym}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
                 context += "\n"
     
-    # Previous insight summary
+    # Previous insight
     if previous_insight:
         context += "\n=== PREVIOUS MONTH'S KEY RECOMMENDATIONS ===\n"
         context += f"(Review to see if user followed through)\n\n"
         prev_content = previous_insight.get("content", "")
-        if len(prev_content) > 500:
-            context += prev_content[:500] + "...\n"
-        else:
-            context += prev_content + "\n"
+        context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
     
     context += "\n\nGenerate a comprehensive monthly financial insight report based on the above data."
-    
     return context
 
 
