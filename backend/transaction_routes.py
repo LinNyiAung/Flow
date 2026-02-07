@@ -67,6 +67,31 @@ async def create_transaction(
         }
 
     result = transactions_collection.insert_one(new_transaction)
+
+
+    # === START FIX: Atomic Cache Update ===
+    # Update user balance immediately without recalculating
+    inc_values = {}
+    curr = transaction_data.currency.value
+    amt = transaction_data.amount
+    
+    if transaction_data.type == TransactionType.INFLOW:
+        inc_values[f"balances.{curr}.total_inflow"] = amt
+        inc_values[f"balances.{curr}.balance"] = amt
+        inc_values[f"balances.{curr}.available_balance"] = amt
+    else:
+        inc_values[f"balances.{curr}.total_outflow"] = amt
+        inc_values[f"balances.{curr}.balance"] = -amt
+        inc_values[f"balances.{curr}.available_balance"] = -amt
+
+    users_collection.update_one(
+        {
+            "_id": current_user["_id"], 
+            "balances": {"$exists": True} 
+        },
+        {"$inc": inc_values}
+    )
+
     if not result.inserted_id:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create transaction")
     
@@ -383,6 +408,15 @@ async def update_transaction(
     {"$set": update_data}
     )
 
+
+    # === START FIX: Cache Invalidation ===
+    # Force a recalculation on next read to ensure accuracy after edit/delete
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$unset": {"balances": ""}}
+    )
+    # === END FIX ===
+
     updated_transaction = transactions_collection.find_one({"_id": transaction_id})
     
     
@@ -445,6 +479,15 @@ async def delete_transaction(
         "_id": transaction_id, 
         "user_id": current_user["_id"]
     })
+
+
+    # === START FIX: Cache Invalidation ===
+    # Force a recalculation on next read to ensure accuracy after edit/delete
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$unset": {"balances": ""}}
+    )
+    # === END FIX ===
     
     if result.deleted_count == 0:
         raise HTTPException(
@@ -882,6 +925,15 @@ async def batch_create_transactions(
     # Process updates only if transactions were actually created
     if created_transactions:
         update_all_user_budgets(current_user["_id"])
+
+        # === START FIX: Cache Invalidation ===
+        # Since we just added multiple transactions, the cached balance is now stale.
+        # Invalidate it so it recalculates on the next dashboard load.
+        users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$unset": {"balances": ""}}
+        )
+        # === END FIX ===
         
         # 2. Mark AI Data as Stale (Fast & Lazy)
         # This prevents unnecessary AI processing until the user actually chats

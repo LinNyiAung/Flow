@@ -83,121 +83,95 @@ def ensure_utc_datetime(dt) -> datetime:
 
 async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict:
     """
-    Calculate user's financial balance including goal allocations
-    If currency is specified, calculate balance for that currency only
-    Otherwise, return balances for all currencies
-    
-    Returns:
-        dict with currency-specific balances or all balances
+    Get balance with Read-Through Caching to fix scalability.
+    1. Try to read cached balance from user document.
+    2. If missing, calculate via aggregation (slow), then save to cache (fast next time).
     """
-    if currency:
-        # Get balance for specific currency
-        pipeline_inflow = [
-            {"$match": {"user_id": user_id, "type": "inflow", "currency": currency}},
-            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-        ]
-        pipeline_outflow = [
-            {"$match": {"user_id": user_id, "type": "outflow", "currency": currency}},
-            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-        ]
+    # 1. FAST PATH: Check cache
+    user = users_collection.find_one({"_id": user_id}, {"balances": 1, "default_currency": 1})
+    cached_balances = user.get("balances")
 
-        inflow_result = list(transactions_collection.aggregate(pipeline_inflow))
-        outflow_result = list(transactions_collection.aggregate(pipeline_outflow))
+    # If we have a cache, use it immediately
+    if cached_balances:
+        if currency:
+            # Return specific currency from cache (default to 0 if currency not in cache)
+            data = cached_balances.get(currency, {
+                "balance": 0, "available_balance": 0, 
+                "allocated_to_goals": 0, "total_inflow": 0, "total_outflow": 0
+            })
+            data["currency"] = currency
+            return data
+        else:
+            # Return all cached balances
+            return {"balances": cached_balances}
 
-        total_inflow = inflow_result[0]["total"] if inflow_result else 0
-        total_outflow = outflow_result[0]["total"] if outflow_result else 0
-        
-        # Calculate total allocated to goals for this currency
-        goals_pipeline = [
-            {"$match": {"user_id": user_id, "currency": currency}},
-            {"$group": {"_id": None, "total": {"$sum": "$current_amount"}}}
-        ]
-        goals_result = list(goals_collection.aggregate(goals_pipeline))
-        total_allocated_to_goals = goals_result[0]["total"] if goals_result else 0
-
-        total_balance = total_inflow - total_outflow
-        available_balance = total_balance - total_allocated_to_goals
-
-        return {
-            "currency": currency,
-            "balance": total_balance,
-            "available_balance": available_balance,
-            "allocated_to_goals": total_allocated_to_goals,
-            "total_inflow": total_inflow,
-            "total_outflow": total_outflow
-        }
-    else:
-        # Get all transactions grouped by currency
-        tx_pipeline = [
-            {"$match": {"user_id": user_id}},
-            {
-                "$group": {
-                    "_id": "$currency",
-                    "total_inflow": {
-                        "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
-                    },
-                    "total_outflow": {
-                        "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
-                    }
+    # 2. SLOW PATH: Aggregation (Run only if cache is missing/invalidated)
+    # --- [Keep your existing aggregation logic below] ---
+    
+    # ... [Keep your existing tx_pipeline and goals_pipeline logic] ...
+    # ... [Assuming you run the aggregation and get 'balances' dict as per your original code] ...
+    
+    # RE-USE YOUR EXISTING AGGREGATION CODE HERE TO GET 'balances' variable
+    # (Copy the logic from your original function for calculating 'balances')
+    # For brevity, I assume 'balances' is the result of your aggregation logic:
+    # balances = { "usd": { ... }, "mmk": { ... } } 
+    
+    # [Restoring the aggregation logic for completeness of the fix]:
+    tx_pipeline = [
+        {"$match": {"user_id": user_id}},
+        {
+            "$group": {
+                "_id": "$currency",
+                "total_inflow": {
+                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
+                },
+                "total_outflow": {
+                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
                 }
             }
-        ]
-        
-        # Get allocations grouped by currency
-        goals_pipeline = [
-            {"$match": {"user_id": user_id}},
-            {"$group": {"_id": "$currency", "total_allocated": {"$sum": "$current_amount"}}}
-        ]
-        
-        tx_results = list(transactions_collection.aggregate(tx_pipeline))
-        goal_results = list(goals_collection.aggregate(goals_pipeline))
-        
-        # Map transaction data for easy lookup
-        tx_map = {
-            res["_id"]: {
-                "inflow": res["total_inflow"],
-                "outflow": res["total_outflow"]
-            }
-            for res in tx_results if res["_id"]  # Skip None currencies
         }
+    ]
+    goals_pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {"_id": "$currency", "total_allocated": {"$sum": "$current_amount"}}}
+    ]
+    
+    tx_results = list(transactions_collection.aggregate(tx_pipeline))
+    goal_results = list(goals_collection.aggregate(goals_pipeline))
+    
+    tx_map = {res["_id"]: res for res in tx_results if res["_id"]}
+    all_currencies = set(tx_map.keys()) | {g["_id"] for g in goal_results if g["_id"]}
+    
+    if not all_currencies:
+        all_currencies = {user.get("default_currency", "usd")}
+    
+    balances = {}
+    for curr in all_currencies:
+        tx_data = tx_map.get(curr, {"total_inflow": 0, "total_outflow": 0})
+        allocated = next((g["total_allocated"] for g in goal_results if g["_id"] == curr), 0)
         
-        # Collect all currencies from both transactions and goals
-        all_currencies = set(tx_map.keys())
-        for g in goal_results:
-            if g["_id"]:  # Skip None currencies
-                all_currencies.add(g["_id"])
-        
-        # If no currencies found, use default from user profile
-        if not all_currencies:
-            user = users_collection.find_one({"_id": user_id})
-            default_currency = user.get("default_currency", "usd") if user else "usd"
-            all_currencies = {default_currency}
-        
-        balances = {}
-        for curr in all_currencies:
-            tx_data = tx_map.get(curr, {"inflow": 0, "outflow": 0})
-            inflow = tx_data["inflow"]
-            outflow = tx_data["outflow"]
-            
-            # Find allocated amount for this currency
-            allocated = 0
-            for g in goal_results:
-                if g["_id"] == curr:
-                    allocated = g["total_allocated"]
-                    break
-            
-            total_balance = inflow - outflow
-            
-            balances[curr] = {
-                "currency": curr,
-                "balance": total_balance,
-                "available_balance": total_balance - allocated,
-                "allocated_to_goals": allocated,
-                "total_inflow": inflow,
-                "total_outflow": outflow
-            }
-            
-        return {"balances": balances}
+        balance = tx_data["total_inflow"] - tx_data["total_outflow"]
+        balances[curr] = {
+            "currency": curr,
+            "balance": balance,
+            "available_balance": balance - allocated,
+            "allocated_to_goals": allocated,
+            "total_inflow": tx_data["total_inflow"],
+            "total_outflow": tx_data["total_outflow"]
+        }
+
+    # 3. CACHE UPDATE: Save the result so next time is O(1)
+    users_collection.update_one(
+        {"_id": user_id},
+        {"$set": {"balances": balances}}
+    )
+
+    if currency:
+        return balances.get(currency, {
+            "currency": currency, "balance": 0, "available_balance": 0, 
+            "allocated_to_goals": 0, "total_inflow": 0, "total_outflow": 0
+        })
+    return {"balances": balances}
 
 
 def require_premium(current_user: dict = Depends(get_current_user)):

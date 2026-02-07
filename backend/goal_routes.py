@@ -72,6 +72,15 @@ async def create_goal(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
+
+
+    # === START FIX: Cache Invalidation ===
+    # Force recalculation of available balance on next read
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$unset": {"balances": ""}}
+    )
+    # === END FIX ===
     
     return GoalResponse(
         id=goal_id,
@@ -240,6 +249,14 @@ async def update_goal(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
+
+
+    # === START FIX: Cache Invalidation ===
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$unset": {"balances": ""}}
+    )
+    # === END FIX ===
     
     return GoalResponse(
         id=updated_goal["_id"],
@@ -396,6 +413,14 @@ async def contribute_to_goal(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
+
+
+    # === START FIX: Cache Invalidation ===
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$unset": {"balances": ""}}
+    )
+    # === END FIX ===
     
     return GoalResponse(
         id=updated_goal["_id"],
@@ -448,6 +473,14 @@ async def delete_goal(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
+
+
+    # === START FIX: Cache Invalidation ===
+    users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {"$unset": {"balances": ""}}
+    )
+    # === END FIX ===
     
     return {
         "message": "Goal deleted successfully",
