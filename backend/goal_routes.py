@@ -26,13 +26,13 @@ async def create_goal(
 ):
     """Create a new financial goal"""
     # Check if user has sufficient balance for initial contribution
-    balance_data = await get_user_balance(current_user["_id"], goal_data.currency.value)  # UPDATED - pass currency
-    available_balance = balance_data["available_balance"]  # UPDATED - use available_balance
+    balance_data = await get_user_balance(current_user["_id"], goal_data.currency.value)
+    available_balance = balance_data["available_balance"]
     
     if goal_data.initial_contribution > available_balance:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Insufficient balance. Available for goals: {goal_data.currency.value.upper()} {available_balance:.2f}"  # UPDATED
+            detail=f"Insufficient balance. Available for goals: {goal_data.currency.value.upper()} {available_balance:.2f}"
         )
     
     goal_id = str(uuid.uuid4())
@@ -54,13 +54,15 @@ async def create_goal(
         "target_date": goal_data.target_date.replace(tzinfo=timezone.utc) if goal_data.target_date and goal_data.target_date.tzinfo is None else goal_data.target_date,
         "goal_type": goal_data.goal_type.value,
         "status": status_value.value,
-        "currency": goal_data.currency.value,  # NEW
+        "currency": goal_data.currency.value,
         "created_at": now,
         "updated_at": now,
         "achieved_at": achieved_at
     }
     
-    result = goals_collection.insert_one(new_goal)
+    # [FIX] Added await
+    result = await goals_collection.insert_one(new_goal)
+    
     if not result.inserted_id:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -68,15 +70,15 @@ async def create_goal(
         )
     
     # Mark AI data as stale
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
 
-
     # === START FIX: Cache Invalidation ===
-    # Force recalculation of available balance on next read
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
     )
@@ -92,7 +94,7 @@ async def create_goal(
         goal_type=goal_data.goal_type,
         status=status_value,
         progress_percentage=progress,
-        currency=goal_data.currency,  # NEW
+        currency=goal_data.currency,
         created_at=now,
         updated_at=now,
         achieved_at=achieved_at
@@ -103,7 +105,7 @@ async def create_goal(
 async def get_goals(
     current_user: dict = Depends(get_current_user),
     status_filter: Optional[GoalStatus] = None,
-    currency: Optional[str] = None  # NEW - add currency filter
+    currency: Optional[str] = None
 ):
     """Get all user goals"""
     query = {"user_id": current_user["_id"]}
@@ -111,10 +113,12 @@ async def get_goals(
     if status_filter:
         query["status"] = status_filter.value
     
-    if currency:  # NEW
+    if currency:
         query["currency"] = currency
     
-    goals = list(goals_collection.find(query).sort("created_at", -1))
+    # [FIX] Async find with sort
+    cursor = goals_collection.find(query).sort("created_at", -1)
+    goals = await cursor.to_list(length=None)
     
     return [
         GoalResponse(
@@ -127,7 +131,7 @@ async def get_goals(
             goal_type=GoalType(g["goal_type"]),
             status=GoalStatus(g["status"]),
             progress_percentage=(g["current_amount"] / g["target_amount"] * 100) if g["target_amount"] > 0 else 0,
-            currency=Currency(g.get("currency", "usd")),  # NEW - with fallback
+            currency=Currency(g.get("currency", "usd")),
             created_at=g["created_at"],
             updated_at=g.get("updated_at", g["created_at"]),
             achieved_at=g.get("achieved_at")
@@ -139,14 +143,16 @@ async def get_goals(
 @router.get("/summary", response_model=GoalsSummary)
 async def get_goals_summary(
     current_user: dict = Depends(get_current_user),
-    currency: Optional[str] = None  # NEW - add currency parameter
+    currency: Optional[str] = None
 ):
     """Get summary of all goals"""
     query = {"user_id": current_user["_id"]}
-    if currency:  # NEW - filter by currency
+    if currency:
         query["currency"] = currency
     
-    goals = list(goals_collection.find(query))
+    # [FIX] Async find
+    cursor = goals_collection.find(query)
+    goals = await cursor.to_list(length=None)
     
     total_goals = len(goals)
     active_goals = len([g for g in goals if g["status"] == "active"])
@@ -162,7 +168,7 @@ async def get_goals_summary(
         total_allocated=total_allocated,
         total_target=total_target,
         overall_progress=overall_progress,
-        currency=Currency(currency) if currency else None  # NEW
+        currency=Currency(currency) if currency else None
     )
 
 
@@ -172,7 +178,8 @@ async def get_goal(
     current_user: dict = Depends(get_current_user)
 ):
     """Get a specific goal"""
-    goal = goals_collection.find_one({
+    # [FIX] Added await
+    goal = await goals_collection.find_one({
         "_id": goal_id,
         "user_id": current_user["_id"]
     })
@@ -193,7 +200,7 @@ async def get_goal(
         goal_type=GoalType(goal["goal_type"]),
         status=GoalStatus(goal["status"]),
         progress_percentage=(goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0,
-        currency=Currency(goal.get("currency", "usd")),  # NEW
+        currency=Currency(goal.get("currency", "usd")),
         created_at=goal["created_at"],
         updated_at=goal.get("updated_at", goal["created_at"]),
         achieved_at=goal.get("achieved_at")
@@ -206,8 +213,9 @@ async def update_goal(
     goal_data: GoalUpdate = ...,
     current_user: dict = Depends(get_current_user)
 ):
-    """Update a goal's details (name, target amount, target date, type)"""
-    goal = goals_collection.find_one({
+    """Update a goal's details"""
+    # [FIX] Added await
+    goal = await goals_collection.find_one({
         "_id": goal_id,
         "user_id": current_user["_id"]
     })
@@ -224,7 +232,6 @@ async def update_goal(
         update_data["name"] = goal_data.name
     if goal_data.target_amount is not None:
         update_data["target_amount"] = goal_data.target_amount
-        # Recalculate status if target amount changed
         current_amount = goal["current_amount"]
         if current_amount >= goal_data.target_amount:
             update_data["status"] = GoalStatus.ACHIEVED.value
@@ -238,25 +245,26 @@ async def update_goal(
     if goal_data.goal_type is not None:
         update_data["goal_type"] = goal_data.goal_type.value
     
-    goals_collection.update_one(
+    # [FIX] Added await
+    await goals_collection.update_one(
         {"_id": goal_id},
         {"$set": update_data}
     )
     
-    updated_goal = goals_collection.find_one({"_id": goal_id})
-    #  Mark AI data as stale
-    users_collection.update_one(
+    # [FIX] Added await
+    updated_goal = await goals_collection.find_one({"_id": goal_id})
+    
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
 
-
-    # === START FIX: Cache Invalidation ===
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
     )
-    # === END FIX ===
     
     return GoalResponse(
         id=updated_goal["_id"],
@@ -268,7 +276,7 @@ async def update_goal(
         goal_type=GoalType(updated_goal["goal_type"]),
         status=GoalStatus(updated_goal["status"]),
         progress_percentage=(updated_goal["current_amount"] / updated_goal["target_amount"] * 100) if updated_goal["target_amount"] > 0 else 0,
-        currency=Currency(updated_goal.get("currency", "usd")),  # NEW
+        currency=Currency(updated_goal.get("currency", "usd")),
         created_at=updated_goal["created_at"],
         updated_at=updated_goal["updated_at"],
         achieved_at=updated_goal.get("achieved_at")
@@ -283,40 +291,28 @@ async def contribute_to_goal(
 ):
     """Add or reduce amount from a goal (Thread-Safe with Optimistic Locking)"""
     # 1. READ: Fetch the goal state
-    goal = goals_collection.find_one({
+    # [FIX] Added await
+    goal = await goals_collection.find_one({
         "_id": goal_id,
         "user_id": current_user["_id"]
     })
     
     if not goal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Goal not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
     
-    # 2. CAPTURE STATE: Store the version we are basing our logic on
-    # We will use this in the update query to ensure no one else touched it
+    # 2. CAPTURE STATE
     original_amount = goal["current_amount"]
     
     if goal["status"] == GoalStatus.ACHIEVED.value and contribution.amount > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot add funds to an achieved goal"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add funds to an achieved goal")
     
     goal_currency = goal.get("currency", "usd")
     
-    # Store old values for notification checks
     old_progress = (original_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-    
-    # Calculate what the new amount would be based on our READ
     new_amount = original_amount + contribution.amount
     
     # --- VALIDATION LOGIC ---
-    
-    # For adding money to goal
     if contribution.amount > 0:
-        # Check if adding this amount would exceed the target
         if new_amount > goal["target_amount"]:
             max_can_add = goal["target_amount"] - original_amount
             raise HTTPException(
@@ -324,7 +320,6 @@ async def contribute_to_goal(
                 detail=f"Cannot exceed target amount. Maximum you can add: {goal_currency.upper()} {max_can_add:.2f}"
             )
         
-        # Check available balance
         balance_data = await get_user_balance(current_user["_id"], goal_currency)
         available_balance = balance_data["available_balance"]
         
@@ -334,7 +329,6 @@ async def contribute_to_goal(
                 detail=f"Insufficient balance. Available for goals: {goal_currency.upper()} {available_balance:.2f}"
             )
     
-    # For reducing money from goal
     if contribution.amount < 0:
         if abs(contribution.amount) > original_amount:
             raise HTTPException(
@@ -343,7 +337,6 @@ async def contribute_to_goal(
             )
     
     # --- STATUS CALCULATION ---
-    
     new_status = goal["status"]
     achieved_at = goal.get("achieved_at")
     now = datetime.now(UTC)
@@ -355,10 +348,9 @@ async def contribute_to_goal(
         new_status = GoalStatus.ACTIVE.value
         achieved_at = None
     
-    # --- CRITICAL FIX: ATOMIC WRITE (OPTIMISTIC LOCKING) ---
-    
-    # We only update IF the "current_amount" in DB matches "original_amount" we read.
-    result = goals_collection.update_one(
+    # --- CRITICAL FIX: ATOMIC WRITE ---
+    # [FIX] Added await
+    result = await goals_collection.update_one(
         {
             "_id": goal_id,
             "current_amount": original_amount  # <--- THE GUARD CONDITION
@@ -373,7 +365,6 @@ async def contribute_to_goal(
         }
     )
     
-    # If modified_count is 0, it means 'current_amount' changed while we were calculating.
     if result.modified_count == 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -381,23 +372,18 @@ async def contribute_to_goal(
         )
 
     # --- POST-UPDATE ACTIONS ---
-    
-    # Calculate new progress for notifications
     new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
     
-    # Check and create notifications (only for additions)
     if contribution.amount > 0:
-        # Note: These are fire-and-forget or background tasks usually, 
-        # checking notifications doesn't need to be atomic with the transaction
-        check_goal_notifications(
+        # [FIX] Add await to both of these
+        await check_goal_notifications(
             user_id=current_user["_id"],
             goal_id=goal_id,
             old_progress=old_progress,
             new_progress=new_progress,
             goal_name=goal["name"]
         )
-        
-        check_milestone_amount(
+        await check_milestone_amount(
             user_id=current_user["_id"],
             goal_id=goal_id,
             old_amount=original_amount,
@@ -405,22 +391,20 @@ async def contribute_to_goal(
             goal_name=goal["name"]
         )
     
-    # Fetch the final updated goal to return
-    updated_goal = goals_collection.find_one({"_id": goal_id})
+    # [FIX] Added await
+    updated_goal = await goals_collection.find_one({"_id": goal_id})
     
-    # Mark AI data as stale
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
 
-
-    # === START FIX: Cache Invalidation ===
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
     )
-    # === END FIX ===
     
     return GoalResponse(
         id=updated_goal["_id"],
@@ -444,7 +428,8 @@ async def delete_goal(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete a goal and return its amount to balance"""
-    goal = goals_collection.find_one({
+    # [FIX] Added await
+    goal = await goals_collection.find_one({
         "_id": goal_id,
         "user_id": current_user["_id"]
     })
@@ -457,7 +442,8 @@ async def delete_goal(
     
     returned_amount = goal["current_amount"]
     
-    result = goals_collection.delete_one({
+    # [FIX] Added await
+    result = await goals_collection.delete_one({
         "_id": goal_id,
         "user_id": current_user["_id"]
     })
@@ -468,19 +454,17 @@ async def delete_goal(
             detail="Failed to delete goal"
         )
     
-    # Mark AI data as stale
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
 
-
-    # === START FIX: Cache Invalidation ===
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
     )
-    # === END FIX ===
     
     return {
         "message": "Goal deleted successfully",
@@ -493,7 +477,9 @@ async def get_multi_currency_goals_summary(
     current_user: dict = Depends(get_current_user)
 ):
     """Get summary of all goals with per-currency breakdown"""
-    all_goals = list(goals_collection.find({"user_id": current_user["_id"]}))
+    # [FIX] Async find
+    cursor = goals_collection.find({"user_id": current_user["_id"]})
+    all_goals = await cursor.to_list(length=None)
     
     total_goals = len(all_goals)
     active_goals = len([g for g in all_goals if g["status"] == "active"])

@@ -84,18 +84,19 @@ def calculate_next_occurrence(
     
     return next_date
 
-def check_and_create_recurring_transactions():
+async def check_and_create_recurring_transactions():
     """Check all recurring transactions and create new ones if needed"""
     now = datetime.now(UTC)
     
-    # Find all transactions with recurrence enabled
-    recurring_transactions = transactions_collection.find({
+    # [FIX] Async cursor
+    cursor = transactions_collection.find({
         "recurrence.enabled": True
     })
     
     created_count = 0
     
-    for transaction in recurring_transactions:
+    # [FIX] Use async for
+    async for transaction in cursor:
         recurrence = transaction.get("recurrence", {})
         config_data = recurrence.get("config")
         
@@ -120,13 +121,15 @@ def check_and_create_recurring_transactions():
         
         if not next_occurrence:
             # Recurrence has ended, disable it
-            transactions_collection.update_one(
+            # [FIX] Added await
+            await transactions_collection.update_one(
                 {"_id": transaction["_id"]},
                 {"$set": {"recurrence.enabled": False}}
             )
             
             # Notify user
-            create_notification(
+            # [FIX] Added await
+            await create_notification(
                 user_id=transaction["user_id"],
                 notification_type="recurring_transaction_ended",
                 title="Recurring Transaction Ended 🏁",
@@ -149,7 +152,7 @@ def check_and_create_recurring_transactions():
                 "date": next_occurrence,
                 "description": transaction.get("description"),
                 "amount": transaction["amount"],
-                "currency": transaction.get("currency", "usd"),  # ADDED - preserve currency from parent
+                "currency": transaction.get("currency", "usd"),
                 "created_at": now,
                 "updated_at": now,
                 "recurrence": {
@@ -160,10 +163,12 @@ def check_and_create_recurring_transactions():
                 }
             }
             
-            transactions_collection.insert_one(new_transaction)
+            # [FIX] Added await
+            await transactions_collection.insert_one(new_transaction)
             
             # Update parent transaction's last_created_date
-            transactions_collection.update_one(
+            # [FIX] Added await
+            await transactions_collection.update_one(
                 {"_id": transaction["_id"]},
                 {"$set": {"recurrence.last_created_date": next_occurrence}}
             )
@@ -175,7 +180,8 @@ def check_and_create_recurring_transactions():
             currency_symbol = currency_map.get(transaction.get("currency", "usd"), "$")
             
             # Notify user
-            create_notification(
+            # [FIX] Added await
+            await create_notification(
                 user_id=transaction["user_id"],
                 notification_type="recurring_transaction_created",
                 title="Recurring Transaction Created 🔄",
@@ -190,27 +196,31 @@ def check_and_create_recurring_transactions():
     return created_count
 
 
-def disable_recurrence_for_transaction(transaction_id: str, user_id: str) -> bool:
+async def disable_recurrence_for_transaction(transaction_id: str, user_id: str) -> bool:
     """Disable recurrence for a specific transaction"""
-    result = transactions_collection.update_one(
+    # [FIX] Added await
+    result = await transactions_collection.update_one(
         {"_id": transaction_id, "user_id": user_id},
         {"$set": {"recurrence.enabled": False}}
     )
     return result.modified_count > 0
 
 
-def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str) -> bool:
+async def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str) -> bool:
     """Disable recurrence for a parent transaction (when editing an auto-created one)"""
-    result = transactions_collection.update_one(
+    # [FIX] Added await
+    result = await transactions_collection.update_one(
         {"_id": parent_transaction_id, "user_id": user_id},
         {"$set": {"recurrence.enabled": False}}
     )
     
     if result.modified_count > 0:
         # Notify user
-        parent_tx = transactions_collection.find_one({"_id": parent_transaction_id})
+        # [FIX] Added await
+        parent_tx = await transactions_collection.find_one({"_id": parent_transaction_id})
         if parent_tx:
-            create_notification(
+            # [FIX] Added await
+            await create_notification(
                 user_id=user_id,
                 notification_type="recurring_transaction_disabled",
                 title="Recurring Transaction Stopped 🛑",

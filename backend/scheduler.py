@@ -1,3 +1,4 @@
+import asyncio
 from apscheduler.schedulers.background import BackgroundScheduler
 from recurring_transaction_service import check_and_create_recurring_transactions
 from notification_service import analyze_unusual_spending, check_approaching_target_dates, check_budget_period_notifications, detect_and_notify_recurring_payments
@@ -11,9 +12,38 @@ def start_scheduler():
     """Start the background scheduler for notifications"""
     scheduler = BackgroundScheduler()
     
+    # --- WRAPPERS FOR ASYNC JOBS ---
+    
+    def run_check_approaching_target_dates():
+        asyncio.run(check_approaching_target_dates())
+
+    def run_check_budget_period_notifications():
+        asyncio.run(check_budget_period_notifications())
+
+    def run_detect_and_notify_recurring_payments():
+        asyncio.run(detect_and_notify_recurring_payments())
+
+    def run_check_and_create_recurring_transactions():
+        asyncio.run(check_and_create_recurring_transactions())
+
+    # Special handling for user iteration (Async Cursor)
+    async def _analyze_all_users_spending_async():
+        # [FIX] Use async iteration for Motor cursor
+        cursor = users_collection.find({})
+        async for user in cursor:
+            try:
+                await analyze_unusual_spending(user["_id"])
+            except Exception as e:
+                print(f"Error analyzing spending for user {user['_id']}: {e}")
+
+    def run_analyze_all_users_spending():
+        asyncio.run(_analyze_all_users_spending_async())
+
+    # --- ADD JOBS ---
+
     # Check for approaching goal target dates daily at 9 AM
     scheduler.add_job(
-        func=check_approaching_target_dates,
+        func=run_check_approaching_target_dates,
         trigger="cron",
         hour=9,
         minute=0,
@@ -24,7 +54,7 @@ def start_scheduler():
     
     # Check for budget period notifications daily at 9 AM
     scheduler.add_job(
-        func=check_budget_period_notifications,
+        func=run_check_budget_period_notifications,
         trigger="cron",
         hour=9,
         minute=0,
@@ -33,18 +63,9 @@ def start_scheduler():
         replace_existing=True
     )
     
-    # NEW: Check for unusual spending patterns daily at 8 AM
-    def analyze_all_users_spending():
-        """Analyze spending for all users"""
-        users = users_collection.find({})
-        for user in users:
-            try:
-                analyze_unusual_spending(user["_id"])
-            except Exception as e:
-                print(f"Error analyzing spending for user {user['_id']}: {e}")
-    
+    # Check for unusual spending patterns daily at 8 AM
     scheduler.add_job(
-        func=analyze_all_users_spending,
+        func=run_analyze_all_users_spending,
         trigger="cron",
         hour=8,
         minute=0,
@@ -53,9 +74,9 @@ def start_scheduler():
         replace_existing=True
     )
     
-    # NEW: Check for recurring payment reminders daily at 9 AM
+    # Check for recurring payment reminders daily at 9 AM
     scheduler.add_job(
-        func=detect_and_notify_recurring_payments,
+        func=run_detect_and_notify_recurring_payments,
         trigger="cron",
         hour=9,
         minute=0,
@@ -64,9 +85,9 @@ def start_scheduler():
         replace_existing=True
     )
     
-    
+    # Check recurring transactions daily at 6 AM
     scheduler.add_job(
-        func=check_and_create_recurring_transactions,
+        func=run_check_and_create_recurring_transactions,
         trigger="cron",
         hour=6,
         minute=0,
@@ -75,42 +96,35 @@ def start_scheduler():
         replace_existing=True
     )
     
-    
-    
-   # Generate weekly insights every Sunday at 6 AM
+    # Generate weekly insights every Sunday at 6 AM
     def generate_all_users_weekly_insights():
         """Generate weekly insights for all premium users"""
-        import asyncio
+        # Note: Local import avoids circular dependency issues
         from insights_service import generate_weekly_insights_for_all_users
-        # FIX: Run the async service function in a new event loop
         asyncio.run(generate_weekly_insights_for_all_users())
     
     scheduler.add_job(
         func=generate_all_users_weekly_insights,
         trigger="cron",
-        day_of_week="mon",  # Monday
-        hour=5,  # 6 AM Monday morning
+        day_of_week="mon",  
+        hour=5,
         minute=0,
         id="weekly_insights_generation",
         name="Generate weekly insights for all users",
         replace_existing=True
     )
     
-    
-    
     # Generate monthly insights on 1st of every month at 6 AM
     def generate_all_users_monthly_insights():
         """Generate monthly insights for all premium users"""
-        import asyncio
         from insights_service import generate_monthly_insights_for_all_users
-        # FIX: Run the async service function in a new event loop
         asyncio.run(generate_monthly_insights_for_all_users())
 
     scheduler.add_job(
         func=generate_all_users_monthly_insights,
         trigger="cron",
         day=1,  # 1st day of month
-        hour=6,  # 6 AM
+        hour=6,
         minute=0,
         id="monthly_insights_generation",
         name="Generate monthly insights for all users",

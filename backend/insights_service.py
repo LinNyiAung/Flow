@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 import os
 from datetime import datetime, timedelta, UTC
@@ -69,8 +70,8 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         week_start, week_end = get_week_date_range()
         prev_week_start, prev_week_end = get_previous_week_date_range()
         
-        # Get user data
-        user = users_collection.find_one({"_id": user_id})
+        # [FIX] Added await
+        user = await users_collection.find_one({"_id": user_id})
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
@@ -78,15 +79,16 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         # Get financial data processor for other data (goals/budgets)
         processor = FinancialDataProcessor(user_id)
         
-        current_week_data = get_financial_summary(user_id, week_start, week_end)
-        prev_week_data = get_financial_summary(user_id, prev_week_start, prev_week_end)
+        # [FIX] Added await (Function updated to async below)
+        current_week_data = await get_financial_summary(user_id, week_start, week_end)
+        prev_week_data = await get_financial_summary(user_id, prev_week_start, prev_week_end)
         
-        # Get goals & budgets (usually small datasets, safe to fetch all)
-        goals = processor.get_user_goals()
-        budgets = processor.get_user_budgets()
+        # Note: Assuming processor methods handle async internally or return data synchronously for now.
+        # If FinancialDataProcessor uses the same database.py, these might need updates too.
+        goals = await processor.get_user_goals()
+        budgets = await processor.get_user_budgets()
         
-        # ✅ FIXED: Efficient check for activity using find_one (returns None if empty)
-        # Instead of loading 5000+ items to check len() > 0
+        # Efficient check for activity
         total_tx_count = sum(item['count'] for item in current_week_data.get('summary', []))
         has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
         
@@ -142,19 +144,20 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "is_placeholder": True
             }
             
-            insights_collection.insert_one(new_insight)
+            # [FIX] Added await
+            await insights_collection.insert_one(new_insight)
             return new_insight
         
-        # Get previous week's insight for comparison
-        previous_insight = insights_collection.find_one(
+        # [FIX] Added await
+        previous_insight = await insights_collection.find_one(
             {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "weekly"},
             sort=[("generated_at", -1)]
         )
         
-        # Build context (remains the same)
+        # Build context
         context = _build_weekly_context(
             user, 
-            current_week_data,  # Now accepts aggregation result
+            current_week_data,
             prev_week_data, 
             goals,
             budgets,
@@ -175,7 +178,9 @@ Start by adding your first transaction or creating a financial goal. The more da
         if ai_provider == "gemini":
             client = genai.Client(api_key=GOOGLE_API_KEY)
             full_prompt = f"{system_prompt}\n\n{context}"
-            response = client.models.generate_content(
+            # Note: Gemini generate_content is synchronous in this library version usually
+            response = await asyncio.to_thread(
+                client.models.generate_content,
                 model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 contents=full_prompt,
                 config={"temperature": 0.7, "max_output_tokens": 8192}
@@ -191,7 +196,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 logger.info(f"   📥 Input tokens: {input_tokens:,}")
                 logger.info(f"   📤 Output tokens: {output_tokens:,}")
                 logger.info(f"   📊 Total tokens: {total_tokens:,}")
-                track_ai_usage(
+                await track_ai_usage(
                     user_id=user_id,
                     feature_type=AIFeatureType.WEEKLY_INSIGHT,
                     provider=AIProviderType.GEMINI,
@@ -223,7 +228,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 logger.info(f"   📤 Output tokens: {output_tokens:,}")
                 logger.info(f"   📊 Total tokens: {total_tokens:,}")
                 logger.info(f"   🤖 Model: {chatbot.gpt_model}")
-                track_ai_usage(
+                await track_ai_usage(
                     user_id=user_id,
                     feature_type=AIFeatureType.WEEKLY_INSIGHT,
                     provider=AIProviderType.OPENAI,
@@ -255,7 +260,8 @@ Start by adding your first transaction or creating a financial goal. The more da
             }
         }
         
-        insights_collection.insert_one(new_insight)
+        # [FIX] Added await
+        await insights_collection.insert_one(new_insight)
         notify_weekly_insights_generated(user_id)
         logger.info(f"✅ Weekly insight generated for user {user_id} using {ai_provider}")
         return new_insight
@@ -268,7 +274,7 @@ Start by adding your first transaction or creating a financial goal. The more da
     
 
 
-def get_financial_summary(user_id, start_date, end_date):
+async def get_financial_summary(user_id, start_date, end_date):
     """
     Efficiently calculate financial totals and top categories using MongoDB Aggregation.
     Returns summary stats instead of raw documents to prevent OOM errors.
@@ -331,8 +337,9 @@ def get_financial_summary(user_id, start_date, end_date):
         }
     ]
     
-    # Execute pipeline
-    result = list(transactions_collection.aggregate(pipeline))
+    # [FIX] Async aggregation execution
+    cursor = transactions_collection.aggregate(pipeline)
+    result = await cursor.to_list(length=None)
     
     # Default structure if no results
     if not result:
@@ -568,15 +575,16 @@ async def generate_weekly_insights_for_all_users():
     """Generate weekly insights for all premium users (ASYNC)"""
     logger.info("🔄 Starting weekly insights generation for all premium users...")
     
-    # Find all premium users
-    premium_users = users_collection.find({
+    # [FIX] Async Cursor
+    cursor = users_collection.find({
         "subscription_type": "premium"
     })
     
     success_count = 0
     error_count = 0
     
-    for user in premium_users:
+    # [FIX] Use async for
+    async for user in cursor:
         user_id = user["_id"]
         
         try:
@@ -590,7 +598,7 @@ async def generate_weekly_insights_for_all_users():
             for provider in ["openai", "gemini"]:
                 result = None
                 try:
-                    # FIX: Directly await the async function instead of using asyncio.run()
+                    # FIX: Directly await the async function
                     result = await generate_weekly_insight(user_id, provider)
                     
                     if result:
@@ -689,7 +697,8 @@ Translate naturally while keeping the professional yet friendly tone."""
             
             prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
             
-            response = client.models.generate_content(
+            response = await asyncio.to_thread(
+                client.models.generate_content,
                 model="gemini-2.5-pro",
                 contents=prompt,
                 config={
@@ -709,7 +718,7 @@ Translate naturally while keeping the professional yet friendly tone."""
                 
                 # Get user_id from the insight being translated
                 # You'll need to pass user_id to this function
-                track_ai_usage(
+                await track_ai_usage(
                     user_id=user_id,  # Add user_id parameter to function
                     feature_type=AIFeatureType.TRANSLATION,
                     provider=AIProviderType.GEMINI,
@@ -746,7 +755,7 @@ Translate naturally while keeping the professional yet friendly tone."""
                 output_tokens = response.usage.completion_tokens
                 total_tokens = response.usage.total_tokens
                 
-                track_ai_usage(
+                await track_ai_usage(
                     user_id=user_id,  # Add user_id parameter to function
                     feature_type=AIFeatureType.TRANSLATION,
                     provider=AIProviderType.OPENAI,
@@ -818,8 +827,8 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
         month_start, month_end = get_month_date_range()
         prev_month_start, prev_month_end = get_previous_month_date_range()
         
-        # Get user data
-        user = users_collection.find_one({"_id": user_id})
+        # [FIX] Added await
+        user = await users_collection.find_one({"_id": user_id})
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
@@ -827,15 +836,15 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
         # Get financial data processor
         processor = FinancialDataProcessor(user_id)
         
-        # ✅ REAL FIX: Use Aggregation for Monthly Data (RAM Safe)
-        current_month_data = get_financial_summary(user_id, month_start, month_end)
-        prev_month_data = get_financial_summary(user_id, prev_month_start, prev_month_end)
+        # [FIX] Added await (Function is now async)
+        current_month_data = await get_financial_summary(user_id, month_start, month_end)
+        prev_month_data = await get_financial_summary(user_id, prev_month_start, prev_month_end)
         
         # Get goals & budgets
         goals = processor.get_user_goals()
         budgets = processor.get_user_budgets()
         
-        # Check for activity using the aggregation result count
+        # Check for activity
         total_tx_count = sum(item['count'] for item in current_month_data.get('summary', []))
         has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
         
@@ -893,11 +902,12 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "is_placeholder": True
             }
             
-            insights_collection.insert_one(new_insight)
+            # [FIX] Added await
+            await insights_collection.insert_one(new_insight)
             return new_insight
         
-        # Get previous month's insight
-        previous_insight = insights_collection.find_one(
+        # [FIX] Added await
+        previous_insight = await insights_collection.find_one(
             {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "monthly"},
             sort=[("generated_at", -1)]
         )
@@ -905,8 +915,8 @@ Start by adding your first transaction or creating a financial goal. The more da
         # Build context
         context = _build_monthly_context(
             user, 
-            current_month_data, # Passing aggregated data, not raw list
-            prev_month_data,    # Passing aggregated data, not raw list
+            current_month_data, 
+            prev_month_data,    
             goals,
             budgets,
             month_start,
@@ -914,8 +924,6 @@ Start by adding your first transaction or creating a financial goal. The more da
             previous_insight
         )
         
-        # ... (Rest of the function: AI generation, token tracking, saving to DB) ...
-        # [Copy the rest of the original function logic here]
         system_prompt = _build_monthly_system_prompt()
         
         from openai import AsyncOpenAI
@@ -924,7 +932,9 @@ Start by adding your first transaction or creating a financial goal. The more da
         if ai_provider == "gemini":
             client = genai.Client(api_key=GOOGLE_API_KEY)
             full_prompt = f"{system_prompt}\n\n{context}"
-            response = client.models.generate_content(
+            # [FIX] Wrap blocking call in asyncio.to_thread
+            response = await asyncio.to_thread(
+                client.models.generate_content,
                 model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 contents=full_prompt,
                 config={"temperature": 0.7, "max_output_tokens": 8192}
@@ -936,7 +946,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
                 total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
                 
-                track_ai_usage(
+                await track_ai_usage(
                     user_id=user_id,
                     feature_type=AIFeatureType.MONTHLY_INSIGHT,
                     provider=AIProviderType.GEMINI,
@@ -963,7 +973,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 output_tokens = response.usage.completion_tokens
                 total_tokens = response.usage.total_tokens
                 
-                track_ai_usage(
+                await track_ai_usage(
                     user_id=user_id,
                     feature_type=AIFeatureType.MONTHLY_INSIGHT,
                     provider=AIProviderType.OPENAI,
@@ -990,7 +1000,8 @@ Start by adding your first transaction or creating a financial goal. The more da
             "is_placeholder": False
         }
         
-        insights_collection.insert_one(new_insight)
+        # [FIX] Added await
+        await insights_collection.insert_one(new_insight)
         notify_monthly_insights_generated(user_id)
         logger.info(f"✅ Monthly insight generated for user {user_id} using {ai_provider}")
         return new_insight
@@ -1239,15 +1250,16 @@ async def generate_monthly_insights_for_all_users():
     """Generate monthly insights for all premium users (ASYNC)"""
     logger.info("📅 Starting monthly insights generation for all premium users...")
     
-    # Find all premium users
-    premium_users = users_collection.find({
+    # [FIX] Async cursor
+    cursor = users_collection.find({
         "subscription_type": "premium"
     })
     
     success_count = 0
     error_count = 0
     
-    for user in premium_users:
+    # [FIX] Use async for
+    async for user in cursor:
         user_id = user["_id"]
         
         try:
@@ -1261,7 +1273,7 @@ async def generate_monthly_insights_for_all_users():
             for provider in ["openai", "gemini"]:
                 result = None
                 try:
-                    # FIX: Directly await the async function instead of using asyncio.run()
+                    # FIX: Directly await the async function
                     result = await generate_monthly_insight(user_id, provider)
                     
                     if result:

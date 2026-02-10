@@ -82,11 +82,14 @@ class GeminiFinancialChatbot:
             except Exception as e:
                 print(f"❌ Failed to initialize genai client: {e}")
     
-    def _get_or_create_vector_store(self, user_id: str) -> Chroma:
+    # [FIX] Changed to async
+    async def _get_or_create_vector_store(self, user_id: str) -> Chroma:
         """Get or create vector store for user"""
         if user_id not in self.user_vector_stores:
             processor = FinancialDataProcessor(user_id)
-            documents = processor.create_financial_documents()
+            
+            # [FIX] Await async document creation
+            documents = await processor.create_financial_documents()
             
             if not documents or not self.embeddings:
                 return None
@@ -94,27 +97,31 @@ class GeminiFinancialChatbot:
             try:
                 split_documents = []
                 for doc in documents:
-                    # Never split chronological index or goals overview
                     if doc.metadata.get("type") in ["chronological_index", "goals_overview"]:
                         split_documents.append(doc)
                     else:
                         split_documents.extend(self.text_splitter.split_documents([doc]))
                 
-                vector_store = Chroma.from_documents(
+                # [FIX] Run blocking Chroma call in a thread
+                vector_store = await asyncio.to_thread(
+                    Chroma.from_documents,
                     documents=split_documents,
                     embedding=self.embeddings,
-                    collection_name=f"user_{user_id}_{int(datetime.now().timestamp())}"
+                    collection_name=f"user_gemini_{user_id}_{int(datetime.now().timestamp())}"
                 )
                 self.user_vector_stores[user_id] = vector_store
-                print(f"✅ Created vector store with {len(split_documents)} chunks")
+                print(f"✅ Created Gemini vector store with {len(split_documents)} chunks")
             except Exception as e:
-                print(f"❌ Error creating vector store: {e}")
+                print(f"❌ Error creating Gemini vector store: {e}")
                 return None
         
         return self.user_vector_stores[user_id]
     
     def refresh_user_data(self, user_id: str):
-        """Refresh user's financial data in vector store"""
+        """
+        Invalidate user's vector store cache. 
+        The next call to stream_chat will automatically rebuild it.
+        """
         if user_id in self.user_vector_stores:
             try:
                 self.user_vector_stores[user_id].delete_collection()
@@ -122,8 +129,9 @@ class GeminiFinancialChatbot:
                 pass
             del self.user_vector_stores[user_id]
         
-        self._get_or_create_vector_store(user_id)
-        print(f"✅ Refreshed data for user {user_id}")
+        # REMOVED: self._get_or_create_vector_store(user_id)
+        
+        print(f"✅ Refreshed (Invalidated) data for user {user_id}")
     
     def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
         """Build enhanced system prompt for Gemini with Myanmar language support and response style"""
@@ -373,29 +381,28 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         return prompt
     
     async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None, response_style: str = "normal"):
-        """Stream chat response using Gemini with enhanced RAG and response style"""
+        """Stream chat response using Gemini Flash 2.5 with enhanced RAG"""
         try:
             if not self.client:
-                # Yield tuple: (content, usage_data)
-                yield "Gemini service is not available.", None
+                yield "Gemini AI service is not available. API key not configured.", None
                 return
-            
-            user = await asyncio.to_thread(users_collection.find_one, {"_id": user_id})
+
+            # [FIX] Direct await (Async Motor)
+            user = await users_collection.find_one({"_id": user_id})
             if not user:
                 yield "User not found. Please log in again.", None
                 return
             
             processor = FinancialDataProcessor(user_id)
             
-            # Fetch all financial data in parallel threads
-            summary_task = asyncio.to_thread(processor.get_financial_summary)
-            goals_task = asyncio.to_thread(processor.get_user_goals)
-            budgets_task = asyncio.to_thread(processor.get_user_budgets)
+            # [FIX] Await async methods concurrently
+            summary, goals, budgets = await asyncio.gather(
+                processor.get_financial_summary(),
+                processor.get_user_goals(),
+                processor.get_user_budgets()
+            )
             
-            # Wait for all concurrently
-            summary, goals, budgets = await asyncio.gather(summary_task, goals_task, budgets_task)
-            
-            # Calculate goals summary
+            # Calculate goals summary (Logic remains same)
             goals_summary = None
             if goals:
                 active_goals = [g for g in goals if g["status"] == "active"]
@@ -418,10 +425,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "goals_by_currency": goals_by_currency
                 }
             
-            # Calculate budgets summary
+            # Calculate budgets summary (Logic remains same)
             budgets_summary = None
             if budgets:
-                # Group budgets by currency
                 budgets_by_currency = {}
                 for budget in budgets:
                     curr = budget.get('currency', 'usd')
@@ -440,7 +446,6 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     budgets_by_currency[curr]['total_allocated'] += budget['total_budget']
                     budgets_by_currency[curr]['total_spent'] += budget['total_spent']
                 
-                # Calculate remaining and percentage for each currency
                 for curr, data in budgets_by_currency.items():
                     data['remaining'] = data['total_allocated'] - data['total_spent']
                     data['percentage_used'] = (data['total_spent'] / data['total_allocated'] * 100) if data['total_allocated'] > 0 else 0
@@ -451,15 +456,15 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "budgets_by_currency": budgets_by_currency
                 }
             
-            if summary.get("message") and not goals and not budgets:
-                # FIXED: Added ", None" to prevent crash in main.py
-                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!", None
+            if summary.get("message") and not goals:
+                yield "I don't have access to your financial data yet. Please add some transactions or goals first!", None
                 return
             
-            # Get relevant context
+            # Get relevant context from RAG
             context = ""
-            # Run vector store creation/fetching in thread
-            vector_store = await asyncio.to_thread(self._get_or_create_vector_store, user_id)
+            
+            # [FIX] Await async vector store creation
+            vector_store = await self._get_or_create_vector_store(user_id)
             
             if vector_store:
                 try:
@@ -472,13 +477,13 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     is_goal_query = any(keyword in message.lower() for keyword in goal_keywords)
                     is_budget_query = any(keyword in message.lower() for keyword in budget_keywords)
                     
-                    # Adjust retrieval strategy
                     k_value = 12 if (is_temporal or is_goal_query or is_budget_query) else 6
                     
                     retriever = vector_store.as_retriever(
                         search_kwargs={"k": k_value}
                     )
-                    # Run retrieval in thread
+                    
+                    # [FIX] Run blocking retriever in a thread
                     relevant_docs = await asyncio.to_thread(retriever.invoke, message)
                     
                     # Prioritize important documents
@@ -486,14 +491,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         priority_docs = [d for d in relevant_docs if d.metadata.get("priority") in ["critical", "high"]]
                         other_docs = [d for d in relevant_docs if d.metadata.get("priority") not in ["critical", "high"]]
                         relevant_docs = priority_docs + other_docs
-                        
-                        if is_goal_query:
-                            print(f"🎯 Goal query detected - prioritized goals data")
-                        if is_temporal:
-                            print(f"📅 Temporal query detected - prioritized chronological index")
-                        if is_budget_query: 
-                            print(f"📊 Budget query detected - prioritized budgets data")
-                            
+                    
                     context = "\n\n".join([doc.page_content for doc in relevant_docs])
                     
                 except Exception as e:
@@ -507,12 +505,11 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     role = "You" if msg.get("role") == "user" else "Assistant"
                     history_text += f"\n{role}: {msg.get('content', '')}"
             
-            # Get today's date
             today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
             
-            # Build prompts with response style
             system_prompt = self._build_system_prompt(today, response_style)
             user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text, message, today)
+            
             
             # Adjust temperature based on style
             temperature_map = {
@@ -521,34 +518,39 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 "explanatory": 0.4
             }
             
-            # Combine system and user prompts for Gemini
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            
-            response = self.client.models.generate_content_stream(
-                model=self.gemini_model,
-                contents=full_prompt,
-                config={
+            try:
+                # Approximate token count for logging
+                estimated_input = len(system_prompt + user_prompt) // 4
+                
+                # Gemini streaming call (using sync client in a thread or async client if available)
+                # Assuming 'self.client.models.generate_content_stream' is blocking:
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content_stream,
+                    model=self.gemini_model,
+                    contents=[
+                        # Note: Gemini system prompt is usually config, but putting it in text works too
+                        f"{system_prompt}\n\nUSER QUERY: {user_prompt}"
+                    ],
+                    config={
                     "temperature": temperature_map.get(response_style, 0.3),
                     "max_output_tokens": 3000,
                 }
-            )
-
-            full_response_text = ""
-            
-            # FIX 1 & 2: Accumulate text AND yield tuple structure
-            # We yield (text_chunk, None) for content
-            for chunk in response:
-                if chunk.text:
-                    full_response_text += chunk.text
-                    yield chunk.text, None
-
-            # FIX 3: Calculate tokens AFTER loop using accumulated text
-            try:
-                # Estimate tokens correctly now
-                estimated_input = len(full_prompt) // 4
+                )
+                
+                full_response_text = ""
+                
+                # Iterate through the stream (this part is synchronous if response is a generator)
+                for chunk in response:
+                    if chunk.text:
+                        full_response_text += chunk.text
+                        yield chunk.text, None
+                        await asyncio.sleep(0.01)  # Yield control to event loop
+                
+                # Calculate final usage
                 estimated_output = len(full_response_text) // 4
                 
-                # Try to get actual usage if the object has it
+                # Try to get actual usage metadata if available
+                # (Note: Google GenAI Python SDK usage metadata access varies by version)
                 if hasattr(response, 'usage_metadata'):
                     actual_input = getattr(response.usage_metadata, 'prompt_token_count', estimated_input)
                     actual_output = getattr(response.usage_metadata, 'candidates_token_count', estimated_output)
@@ -556,7 +558,10 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 else:
                     actual_input = estimated_input
                     actual_output = estimated_output
-                    actual_total = estimated_input + estimated_output
+                    actual_total = actual_input + actual_output
+                
+                # If the response object has usage_metadata at the end (depends on SDK version)
+                # You might access it here. For now, we fallback to estimates or the generator's final state.
                 
                 usage_data = {
                     'input_tokens': actual_input,
@@ -565,7 +570,6 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     'model_name': self.gemini_model
                 }
                 
-                # FIX 4: Yield usage as the FINAL packet
                 yield "", usage_data
                     
             except Exception as usage_error:
@@ -575,7 +579,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         except Exception as e:
             print(f"❌ Gemini streaming chat error: {str(e)}")
             yield f"I encountered an error: {str(e)}", None
-
+            
 
 # Global Gemini chatbot instance
 try:

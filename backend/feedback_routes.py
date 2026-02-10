@@ -32,7 +32,8 @@ async def submit_feedback(
             "status": "pending"
         }
         
-        feedback_collection.insert_one(new_feedback)
+        # [FIX] Added await for async database insertion
+        await feedback_collection.insert_one(new_feedback)
         
         return FeedbackResponse(
             id=feedback_id,

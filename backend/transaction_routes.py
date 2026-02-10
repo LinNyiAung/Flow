@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 @router.post("", response_model=TransactionResponse)
 async def create_transaction(
     transaction_data: TransactionCreate,
-    background_tasks: BackgroundTasks,  # <--- Injected BackgroundTasks
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user)
 ):
     """Create new transaction"""
@@ -66,11 +66,10 @@ async def create_transaction(
             "parent_transaction_id": None
         }
 
-    result = transactions_collection.insert_one(new_transaction)
-
+    # [FIX] Added await
+    result = await transactions_collection.insert_one(new_transaction)
 
     # === START FIX: Atomic Cache Update ===
-    # Update user balance immediately without recalculating
     inc_values = {}
     curr = transaction_data.currency.value
     amt = transaction_data.amount
@@ -84,7 +83,8 @@ async def create_transaction(
         inc_values[f"balances.{curr}.balance"] = -amt
         inc_values[f"balances.{curr}.available_balance"] = -amt
 
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {
             "_id": current_user["_id"], 
             "balances": {"$exists": True} 
@@ -97,11 +97,13 @@ async def create_transaction(
     
     # Check for large transaction
     try:
-        user_transactions = list(transactions_collection.find({
+        # [FIX] Async find with to_list()
+        cursor = transactions_collection.find({
             "user_id": current_user["_id"],
             "type": "outflow",
             "currency": transaction_data.currency.value
-        }).limit(50))
+        }).limit(50)
+        user_transactions = await cursor.to_list(length=50)
         
         if user_transactions:
             avg_amount = sum(t["amount"] for t in user_transactions) / len(user_transactions)
@@ -109,25 +111,24 @@ async def create_transaction(
         else:
             user_profile = None
         
-        check_large_transaction(
-            user_id=current_user["_id"],
-            transaction=new_transaction,
-            user_spending_profile=user_profile
+        # Note: check_large_transaction might still be blocking if it does DB calls internally
+        await check_large_transaction(
+        user_id=current_user["_id"],
+        transaction=new_transaction,
+        user_spending_profile=user_profile
         )
     except Exception as e:
         print(f"Error checking large transaction: {e}")
     
-    
-    
-    update_relevant_budgets(
+    await update_relevant_budgets(
         current_user["_id"], 
         transaction_data.date,
         transaction_data.currency.value
     )
 
-
-    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
-    users_collection.update_one(
+    # 2. Mark AI Data as Stale
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
@@ -180,13 +181,13 @@ async def get_transactions(
             date_filter["$lte"] = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
         query["date"] = date_filter
 
-    transactions = list(
-        transactions_collection
-        .find(query)
-        .sort([("date", -1), ("created_at", -1)])
-        .skip(skip)
+    # [FIX] Async query execution
+    cursor = transactions_collection.find(query)\
+        .sort([("date", -1), ("created_at", -1)])\
+        .skip(skip)\
         .limit(limit)
-    )
+    
+    transactions = await cursor.to_list(length=limit)
 
     result = []
     for t in transactions:
@@ -220,8 +221,8 @@ async def disable_transaction_recurrence(
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for a transaction"""
-    # Fetch transaction first to get date and currency
-    transaction = transactions_collection.find_one({
+    # [FIX] Added await
+    transaction = await transactions_collection.find_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
@@ -232,7 +233,8 @@ async def disable_transaction_recurrence(
             detail="Transaction not found"
         )
     
-    success = disable_recurrence_for_transaction(transaction_id, current_user["_id"])
+    # Note: Ensure disable_recurrence_for_transaction is also updated to be async in its service file
+    success = await disable_recurrence_for_transaction(transaction_id, current_user["_id"])
     
     if not success:
         raise HTTPException(
@@ -240,17 +242,14 @@ async def disable_transaction_recurrence(
             detail="Transaction not found or recurrence not enabled"
         )
     
-    # ✅ FIX: Update only relevant budgets
-    
-    
-    update_relevant_budgets(
+    await update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
     )
 
-    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
@@ -266,7 +265,7 @@ async def disable_parent_transaction_recurrence(
 ):
     """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
     # Get the transaction to find its parent
-    transaction = transactions_collection.find_one({
+    transaction = await transactions_collection.find_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
@@ -285,7 +284,7 @@ async def disable_parent_transaction_recurrence(
             detail="This transaction is not auto-created from a recurring transaction"
         )
     
-    success = disable_recurrence_for_parent(parent_id, current_user["_id"])
+    success = await disable_recurrence_for_parent(parent_id, current_user["_id"])
     
     if not success:
         raise HTTPException(
@@ -296,14 +295,14 @@ async def disable_parent_transaction_recurrence(
     # ✅ FIX: Update only relevant budgets
     
     # FIX: Run budget update synchronously
-    update_relevant_budgets(
+    await update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
     )
 
     # 2. Mark AI Data as Stale (Instead of refreshing immediately)
-    users_collection.update_one(
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
@@ -346,7 +345,8 @@ async def get_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Get single transaction"""
-    transaction = transactions_collection.find_one({
+    # [FIX] Added await
+    transaction = await transactions_collection.find_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
@@ -383,7 +383,7 @@ async def update_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Update transaction"""
-    transaction = transactions_collection.find_one({
+    transaction = await transactions_collection.find_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
     })
@@ -403,7 +403,7 @@ async def update_transaction(
         if transaction_data.recurrence.enabled and not transaction.get("recurrence", {}).get("enabled"):
             update_data["recurrence"]["last_created_date"] = update_data.get("date", transaction["date"])
 
-    transactions_collection.update_one(
+    await transactions_collection.update_one(
     {"_id": transaction_id, "user_id": current_user["_id"]}, 
     {"$set": update_data}
     )
@@ -411,25 +411,25 @@ async def update_transaction(
 
     # === START FIX: Cache Invalidation ===
     # Force a recalculation on next read to ensure accuracy after edit/delete
-    users_collection.update_one(
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
     )
     # === END FIX ===
 
-    updated_transaction = transactions_collection.find_one({"_id": transaction_id})
+    updated_transaction = await transactions_collection.find_one({"_id": transaction_id})
     
     
     
     # FIX: Run budget update synchronously
-    update_relevant_budgets(
+    await update_relevant_budgets(
         current_user["_id"], 
-        transaction_data.date,  # or new_transaction["date"]
-        transaction_data.currency.value  # or new_transaction["currency"]
+        transaction["date"],
+        transaction["currency"]
     )
 
     # 2. Mark AI Data as Stale (Instead of refreshing immediately)
-    users_collection.update_one(
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
@@ -463,8 +463,8 @@ async def delete_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete transaction"""
-    # Fetch transaction first to get date and currency for budget updates
-    transaction = transactions_collection.find_one({
+    # [FIX] Added await
+    transaction = await transactions_collection.find_one({
         "_id": transaction_id, 
         "user_id": current_user["_id"]
     })
@@ -475,19 +475,17 @@ async def delete_transaction(
             detail="Transaction not found"
         )
 
-    result = transactions_collection.delete_one({
+    # [FIX] Added await
+    result = await transactions_collection.delete_one({
         "_id": transaction_id, 
         "user_id": current_user["_id"]
     })
 
-
-    # === START FIX: Cache Invalidation ===
-    # Force a recalculation on next read to ensure accuracy after edit/delete
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
     )
-    # === END FIX ===
     
     if result.deleted_count == 0:
         raise HTTPException(
@@ -495,17 +493,14 @@ async def delete_transaction(
             detail="Failed to delete transaction"
         )
 
-    # ✅ FIX: Update only relevant budgets
-    
-    # FIX: Run budget update synchronously using the fetched transaction data
-    update_relevant_budgets(
+    await update_relevant_budgets(
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
     )
 
-    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
@@ -565,7 +560,7 @@ async def transcribe_audio(
             logger.info(f"   🤖 Model: whisper-1")
             logger.info(f"   📝 Transcription length: {transcription_length} characters")
             
-            track_ai_usage(
+            await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION,
                 provider=AIProviderType.OPENAI,
@@ -602,9 +597,9 @@ async def extract_transaction_from_text(
                 detail="OpenAI API key not configured"
             )
         
-        # Get user's categories
-        inflow_cats = categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = categories_collection.find_one({"_id": "outflow"})
+        # [FIX] Added await
+        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
+        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
         
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
@@ -687,7 +682,7 @@ Respond in JSON format:
             logger.info(f"   📊 Total tokens: {total_tokens:,}")
             logger.info(f"   🤖 Model: gpt-4o-mini")
             
-            track_ai_usage(
+            await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
                 provider=AIProviderType.OPENAI,
@@ -734,8 +729,8 @@ async def extract_multiple_transactions_from_text(
             )
         
         # Get user's categories
-        inflow_cats = categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = categories_collection.find_one({"_id": "outflow"})
+        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
+        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
         
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
@@ -833,7 +828,7 @@ Respond in JSON format:
             logger.info(f"   📊 Total tokens: {total_tokens:,}")
             logger.info(f"   🤖 Model: gpt-4o-mini")
             
-            track_ai_usage(
+            await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
                 provider=AIProviderType.OPENAI,
@@ -903,7 +898,7 @@ async def batch_create_transactions(
                 "updated_at": now
             }
             
-            result = transactions_collection.insert_one(new_transaction)
+            result = await transactions_collection.insert_one(new_transaction)
             
             if result.inserted_id:
                 created_transactions.append(TransactionResponse(
@@ -924,12 +919,12 @@ async def batch_create_transactions(
     
     # Process updates only if transactions were actually created
     if created_transactions:
-        update_all_user_budgets(current_user["_id"])
+        await update_all_user_budgets(current_user["_id"])  # <--- Added await
 
         # === START FIX: Cache Invalidation ===
         # Since we just added multiple transactions, the cached balance is now stale.
         # Invalidate it so it recalculates on the next dashboard load.
-        users_collection.update_one(
+        await users_collection.update_one(
             {"_id": current_user["_id"]},
             {"$unset": {"balances": ""}}
         )
@@ -937,7 +932,7 @@ async def batch_create_transactions(
         
         # 2. Mark AI Data as Stale (Fast & Lazy)
         # This prevents unnecessary AI processing until the user actually chats
-        users_collection.update_one(
+        await users_collection.update_one(
             {"_id": current_user["_id"]},
             {"$set": {"ai_data_stale": True}}
         )
@@ -968,9 +963,9 @@ async def extract_transaction_from_image(
         image_data = await image.read()
         base64_image = base64.b64encode(image_data).decode('utf-8')
         
-        # Get user's categories
-        inflow_cats = categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = categories_collection.find_one({"_id": "outflow"})
+        # [FIX] Added await
+        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
+        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
         
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
@@ -1072,7 +1067,7 @@ Respond in JSON format:
             logger.info(f"   📊 Total tokens: {total_tokens:,}")
             logger.info(f"   🤖 Model: gpt-4o")
             
-            track_ai_usage(
+            await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_IMAGE_EXTRACTION,
                 provider=AIProviderType.OPENAI,

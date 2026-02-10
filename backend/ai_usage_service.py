@@ -41,7 +41,7 @@ def calculate_cost(provider: str, model: str, input_tokens: int, output_tokens: 
         return 0.0
 
 
-def track_ai_usage(
+async def track_ai_usage(
     user_id: str,
     feature_type: AIFeatureType,
     provider: AIProviderType,
@@ -74,7 +74,8 @@ def track_ai_usage(
             "created_at": datetime.now(UTC)
         }
         
-        ai_usage_collection.insert_one(usage_record)
+        # [FIX] Added await for async database insertion
+        await ai_usage_collection.insert_one(usage_record)
         
         logger.info(
             f"💰 [AI USAGE TRACKED] User: {user_id} | "

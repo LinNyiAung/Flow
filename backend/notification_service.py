@@ -89,11 +89,10 @@ def format_currency_amount(amount: float, currency: str) -> str:
         return f"฿{amount:,.2f}"
 
 
-def get_user_language(user_id: str) -> str:
+async def get_user_language(user_id: str) -> str:
     """Get user's preferred language from user preferences or default to 'en'"""
-    # You can store language preference in users collection or a separate preferences collection
-    # For now, we'll add it to the user document
-    user = users_collection.find_one({"_id": user_id})
+    # [FIX] Added await
+    user = await users_collection.find_one({"_id": user_id})
     return user.get("language", "en") if user else "en"
 
 
@@ -103,9 +102,10 @@ def translate(key: str, language: str, **kwargs) -> str:
     return template.format(**kwargs)
 
 
-def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
+async def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
     """Get user's notification preferences, return defaults if not set"""
-    prefs = notification_preferences_collection.find_one({"user_id": user_id})
+    # [FIX] Added await
+    prefs = await notification_preferences_collection.find_one({"user_id": user_id})
     
     if not prefs:
         default_prefs = {
@@ -133,13 +133,14 @@ def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
     return prefs.get("preferences", {})
 
 
-def should_send_notification(user_id: str, notification_type: str) -> bool:
+async def should_send_notification(user_id: str, notification_type: str) -> bool:
     """Check if user wants to receive this type of notification"""
-    preferences = get_user_notification_preferences(user_id)
+    # [FIX] Added await
+    preferences = await get_user_notification_preferences(user_id)
     return preferences.get(notification_type, True)
 
 
-def create_notification(
+async def create_notification(
     user_id: str,
     notification_type: str,
     title: str,
@@ -150,7 +151,8 @@ def create_notification(
 ) -> Optional[dict]:
     """Create a new notification (only if user has it enabled)"""
     
-    if not should_send_notification(user_id, notification_type):
+    # [FIX] Added await
+    if not await should_send_notification(user_id, notification_type):
         print(f"Skipping notification {notification_type} for user {user_id} (disabled in preferences)")
         return None
     
@@ -167,15 +169,20 @@ def create_notification(
         "created_at": datetime.now(UTC),
         "is_read": False
     }
-    notifications_collection.insert_one(notification)
+    
+    # [FIX] Added await
+    await notifications_collection.insert_one(notification)
     print(f"✅ Created notification {notification_type} for user {user_id}")
     
-    # NEW: Send FCM push notification in a separate thread to prevent blocking
-    # This ensures the user gets the API response immediately, even if Firebase is slow.
+    # [FIX] Fetch user data ASYNC before starting the thread
+    # This prevents running async DB calls inside the sync thread
+    user = await users_collection.find_one({"_id": user_id})
+    fcm_token = user.get("fcm_token") if user else None
+
+    # Send FCM push notification in a separate thread
     def send_background_fcm():
         try:
-            user = users_collection.find_one({"_id": user_id})
-            if user and user.get("fcm_token"):
+            if fcm_token:
                 fcm_data = {
                     "notification_id": notification_id,
                     "type": notification_type,
@@ -185,7 +192,7 @@ def create_notification(
                 }
                 
                 send_fcm_notification(
-                    fcm_token=user["fcm_token"],
+                    fcm_token=fcm_token,
                     title=title,
                     body=message,
                     data=fcm_data
@@ -201,11 +208,13 @@ def create_notification(
     return notification
 
 
-def check_goal_notifications(user_id: str, goal_id: str, old_progress: float, new_progress: float, goal_name: str):
+async def check_goal_notifications(user_id: str, goal_id: str, old_progress: float, new_progress: float, goal_name: str):
     """Check and create notifications based on goal progress"""
-    goal = goals_collection.find_one({"_id": goal_id})
+    # [FIX] Added await
+    goal = await goals_collection.find_one({"_id": goal_id})
     currency = goal.get("currency", "usd") if goal else "usd"
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     milestones = [25, 50, 75, 100]
     
@@ -214,7 +223,8 @@ def check_goal_notifications(user_id: str, goal_id: str, old_progress: float, ne
             if milestone == 100:
                 title = translate("goal_achieved_title", lang)
                 message = translate("goal_achieved_msg", lang, goal_name=goal_name)
-                create_notification(
+                # [FIX] Added await
+                await create_notification(
                     user_id=user_id,
                     notification_type="goal_achieved",
                     title=title,
@@ -227,7 +237,8 @@ def check_goal_notifications(user_id: str, goal_id: str, old_progress: float, ne
                 emoji = "💪" if milestone == 25 else "🎯" if milestone == 50 else "🎉"
                 title = translate("goal_progress_title", lang, milestone=milestone, emoji=emoji)
                 message = translate("goal_progress_msg", lang, milestone=milestone, goal_name=goal_name)
-                create_notification(
+                # [FIX] Added await
+                await create_notification(
                     user_id=user_id,
                     notification_type="goal_progress",
                     title=title,
@@ -237,11 +248,13 @@ def check_goal_notifications(user_id: str, goal_id: str, old_progress: float, ne
                     currency=currency
                 )
 
-def check_milestone_amount(user_id: str, goal_id: str, old_amount: float, new_amount: float, goal_name: str):
+async def check_milestone_amount(user_id: str, goal_id: str, old_amount: float, new_amount: float, goal_name: str):
     """Check for milestone amounts (every $1000 or 1M K)"""
-    goal = goals_collection.find_one({"_id": goal_id})
+    # [FIX] Added await
+    goal = await goals_collection.find_one({"_id": goal_id})
     currency = goal.get("currency", "usd") if goal else "usd"
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     milestone_interval = 1000000 if currency == "mmk" else 1000
     
@@ -255,7 +268,8 @@ def check_milestone_amount(user_id: str, goal_id: str, old_amount: float, new_am
         title = translate("goal_milestone_title", lang)
         message = translate("goal_milestone_msg", lang, amount=formatted_amount, goal_name=goal_name)
         
-        create_notification(
+        # [FIX] Added await
+        await create_notification(
             user_id=user_id,
             notification_type="goal_milestone",
             title=title,
@@ -266,20 +280,23 @@ def check_milestone_amount(user_id: str, goal_id: str, old_amount: float, new_am
         )
 
 
-def check_approaching_target_dates():
+async def check_approaching_target_dates():
     """Check all goals for approaching target dates (run daily)"""
     now = datetime.now(UTC)
     two_weeks_from_now = now + timedelta(days=14)
     one_week_from_now = now + timedelta(days=7)
     three_days_from_now = now + timedelta(days=3)
     
-    goals = goals_collection.find({
+    # [FIX] Async cursor
+    cursor = goals_collection.find({
         "status": "active",
         "target_date": {
             "$gte": now,
             "$lte": two_weeks_from_now
         }
     })
+    
+    goals = await cursor.to_list(length=None)
     
     for goal in goals:
         target_date = goal["target_date"]
@@ -288,12 +305,14 @@ def check_approaching_target_dates():
         goal_name = goal["name"]
         remaining = goal["target_amount"] - goal["current_amount"]
         currency = goal.get("currency", "usd")
-        lang = get_user_language(user_id)
+        # [FIX] Added await
+        lang = await get_user_language(user_id)
         
         days_until = (target_date - now).days
         
         if days_until == 14 or days_until == 7 or days_until == 3:
-            existing = notifications_collection.find_one({
+            # [FIX] Added await
+            existing = await notifications_collection.find_one({
                 "user_id": user_id,
                 "goal_id": goal_id,
                 "type": "goal_approaching_date",
@@ -313,7 +332,8 @@ def check_approaching_target_dates():
                     message = translate("goal_approaching_msg_achieved", lang, 
                                       goal_name=goal_name, days=time_text)
                 
-                create_notification(
+                # [FIX] Added await
+                await create_notification(
                     user_id=user_id,
                     notification_type="goal_approaching_date",
                     title=title,
@@ -324,18 +344,21 @@ def check_approaching_target_dates():
                 )
 
 
-def check_budget_notifications(user_id: str, budget_id: str, old_percentage: float, new_percentage: float, budget_name: str, category_name: str = None):
+async def check_budget_notifications(user_id: str, budget_id: str, old_percentage: float, new_percentage: float, budget_name: str, category_name: str = None):
     """Check and create budget threshold/exceeded notifications"""
-    budget = budgets_collection.find_one({"_id": budget_id})
+    # [FIX] Added await
+    budget = await budgets_collection.find_one({"_id": budget_id})
     currency = budget.get("currency", "usd") if budget else "usd"
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     budget_label = f"'{category_name}'" if category_name else ("overall" if lang == "en" else "စုစုပေါင်း")
     
     if old_percentage < 80 <= new_percentage < 100:
         title = translate("budget_threshold_title", lang)
         message = translate("budget_threshold_msg", lang, label=budget_label, budget_name=budget_name)
-        create_notification(
+        # [FIX] Added await
+        await create_notification(
             user_id=user_id,
             notification_type="budget_threshold",
             title=title,
@@ -348,7 +371,8 @@ def check_budget_notifications(user_id: str, budget_id: str, old_percentage: flo
     if old_percentage < 100 <= new_percentage:
         title = translate("budget_exceeded_title", lang)
         message = translate("budget_exceeded_msg", lang, label=budget_label, budget_name=budget_name)
-        create_notification(
+        # [FIX] Added await
+        await create_notification(
             user_id=user_id,
             notification_type="budget_exceeded",
             title=title,
@@ -359,18 +383,20 @@ def check_budget_notifications(user_id: str, budget_id: str, old_percentage: flo
         )
 
 
-def check_budget_period_notifications():
+async def check_budget_period_notifications():
     """Check all budgets for period start/end notifications (run daily)"""
     now = datetime.now(UTC)
     three_days_from_now = now + timedelta(days=3)
     
-    budgets_ending = budgets_collection.find({
+    # [FIX] Async cursor
+    cursor_ending = budgets_collection.find({
         "status": "active",
         "end_date": {
             "$gte": now,
             "$lte": three_days_from_now
         }
     })
+    budgets_ending = await cursor_ending.to_list(length=None)
     
     for budget in budgets_ending:
         user_id = budget["user_id"]
@@ -378,12 +404,14 @@ def check_budget_period_notifications():
         budget_name = budget["name"]
         end_date = budget["end_date"]
         currency = budget.get("currency", "usd")
-        lang = get_user_language(user_id)
+        # [FIX] Added await
+        lang = await get_user_language(user_id)
         
         days_until_end = (end_date - now).days
         
         if days_until_end == 3:
-            existing = notifications_collection.find_one({
+            # [FIX] Added await
+            existing = await notifications_collection.find_one({
                 "user_id": user_id,
                 "goal_id": budget_id,
                 "type": "budget_ending_soon",
@@ -393,7 +421,8 @@ def check_budget_period_notifications():
             if not existing:
                 title = translate("budget_ending_soon_title", lang)
                 message = translate("budget_ending_soon_msg", lang, budget_name=budget_name)
-                create_notification(
+                # [FIX] Added await
+                await create_notification(
                     user_id=user_id,
                     notification_type="budget_ending_soon",
                     title=title,
@@ -403,10 +432,12 @@ def check_budget_period_notifications():
                     currency=currency
                 )
     
-    budgets_now_active = budgets_collection.find({
+    # [FIX] Async cursor
+    cursor_active = budgets_collection.find({
         "status": "upcoming",
         "start_date": {"$lte": now}
     })
+    budgets_now_active = await cursor_active.to_list(length=None)
     
     for budget in budgets_now_active:
         user_id = budget["user_id"]
@@ -414,10 +445,12 @@ def check_budget_period_notifications():
         budget_name = budget["name"]
         total_budget = budget["total_budget"]
         currency = budget.get("currency", "usd")
-        lang = get_user_language(user_id)
+        # [FIX] Added await
+        lang = await get_user_language(user_id)
         formatted_budget = format_currency_amount(total_budget, currency)
         
-        existing = notifications_collection.find_one({
+        # [FIX] Added await
+        existing = await notifications_collection.find_one({
             "user_id": user_id,
             "goal_id": budget_id,
             "type": "budget_now_active"
@@ -426,7 +459,8 @@ def check_budget_period_notifications():
         if not existing:
             title = translate("budget_now_active_title", lang)
             message = translate("budget_now_active_msg", lang, budget_name=budget_name, amount=formatted_budget)
-            create_notification(
+            # [FIX] Added await
+            await create_notification(
                 user_id=user_id,
                 notification_type="budget_now_active",
                 title=title,
@@ -437,17 +471,20 @@ def check_budget_period_notifications():
             )
 
 
-def notify_budget_started(user_id: str, budget_id: str, budget_name: str, total_budget: float, period: str):
+async def notify_budget_started(user_id: str, budget_id: str, budget_name: str, total_budget: float, period: str):
     """Notify when a new budget is created and started"""
-    budget = budgets_collection.find_one({"_id": budget_id})
+    # [FIX] Added await
+    budget = await budgets_collection.find_one({"_id": budget_id})
     currency = budget.get("currency", "usd") if budget else "usd"
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     formatted_budget = format_currency_amount(total_budget, currency)
     
     title = translate("budget_started_title", lang)
     message = translate("budget_started_msg", lang, budget_name=budget_name, period=period, amount=formatted_budget)
     
-    create_notification(
+    # [FIX] Added await
+    await create_notification(
         user_id=user_id,
         notification_type="budget_started",
         title=title,
@@ -458,11 +495,13 @@ def notify_budget_started(user_id: str, budget_id: str, budget_name: str, total_
     )
 
 
-def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, was_ai: bool):
+async def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, was_ai: bool):
     """Notify when a budget is auto-created"""
-    budget = budgets_collection.find_one({"_id": budget_id})
+    # [FIX] Added await
+    budget = await budgets_collection.find_one({"_id": budget_id})
     currency = budget.get("currency", "usd") if budget else "usd"
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     title = translate("budget_auto_created_title", lang)
     
@@ -471,7 +510,8 @@ def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, w
     else:
         message = translate("budget_auto_created_msg", lang, budget_name=budget_name)
     
-    create_notification(
+    # [FIX] Added await
+    await create_notification(
         user_id=user_id,
         notification_type="budget_auto_created",
         title=title,
@@ -482,14 +522,15 @@ def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, w
     )
 
 
-def check_large_transaction(user_id: str, transaction: Dict, user_spending_profile: Dict = None):
+async def check_large_transaction(user_id: str, transaction: Dict, user_spending_profile: Dict = None):
     """Check if a transaction is unusually large and notify"""
     amount = transaction["amount"]
     transaction_type = transaction["type"]
     category = transaction["main_category"]
     description = transaction.get("description", "")
     currency = transaction.get("currency", "usd")
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     if transaction_type != "outflow":
         return
@@ -501,7 +542,8 @@ def check_large_transaction(user_id: str, transaction: Dict, user_spending_profi
         threshold = 150000 if currency == "mmk" else 150
     
     if amount >= threshold:
-        existing = notifications_collection.find_one({
+        # [FIX] Added await
+        existing = await notifications_collection.find_one({
             "user_id": user_id,
             "type": "large_transaction",
             "created_at": {"$gte": datetime.now(UTC) - timedelta(minutes=5)}
@@ -518,7 +560,8 @@ def check_large_transaction(user_id: str, transaction: Dict, user_spending_profi
             message = translate("large_transaction_msg", lang, 
                               amount=formatted_amount, merchant=merchant_info, category=category)
             
-            create_notification(
+            # [FIX] Added await
+            await create_notification(
                 user_id=user_id,
                 notification_type="large_transaction",
                 title=title,
@@ -529,31 +572,37 @@ def check_large_transaction(user_id: str, transaction: Dict, user_spending_profi
             )
 
 
-def analyze_unusual_spending(user_id: str):
+async def analyze_unusual_spending(user_id: str):
     """Analyze spending patterns and notify about unusual activity"""
     from collections import defaultdict
     
     now = datetime.now(UTC)
-    currencies = transactions_collection.distinct("currency", {"user_id": user_id})
-    lang = get_user_language(user_id)
+    # [FIX] Async distinct
+    currencies = await transactions_collection.distinct("currency", {"user_id": user_id})
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     for currency in currencies:
         this_week_start = now - timedelta(days=7)
-        this_week_transactions = list(transactions_collection.find({
+        # [FIX] Async cursor
+        cursor = transactions_collection.find({
             "user_id": user_id,
             "type": "outflow",
             "currency": currency,
             "date": {"$gte": this_week_start}
-        }))
+        })
+        this_week_transactions = await cursor.to_list(length=None)
         
         last_month_start = now - timedelta(days=35)
         last_month_end = this_week_start
-        last_month_transactions = list(transactions_collection.find({
+        # [FIX] Async cursor
+        cursor = transactions_collection.find({
             "user_id": user_id,
             "type": "outflow",
             "currency": currency,
             "date": {"$gte": last_month_start, "$lt": last_month_end}
-        }))
+        })
+        last_month_transactions = await cursor.to_list(length=None)
         
         if len(last_month_transactions) < 5:
             continue
@@ -577,7 +626,8 @@ def analyze_unusual_spending(user_id: str):
             min_diff = 50000 if currency == "mmk" else 50
             
             if this_week_amount > weekly_avg * 1.5 and this_week_amount - weekly_avg > min_diff:
-                existing = notifications_collection.find_one({
+                # [FIX] Added await
+                existing = await notifications_collection.find_one({
                     "user_id": user_id,
                     "type": "unusual_spending",
                     "goal_name": category,
@@ -593,7 +643,8 @@ def analyze_unusual_spending(user_id: str):
                     message = translate("unusual_spending_msg", lang, 
                                       category=category, this_week=formatted_this_week, avg=formatted_avg)
                     
-                    create_notification(
+                    # [FIX] Added await
+                    await create_notification(
                         user_id=user_id,
                         notification_type="unusual_spending",
                         title=title,
@@ -604,26 +655,32 @@ def analyze_unusual_spending(user_id: str):
                     )
 
 
-def detect_and_notify_recurring_payments():
+async def detect_and_notify_recurring_payments():
     """Detect recurring payments and send reminders"""
     from collections import defaultdict
     
     now = datetime.now(UTC)
-    users = users_collection.find({})
+    # [FIX] Async cursor for users
+    cursor_users = users_collection.find({})
+    users = await cursor_users.to_list(length=None)
     
     for user in users:
         user_id = user["_id"]
-        lang = get_user_language(user_id)
-        currencies = transactions_collection.distinct("currency", {"user_id": user_id})
+        # [FIX] Added await
+        lang = await get_user_language(user_id)
+        # [FIX] Async distinct
+        currencies = await transactions_collection.distinct("currency", {"user_id": user_id})
         
         for currency in currencies:
             ninety_days_ago = now - timedelta(days=90)
-            transactions = list(transactions_collection.find({
+            # [FIX] Async cursor
+            cursor = transactions_collection.find({
                 "user_id": user_id,
                 "type": "outflow",
                 "currency": currency,
                 "date": {"$gte": ninety_days_ago}
-            }))
+            })
+            transactions = await cursor.to_list(length=None)
             
             if len(transactions) < 10:
                 continue
@@ -668,7 +725,8 @@ def detect_and_notify_recurring_payments():
                     days_until = (next_expected - now).days
                     
                     if 2 <= days_until <= 4:
-                        existing = notifications_collection.find_one({
+                        # [FIX] Added await
+                        existing = await notifications_collection.find_one({
                             "user_id": user_id,
                             "type": "payment_reminder",
                             "goal_name": key,
@@ -685,7 +743,8 @@ def detect_and_notify_recurring_payments():
                             message = translate("payment_reminder_msg", lang, 
                                               description=description, amount=formatted_amount, days=days_until)
                             
-                            create_notification(
+                            # [FIX] Added await
+                            await create_notification(
                                 user_id=user_id,
                                 notification_type="payment_reminder",
                                 title=title,
@@ -696,14 +755,16 @@ def detect_and_notify_recurring_payments():
                             )
 
 
-def notify_monthly_insights_generated(user_id: str):
+async def notify_monthly_insights_generated(user_id: str):
     """Notify when monthly insights are generated"""
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     title = translate("monthly_insights_title", lang)
     message = translate("monthly_insights_msg", lang)
     
-    create_notification(
+    # [FIX] Added await
+    await create_notification(
         user_id=user_id,
         notification_type="monthly_insights_generated",
         title=title,
@@ -714,14 +775,16 @@ def notify_monthly_insights_generated(user_id: str):
     )
 
 
-def notify_weekly_insights_generated(user_id: str):
+async def notify_weekly_insights_generated(user_id: str):
     """Notify when weekly insights are generated"""
-    lang = get_user_language(user_id)
+    # [FIX] Added await
+    lang = await get_user_language(user_id)
     
     title = translate("weekly_insights_title", lang)
     message = translate("weekly_insights_msg", lang)
     
-    create_notification(
+    # [FIX] Added await
+    await create_notification(
         user_id=user_id,
         notification_type="weekly_insights_generated",
         title=title,

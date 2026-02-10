@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 
@@ -217,15 +218,18 @@ async def generate_report(
             }
         ]
         
-        result = list(transactions_collection.aggregate(pipeline))
+        # [FIX] Async Aggregation
+        cursor = transactions_collection.aggregate(pipeline)
+        result = await cursor.to_list(length=None)
         
         # Handle empty result
         if not result or not result[0]["totals"]:
-            # No transactions found - return empty report
-            goals = list(goals_collection.find({
+            # [FIX] Async find
+            cursor = goals_collection.find({
                 "user_id": current_user["_id"],
                 "currency": currency.value
-            }))
+            })
+            goals = await cursor.to_list(length=None)
             
             goals_progress = [
                 GoalProgress(
@@ -303,11 +307,12 @@ async def generate_report(
         avg_daily_inflow = total_inflow / days_in_period if days_in_period > 0 else 0
         avg_daily_outflow = total_outflow / days_in_period if days_in_period > 0 else 0
         
-        # Get goals for this currency
-        goals = list(goals_collection.find({
+        # [FIX] Async find for goals (second occurrence)
+        cursor = goals_collection.find({
             "user_id": current_user["_id"],
             "currency": currency.value
-        }))
+        })
+        goals = await cursor.to_list(length=None)
         
         goals_progress = [
             GoalProgress(
@@ -375,11 +380,12 @@ async def generate_multi_currency_report(
             report_request.end_date
         )
         
-        # Fetch all transactions
-        all_transactions = list(transactions_collection.find({
+        # [FIX] Async fetch all transactions
+        cursor = transactions_collection.find({
             "user_id": current_user["_id"],
             "date": {"$gte": start_date, "$lte": end_date}
-        }))
+        })
+        all_transactions = await cursor.to_list(length=None)
         
         # Group by currency
         transactions_by_currency = {}
@@ -396,8 +402,10 @@ async def generate_multi_currency_report(
             report = generate_currency_report(transactions, currency, start_date, end_date)
             currency_reports.append(report)
         
-        # Get all goals
-        all_goals = list(goals_collection.find({"user_id": current_user["_id"]}))
+        # [FIX] Async fetch all goals
+        cursor = goals_collection.find({"user_id": current_user["_id"]})
+        all_goals = await cursor.to_list(length=None)
+
         goals_progress = [
             GoalProgress(
                 goal_id=g["_id"],
@@ -452,18 +460,22 @@ async def download_report_pdf(
             report_request.end_date
         )
         
-        transactions = list(transactions_collection.find({
+        # [FIX] Async fetch transactions
+        cursor = transactions_collection.find({
             "user_id": current_user["_id"],
             "currency": currency.value,
             "date": {"$gte": start_date, "$lte": end_date}
-        }))
+        })
+        transactions = await cursor.to_list(length=None)
         
         currency_report = generate_currency_report(transactions, currency, start_date, end_date)
         
-        goals = list(goals_collection.find({
+        # [FIX] Async fetch goals
+        cursor = goals_collection.find({
             "user_id": current_user["_id"],
             "currency": currency.value
-        }))
+        })
+        goals = await cursor.to_list(length=None)
         
         goals_progress = [
             GoalProgress(
@@ -507,7 +519,13 @@ async def download_report_pdf(
         
         # Generate PDF with user's timezone offset
         user_timezone_offset = report_request.timezone_offset if hasattr(report_request, 'timezone_offset') and report_request.timezone_offset is not None else 0
-        pdf_buffer = generate_financial_report_pdf(report, current_user["name"], user_timezone_offset, currency)
+        pdf_buffer = await asyncio.to_thread(
+            generate_financial_report_pdf, 
+            report, 
+            current_user["name"], 
+            user_timezone_offset, 
+            currency
+        )
         
         # Create filename with currency
         period_name = report_request.period.value

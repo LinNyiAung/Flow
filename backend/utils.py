@@ -53,10 +53,11 @@ def verify_token(token: str) -> str:
         )
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Get current authenticated user"""
     email = verify_token(credentials.credentials)
-    user = users_collection.find_one({"email": email})
+    # [FIX] Added await
+    user = await users_collection.find_one({"email": email})
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
@@ -84,39 +85,30 @@ def ensure_utc_datetime(dt) -> datetime:
 async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict:
     """
     Get balance with Read-Through Caching to fix scalability.
-    1. Try to read cached balance from user document.
-    2. If missing, calculate via aggregation (slow), then save to cache (fast next time).
     """
     # 1. FAST PATH: Check cache
-    user = users_collection.find_one({"_id": user_id}, {"balances": 1, "default_currency": 1})
+    # [FIX] Added await
+    user = await users_collection.find_one({"_id": user_id}, {"balances": 1, "default_currency": 1})
+    
+    # Handle case where user might be None (rare but possible)
+    if not user:
+         return {"balances": {}}
+         
     cached_balances = user.get("balances")
 
     # If we have a cache, use it immediately
     if cached_balances:
         if currency:
-            # Return specific currency from cache (default to 0 if currency not in cache)
             data = cached_balances.get(currency, {
                 "balance": 0, "available_balance": 0, 
-                "allocated_to_goals": 0, "total_inflow": 0, "total_outflow": 0
+                "allocated_to_goals": 0, "total_inflow": 0, "total_outflow": 0,
+                "currency": currency
             })
-            data["currency"] = currency
             return data
         else:
-            # Return all cached balances
             return {"balances": cached_balances}
 
     # 2. SLOW PATH: Aggregation (Run only if cache is missing/invalidated)
-    # --- [Keep your existing aggregation logic below] ---
-    
-    # ... [Keep your existing tx_pipeline and goals_pipeline logic] ...
-    # ... [Assuming you run the aggregation and get 'balances' dict as per your original code] ...
-    
-    # RE-USE YOUR EXISTING AGGREGATION CODE HERE TO GET 'balances' variable
-    # (Copy the logic from your original function for calculating 'balances')
-    # For brevity, I assume 'balances' is the result of your aggregation logic:
-    # balances = { "usd": { ... }, "mmk": { ... } } 
-    
-    # [Restoring the aggregation logic for completeness of the fix]:
     tx_pipeline = [
         {"$match": {"user_id": user_id}},
         {
@@ -136,8 +128,12 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
         {"$group": {"_id": "$currency", "total_allocated": {"$sum": "$current_amount"}}}
     ]
     
-    tx_results = list(transactions_collection.aggregate(tx_pipeline))
-    goal_results = list(goals_collection.aggregate(goals_pipeline))
+    # [FIX] Async Aggregation
+    tx_cursor = transactions_collection.aggregate(tx_pipeline)
+    tx_results = await tx_cursor.to_list(length=None)
+    
+    goal_cursor = goals_collection.aggregate(goals_pipeline)
+    goal_results = await goal_cursor.to_list(length=None)
     
     tx_map = {res["_id"]: res for res in tx_results if res["_id"]}
     all_currencies = set(tx_map.keys()) | {g["_id"] for g in goal_results if g["_id"]}
@@ -148,20 +144,26 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     balances = {}
     for curr in all_currencies:
         tx_data = tx_map.get(curr, {"total_inflow": 0, "total_outflow": 0})
+        # Safe generator expression for goals
         allocated = next((g["total_allocated"] for g in goal_results if g["_id"] == curr), 0)
         
-        balance = tx_data["total_inflow"] - tx_data["total_outflow"]
+        # Ensure values are floats/ints, not None
+        total_inflow = tx_data.get("total_inflow", 0) or 0
+        total_outflow = tx_data.get("total_outflow", 0) or 0
+        
+        balance = total_inflow - total_outflow
         balances[curr] = {
             "currency": curr,
             "balance": balance,
             "available_balance": balance - allocated,
             "allocated_to_goals": allocated,
-            "total_inflow": tx_data["total_inflow"],
-            "total_outflow": tx_data["total_outflow"]
+            "total_inflow": total_inflow,
+            "total_outflow": total_outflow
         }
 
     # 3. CACHE UPDATE: Save the result so next time is O(1)
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": user_id},
         {"$set": {"balances": balances}}
     )
@@ -174,7 +176,7 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     return {"balances": balances}
 
 
-def require_premium(current_user: dict = Depends(get_current_user)):
+async def require_premium(current_user: dict = Depends(get_current_user)):
     """Middleware to check if user has premium subscription"""
     subscription_type = current_user.get("subscription_type", "free")
     

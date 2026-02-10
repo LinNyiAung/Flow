@@ -32,7 +32,7 @@ from notification_service import (
 
 
 from database import (
-    categories_collection, chat_sessions_collection, insights_collection, notifications_collection, notification_preferences_collection, users_collection
+    categories_collection, chat_sessions_collection, create_db_indexes, initialize_admin, initialize_categories, insights_collection, notifications_collection, notification_preferences_collection, users_collection
 )
 from ai_chatbot import financial_chatbot
 from ai_chatbot_gemini import gemini_financial_chatbot
@@ -57,6 +57,13 @@ app.include_router(budget_router)
 app.include_router(report_router)
 app.include_router(admin_router)
 app.include_router(feedback_router)
+
+
+@app.on_event("startup")
+async def startup_db_client():
+    await initialize_categories()
+    await initialize_admin()
+    await create_db_indexes()
 
 try:
     scheduler = start_scheduler()
@@ -84,7 +91,8 @@ app.add_middleware(
 @app.get("/api/categories/{transaction_type}", response_model=List[CategoryResponse])
 async def get_categories(transaction_type: TransactionType):
     """Get categories for transaction type"""
-    categories_doc = categories_collection.find_one({"_id": transaction_type.value})
+    # [FIX] Added await
+    categories_doc = await categories_collection.find_one({"_id": transaction_type.value})
     if not categories_doc:
         return []
 
@@ -136,18 +144,21 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str, c
         if len(messages) > settings.MAX_CHAT_HISTORY:
             messages = messages[-settings.MAX_CHAT_HISTORY:]
         
-        existing_session = chat_sessions_collection.find_one(
+        # [FIX] Added await
+        existing_session = await chat_sessions_collection.find_one(
             {"user_id": user_id},
             sort=[("updated_at", -1)]
         )
         
         if existing_session:
-            chat_sessions_collection.update_one(
+            # [FIX] Added await
+            await chat_sessions_collection.update_one(
                 {"_id": existing_session["_id"]},
                 {"$set": {"messages": messages, "updated_at": current_time}}
             )
         else:
-            chat_sessions_collection.insert_one({
+            # [FIX] Added await
+            await chat_sessions_collection.insert_one({
                 "_id": str(uuid.uuid4()),
                 "user_id": user_id,
                 "messages": messages,
@@ -168,7 +179,8 @@ async def stream_chat_with_ai(
     # 1. Select chatbot and Pre-fetch Model Name
     model_name = "unknown-model" # Fallback
 
-    user_doc = users_collection.find_one({"_id": current_user["_id"]}, {"ai_data_stale": 1})
+    # [FIX] Added await
+    user_doc = await users_collection.find_one({"_id": current_user["_id"]}, {"ai_data_stale": 1})
     
     if user_doc and user_doc.get("ai_data_stale", False):
         print(f"🔄 Data is stale for user {current_user['_id']}, refreshing before chat...")
@@ -177,70 +189,50 @@ async def stream_chat_with_ai(
             # Refresh the specific provider requested
             if chat_request.ai_provider == AIProvider.GEMINI:
                 if gemini_financial_chatbot:
+                    # [NOTE] These refresh methods might be blocking if they use aggregation internally.
+                    # Ideally, make refresh_user_data async too, but for now we focus on the route.
                     gemini_financial_chatbot.refresh_user_data(current_user["_id"])
             else:
                 if financial_chatbot:
                     financial_chatbot.refresh_user_data(current_user["_id"])
             
-            # Reset the flag ONLY if refresh succeeded
-            users_collection.update_one(
+            # [FIX] Added await
+            await users_collection.update_one(
                 {"_id": current_user["_id"]},
                 {"$set": {"ai_data_stale": False}}
             )
             print("✅ AI data refreshed and flag cleared.")
             
         except Exception as e:
-            # Log error but let the chat proceed (with potentially stale data) 
-            # so the user isn't blocked completely
             print(f"⚠️ Failed to refresh stale AI data: {e}")
     
     if chat_request.ai_provider == AIProvider.GEMINI:
         chatbot = gemini_financial_chatbot
         if chatbot is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Gemini AI service is currently unavailable"
-            )
-        # Extract model name safely from Gemini instance
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Gemini AI service is currently unavailable")
         model_name = getattr(chatbot, 'gemini_model', 'gemini-2.5-flash')
-        
-    else:  # Default to OpenAI
+    else: 
         chatbot = financial_chatbot
         if chatbot is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI AI service is currently unavailable"
-            )
-        # Extract model name safely from OpenAI instance (checking common attribute names)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OpenAI AI service is currently unavailable")
         model_name = getattr(chatbot, 'model_name', getattr(chatbot, 'model', 'gpt-4o'))
-    
-    # ... [Chat history setup remains the same] ...
     
     chat_history = None
     if chat_request.chat_history:
-        chat_history = [
-            {
-                "role": msg.role.value,
-                "content": msg.content,
-                "timestamp": msg.timestamp
-            }
-            for msg in chat_request.chat_history
-        ]
+        chat_history = [{"role": msg.role.value, "content": msg.content, "timestamp": msg.timestamp} for msg in chat_request.chat_history]
     
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
     
-    # Variables to track tokens
     input_tokens = 0
     output_tokens = 0
     total_tokens = 0
     full_response = ""
     
-    # Note: 'model_name' is already set above, so we don't need to initialize it to "unknown" here.
-    
     async def generate_stream():
         nonlocal input_tokens, output_tokens, total_tokens, model_name, full_response
         
         try:
+            # [NOTE] Ensure stream_chat is async compatible or runs in threadpool
             stream = chatbot.stream_chat(
                 user_id=current_user["_id"],
                 message=chat_request.message,
@@ -251,11 +243,7 @@ async def stream_chat_with_ai(
             async for chunk_text, usage_data in stream:
                 if chunk_text:
                     full_response += chunk_text
-                    data = {
-                        "chunk": chunk_text,
-                        "done": False,
-                        "timestamp": datetime.now(UTC).isoformat()
-                    }
+                    data = {"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()}
                     yield f"data: {json.dumps(data)}\n\n"
                     await asyncio.sleep(0.01)
                 
@@ -263,51 +251,35 @@ async def stream_chat_with_ai(
                     input_tokens = usage_data.get('input_tokens', 0)
                     output_tokens = usage_data.get('output_tokens', 0)
                     total_tokens = usage_data.get('total_tokens', 0)
-                    # Update model_name if the API returns a specific version (e.g., 'gpt-4o-2024-05-13')
                     if usage_data.get('model_name'):
                         model_name = usage_data['model_name']
             
-            # 3. Final 'Done' Message
-            final_data = {
-                "chunk": "",
-                "done": True,
-                "full_response": full_response,
-                "timestamp": datetime.now(UTC).isoformat()
-            }
+            final_data = {"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()}
             yield f"data: {json.dumps(final_data)}\n\n"
             
-            # 4. Save to DB (Safe now because we have local full_response)
             if full_response:
+                # [FIX] Added await (save_chat_session is now async)
                 await save_chat_session(current_user["_id"], chat_request.message, full_response, chat_history)
             
-            # 5. Track Usage
             if input_tokens > 0 or output_tokens > 0:
-                # FIXED: Define provider based on request
                 provider = AIProviderType.GEMINI if chat_request.ai_provider == AIProvider.GEMINI else AIProviderType.OPENAI
-                
-                track_ai_usage(
+                # [NOTE] track_ai_usage writes to DB. You should ensure it's async or fire-and-forget.
+                # If it's sync, wrap it: await run_in_threadpool(track_ai_usage, ...)
+                await track_ai_usage(
                     user_id=current_user["_id"],
                     feature_type=AIFeatureType.CHAT,
-                    provider=provider,      # FIXED: Passed correctly
-                    model_name=model_name,  # FIXED: Passed correctly
+                    provider=provider,
+                    model_name=model_name,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
-                    total_tokens=total_tokens # FIXED: Passed correctly
+                    total_tokens=total_tokens
                 )
             
         except Exception as e:
-            error_data = {
-                "error": str(e).replace('Exception: ', ''),
-                "done": True,
-                "timestamp": datetime.now(UTC).isoformat()
-            }
+            error_data = {"error": str(e).replace('Exception: ', ''), "done": True, "timestamp": datetime.now(UTC).isoformat()}
             yield f"data: {json.dumps(error_data)}\n\n"
     
-    return StreamingResponse(
-        generate_stream(),
-        media_type="text/plain",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
-    )
+    return StreamingResponse(generate_stream(), media_type="text/plain", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -329,7 +301,8 @@ async def get_chat_history(
 ):
     """Get user's chat history"""
     try:
-        session = chat_sessions_collection.find_one(
+        # [FIX] Added await
+        session = await chat_sessions_collection.find_one(
             {"user_id": current_user["_id"]},
             sort=[("updated_at", -1)]
         )
@@ -356,17 +329,15 @@ async def get_chat_history(
 async def clear_chat_history(current_user: dict = Depends(get_current_user)):
     """Clear user's chat history"""
     try:
-        result = chat_sessions_collection.delete_many({"user_id": current_user["_id"]})
+        # [FIX] Added await
+        result = await chat_sessions_collection.delete_many({"user_id": current_user["_id"]})
         return {
             "message": f"Cleared {result.deleted_count} chat sessions",
             "deleted_count": result.deleted_count
         }
     except Exception as e:
         print(f"Clear chat history error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while clearing chat history"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while clearing chat history")
 
 
 @app.post("/api/chat/refresh-data")
@@ -417,8 +388,8 @@ async def get_insights(
 ):
     """Get latest AI-generated financial insights"""
     try:
-        # Get the latest insight for this provider and type
-        latest_insight = insights_collection.find_one({
+        # [FIX] Added await
+        latest_insight = await insights_collection.find_one({
             "user_id": current_user["_id"],
             "ai_provider": ai_provider.value,
             "insight_type": insight_type
@@ -436,10 +407,11 @@ async def get_insights(
                 myanmar_content = await translate_insight_to_myanmar(
                     latest_insight["content"],
                     ai_provider.value,
-                    user_id=current_user["_id"]  # ✅ PASSED USER_ID
+                    user_id=current_user["_id"]
                 )
                 
-                insights_collection.update_one(
+                # [FIX] Added await
+                await insights_collection.update_one(
                     {"_id": latest_insight["_id"]},
                     {"$set": {"content_mm": myanmar_content}}
                 )
@@ -455,49 +427,32 @@ async def get_insights(
                 expires_at=latest_insight.get("expires_at")
             )
         
-        # No existing insight - generate first one
         print(f"🔄 No {insight_type} insight found, generating first {ai_provider.value} insight for user {current_user['_id']}")
-        
         from insights_service import generate_weekly_insight, generate_monthly_insight
         
         if insight_type == "monthly":
-            new_insight = await generate_monthly_insight(
-                current_user["_id"],
-                ai_provider.value
-            )
+            new_insight = await generate_monthly_insight(current_user["_id"], ai_provider.value)
         else:
-            new_insight = await generate_weekly_insight(
-                current_user["_id"],
-                ai_provider.value
-            )
+            new_insight = await generate_weekly_insight(current_user["_id"], ai_provider.value)
         
         if not new_insight:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to generate {insight_type} insight"
-            )
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to generate {insight_type} insight")
         
-        # Generate Myanmar translation if requested
         if language == "mm":
-            print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
-            
             from insights_service import translate_insight_to_myanmar
-            
             myanmar_content = await translate_insight_to_myanmar(
                 new_insight["content"],
                 ai_provider.value,
-                user_id=current_user["_id"]  # ✅ PASSED USER_ID
+                user_id=current_user["_id"]
             )
-                
-            insights_collection.update_one(
+            # [FIX] Added await
+            await insights_collection.update_one(
                 {"_id": new_insight["_id"]},
                 {"$set": {"content_mm": myanmar_content}}
             )
-            
             new_insight["content_mm"] = myanmar_content
         
         print(f"✅ First {insight_type} {ai_provider.value} insight generated")
-        
         return InsightResponse(
             id=new_insight["_id"],
             user_id=new_insight["user_id"],
@@ -516,7 +471,6 @@ async def get_insights(
             detail=f"Failed to get insights: {str(e)}"
         )
 
-
 @app.delete("/api/insights")
 async def delete_insights(
     ai_provider: Optional[AIProvider] = Query(default=None),
@@ -526,27 +480,20 @@ async def delete_insights(
     """Delete cached insights"""
     try:
         query = {"user_id": current_user["_id"]}
-        
         if ai_provider:
             query["ai_provider"] = ai_provider.value
-        
         if insight_type:
             query["insight_type"] = insight_type
         
-        result = insights_collection.delete_many(query)
+        # [FIX] Added await
+        result = await insights_collection.delete_many(query)
         
         provider_msg = f" for {ai_provider.value}" if ai_provider else ""
         type_msg = f" {insight_type}" if insight_type else ""
-        return {
-            "message": f"Deleted {result.deleted_count}{type_msg} insights{provider_msg}",
-            "deleted_count": result.deleted_count
-        }
+        return {"message": f"Deleted {result.deleted_count}{type_msg} insights{provider_msg}", "deleted_count": result.deleted_count}
     except Exception as e:
         print(f"Error deleting insights: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete insights"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete insights")
 
 
 @app.post("/api/insights/regenerate", response_model=InsightResponse)
@@ -563,39 +510,25 @@ async def regenerate_insights(
         from insights_service import generate_weekly_insight, generate_monthly_insight
         
         if insight_type == "monthly":
-            new_insight = await generate_monthly_insight(
-                current_user["_id"],
-                ai_provider.value
-            )
+            new_insight = await generate_monthly_insight(current_user["_id"], ai_provider.value)
         else:
-            new_insight = await generate_weekly_insight(
-                current_user["_id"],
-                ai_provider.value
-            )
+            new_insight = await generate_weekly_insight(current_user["_id"], ai_provider.value)
         
         if not new_insight:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to regenerate weekly insight"
-            )
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to regenerate weekly insight")
         
-        # Generate Myanmar translation if requested
         if language == "mm":
-            print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
-            
             from insights_service import translate_insight_to_myanmar
-            
             myanmar_content = await translate_insight_to_myanmar(
                 new_insight["content"],
                 ai_provider.value,
-                user_id=current_user["_id"]  # ✅ PASSED USER_ID
+                user_id=current_user["_id"]
             )
-                
-            insights_collection.update_one(
+            # [FIX] Added await
+            await insights_collection.update_one(
                 {"_id": new_insight["_id"]},
                 {"$set": {"content_mm": myanmar_content}}
             )
-            
             new_insight["content_mm"] = myanmar_content
         
         print(f"✅ Weekly {ai_provider.value} insights regenerated successfully")
@@ -608,7 +541,6 @@ async def regenerate_insights(
             generated_at=new_insight["generated_at"],
             expires_at=new_insight.get("expires_at")
         )
-        
     except Exception as e:
         print(f"❌ Error regenerating insights: {str(e)}")
         import traceback
@@ -626,59 +558,41 @@ async def translate_insights_to_myanmar(
 ):
     """Translate existing weekly insights to Myanmar"""
     try:
-        # Get latest weekly insight for this provider
-        insight = insights_collection.find_one({
+        # [FIX] Added await
+        insight = await insights_collection.find_one({
             "user_id": current_user["_id"],
             "ai_provider": ai_provider.value,
             "insight_type": "weekly"
         }, sort=[("generated_at", -1)])
         
         if not insight:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No weekly {ai_provider.value} insights found to translate"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No weekly {ai_provider.value} insights found to translate")
         
-        # Check if already translated
         if insight.get("content_mm"):
-            return {
-                "message": "Myanmar translation already exists",
-                "already_translated": True
-            }
+            return {"message": "Myanmar translation already exists", "already_translated": True}
         
         from insights_service import translate_insight_to_myanmar
-        
         print(f"🔄 Translating weekly insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
         
         myanmar_content = await translate_insight_to_myanmar(
             insight["content"],
             ai_provider.value,
-            user_id=current_user["_id"]  # ✅ PASSED USER_ID
+            user_id=current_user["_id"]
         )
         
-        # Update with Myanmar translation
-        insights_collection.update_one(
+        # [FIX] Added await
+        await insights_collection.update_one(
             {"_id": insight["_id"]},
             {"$set": {"content_mm": myanmar_content}}
         )
         
-        print(f"✅ Myanmar translation completed using {ai_provider.value}")
-        
-        return {
-            "message": "Translation completed successfully",
-            "already_translated": False
-        }
+        return {"message": "Translation completed successfully", "already_translated": False}
         
     except HTTPException:
         raise
     except Exception as e:
         print(f"❌ Translation error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to translate insights: {str(e)}"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to translate insights: {str(e)}")
         
         
         
@@ -727,53 +641,46 @@ async def update_fcm_token(
 ):
     """Update user's FCM token"""
     try:
-        users_collection.update_one(
+        # [FIX] Added await
+        await users_collection.update_one(
             {"_id": current_user["_id"]},
             {"$set": {"fcm_token": fcm_token["fcm_token"]}}
         )
         return {"message": "FCM token updated successfully"}
     except Exception as e:
         print(f"Error updating FCM token: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update FCM token"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update FCM token")
 
 
 @app.get("/api/notifications/preferences", response_model=NotificationPreferencesResponse)
 async def get_notification_preferences(current_user: dict = Depends(get_current_user)):
     """Get user's notification preferences"""
     try:
-        prefs_doc = notification_preferences_collection.find_one({
+        # [FIX] Added await
+        prefs_doc = await notification_preferences_collection.find_one({
             "user_id": current_user["_id"]
         })
         
         if not prefs_doc:
-            # Create default preferences
             default_prefs = NotificationPreferences()
             now = datetime.now(UTC)
-            
             prefs_doc = {
                 "user_id": current_user["_id"],
                 "preferences": default_prefs.dict(),
                 "created_at": now,
                 "updated_at": now
             }
-            
-            notification_preferences_collection.insert_one(prefs_doc)
+            # [FIX] Added await
+            await notification_preferences_collection.insert_one(prefs_doc)
         
         return NotificationPreferencesResponse(
             user_id=prefs_doc["user_id"],
             preferences=NotificationPreferences(**prefs_doc["preferences"]),
             updated_at=prefs_doc["updated_at"]
         )
-        
     except Exception as e:
         print(f"Error getting notification preferences: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get notification preferences"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get notification preferences")
 
 
 @app.put("/api/notifications/preferences", response_model=NotificationPreferencesResponse)
@@ -784,18 +691,16 @@ async def update_notification_preferences(
     """Update user's notification preferences"""
     try:
         now = datetime.now(UTC)
-        
-        # Get existing preferences or create new
-        prefs_doc = notification_preferences_collection.find_one({
+        # [FIX] Added await
+        prefs_doc = await notification_preferences_collection.find_one({
             "user_id": current_user["_id"]
         })
         
         if prefs_doc:
-            # Update existing preferences
             current_prefs = prefs_doc.get("preferences", {})
             current_prefs.update(update_data.preferences)
-            
-            notification_preferences_collection.update_one(
+            # [FIX] Added await
+            await notification_preferences_collection.update_one(
                 {"user_id": current_user["_id"]},
                 {
                     "$set": {
@@ -805,21 +710,19 @@ async def update_notification_preferences(
                 }
             )
         else:
-            # Create new preferences
             default_prefs = NotificationPreferences().dict()
             default_prefs.update(update_data.preferences)
-            
             prefs_doc = {
                 "user_id": current_user["_id"],
                 "preferences": default_prefs,
                 "created_at": now,
                 "updated_at": now
             }
-            
-            notification_preferences_collection.insert_one(prefs_doc)
+            # [FIX] Added await
+            await notification_preferences_collection.insert_one(prefs_doc)
         
-        # Get updated document
-        updated_doc = notification_preferences_collection.find_one({
+        # [FIX] Added await
+        updated_doc = await notification_preferences_collection.find_one({
             "user_id": current_user["_id"]
         })
         
@@ -828,13 +731,9 @@ async def update_notification_preferences(
             preferences=NotificationPreferences(**updated_doc["preferences"]),
             updated_at=updated_doc["updated_at"]
         )
-        
     except Exception as e:
         print(f"Error updating notification preferences: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update notification preferences"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update notification preferences")
 
 
 @app.post("/api/notifications/preferences/reset")
@@ -844,7 +743,8 @@ async def reset_notification_preferences(current_user: dict = Depends(get_curren
         now = datetime.now(UTC)
         default_prefs = NotificationPreferences()
         
-        notification_preferences_collection.update_one(
+        # [FIX] Added await
+        await notification_preferences_collection.update_one(
             {"user_id": current_user["_id"]},
             {
                 "$set": {
@@ -855,17 +755,10 @@ async def reset_notification_preferences(current_user: dict = Depends(get_curren
             upsert=True
         )
         
-        return {
-            "message": "Notification preferences reset to default",
-            "preferences": default_prefs.dict()
-        }
-        
+        return {"message": "Notification preferences reset to default", "preferences": default_prefs.dict()}
     except Exception as e:
         print(f"Error resetting notification preferences: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to reset notification preferences"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to reset notification preferences")
 
 @app.get("/api/notifications", response_model=List[NotificationResponse])
 async def get_notifications(
@@ -876,16 +769,12 @@ async def get_notifications(
     """Get user notifications"""
     try:
         query = {"user_id": current_user["_id"]}
-        
         if unread_only:
             query["is_read"] = False
         
-        notifications = list(
-            notifications_collection
-            .find(query)
-            .sort("created_at", -1)
-            .limit(limit)
-        )
+        # [FIX] Async query execution
+        cursor = notifications_collection.find(query).sort("created_at", -1).limit(limit)
+        notifications = await cursor.to_list(length=limit)
         
         return [
             NotificationResponse(
@@ -904,10 +793,7 @@ async def get_notifications(
         ]
     except Exception as e:
         print(f"Error fetching notifications: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch notifications"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch notifications")
 
 
 @app.post("/api/notifications/{notification_id}/mark-read")
@@ -917,47 +803,37 @@ async def mark_notification_read(
 ):
     """Mark a notification as read"""
     try:
-        result = notifications_collection.update_one(
+        # [FIX] Added await
+        result = await notifications_collection.update_one(
             {"_id": notification_id, "user_id": current_user["_id"]},
             {"$set": {"is_read": True}}
         )
         
         if result.modified_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Notification not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
         
         return {"message": "Notification marked as read"}
     except HTTPException:
         raise
     except Exception as e:
         print(f"Error marking notification read: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to mark notification as read"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to mark notification as read")
 
 
 @app.post("/api/notifications/mark-all-read")
 async def mark_all_notifications_read(current_user: dict = Depends(get_current_user)):
     """Mark all notifications as read"""
     try:
-        result = notifications_collection.update_many(
+        # [FIX] Added await
+        result = await notifications_collection.update_many(
             {"user_id": current_user["_id"], "is_read": False},
             {"$set": {"is_read": True}}
         )
         
-        return {
-            "message": f"Marked {result.modified_count} notifications as read",
-            "count": result.modified_count
-        }
+        return {"message": f"Marked {result.modified_count} notifications as read", "count": result.modified_count}
     except Exception as e:
         print(f"Error marking all notifications read: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to mark notifications as read"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to mark notifications as read")
 
 
 @app.delete("/api/notifications/{notification_id}")
@@ -967,33 +843,29 @@ async def delete_notification(
 ):
     """Delete a notification"""
     try:
-        result = notifications_collection.delete_one({
+        # [FIX] Added await
+        result = await notifications_collection.delete_one({
             "_id": notification_id,
             "user_id": current_user["_id"]
         })
         
         if result.deleted_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Notification not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
         
         return {"message": "Notification deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
         print(f"Error deleting notification: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete notification"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete notification")
 
 
 @app.get("/api/notifications/unread-count")
 async def get_unread_count(current_user: dict = Depends(get_current_user)):
     """Get count of unread notifications"""
     try:
-        count = notifications_collection.count_documents({
+        # [FIX] Added await
+        count = await notifications_collection.count_documents({
             "user_id": current_user["_id"],
             "is_read": False
         })
@@ -1001,18 +873,14 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
         return {"unread_count": count}
     except Exception as e:
         print(f"Error getting unread count: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get unread count"
-        )
-        
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get unread count")
         
         
 @app.post("/api/notifications/analyze-spending")
 async def analyze_spending_patterns(current_user: dict = Depends(get_current_user)):
     """Manually trigger unusual spending analysis"""
     try:
-        analyze_unusual_spending(current_user["_id"])
+        await analyze_unusual_spending(current_user["_id"])
         return {"message": "Spending analysis completed"}
     except Exception as e:
         print(f"Error analyzing spending: {str(e)}")

@@ -57,18 +57,21 @@ def verify_admin_token(token: str) -> str:
         )
 
 
-def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security_admin)):
+async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security_admin)):
     """Get current authenticated admin"""
     email = verify_admin_token(credentials.credentials)
-    admin = admins_collection.find_one({"email": email})
+    
+    # [FIX] Added await for async database call
+    admin = await admins_collection.find_one({"email": email})
+    
     if not admin:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Admin not found"
         )
     
-    # Update last login
-    admins_collection.update_one(
+    # [FIX] Added await for async database update
+    await admins_collection.update_one(
         {"_id": admin["_id"]},
         {"$set": {"last_login": datetime.now(UTC)}}
     )
@@ -120,6 +123,7 @@ async def log_admin_action(
     }
     
     try:
-        admin_action_logs_collection.insert_one(log_entry)
+        # [FIX] Added await for async database insertion
+        await admin_action_logs_collection.insert_one(log_entry)
     except Exception as e:
         print(f"Error logging admin action: {e}")

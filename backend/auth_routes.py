@@ -22,11 +22,11 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate):
     """Register new user"""
-    if users_collection.find_one({"email": user_data.email}):
+    # [FIX] Added await
+    if await users_collection.find_one({"email": user_data.email}):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
     user_id = str(uuid.uuid4())
-    # In the register endpoint, add:
     new_user = {
         "_id": user_id,
         "name": user_data.name,
@@ -35,10 +35,12 @@ async def register(user_data: UserCreate):
         "subscription_type": "free",
         "subscription_expires_at": None,
         "default_currency": "usd",
-        "language": "en",  # NEW - Add this line
+        "language": "en",
         "created_at": datetime.now(UTC)
     }
-    users_collection.insert_one(new_user)
+    
+    # [FIX] Added await
+    await users_collection.insert_one(new_user)
 
     access_token = create_access_token(
         data={"sub": user_data.email},
@@ -55,14 +57,14 @@ async def register(user_data: UserCreate):
             created_at=new_user["created_at"],
             subscription_type=SubscriptionType.FREE,
             subscription_expires_at=None,
-            default_currency=Currency.USD  # NEW
+            default_currency=Currency.USD
         )
     )
     
     
 @router.put("/language", response_model=UserResponse)
 async def update_language(
-    language_data: LanguageUpdate,  # CHANGE: Use Pydantic model
+    language_data: LanguageUpdate,
     current_user: dict = Depends(get_current_user)
 ):
     """Update user's preferred language"""
@@ -72,12 +74,14 @@ async def update_language(
             detail="Invalid language. Must be 'en' or 'my'"
         )
     
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"language": language_data.language}}
     )
     
-    updated_user = users_collection.find_one({"_id": current_user["_id"]})
+    # [FIX] Added await
+    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
     
     return UserResponse(
         id=updated_user["_id"],
@@ -93,7 +97,8 @@ async def update_language(
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin):
     """Login user"""
-    user = users_collection.find_one({"email": user_credentials.email})
+    # [FIX] Added await
+    user = await users_collection.find_one({"email": user_credentials.email})
     if not user or not verify_password(user_credentials.password, user["password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
@@ -112,7 +117,7 @@ async def login(user_credentials: UserLogin):
             created_at=user["created_at"],
             subscription_type=SubscriptionType(user.get("subscription_type", "free")),
             subscription_expires_at=user.get("subscription_expires_at"),
-            default_currency=Currency(user.get("default_currency", "usd"))  # NEW
+            default_currency=Currency(user.get("default_currency", "usd"))
         )
     )
 
@@ -150,12 +155,14 @@ async def update_profile(
             detail="Name must be at least 2 characters"
         )
     
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"name": profile_data.name.strip()}}
     )
     
-    updated_user = users_collection.find_one({"_id": current_user["_id"]})
+    # [FIX] Added await
+    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
     
     return UserResponse(
         id=updated_user["_id"],
@@ -164,7 +171,7 @@ async def update_profile(
         created_at=updated_user["created_at"],
         subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
         subscription_expires_at=updated_user.get("subscription_expires_at"),
-        default_currency=Currency(updated_user.get("default_currency", "usd"))  # NEW
+        default_currency=Currency(updated_user.get("default_currency", "usd"))
     )
     
     
@@ -174,12 +181,14 @@ async def update_default_currency(
     current_user: dict = Depends(get_current_user)
 ):
     """Update user's default currency"""
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"default_currency": currency_data.default_currency.value}}
     )
     
-    updated_user = users_collection.find_one({"_id": current_user["_id"]})
+    # [FIX] Added await
+    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
     
     return UserResponse(
         id=updated_user["_id"],
@@ -220,7 +229,9 @@ async def change_password(
     
     # Update password
     hashed_password = get_password_hash(password_data.new_password)
-    users_collection.update_one(
+    
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"password": hashed_password}}
     )
@@ -238,16 +249,18 @@ async def delete_account(
         user_id = current_user["_id"]
         
         # Delete all user data
-        transactions_collection.delete_many({"user_id": user_id})
-        goals_collection.delete_many({"user_id": user_id})
-        budgets_collection.delete_many({"user_id": user_id})
-        chat_sessions_collection.delete_many({"user_id": user_id})
-        insights_collection.delete_many({"user_id": user_id})
-        notifications_collection.delete_many({"user_id": user_id})
-        notification_preferences_collection.delete_many({"user_id": user_id})
+        # [FIX] Added await to all calls
+        await transactions_collection.delete_many({"user_id": user_id})
+        await goals_collection.delete_many({"user_id": user_id})
+        await budgets_collection.delete_many({"user_id": user_id})
+        await chat_sessions_collection.delete_many({"user_id": user_id})
+        await insights_collection.delete_many({"user_id": user_id})
+        await notifications_collection.delete_many({"user_id": user_id})
+        await notification_preferences_collection.delete_many({"user_id": user_id})
         
         # Finally, delete the user account
-        result = users_collection.delete_one({"_id": user_id})
+        # [FIX] Added await
+        result = await users_collection.delete_one({"_id": user_id})
         
         if result.deleted_count == 0:
             raise HTTPException(

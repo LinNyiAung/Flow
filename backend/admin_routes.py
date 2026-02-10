@@ -57,7 +57,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 @router.post("/login", response_model=AdminToken)
 async def admin_login(credentials: AdminLogin):
     """Admin login"""
-    admin = admins_collection.find_one({"email": credentials.email})
+    # [FIX] Added await
+    admin = await admins_collection.find_one({"email": credentials.email})
     
     if not admin or not verify_password(credentials.password, admin["password"]):
         raise HTTPException(
@@ -66,7 +67,8 @@ async def admin_login(credentials: AdminLogin):
         )
     
     # Update last login
-    admins_collection.update_one(
+    # [FIX] Added await
+    await admins_collection.update_one(
         {"_id": admin["_id"]},
         {"$set": {"last_login": datetime.now(UTC)}}
     )
@@ -128,7 +130,8 @@ async def admin_change_password(
         )
     
     hashed_password = get_password_hash(password_data.new_password)
-    admins_collection.update_one(
+    # [FIX] Added await
+    await admins_collection.update_one(
         {"_id": current_admin["_id"]},
         {"$set": {"password": hashed_password}}
     )
@@ -155,7 +158,8 @@ async def update_admin_profile(
         
     if update_data.email and update_data.email != current_admin["email"]:
         # Check if email already exists
-        if admins_collection.find_one({"email": update_data.email}):
+        # [FIX] Added await
+        if await admins_collection.find_one({"email": update_data.email}):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already in use"
@@ -163,7 +167,6 @@ async def update_admin_profile(
         update_fields["email"] = update_data.email
         
     if not update_fields:
-        # No changes needed, return current info
         return AdminResponse(
             id=current_admin["_id"],
             name=current_admin["name"],
@@ -173,7 +176,8 @@ async def update_admin_profile(
             last_login=current_admin.get("last_login")
         )
 
-    admins_collection.update_one(
+    # [FIX] Added await
+    await admins_collection.update_one(
         {"_id": current_admin["_id"]},
         {"$set": update_fields}
     )
@@ -181,13 +185,14 @@ async def update_admin_profile(
     # Log action
     await log_admin_action(
         admin_id=current_admin["_id"],
-        admin_email=current_admin["email"], # Log using the old email for continuity
+        admin_email=current_admin["email"], 
         action="updated_profile",
         details=f"Updated profile fields: {', '.join(update_fields.keys())}"
     )
     
     # Fetch updated document
-    updated_admin = admins_collection.find_one({"_id": current_admin["_id"]})
+    # [FIX] Added await
+    updated_admin = await admins_collection.find_one({"_id": current_admin["_id"]})
     
     return AdminResponse(
         id=updated_admin["_id"],
@@ -207,7 +212,8 @@ async def create_admin(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Create new admin (super admin only)"""
-    if admins_collection.find_one({"email": admin_data.email}):
+    # [FIX] Added await
+    if await admins_collection.find_one({"email": admin_data.email}):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -224,7 +230,8 @@ async def create_admin(
         "last_login": None
     }
     
-    admins_collection.insert_one(new_admin)
+    # [FIX] Added await
+    await admins_collection.insert_one(new_admin)
     
     await log_admin_action(
         admin_id=current_admin["_id"],
@@ -246,7 +253,9 @@ async def create_admin(
 @router.get("/admins", response_model=List[AdminResponse])
 async def get_all_admins(current_admin: dict = Depends(require_super_admin)):
     """Get all admins (super admin only)"""
-    admins = list(admins_collection.find())
+    # [FIX] Async cursor to list
+    cursor = admins_collection.find()
+    admins = await cursor.to_list(length=None)
     
     return [
         AdminResponse(
@@ -273,14 +282,16 @@ async def delete_admin(
             detail="Cannot delete yourself"
         )
     
-    admin_to_delete = admins_collection.find_one({"_id": admin_id})
+    # [FIX] Added await
+    admin_to_delete = await admins_collection.find_one({"_id": admin_id})
     if not admin_to_delete:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Admin not found"
         )
     
-    result = admins_collection.delete_one({"_id": admin_id})
+    # [FIX] Added await
+    result = await admins_collection.delete_one({"_id": admin_id})
     
     if result.deleted_count == 0:
         raise HTTPException(
@@ -320,22 +331,22 @@ async def get_all_users(
     if subscription_type:
         query["subscription_type"] = subscription_type.value
     
-    users = list(users_collection.find(query).skip(skip).limit(limit).sort("created_at", -1))
+    # [FIX] Async find with skip/limit
+    cursor = users_collection.find(query).skip(skip).limit(limit).sort("created_at", -1)
+    users = await cursor.to_list(length=limit)
     
     user_list = []
     for user in users:
-        # Get transaction count
-        transaction_count = transactions_collection.count_documents({"user_id": user["_id"]})
+        # [FIX] Added await for counts
+        transaction_count = await transactions_collection.count_documents({"user_id": user["_id"]})
+        goals_count = await goals_collection.count_documents({"user_id": user["_id"]})
         
-        # Get goals count
-        goals_count = goals_collection.count_documents({"user_id": user["_id"]})
-        
-        # Get last active (from last transaction or chat)
-        last_transaction = transactions_collection.find_one(
+        # [FIX] Async find_one
+        last_transaction = await transactions_collection.find_one(
             {"user_id": user["_id"]},
             sort=[("created_at", -1)]
         )
-        last_chat = chat_sessions_collection.find_one(
+        last_chat = await chat_sessions_collection.find_one(
             {"user_id": user["_id"]},
             sort=[("updated_at", -1)]
         )
@@ -373,7 +384,8 @@ async def get_user_detail(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Get detailed user information"""
-    user = users_collection.find_one({"_id": user_id})
+    # [FIX] Added await
+    user = await users_collection.find_one({"_id": user_id})
     
     if not user:
         raise HTTPException(
@@ -381,18 +393,18 @@ async def get_user_detail(
             detail="User not found"
         )
     
-    # Get counts
-    transaction_count = transactions_collection.count_documents({"user_id": user_id})
-    goals_count = goals_collection.count_documents({"user_id": user_id})
-    budgets_count = budgets_collection.count_documents({"user_id": user_id})
-    chat_sessions_count = chat_sessions_collection.count_documents({"user_id": user_id})
+    # [FIX] Added await for counts
+    transaction_count = await transactions_collection.count_documents({"user_id": user_id})
+    goals_count = await goals_collection.count_documents({"user_id": user_id})
+    budgets_count = await budgets_collection.count_documents({"user_id": user_id})
+    chat_sessions_count = await chat_sessions_collection.count_documents({"user_id": user_id})
     
-    # Get last active
-    last_transaction = transactions_collection.find_one(
+    # [FIX] Async find_one
+    last_transaction = await transactions_collection.find_one(
         {"user_id": user_id},
         sort=[("created_at", -1)]
     )
-    last_chat = chat_sessions_collection.find_one(
+    last_chat = await chat_sessions_collection.find_one(
         {"user_id": user_id},
         sort=[("updated_at", -1)]
     )
@@ -432,7 +444,8 @@ async def update_user_subscription(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update user subscription"""
-    user = users_collection.find_one({"_id": user_id})
+    # [FIX] Added await
+    user = await users_collection.find_one({"_id": user_id})
     
     if not user:
         raise HTTPException(
@@ -445,7 +458,8 @@ async def update_user_subscription(
         "subscription_expires_at": subscription_data.subscription_expires_at
     }
     
-    users_collection.update_one(
+    # [FIX] Added await
+    await users_collection.update_one(
         {"_id": user_id},
         {"$set": update_data}
     )
@@ -468,7 +482,8 @@ async def delete_user(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Delete user and all associated data (super admin only)"""
-    user = users_collection.find_one({"_id": user_id})
+    # [FIX] Added await
+    user = await users_collection.find_one({"_id": user_id})
     
     if not user:
         raise HTTPException(
@@ -476,15 +491,14 @@ async def delete_user(
             detail="User not found"
         )
     
-    # Delete all user data
-    transactions_collection.delete_many({"user_id": user_id})
-    goals_collection.delete_many({"user_id": user_id})
-    budgets_collection.delete_many({"user_id": user_id})
-    chat_sessions_collection.delete_many({"user_id": user_id})
-    notifications_collection.delete_many({"user_id": user_id})
+    # [FIX] Added await for all delete operations
+    await transactions_collection.delete_many({"user_id": user_id})
+    await goals_collection.delete_many({"user_id": user_id})
+    await budgets_collection.delete_many({"user_id": user_id})
+    await chat_sessions_collection.delete_many({"user_id": user_id})
+    await notifications_collection.delete_many({"user_id": user_id})
     
-    # Delete user
-    result = users_collection.delete_one({"_id": user_id})
+    result = await users_collection.delete_one({"_id": user_id})
     
     if result.deleted_count == 0:
         raise HTTPException(
@@ -509,13 +523,14 @@ async def delete_user(
 @router.get("/stats/users", response_model=UserStatsResponse)
 async def get_user_stats(current_admin: dict = Depends(require_admin_or_super)):
     """Get user statistics"""
-    total_users = users_collection.count_documents({})
-    free_users = users_collection.count_documents({"subscription_type": "free"})
-    premium_users = users_collection.count_documents({"subscription_type": "premium"})
+    # [FIX] Added await to all DB calls
+    total_users = await users_collection.count_documents({})
+    free_users = await users_collection.count_documents({"subscription_type": "free"})
+    premium_users = await users_collection.count_documents({"subscription_type": "premium"})
     
     # Users created in last 30 days
     thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
-    new_users_last_30_days = users_collection.count_documents({
+    new_users_last_30_days = await users_collection.count_documents({
         "created_at": {"$gte": thirty_days_ago}
     })
     
@@ -523,24 +538,24 @@ async def get_user_stats(current_admin: dict = Depends(require_admin_or_super)):
     seven_days_ago = datetime.now(UTC) - timedelta(days=7)
     active_user_ids = set()
     
-    # Get users with recent transactions
-    recent_transactions = transactions_collection.find({
+    # [FIX] Async cursor iteration
+    cursor_tx = transactions_collection.find({
         "created_at": {"$gte": seven_days_ago}
     }, {"user_id": 1})
-    for t in recent_transactions:
+    async for t in cursor_tx:
         active_user_ids.add(t["user_id"])
     
-    # Get users with recent chat activity
-    recent_chats = chat_sessions_collection.find({
+    # [FIX] Async cursor iteration
+    cursor_chat = chat_sessions_collection.find({
         "updated_at": {"$gte": seven_days_ago}
     }, {"user_id": 1})
-    for c in recent_chats:
+    async for c in cursor_chat:
         active_user_ids.add(c["user_id"])
     
     active_users_last_7_days = len(active_user_ids)
     
-    total_transactions = transactions_collection.count_documents({})
-    total_goals = goals_collection.count_documents({})
+    total_transactions = await transactions_collection.count_documents({})
+    total_goals = await goals_collection.count_documents({})
     
     return UserStatsResponse(
         total_users=total_users,
@@ -561,39 +576,38 @@ async def get_system_stats(current_admin: dict = Depends(require_admin_or_super)
     week_start = now - timedelta(days=7)
     month_start = now - timedelta(days=30)
     
-    # User stats
-    total_users = users_collection.count_documents({})
-    free_users = users_collection.count_documents({"subscription_type": "free"})
-    premium_users = users_collection.count_documents({"subscription_type": "premium"})
+    # [FIX] Added await to all DB calls
+    total_users = await users_collection.count_documents({})
+    free_users = await users_collection.count_documents({"subscription_type": "free"})
+    premium_users = await users_collection.count_documents({"subscription_type": "premium"})
     
-    new_users_today = users_collection.count_documents({"created_at": {"$gte": today_start}})
-    new_users_this_week = users_collection.count_documents({"created_at": {"$gte": week_start}})
-    new_users_this_month = users_collection.count_documents({"created_at": {"$gte": month_start}})
+    new_users_today = await users_collection.count_documents({"created_at": {"$gte": today_start}})
+    new_users_this_week = await users_collection.count_documents({"created_at": {"$gte": week_start}})
+    new_users_this_month = await users_collection.count_documents({"created_at": {"$gte": month_start}})
     
     # Activity stats
     active_today = set()
     active_week = set()
     
-    # Recent transactions
-    for t in transactions_collection.find({"created_at": {"$gte": today_start}}, {"user_id": 1}):
+    # [FIX] Async cursor iterations
+    async for t in transactions_collection.find({"created_at": {"$gte": today_start}}, {"user_id": 1}):
         active_today.add(t["user_id"])
     
-    for t in transactions_collection.find({"created_at": {"$gte": week_start}}, {"user_id": 1}):
+    async for t in transactions_collection.find({"created_at": {"$gte": week_start}}, {"user_id": 1}):
         active_week.add(t["user_id"])
     
-    # Recent chats
-    for c in chat_sessions_collection.find({"updated_at": {"$gte": today_start}}, {"user_id": 1}):
+    async for c in chat_sessions_collection.find({"updated_at": {"$gte": today_start}}, {"user_id": 1}):
         active_today.add(c["user_id"])
     
-    for c in chat_sessions_collection.find({"updated_at": {"$gte": week_start}}, {"user_id": 1}):
+    async for c in chat_sessions_collection.find({"updated_at": {"$gte": week_start}}, {"user_id": 1}):
         active_week.add(c["user_id"])
     
-    # Total counts
-    total_transactions = transactions_collection.count_documents({})
-    total_goals = goals_collection.count_documents({})
-    total_budgets = budgets_collection.count_documents({})
-    total_chat_sessions = chat_sessions_collection.count_documents({})
-    total_notifications = notifications_collection.count_documents({})
+    # Total counts with await
+    total_transactions = await transactions_collection.count_documents({})
+    total_goals = await goals_collection.count_documents({})
+    total_budgets = await budgets_collection.count_documents({})
+    total_chat_sessions = await chat_sessions_collection.count_documents({})
+    total_notifications = await notifications_collection.count_documents({})
     
     return SystemStatsResponse(
         total_users=total_users,
@@ -628,10 +642,10 @@ async def broadcast_notification(
             query["subscription_type"] = "free"
         elif broadcast_data.target_users == "premium":
             query["subscription_type"] = "premium"
-        # else "all" - no filter
         
-        # Get target users
-        users = list(users_collection.find(query))
+        # [FIX] Async find and to_list
+        cursor = users_collection.find(query)
+        users = await cursor.to_list(length=None)
         total_users = len(users)
         
         if total_users == 0:
@@ -647,11 +661,10 @@ async def broadcast_notification(
         for user in users:
             user_id = user["_id"]
             
-            # Check if user has this notification type enabled
-            if not should_send_notification(user_id, broadcast_data.notification_type):
+            # [FIX] Added await to this imported async function
+            if not await should_send_notification(user_id, broadcast_data.notification_type):
                 continue
             
-            # Create in-app notification
             notification_id = str(uuid.uuid4())
             notification = {
                 "_id": notification_id,
@@ -666,10 +679,10 @@ async def broadcast_notification(
                 "is_read": False
             }
             
-            notifications_collection.insert_one(notification)
+            # [FIX] Added await
+            await notifications_collection.insert_one(notification)
             notifications_sent += 1
             
-            # Collect FCM token if available
             if user.get("fcm_token"):
                 fcm_tokens.append(user["fcm_token"])
         
@@ -680,6 +693,7 @@ async def broadcast_notification(
                 "type": broadcast_data.notification_type,
                 "is_broadcast": "true"
             }
+            # send_fcm_to_multiple is sync (uses firebase sdk), so it's fine
             fcm_result = send_fcm_to_multiple(
                 fcm_tokens=fcm_tokens,
                 title=broadcast_data.title,
@@ -687,7 +701,6 @@ async def broadcast_notification(
                 data=fcm_data
             )
         
-        # Log admin action
         await log_admin_action(
             admin_id=current_admin["_id"],
             admin_email=current_admin["email"],
@@ -721,17 +734,17 @@ async def get_broadcast_stats(
 ):
     """Get statistics for potential broadcast reach"""
     try:
-        total_users = users_collection.count_documents({})
-        free_users = users_collection.count_documents({"subscription_type": "free"})
-        premium_users = users_collection.count_documents({"subscription_type": "premium"})
+        # [FIX] Added await for all counts
+        total_users = await users_collection.count_documents({})
+        free_users = await users_collection.count_documents({"subscription_type": "free"})
+        premium_users = await users_collection.count_documents({"subscription_type": "premium"})
         
-        # Count users with FCM tokens
-        users_with_fcm = users_collection.count_documents({"fcm_token": {"$exists": True, "$ne": None}})
-        free_with_fcm = users_collection.count_documents({
+        users_with_fcm = await users_collection.count_documents({"fcm_token": {"$exists": True, "$ne": None}})
+        free_with_fcm = await users_collection.count_documents({
             "subscription_type": "free",
             "fcm_token": {"$exists": True, "$ne": None}
         })
-        premium_with_fcm = users_collection.count_documents({
+        premium_with_fcm = await users_collection.count_documents({
             "subscription_type": "premium",
             "fcm_token": {"$exists": True, "$ne": None}
         })
@@ -765,7 +778,6 @@ async def get_ai_usage_stats(
     """Get overall AI usage statistics"""
     try:
         query = {}
-        
         if start_date or end_date:
             query["created_at"] = {}
             if start_date:
@@ -816,7 +828,9 @@ async def get_ai_usage_stats(
             }
         ]
         
-        result = list(ai_usage_collection.aggregate(pipeline))
+        # [FIX] Async aggregation
+        cursor = ai_usage_collection.aggregate(pipeline)
+        result = await cursor.to_list(length=None)
         
         if not result:
             return AIUsageStatsResponse(
@@ -834,8 +848,8 @@ async def get_ai_usage_stats(
         
         stats = result[0]
         
-        # Get unique users count
-        unique_users = len(ai_usage_collection.distinct("user_id", query))
+        # [FIX] Async distinct
+        unique_users = len(await ai_usage_collection.distinct("user_id", query))
         
         return AIUsageStatsResponse(
             total_users=unique_users,
@@ -869,7 +883,6 @@ async def get_users_ai_usage(
 ):
     """Get AI usage statistics per user"""
     try:
-        # Aggregate by user
         pipeline = [
             {
                 "$group": {
@@ -904,12 +917,15 @@ async def get_users_ai_usage(
             {"$limit": limit}
         ]
         
-        results = list(ai_usage_collection.aggregate(pipeline))
+        # [FIX] Async aggregation
+        cursor = ai_usage_collection.aggregate(pipeline)
+        results = await cursor.to_list(length=limit)
         
         # Get user details
         user_stats = []
         for result in results:
-            user = users_collection.find_one({"_id": result["_id"]})
+            # [FIX] Added await
+            user = await users_collection.find_one({"_id": result["_id"]})
             if user:
                 user_stats.append(UserAIUsageStats(
                     user_id=result["_id"],
@@ -950,16 +966,12 @@ async def get_user_ai_usage_detail(
     """Get detailed AI usage for a specific user"""
     try:
         query = {"user_id": user_id}
-        
         if feature_type:
             query["feature_type"] = feature_type.value
         
-        usage_records = list(
-            ai_usage_collection
-            .find(query)
-            .sort("created_at", -1)
-            .limit(limit)
-        )
+        # [FIX] Async find and sort
+        cursor = ai_usage_collection.find(query).sort("created_at", -1).limit(limit)
+        usage_records = await cursor.to_list(length=limit)
         
         return [
             AIUsageResponse(
@@ -1005,7 +1017,6 @@ async def get_budget_ai_usage_stats(
             if end_date:
                 query["created_at"]["$lte"] = end_date
         
-        # Aggregate statistics
         pipeline = [
             {"$match": query},
             {
@@ -1019,27 +1030,14 @@ async def get_budget_ai_usage_stats(
             }
         ]
         
-        results = list(ai_usage_collection.aggregate(pipeline))
+        # [FIX] Async aggregation
+        cursor = ai_usage_collection.aggregate(pipeline)
+        results = await cursor.to_list(length=None)
         
         stats = {
-            "budget_suggestion": {
-                "requests": 0,
-                "tokens": 0,
-                "cost": 0.0,
-                "unique_users": 0
-            },
-            "budget_auto_create": {
-                "requests": 0,
-                "tokens": 0,
-                "cost": 0.0,
-                "unique_users": 0
-            },
-            "total": {
-                "requests": 0,
-                "tokens": 0,
-                "cost": 0.0,
-                "unique_users": set()
-            }
+            "budget_suggestion": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
+            "budget_auto_create": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
+            "total": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": set()}
         }
         
         for result in results:
@@ -1095,7 +1093,6 @@ async def get_transaction_extraction_ai_usage_stats(
             if end_date:
                 query["created_at"]["$lte"] = end_date
         
-        # Aggregate statistics
         pipeline = [
             {"$match": query},
             {
@@ -1109,33 +1106,15 @@ async def get_transaction_extraction_ai_usage_stats(
             }
         ]
         
-        results = list(ai_usage_collection.aggregate(pipeline))
+        # [FIX] Async aggregation
+        cursor = ai_usage_collection.aggregate(pipeline)
+        results = await cursor.to_list(length=None)
         
         stats = {
-            "transaction_text_extraction": {
-                "requests": 0,
-                "tokens": 0,
-                "cost": 0.0,
-                "unique_users": 0
-            },
-            "transaction_image_extraction": {
-                "requests": 0,
-                "tokens": 0,
-                "cost": 0.0,
-                "unique_users": 0
-            },
-            "transaction_audio_transcription": {
-                "requests": 0,
-                "tokens": 0,
-                "cost": 0.0,
-                "unique_users": 0
-            },
-            "total": {
-                "requests": 0,
-                "tokens": 0,
-                "cost": 0.0,
-                "unique_users": set()
-            }
+            "transaction_text_extraction": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
+            "transaction_image_extraction": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
+            "transaction_audio_transcription": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
+            "total": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": set()}
         }
         
         for result in results:
@@ -1174,13 +1153,9 @@ async def get_admin_logs(
     limit: int = Query(50, ge=1, le=100)
 ):
     """Get admin action logs (super admin only)"""
-    logs = list(
-        admin_action_logs_collection
-        .find()
-        .sort("timestamp", -1)
-        .skip(skip)
-        .limit(limit)
-    )
+    # [FIX] Async cursor sort/skip/limit
+    cursor = admin_action_logs_collection.find().sort("timestamp", -1).skip(skip).limit(limit)
+    logs = await cursor.to_list(length=limit)
     
     return [
         AdminActionLog(
@@ -1211,13 +1186,9 @@ async def get_all_feedback(
     if category:
         query["category"] = category
         
-    feedbacks = list(
-        feedback_collection
-        .find(query)
-        .sort("created_at", -1)
-        .skip(skip)
-        .limit(limit)
-    )
+    # [FIX] Async find sort/skip/limit
+    cursor = feedback_collection.find(query).sort("created_at", -1).skip(skip).limit(limit)
+    feedbacks = await cursor.to_list(length=limit)
     
     return [
         AdminFeedbackListResponse(
@@ -1241,7 +1212,8 @@ async def update_feedback_status(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update feedback status"""
-    result = feedback_collection.update_one(
+    # [FIX] Added await
+    result = await feedback_collection.update_one(
         {"_id": feedback_id},
         {"$set": {"status": status_update}}
     )
@@ -1260,7 +1232,8 @@ async def delete_feedback(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Delete feedback (Super Admin only)"""
-    result = feedback_collection.delete_one({"_id": feedback_id})
+    # [FIX] Added await
+    result = await feedback_collection.delete_one({"_id": feedback_id})
     
     if result.deleted_count == 0:
         raise HTTPException(

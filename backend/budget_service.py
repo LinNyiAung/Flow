@@ -25,16 +25,19 @@ class BudgetAnalyzer:
     def __init__(self, user_id: str):
         self.user_id = user_id
     
-    def analyze_spending_patterns(self, months: int = 3, currency: str = "usd") -> Dict:  # NEW: add currency parameter
+    # [FIX] Changed to async def
+    async def analyze_spending_patterns(self, months: int = 3, currency: str = "usd") -> Dict:
         """Analyze user's spending patterns over the last N months for specific currency"""
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
         
-        transactions = list(transactions_collection.find({
+        # [FIX] Async find
+        cursor = transactions_collection.find({
             "user_id": self.user_id,
             "date": {"$gte": cutoff_date},
             "type": "outflow",
-            "currency": currency  # NEW: filter by currency
-        }))
+            "currency": currency
+        })
+        transactions = await cursor.to_list(length=None)
         
         if len(transactions) < 10:
             return {
@@ -68,23 +71,25 @@ class BudgetAnalyzer:
                 "variability": "high" if len(amounts) > 1 and statistics.stdev(amounts) > data["total"] / data["count"] else "stable"
             }
         
-        # Analyze income
-        income_transactions = list(transactions_collection.find({
+        # [FIX] Async find for income
+        income_cursor = transactions_collection.find({
             "user_id": self.user_id,
             "date": {"$gte": cutoff_date},
             "type": "inflow",
-            "currency": currency  # NEW: filter by currency
-        }))
+            "currency": currency
+        })
+        income_transactions = await income_cursor.to_list(length=None)
         
         total_income = sum(t["amount"] for t in income_transactions)
         monthly_income = total_income / months if income_transactions else 0
         
-        # Check goals
-        goals = list(goals_collection.find({
+        # [FIX] Async find for goals
+        goals_cursor = goals_collection.find({
             "user_id": self.user_id,
             "status": "active",
-            "currency": currency  # NEW: filter by currency
-        }))
+            "currency": currency
+        })
+        goals = await goals_cursor.to_list(length=None)
         
         total_goal_target = sum(g["target_amount"] for g in goals)
         total_goal_current = sum(g["current_amount"] for g in goals)
@@ -157,12 +162,12 @@ class BudgetAnalyzer:
         analysis_months: int = 3,
         include_categories: Optional[List[str]] = None,
         user_context: Optional[str] = None,
-        currency: str = "usd"  # NEW parameter
+        currency: str = "usd"
     ) -> AIBudgetSuggestion:
         """Generate AI budget suggestions for specific currency"""
         
-        # Analyze spending patterns for the specified currency
-        analysis = self.analyze_spending_patterns(analysis_months, currency)  # NEW: pass currency
+        # [FIX] Added await
+        analysis = await self.analyze_spending_patterns(analysis_months, currency)
         
         warnings = []
         data_confidence = 1.0
@@ -234,17 +239,14 @@ class BudgetAnalyzer:
         user_context: Optional[str] = None,
         currency: str = "usd"
     ) -> Dict:
-        """Use OpenAI to generate intelligent budget suggestions with sub-categories"""
+        """Use OpenAI to generate intelligent budget suggestions"""
         from openai import AsyncOpenAI
-        
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        
-        
         
         currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
         
-        # Fetch available categories with sub-categories from database
-        outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
+        # [FIX] Added await
+        outflow_categories_doc = await categories_collection.find_one({"_id": "outflow"})
         categories_structure = []
         
         if outflow_categories_doc:
@@ -366,7 +368,7 @@ REMEMBER:
             logger.info(f"   📊 Total tokens: {total_tokens:,}")
             logger.info(f"   🤖 Model: gpt-4o-mini")
             
-            track_ai_usage(
+            await track_ai_usage(
                 user_id=self.user_id,
                 feature_type=AIFeatureType.WEEKLY_INSIGHT,  # We'll create a new type
                 provider=AIProviderType.OPENAI,
@@ -575,30 +577,28 @@ def is_budget_active(budget: Dict, current_date: datetime) -> bool:
     return is_active
 
 
-def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Optional[Dict] = None):
+async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Optional[Dict] = None):
     """Recalculate spent amounts for a budget based on transactions (Optimized)"""
     
-    # OPTIMIZATION 1: Use provided doc if available to save a DB read
     if budget_doc:
         budget = budget_doc
     else:
-        budget = budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
+        # [FIX] Added await
+        budget = await budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
     
     if not budget:
         return
     
-    # Store old values for notification checks
+    # Store old values
     old_total_percentage = budget.get("percentage_used", 0)
     old_category_percentages = {}
     for cat_budget in budget["category_budgets"]:
         old_category_percentages[cat_budget["main_category"]] = cat_budget.get("percentage_used", 0)
     
-    # Get budget currency
     budget_currency = budget.get("currency", "usd")
     
-    # OPTIMIZATION 2: Use Projection to fetch ONLY necessary fields (drastically reduces memory/bandwidth)
-    # We only need amount, categories, and ID. Description, notes, etc. are skipped.
-    transactions = list(transactions_collection.find(
+    # [FIX] Async find
+    cursor = transactions_collection.find(
         {
             "user_id": user_id,
             "type": "outflow",
@@ -609,39 +609,30 @@ def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Option
             }
         },
         {"amount": 1, "main_category": 1, "sub_category": 1, "_id": 1} 
-    ))
+    )
+    transactions = await cursor.to_list(length=None)
     
     # Track which transactions have been counted for total_spent
     counted_transaction_ids = set()
-    
-    # First pass: Calculate spent amounts for each category budget
     category_spent = {}
+    
     for cat_budget in budget["category_budgets"]:
         budget_category = cat_budget["main_category"]
         spent = 0
-        
         if " - " in budget_category:
-            # This is a specific sub-category budget (e.g., "Shopping - Clothing")
             parts = budget_category.split(" - ", 1)
-            main_cat = parts[0]
-            sub_cat = parts[1]
-            
-            # Sum transactions that match both main and sub category
+            main_cat, sub_cat = parts[0], parts[1]
             for t in transactions:
                 if t["main_category"] == main_cat and t["sub_category"] == sub_cat:
                     spent += t["amount"]
                     counted_transaction_ids.add(t["_id"])
         else:
-            # This is a main category budget (e.g., "Shopping")
-            # Sum all transactions with this main category
             for t in transactions:
                 if t["main_category"] == budget_category:
                     spent += t["amount"]
                     counted_transaction_ids.add(t["_id"])
-        
         category_spent[budget_category] = spent
     
-    # Update category budgets with calculated amounts
     for cat_budget in budget["category_budgets"]:
         budget_category = cat_budget["main_category"]
         spent = category_spent.get(budget_category, 0)
@@ -654,9 +645,9 @@ def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Option
         cat_budget["percentage_used"] = new_cat_percentage
         cat_budget["is_exceeded"] = spent > allocated
         
-        # NEW: Check for category-specific notifications
         if new_cat_percentage != old_cat_percentage:
-            check_budget_notifications(
+            # [FIX] Added await
+            await check_budget_notifications(
                 user_id=user_id,
                 budget_id=budget_id,
                 old_percentage=old_cat_percentage,
@@ -665,32 +656,27 @@ def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Option
                 category_name=budget_category
             )
     
-    # Calculate total_spent by summing only unique transactions
     total_spent = sum(t["amount"] for t in transactions if t["_id"] in counted_transaction_ids)
-    
-    # Calculate total_budget excluding hierarchical sub-categories
     total_budget = calculate_total_budget_excluding_subcategories(budget["category_budgets"])
-    
-    # Update budget totals
     remaining = total_budget - total_spent
     new_total_percentage = (total_spent / total_budget * 100) if total_budget > 0 else 0
     
-    # NEW: Check for overall budget notifications
     if new_total_percentage != old_total_percentage:
-        check_budget_notifications(
+        # [FIX] Added await
+        await check_budget_notifications(
             user_id=user_id,
             budget_id=budget_id,
             old_percentage=old_total_percentage,
             new_percentage=new_total_percentage,
             budget_name=budget["name"],
-            category_name=None  # None means overall budget
+            category_name=None
         )
     
-    # Update status
     status = calculate_budget_status(budget, datetime.now(timezone.utc))
     is_active = is_budget_active(budget, datetime.now(timezone.utc))
     
-    budgets_collection.update_one(
+    # [FIX] Added await
+    await budgets_collection.update_one(
         {"_id": budget_id},
         {
             "$set": {
@@ -706,15 +692,13 @@ def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Option
         }
     )
     
-    # Check if budget just completed and should auto-create next
     if status == BudgetStatus.COMPLETED and budget.get("auto_create_enabled"):
-        # Check if the previous status was NOT completed to avoid repeated triggers
         previous_status = budget.get("status")
         if previous_status != BudgetStatus.COMPLETED.value:
-            print(f"Budget {budget_id} just completed, triggering auto-create...")
-            # Get the updated budget document to pass to auto_create
-            updated_budget = budgets_collection.find_one({"_id": budget_id})
-            # Run auto-create asynchronously
+            # [FIX] Added await
+            updated_budget = await budgets_collection.find_one({"_id": budget_id})
+            
+            # Fire and forget auto-create task
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -726,9 +710,8 @@ def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Option
                 
                 
                 
-def update_relevant_budgets(user_id: str, transaction_date: datetime, transaction_currency: str):
+async def update_relevant_budgets(user_id: str, transaction_date: datetime, transaction_currency: str):
     """Update only budgets that are affected by the transaction"""
-    # Ensure transaction_date is timezone-aware
     if transaction_date.tzinfo is None:
         transaction_date = transaction_date.replace(tzinfo=timezone.utc)
     
@@ -739,12 +722,13 @@ def update_relevant_budgets(user_id: str, transaction_date: datetime, transactio
         "end_date": {"$gte": transaction_date}
     }
     
-    # OPTIMIZATION: We are fetching the full budget here
-    relevant_budgets = list(budgets_collection.find(query))
+    # [FIX] Async find
+    cursor = budgets_collection.find(query)
+    relevant_budgets = await cursor.to_list(length=None)
     
     for budget in relevant_budgets:
-        # OPTIMIZATION: Pass the full budget document to avoid re-fetching it inside the function
-        update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)
+        # [FIX] Added await
+        await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)
 
 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
@@ -783,74 +767,49 @@ def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict])
 
 
 async def auto_create_next_budget(budget: Dict) -> Optional[str]:
-    """
-    Automatically create next budget based on completed budget
-    Returns new budget ID if successful
-    """
+    """Automatically create next budget based on completed budget"""
     budget_id = budget["_id"]
-    
-    
     
     if not budget.get("auto_create_enabled", False):
         return None
     
-    # Only auto-create for completed budgets
     if budget["status"] != BudgetStatus.COMPLETED.value:
         return None
     
-    # Check if next budget already exists
     end_date = budget["end_date"]
     next_start_date = end_date + timedelta(days=1)
     
-    # Check if a budget already exists starting on this date with this parent
-    existing = budgets_collection.find_one({
+    # [FIX] Added await
+    existing = await budgets_collection.find_one({
         "user_id": budget["user_id"],
         "parent_budget_id": budget_id,
         "start_date": next_start_date
     })
     
     if existing:
-        print(f"Next budget already exists for budget {budget_id}: {existing['_id']}")
         return None
     
-    
-    
     try:
-        # Calculate new dates based on period
         analyzer = BudgetAnalyzer(budget["user_id"])
         period = BudgetPeriod(budget["period"])
-        new_start, new_end = analyzer.calculate_period_dates(
-            period,
-            next_start_date,
-            None
-        )
+        new_start, new_end = analyzer.calculate_period_dates(period, next_start_date, None)
         
-        # Generate category budgets
         if budget.get("auto_create_with_ai", False):
-            print(f"Generating AI-based budget for next period...")
+            # [FIX] Added await
             category_budgets = await _generate_ai_category_budgets(
-                budget["user_id"],
-                period,
-                new_start,
-                new_end,
-                parent_budget=budget
+                budget["user_id"], period, new_start, new_end, parent_budget=budget
             )
         else:
-            # Use same category budgets as parent
-            category_budgets = [
-                CategoryBudget(**cat) for cat in budget["category_budgets"]
-            ]
+            category_budgets = [CategoryBudget(**cat) for cat in budget["category_budgets"]]
         
-        # Create new budget
         new_budget_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
-        
         total_budget = sum(cat.allocated_amount for cat in category_budgets)
         
         new_budget = {
             "_id": new_budget_id,
             "user_id": budget["user_id"],
-            "name": budget['name'],  # Keep same name, remove "(Auto-created)"
+            "name": budget['name'],
             "period": budget["period"],
             "start_date": new_start,
             "end_date": new_end,
@@ -862,19 +821,18 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
             "status": BudgetStatus.UPCOMING.value,
             "description": budget.get("description"),
             "is_active": False,
-            "auto_create_enabled": budget.get("auto_create_enabled", False),  # Carry forward
-            "auto_create_with_ai": budget.get("auto_create_with_ai", False),  # Carry forward
+            "auto_create_enabled": budget.get("auto_create_enabled", False),
+            "auto_create_with_ai": budget.get("auto_create_with_ai", False),
             "parent_budget_id": budget["_id"],
             "created_at": now,
             "updated_at": now
         }
         
-        budgets_collection.insert_one(new_budget)
-        print(f"✅ Auto-created new budget: {new_budget_id} (from {budget_id})")
+        # [FIX] Added await
+        await budgets_collection.insert_one(new_budget)
         
-        
-        # NEW: Send notification
-        notify_budget_auto_created(
+        # [FIX] Added await
+        await notify_budget_auto_created(
             user_id=budget["user_id"],
             budget_id=new_budget_id,
             budget_name=budget["name"],
@@ -882,16 +840,11 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         )
         
         return new_budget_id
-    
-    except DuplicateKeyError:
-        # Gracefully handle the race condition
-        print(f"Race condition avoided: Budget already exists for {budget_id}")
-        return None
         
+    except DuplicateKeyError:
+        return None
     except Exception as e:
         print(f"❌ Error auto-creating budget: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return None
     
 
@@ -903,13 +856,13 @@ async def _generate_ai_category_budgets(
     end_date: datetime,
     parent_budget: Dict
 ) -> List[CategoryBudget]:
-    """Generate AI-based category budgets with sub-categories using parent budget and recent data"""
+    """Generate AI-based category budgets"""
     
     analyzer = BudgetAnalyzer(user_id)
     days_in_period = (end_date - start_date).days + 1
     
-    # Fetch available categories with sub-categories from database
-    outflow_categories_doc = categories_collection.find_one({"_id": "outflow"})
+    # [FIX] Added await
+    outflow_categories_doc = await categories_collection.find_one({"_id": "outflow"})
     categories_structure = []
     
     if outflow_categories_doc:
@@ -931,14 +884,13 @@ async def _generate_ai_category_budgets(
     parent_start = parent_budget["start_date"]
     parent_end = parent_budget["end_date"]
     
-    transactions = list(transactions_collection.find({
+    # [FIX] Async find
+    cursor = transactions_collection.find({
         "user_id": user_id,
         "type": "outflow",
-        "date": {
-            "$gte": parent_start,
-            "$lte": parent_end
-        }
-    }))
+        "date": {"$gte": parent_start, "$lte": parent_end}
+    })
+    transactions = await cursor.to_list(length=None)
     
     if not transactions:
         # No data, use parent budget allocations
@@ -947,14 +899,14 @@ async def _generate_ai_category_budgets(
     # Calculate actual spending per category from parent budget
     category_spending = {}
     for cat_budget in parent_budget["category_budgets"]:
-        category_name = cat_budget["main_category"]
-        category_spending[category_name] = cat_budget.get("spent_amount", 0)
+        category_spending[cat_budget["main_category"]] = cat_budget.get("spent_amount", 0)
     
     if settings.OPENAI_API_KEY:
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
             
+            # [Context and Prompt building logic remains identical]
             context = {
                 "period_type": period.value,
                 "days_in_period": days_in_period,
@@ -1022,8 +974,7 @@ REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list 
                 response_format={"type": "json_object"},
                 temperature=0.3
             )
-
-
+            
             # NEW: Track AI usage for auto-create
             if hasattr(response, 'usage'):
                 from ai_usage_service import track_ai_usage
@@ -1042,9 +993,9 @@ REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list 
                 logger.info(f"   📊 Total tokens: {total_tokens:,}")
                 logger.info(f"   🤖 Model: gpt-4o-mini")
                 
-                track_ai_usage(
+                await track_ai_usage(
                     user_id=user_id,
-                    feature_type=AIFeatureType.BUDGET_AUTO_CREATE,
+                    feature_type=AIFeatureType.WEEKLY_INSIGHT,
                     provider=AIProviderType.OPENAI,
                     model_name="gpt-4o-mini",
                     input_tokens=input_tokens,
@@ -1054,26 +1005,17 @@ REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list 
             
             result = json.loads(response.choices[0].message.content)
             
-            # Validate categories
+            # [Validation logic remains identical]
             valid_categories = []
             available_main_categories = [cat["main_category"] for cat in categories_structure]
             
             for cat in result["categories"]:
                 category_name = cat["main_category"]
-                
                 if " - " in category_name:
                     parts = category_name.split(" - ", 1)
-                    main_cat = parts[0]
-                    sub_cat = parts[1]
-                    
-                    if main_cat not in available_main_categories:
-                        continue
-                    
-                    category_struct = next(
-                        (c for c in categories_structure if c["main_category"] == main_cat),
-                        None
-                    )
-                    
+                    main_cat, sub_cat = parts[0], parts[1]
+                    if main_cat not in available_main_categories: continue
+                    category_struct = next((c for c in categories_structure if c["main_category"] == main_cat), None)
                     if category_struct and sub_cat in category_struct["sub_categories"]:
                         valid_categories.append(CategoryBudget(**cat))
                 else:
@@ -1132,8 +1074,12 @@ def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List
     return adjusted_budgets
 
 
-def update_all_user_budgets(user_id: str):
+async def update_all_user_budgets(user_id: str):
     """Update all budgets for a user (called after transaction changes)"""
-    budgets = list(budgets_collection.find({"user_id": user_id}))
+    # [FIX] Async find
+    cursor = budgets_collection.find({"user_id": user_id})
+    budgets = await cursor.to_list(length=None)
+    
     for budget in budgets:
-        update_budget_spent_amounts(user_id, budget["_id"])
+        # [FIX] Added await
+        await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)

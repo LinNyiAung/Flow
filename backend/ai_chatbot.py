@@ -48,7 +48,8 @@ class FinancialDataProcessor:
         """Ensure datetime is timezone-aware UTC (instance method wrapper)"""
         return ensure_utc_datetime(dt)
         
-    def get_user_transactions(self, days_back: int = 90, limit: int = 500) -> List[Dict]:
+    # [FIX] Changed to async
+    async def get_user_transactions(self, days_back: int = 90, limit: int = 500) -> List[Dict]:
         """
         Get recent user transactions.
         Defaults to last 90 days or max 500 items to prevent OOM.
@@ -61,51 +62,59 @@ class FinancialDataProcessor:
             query["date"] = {"$gte": cutoff_date}
         
         try:
-            # 2. Apply Hard Limit (Default 500 docs) to prevent memory explosion
-            transactions = list(
-                transactions_collection.find(query)
-                .sort("date", -1)
+            # [FIX] Async find
+            cursor = transactions_collection.find(query)\
+                .sort("date", -1)\
                 .limit(limit)
-            )
+            transactions = await cursor.to_list(length=limit)
+            
             print(f"Found {len(transactions)} transactions for user {self.user_id} (Limit: {limit}, Days: {days_back})")
             return transactions
         except Exception as e:
             print(f"Error fetching transactions: {e}")
             return []
     
-    def get_user_goals(self) -> List[Dict]:
+    # [FIX] Changed to async
+    async def get_user_goals(self) -> List[Dict]:
         """Get user's financial goals"""
         try:
-            goals = list(goals_collection.find({"user_id": self.user_id}).sort("created_at", -1))
+            # [FIX] Async find
+            cursor = goals_collection.find({"user_id": self.user_id}).sort("created_at", -1)
+            goals = await cursor.to_list(length=None)
             print(f"Found {len(goals)} goals for user {self.user_id}")
             return goals
         except Exception as e:
             print(f"Error fetching goals: {e}")
             return []
         
-    def get_user_budgets(self) -> List[Dict]:
+    # [FIX] Changed to async
+    async def get_user_budgets(self) -> List[Dict]:
         """Get user's active budgets"""
         try:         
-            # Get active budgets
-            budgets = list(budgets_collection.find({
+            # [FIX] Async find
+            cursor = budgets_collection.find({
                 "user_id": self.user_id,
                 "is_active": True,
                 "status": "active"
-            }).sort("created_at", -1))
+            }).sort("created_at", -1)
+            budgets = await cursor.to_list(length=None)
             
             # Update spent amounts for each budget
             for budget in budgets:
                 try:
-                    update_budget_spent_amounts(self.user_id, budget["_id"])
+                    # [FIX] Added await
+                    await update_budget_spent_amounts(self.user_id, budget["_id"])
                 except Exception as e:
                     print(f"Error updating budget {budget['_id']}: {e}")
             
             # Refresh budget data after updates
-            budgets = list(budgets_collection.find({
+            # [FIX] Async find
+            cursor = budgets_collection.find({
                 "user_id": self.user_id,
                 "is_active": True,
                 "status": "active"
-            }).sort("created_at", -1))
+            }).sort("created_at", -1)
+            budgets = await cursor.to_list(length=None)
             
             print(f"Found {len(budgets)} active budgets for user {self.user_id}")
             return budgets
@@ -113,10 +122,9 @@ class FinancialDataProcessor:
             print(f"Error fetching budgets: {e}")
             return []
     
-    def get_financial_summary(self) -> Dict[str, Any]:
+    async def get_financial_summary(self) -> Dict[str, Any]:
         """
         Generate comprehensive financial summary using optimized MongoDB Aggregation.
-        Replaces Python-side processing to prevent OOM errors on large datasets.
         """
         try:
             pipeline = [
@@ -149,14 +157,15 @@ class FinancialDataProcessor:
                 }}
             ]
 
-            # Execute single DB query
-            result = list(transactions_collection.aggregate(pipeline))[0]
+            # [FIX] Async aggregation
+            cursor = transactions_collection.aggregate(pipeline)
+            results = await cursor.to_list(length=1)
+            result = results[0] if results else {}
             
             # Process results into expected structure
             currency_summaries = {}
             total_transactions_all = 0
             
-            # Initialize currency objects
             for stat in result.get("currency_stats", []):
                 currency = stat["_id"] if stat["_id"] else "usd"
                 total_transactions_all += stat["count"]
@@ -175,7 +184,6 @@ class FinancialDataProcessor:
                     "top_outflow_categories": {}
                 }
 
-            # Populate categories (already sorted by DB)
             for cat in result.get("category_stats", []):
                 curr = cat["_id"].get("currency", "usd")
                 tx_type = cat["_id"].get("type")
@@ -185,7 +193,6 @@ class FinancialDataProcessor:
                 if curr not in currency_summaries:
                     continue
                     
-                # Fill top 10 categories
                 target_dict = (
                     currency_summaries[curr]["top_inflow_categories"] 
                     if tx_type == "inflow" 
@@ -206,12 +213,14 @@ class FinancialDataProcessor:
             print(f"Error generating financial summary: {e}")
             return {"message": "Error generating financial summary"}
     
-    def create_financial_documents(self) -> List[Document]:
+    # [FIX] Changed to async
+    async def create_financial_documents(self) -> List[Document]:
         """Create optimized documents for GPT-4 with multi-currency support"""
-        transactions = self.get_user_transactions()
-        goals = self.get_user_goals()
-        budgets = self.get_user_budgets()
-        summary = self.get_financial_summary()
+        # [FIX] Await async methods
+        transactions = await self.get_user_transactions()
+        goals = await self.get_user_goals()
+        budgets = await self.get_user_budgets()
+        summary = await self.get_financial_summary()
         documents = []
         
         # === FINANCIAL GOALS OVERVIEW (MULTI-CURRENCY) ===
@@ -739,11 +748,14 @@ class FinancialChatbot:
         
         self.gpt_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     
-    def _get_or_create_vector_store(self, user_id: str) -> Chroma:
+    # [FIX] Changed to async
+    async def _get_or_create_vector_store(self, user_id: str) -> Chroma:
         """Get or create vector store for user"""
         if user_id not in self.user_vector_stores:
             processor = FinancialDataProcessor(user_id)
-            documents = processor.create_financial_documents()
+            
+            # [FIX] Await async document creation
+            documents = await processor.create_financial_documents()
             
             if not documents or not self.embeddings:
                 return None
@@ -757,7 +769,11 @@ class FinancialChatbot:
                     else:
                         split_documents.extend(self.text_splitter.split_documents([doc]))
                 
-                vector_store = Chroma.from_documents(
+                # [NOTE] Chroma.from_documents can be blocking (CPU/Disk), so wrapping in thread is okay here if needed.
+                # However, for simplicity/compatibility we often call it directly or via to_thread.
+                # Since we are in an async method, let's offload the heavy Chroma creation to a thread.
+                vector_store = await asyncio.to_thread(
+                    Chroma.from_documents,
                     documents=split_documents,
                     embedding=self.embeddings,
                     collection_name=f"user_{user_id}_{int(datetime.now().timestamp())}"
@@ -1035,24 +1051,23 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         """Stream chat response using GPT-4 with enhanced RAG and response style"""
         try:
             if not self.openai_api_key:
-                yield "AI service is not available. OpenAI API key not configured.", None # ✅ FIXED
+                yield "AI service is not available. OpenAI API key not configured.", None
                 return
 
-            # Run DB lookup in thread
-            user = await asyncio.to_thread(users_collection.find_one, {"_id": user_id})
+            # [FIX] Direct await (no to_thread needed for DB)
+            user = await users_collection.find_one({"_id": user_id})
             if not user:
                 yield "User not found. Please log in again.", None
                 return
             
             processor = FinancialDataProcessor(user_id)
             
-            # Fetch all financial data in parallel threads to prevent blocking
-            summary_task = asyncio.to_thread(processor.get_financial_summary)
-            goals_task = asyncio.to_thread(processor.get_user_goals)
-            budgets_task = asyncio.to_thread(processor.get_user_budgets)
-            
-            # Wait for all data concurrently
-            summary, goals, budgets = await asyncio.gather(summary_task, goals_task, budgets_task)
+            # [FIX] Fetch data concurrently using native async methods
+            summary, goals, budgets = await asyncio.gather(
+                processor.get_financial_summary(),
+                processor.get_user_goals(),
+                processor.get_user_budgets()
+            )
             
             # Calculate goals summary
             goals_summary = None
@@ -1077,10 +1092,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "goals_by_currency": goals_by_currency
                 }
             
-            # Calculate budgets summary (NEW)
+            # Calculate budgets summary
             budgets_summary = None
             if budgets:
-                # Group budgets by currency
                 budgets_by_currency = {}
                 for budget in budgets:
                     curr = budget.get('currency', 'usd')
@@ -1099,7 +1113,6 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     budgets_by_currency[curr]['total_allocated'] += budget['total_budget']
                     budgets_by_currency[curr]['total_spent'] += budget['total_spent']
                 
-                # Calculate remaining and percentage for each currency
                 for curr, data in budgets_by_currency.items():
                     data['remaining'] = data['total_allocated'] - data['total_spent']
                     data['percentage_used'] = (data['total_spent'] / data['total_allocated'] * 100) if data['total_allocated'] > 0 else 0
@@ -1111,24 +1124,25 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 }
             
             if summary.get("message") and not goals and not budgets:
-                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!", None # ✅ FIXED
+                yield "I don't have access to your financial data yet. Please add some transactions, goals, or budgets first!", None
                 return
             
             # Get relevant context
             context = ""
-            # Run vector store creation/fetching in thread (Heavy CPU/Embedding)
-            vector_store = await asyncio.to_thread(self._get_or_create_vector_store, user_id)
+            
+            # [FIX] Await directly (it handles threading internally now)
+            vector_store = await self._get_or_create_vector_store(user_id)
             
             if vector_store:
                 try:
                     # Detect query type
                     temporal_keywords = ["latest", "last", "recent", "newest", "today", "yesterday", "this week"]
                     goal_keywords = ["goal", "save", "saving", "target", "progress", "achieve", "reached"]
-                    budget_keywords = ["budget", "spending", "spend", "expense", "limit", "exceeded", "remaining"]  # NEW
+                    budget_keywords = ["budget", "spending", "spend", "expense", "limit", "exceeded", "remaining"]
                     
                     is_temporal = any(keyword in message.lower() for keyword in temporal_keywords)
                     is_goal_query = any(keyword in message.lower() for keyword in goal_keywords)
-                    is_budget_query = any(keyword in message.lower() for keyword in budget_keywords)  # NEW
+                    is_budget_query = any(keyword in message.lower() for keyword in budget_keywords)
                     
                     # Adjust retrieval strategy
                     k_value = 12 if (is_temporal or is_goal_query or is_budget_query) else 6
@@ -1136,11 +1150,13 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     retriever = vector_store.as_retriever(
                         search_kwargs={"k": k_value}
                     )            
-                    # Run the retrieval search in a thread
+                    
+                    # [NOTE] Retrieve docs (blocking CPU/IO for embeddings search). 
+                    # Wrapping in thread is good here to keep event loop free.
                     relevant_docs = await asyncio.to_thread(retriever.invoke, message)
                     
                     # Prioritize important documents
-                    if is_temporal or is_goal_query or is_budget_query:  # NEW
+                    if is_temporal or is_goal_query or is_budget_query:
                         priority_docs = [d for d in relevant_docs if d.metadata.get("priority") in ["critical", "high"]]
                         other_docs = [d for d in relevant_docs if d.metadata.get("priority") not in ["critical", "high"]]
                         relevant_docs = priority_docs + other_docs
@@ -1149,7 +1165,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                             print(f"🎯 Goal query detected - prioritized goals data")
                         if is_temporal:
                             print(f"📅 Temporal query detected - prioritized chronological index")
-                        if is_budget_query:  # NEW
+                        if is_budget_query:
                             print(f"📊 Budget query detected - prioritized budgets data")
                     
                     context = "\n\n".join([doc.page_content for doc in relevant_docs])
@@ -1177,36 +1193,30 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             if not self.openai_api_key:
                 yield "AI service is not available. OpenAI API key not configured."
                 return
-            
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=self.openai_api_key)
             
-            
-            # Adjust temperature based on style
             temperature_map = {
                 "normal": 0.3,
-                "concise": 0.2,  # More deterministic for brevity
-                "explanatory": 0.4  # Slightly more creative for explanations
+                "concise": 0.2,
+                "explanatory": 0.4
             }
-            
-            # --- CHANGED SECTION STARTS HERE ---
             
             stream = await client.chat.completions.create(
                 model=self.gpt_model,
                 messages=[
-                    {"role": "system", "content": system_prompt}, # Ensure you have system_prompt var
-                    {"role": "user", "content": user_prompt}      # Ensure you have user_prompt var
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
                 temperature=temperature_map.get(response_style, 0.3),
                 max_tokens=1000,
                 stream=True,
-                stream_options={"include_usage": True}  # REQUIRED for usage tracking
+                stream_options={"include_usage": True}
             )
 
             final_usage_data = None
             
             async for chunk in stream:
-                # 1. Capture Usage (usually in the last chunk)
                 if hasattr(chunk, 'usage') and chunk.usage is not None:
                     final_usage_data = {
                         'input_tokens': chunk.usage.prompt_tokens,
@@ -1215,12 +1225,10 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         'model_name': self.gpt_model
                     }
                 
-                # 2. Capture Content
                 if chunk.choices and chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     yield content, None
 
-            # 3. Yield final usage packet
             yield "", final_usage_data
             
         except Exception as e:
