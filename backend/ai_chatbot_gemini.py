@@ -524,8 +524,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 
                 # Gemini streaming call (using sync client in a thread or async client if available)
                 # Assuming 'self.client.models.generate_content_stream' is blocking:
-                response = await asyncio.to_thread(
-                    self.client.models.generate_content_stream,
+                response = await self.client.aio.models.generate_content_stream(
                     model=self.gemini_model,
                     contents=[
                         # Note: Gemini system prompt is usually config, but putting it in text works too
@@ -540,7 +539,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 full_response_text = ""
                 
                 # Iterate through the stream (this part is synchronous if response is a generator)
-                for chunk in response:
+                async for chunk in response:
                     if chunk.text:
                         full_response_text += chunk.text
                         yield chunk.text, None
