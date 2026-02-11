@@ -883,6 +883,19 @@ async def batch_create_transactions(
                 "updated_at": now
             }
             
+            # [ADD THIS BLOCK to match create_transaction logic]
+            if transaction_data.recurrence:
+                new_transaction["recurrence"] = transaction_data.recurrence.dict()
+                if transaction_data.recurrence.enabled:
+                    new_transaction["recurrence"]["last_created_date"] = new_transaction["date"]
+            else:
+                new_transaction["recurrence"] = {
+                    "enabled": False,
+                    "config": None,
+                    "last_created_date": None,
+                    "parent_transaction_id": None
+                }
+            
             result = await transactions_collection.insert_one(new_transaction)
             
             if result.inserted_id:
