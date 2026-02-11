@@ -40,21 +40,36 @@ def calculate_next_occurrence(
     elif config.frequency == RecurrenceFrequency.MONTHLY:
         if config.day_of_month is None:
             return None
-        # Move to next month
-        if last_date.month == 12:
-            next_month = last_date.replace(year=last_date.year + 1, month=1)
-        else:
-            next_month = last_date.replace(month=last_date.month + 1)
+            
+        # 1. Calculate the target year and month safely
+        year = last_date.year
+        month = last_date.month + 1
         
-        # Handle day overflow (e.g., Jan 31 -> Feb 28)
+        if month > 12:
+            month = 1
+            year += 1
+            
+        # 2. Create a "safe" base date for the next month (using day=1)
+        # We use day=1 here to guarantee this line never crashes.
         try:
-            next_date = next_month.replace(day=config.day_of_month)
+            next_month_base = last_date.replace(year=year, month=month, day=1)
         except ValueError:
-            # Day doesn't exist in that month, use last day of month
-            if next_month.month == 12:
-                next_date = next_month.replace(month=12, day=31)
+            # Fallback for rare edge cases, though day=1 is virtually always safe
+            return None
+
+        # 3. Now try to apply the user's preferred "day_of_month"
+        try:
+            next_date = next_month_base.replace(day=config.day_of_month)
+        except ValueError:
+            # Day doesn't exist in that month (e.g., trying to set Feb 30th)
+            # Logic: Clamp to the last day of that month
+            # Calculate the last day by going to the *next* month and subtracting 1 day
+            if month == 12:
+                next_date = next_month_base.replace(day=31)
             else:
-                next_date = (next_month.replace(month=next_month.month + 1, day=1) - timedelta(days=1))
+                # First day of month after next
+                month_after_next = next_month_base.replace(month=month + 1, day=1)
+                next_date = month_after_next - timedelta(days=1)
     
     elif config.frequency == RecurrenceFrequency.ANNUALLY:
         if config.month is None or config.day_of_year is None:
