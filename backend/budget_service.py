@@ -578,26 +578,26 @@ def is_budget_active(budget: Dict, current_date: datetime) -> bool:
 
 
 async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Optional[Dict] = None):
-    """Recalculate spent amounts for a budget based on transactions (Optimized)"""
+    """Recalculate spent amounts for a budget based on transactions (Optimized O(N))"""
     
     if budget_doc:
         budget = budget_doc
     else:
-        # [FIX] Added await
         budget = await budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
     
     if not budget:
         return
     
-    # Store old values
+    # Store old values for notification checks
     old_total_percentage = budget.get("percentage_used", 0)
-    old_category_percentages = {}
-    for cat_budget in budget["category_budgets"]:
-        old_category_percentages[cat_budget["main_category"]] = cat_budget.get("percentage_used", 0)
+    old_category_percentages = {
+        cat["main_category"]: cat.get("percentage_used", 0) 
+        for cat in budget["category_budgets"]
+    }
     
     budget_currency = budget.get("currency", "usd")
     
-    # [FIX] Async find
+    # Fetch transactions (unchanged)
     cursor = transactions_collection.find(
         {
             "user_id": user_id,
@@ -612,30 +612,50 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
     )
     transactions = await cursor.to_list(length=None)
     
-    # Track which transactions have been counted for total_spent
-    counted_transaction_ids = set()
-    category_spent = {}
+    # === OPTIMIZATION START ===
     
+    # 1. Create a set of relevant categories for fast lookup
+    # We track both "Main" and "Main - Sub" keys found in the budget
+    budget_category_keys = set(cat["main_category"] for cat in budget["category_budgets"])
+    
+    # 2. Aggregation containers
+    # specific_counts: maps "Category" or "Category - Sub" to total amount
+    category_spent_map = defaultdict(float)
+    matched_transaction_ids = set()
+    
+    # 3. SINGLE PASS over transactions (O(T))
+    for t in transactions:
+        amount = t["amount"]
+        t_id = t["_id"]
+        main_cat = t["main_category"]
+        sub_cat = t["sub_category"]
+        
+        # Construct possible keys this transaction matches
+        main_key = main_cat
+        sub_key = f"{main_cat} - {sub_cat}"
+        
+        matched_any = False
+        
+        # Check if this transaction belongs to a "Main Only" budget bucket
+        if main_key in budget_category_keys:
+            category_spent_map[main_key] += amount
+            matched_any = True
+            
+        # Check if this transaction belongs to a "Main - Sub" budget bucket
+        if sub_key in budget_category_keys:
+            category_spent_map[sub_key] += amount
+            matched_any = True
+            
+        # If this transaction contributed to ANY budget category, include it in total_spent
+        if matched_any:
+            matched_transaction_ids.add(t_id)
+
+    # 4. SINGLE PASS over budget categories (O(C))
     for cat_budget in budget["category_budgets"]:
         budget_category = cat_budget["main_category"]
-        spent = 0
-        if " - " in budget_category:
-            parts = budget_category.split(" - ", 1)
-            main_cat, sub_cat = parts[0], parts[1]
-            for t in transactions:
-                if t["main_category"] == main_cat and t["sub_category"] == sub_cat:
-                    spent += t["amount"]
-                    counted_transaction_ids.add(t["_id"])
-        else:
-            for t in transactions:
-                if t["main_category"] == budget_category:
-                    spent += t["amount"]
-                    counted_transaction_ids.add(t["_id"])
-        category_spent[budget_category] = spent
-    
-    for cat_budget in budget["category_budgets"]:
-        budget_category = cat_budget["main_category"]
-        spent = category_spent.get(budget_category, 0)
+        
+        # O(1) Lookup
+        spent = category_spent_map.get(budget_category, 0)
         allocated = cat_budget["allocated_amount"]
         
         old_cat_percentage = old_category_percentages.get(budget_category, 0)
@@ -646,7 +666,6 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
         cat_budget["is_exceeded"] = spent > allocated
         
         if new_cat_percentage != old_cat_percentage:
-            # [FIX] Added await
             await check_budget_notifications(
                 user_id=user_id,
                 budget_id=budget_id,
@@ -655,8 +674,14 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
                 budget_name=budget["name"],
                 category_name=budget_category
             )
+            
+    # Calculate Total Spent based on unique transactions used
+    # (We re-sum to avoid double counting if a transaction hit multiple overlapping buckets, 
+    # though your logic usually separates them. Using the set ensures 100% accuracy.)
+    total_spent = sum(t["amount"] for t in transactions if t["_id"] in matched_transaction_ids)
     
-    total_spent = sum(t["amount"] for t in transactions if t["_id"] in counted_transaction_ids)
+    # === OPTIMIZATION END ===
+
     total_budget = calculate_total_budget_excluding_subcategories(budget["category_budgets"])
     remaining = total_budget - total_spent
     new_total_percentage = (total_spent / total_budget * 100) if total_budget > 0 else 0
