@@ -69,27 +69,12 @@ async def create_transaction(
     # [FIX] Added await
     result = await transactions_collection.insert_one(new_transaction)
 
-    # === START FIX: Atomic Cache Update ===
-    inc_values = {}
-    curr = transaction_data.currency.value
-    amt = transaction_data.amount
-    
-    if transaction_data.type == TransactionType.INFLOW:
-        inc_values[f"balances.{curr}.total_inflow"] = amt
-        inc_values[f"balances.{curr}.balance"] = amt
-        inc_values[f"balances.{curr}.available_balance"] = amt
-    else:
-        inc_values[f"balances.{curr}.total_outflow"] = amt
-        inc_values[f"balances.{curr}.balance"] = -amt
-        inc_values[f"balances.{curr}.available_balance"] = -amt
-
-    # [FIX] Added await
+    # === FIX: Cache Invalidation Strategy ===
+    # We simply wipe the cache. The next time get_balance() is called, 
+    # it will automatically re-aggregate all transactions for 100% accuracy.
     await users_collection.update_one(
-        {
-            "_id": current_user["_id"], 
-            "balances": {"$exists": True} 
-        },
-        {"$inc": inc_values}
+        {"_id": current_user["_id"]},
+        {"$unset": {"balances": ""}}
     )
 
     if not result.inserted_id:
