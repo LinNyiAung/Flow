@@ -64,12 +64,15 @@ async def startup_db_client():
     await initialize_categories()
     await initialize_admin()
     await create_db_indexes()
-
-try:
-    scheduler = start_scheduler()
-    print("✅ Notification scheduler started successfully")
-except Exception as e:
-    print(f"⚠️ Failed to start notification scheduler: {e}")
+    
+    # Start the scheduler safely inside the running loop
+    try:
+        # Import here to avoid circular dependency issues if any
+        from scheduler import start_scheduler
+        start_scheduler()
+        print("✅ Notification scheduler started successfully (Async Mode)")
+    except Exception as e:
+        print(f"⚠️ Failed to start notification scheduler: {e}")
     
     
 try:
