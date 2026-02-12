@@ -578,160 +578,198 @@ def is_budget_active(budget: Dict, current_date: datetime) -> bool:
 
 
 async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Optional[Dict] = None):
-    """Recalculate spent amounts for a budget based on transactions (Optimized O(N))"""
+    """
+    Recalculate spent amounts for a budget based on transactions.
+    Uses Optimistic Locking to prevent race conditions during concurrent updates.
+    """
+    max_retries = 3
+    attempt = 0
     
-    if budget_doc:
-        budget = budget_doc
-    else:
-        budget = await budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
-    
-    if not budget:
-        return
-    
-    # Store old values for notification checks
-    old_total_percentage = budget.get("percentage_used", 0)
-    old_category_percentages = {
-        cat["main_category"]: cat.get("percentage_used", 0) 
-        for cat in budget["category_budgets"]
-    }
-    
-    budget_currency = budget.get("currency", "usd")
-    
-    # Fetch transactions (unchanged)
-    cursor = transactions_collection.find(
-        {
-            "user_id": user_id,
-            "type": "outflow",
-            "currency": budget_currency,
-            "date": {
-                "$gte": budget["start_date"],
-                "$lte": budget["end_date"]
-            }
-        },
-        {"amount": 1, "main_category": 1, "sub_category": 1, "_id": 1} 
-    )
-    transactions = await cursor.to_list(length=None)
-    
-    # === OPTIMIZATION START ===
-    
-    # 1. Create a set of relevant categories for fast lookup
-    # We track both "Main" and "Main - Sub" keys found in the budget
-    budget_category_keys = set(cat["main_category"] for cat in budget["category_budgets"])
-    
-    # 2. Aggregation containers
-    # specific_counts: maps "Category" or "Category - Sub" to total amount
-    category_spent_map = defaultdict(float)
-    matched_transaction_ids = set()
-    
-    # 3. SINGLE PASS over transactions (O(T))
-    for t in transactions:
-        amount = t["amount"]
-        t_id = t["_id"]
-        main_cat = t["main_category"]
-        sub_cat = t["sub_category"]
-        
-        # Construct possible keys this transaction matches
-        main_key = main_cat
-        sub_key = f"{main_cat} - {sub_cat}"
-        
-        matched_any = False
-        
-        # Check if this transaction belongs to a "Main Only" budget bucket
-        if main_key in budget_category_keys:
-            category_spent_map[main_key] += amount
-            matched_any = True
+    while attempt < max_retries:
+        try:
+            # 1. Get the budget document and its version (updated_at)
+            # If provided doc is fresh (attempt 0), use it; otherwise fetch from DB
+            if attempt == 0 and budget_doc:
+                budget = budget_doc
+            else:
+                budget = await budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
             
-        # Check if this transaction belongs to a "Main - Sub" budget bucket
-        if sub_key in budget_category_keys:
-            category_spent_map[sub_key] += amount
-            matched_any = True
-            
-        # If this transaction contributed to ANY budget category, include it in total_spent
-        if matched_any:
-            matched_transaction_ids.add(t_id)
+            if not budget:
+                return
 
-    # 4. SINGLE PASS over budget categories (O(C))
-    for cat_budget in budget["category_budgets"]:
-        budget_category = cat_budget["main_category"]
-        
-        # O(1) Lookup
-        spent = category_spent_map.get(budget_category, 0)
-        allocated = cat_budget["allocated_amount"]
-        
-        old_cat_percentage = old_category_percentages.get(budget_category, 0)
-        new_cat_percentage = (spent / allocated * 100) if allocated > 0 else 0
-        
-        cat_budget["spent_amount"] = spent
-        cat_budget["percentage_used"] = new_cat_percentage
-        cat_budget["is_exceeded"] = spent > allocated
-        
-        if new_cat_percentage != old_cat_percentage:
-            await check_budget_notifications(
-                user_id=user_id,
-                budget_id=budget_id,
-                old_percentage=old_cat_percentage,
-                new_percentage=new_cat_percentage,
-                budget_name=budget["name"],
-                category_name=budget_category
+            # CAPTURE THE VERSION for the lock
+            # We will only update if the DB still has this exact timestamp
+            current_version_timestamp = budget.get("updated_at")
+
+            # Store old values for notification checks
+            old_total_percentage = budget.get("percentage_used", 0)
+            old_category_percentages = {
+                cat["main_category"]: cat.get("percentage_used", 0) 
+                for cat in budget["category_budgets"]
+            }
+            
+            budget_currency = budget.get("currency", "usd")
+            
+            # 2. Fetch Transactions (Standard Logic)
+            cursor = transactions_collection.find(
+                {
+                    "user_id": user_id,
+                    "type": "outflow",
+                    "currency": budget_currency,
+                    "date": {
+                        "$gte": budget["start_date"],
+                        "$lte": budget["end_date"]
+                    }
+                },
+                {"amount": 1, "main_category": 1, "sub_category": 1, "_id": 1} 
+            )
+            transactions = await cursor.to_list(length=None)
+            
+            # 3. Calculation Logic (Your Optimized O(N) Algorithm)
+            # Create a set of relevant categories for fast lookup
+            budget_category_keys = set(cat["main_category"] for cat in budget["category_budgets"])
+            
+            # Aggregation containers
+            category_spent_map = defaultdict(float)
+            matched_transaction_ids = set()
+            
+            # Single pass over transactions
+            for t in transactions:
+                amount = t["amount"]
+                t_id = t["_id"]
+                main_cat = t["main_category"]
+                sub_cat = t["sub_category"]
+                
+                # Construct possible keys
+                main_key = main_cat
+                sub_key = f"{main_cat} - {sub_cat}"
+                
+                matched_any = False
+                
+                # Check main category match
+                if main_key in budget_category_keys:
+                    category_spent_map[main_key] += amount
+                    matched_any = True
+                    
+                # Check sub-category match
+                if sub_key in budget_category_keys:
+                    category_spent_map[sub_key] += amount
+                    matched_any = True
+                    
+                if matched_any:
+                    matched_transaction_ids.add(t_id)
+
+            # Update category objects in memory
+            for cat_budget in budget["category_budgets"]:
+                budget_category = cat_budget["main_category"]
+                
+                spent = category_spent_map.get(budget_category, 0)
+                allocated = cat_budget["allocated_amount"]
+                
+                # Calculate percentage
+                new_cat_percentage = (spent / allocated * 100) if allocated > 0 else 0
+                
+                cat_budget["spent_amount"] = spent
+                cat_budget["percentage_used"] = new_cat_percentage
+                cat_budget["is_exceeded"] = spent > allocated
+                    
+            # Calculate Total Spent based on unique transactions
+            total_spent = sum(t["amount"] for t in transactions if t["_id"] in matched_transaction_ids)
+            
+            total_budget = calculate_total_budget_excluding_subcategories(budget["category_budgets"])
+            remaining = total_budget - total_spent
+            new_total_percentage = (total_spent / total_budget * 100) if total_budget > 0 else 0
+            
+            # Recalculate status
+            status = calculate_budget_status(budget, datetime.now(timezone.utc))
+            is_active = is_budget_active(budget, datetime.now(timezone.utc))
+            
+            # 4. Attempt Atomic Update with Optimistic Lock
+            # We filter by both _id AND updated_at. If updated_at changed in DB, this returns 0.
+            result = await budgets_collection.update_one(
+                {
+                    "_id": budget_id,
+                    "updated_at": current_version_timestamp
+                },
+                {
+                    "$set": {
+                        "category_budgets": budget["category_budgets"],
+                        "total_budget": total_budget,
+                        "total_spent": total_spent,
+                        "remaining_budget": remaining,
+                        "percentage_used": new_total_percentage,
+                        "status": status.value,
+                        "is_active": is_active,
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                }
             )
             
-    # Calculate Total Spent based on unique transactions used
-    # (We re-sum to avoid double counting if a transaction hit multiple overlapping buckets, 
-    # though your logic usually separates them. Using the set ensures 100% accuracy.)
-    total_spent = sum(t["amount"] for t in transactions if t["_id"] in matched_transaction_ids)
-    
-    # === OPTIMIZATION END ===
+            if result.modified_count == 1:
+                # === SUCCESS ===
+                
+                # Check notifications (Post-update logic)
+                # We check category notifications first
+                for cat_budget in budget["category_budgets"]:
+                    cat_name = cat_budget["main_category"]
+                    new_pct = cat_budget["percentage_used"]
+                    old_pct = old_category_percentages.get(cat_name, 0)
+                    
+                    if new_pct != old_pct:
+                        await check_budget_notifications(
+                            user_id=user_id,
+                            budget_id=budget_id,
+                            old_percentage=old_pct,
+                            new_percentage=new_pct,
+                            budget_name=budget["name"],
+                            category_name=cat_name
+                        )
 
-    total_budget = calculate_total_budget_excluding_subcategories(budget["category_budgets"])
-    remaining = total_budget - total_spent
-    new_total_percentage = (total_spent / total_budget * 100) if total_budget > 0 else 0
-    
-    if new_total_percentage != old_total_percentage:
-        # [FIX] Added await
-        await check_budget_notifications(
-            user_id=user_id,
-            budget_id=budget_id,
-            old_percentage=old_total_percentage,
-            new_percentage=new_total_percentage,
-            budget_name=budget["name"],
-            category_name=None
-        )
-    
-    status = calculate_budget_status(budget, datetime.now(timezone.utc))
-    is_active = is_budget_active(budget, datetime.now(timezone.utc))
-    
-    # [FIX] Added await
-    await budgets_collection.update_one(
-        {"_id": budget_id},
-        {
-            "$set": {
-                "category_budgets": budget["category_budgets"],
-                "total_budget": total_budget,
-                "total_spent": total_spent,
-                "remaining_budget": remaining,
-                "percentage_used": new_total_percentage,
-                "status": status.value,
-                "is_active": is_active,
-                "updated_at": datetime.now(timezone.utc)
-            }
-        }
-    )
-    
-    if status == BudgetStatus.COMPLETED and budget.get("auto_create_enabled"):
-        previous_status = budget.get("status")
-        if previous_status != BudgetStatus.COMPLETED.value:
-            # [FIX] Added await
-            updated_budget = await budgets_collection.find_one({"_id": budget_id})
+                # Check total budget notifications
+                if new_total_percentage != old_total_percentage:
+                    await check_budget_notifications(
+                        user_id=user_id,
+                        budget_id=budget_id,
+                        old_percentage=old_total_percentage,
+                        new_percentage=new_total_percentage,
+                        budget_name=budget["name"],
+                        category_name=None
+                    )
+                
+                # Check Auto-Create Logic
+                if status == BudgetStatus.COMPLETED and budget.get("auto_create_enabled"):
+                    # We need to fetch the fresh document to pass to auto-create safely
+                    # or ensure auto_create_next_budget handles it. 
+                    # Ideally, fire and forget.
+                    updated_budget = await budgets_collection.find_one({"_id": budget_id})
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            loop.create_task(auto_create_next_budget(updated_budget))
+                        else:
+                            asyncio.run(auto_create_next_budget(updated_budget))
+                    except Exception as e:
+                        print(f"Error triggering auto-create: {e}")
+                
+                return # Exit successfully
             
-            # Fire and forget auto-create task
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(auto_create_next_budget(updated_budget))
-                else:
-                    asyncio.run(auto_create_next_budget(updated_budget))
-            except Exception as e:
-                print(f"Error triggering auto-create: {e}")
+            else:
+                # === FAILURE (Race Condition) ===
+                attempt += 1
+                if attempt < max_retries:
+                    # Clear budget_doc so we force-fetch from DB next time
+                    budget_doc = None
+                    # Small random backoff to prevent thundering herd
+                    await asyncio.sleep(0.05 * attempt)
+                    continue
+                    
+        except Exception as e:
+            print(f"Error in update_budget_spent_amounts (attempt {attempt}): {str(e)}")
+            attempt += 1
+            await asyncio.sleep(0.1)
+
+    # If we exit the loop, we failed to update after retries
+    print(f"❌ Failed to update budget {budget_id} after {max_retries} attempts due to high contention.")
                 
                 
                 
