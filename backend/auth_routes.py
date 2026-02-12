@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta, UTC
 
 from fastapi import APIRouter, HTTPException, status, Depends,  Path
+from fastapi.concurrency import run_in_threadpool
 
 from utils import create_access_token, get_current_user, get_password_hash, verify_password
 from models import (
@@ -25,13 +26,16 @@ async def register(user_data: UserCreate):
     # [FIX] Added await
     if await users_collection.find_one({"email": user_data.email}):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-
+    
+    # [FIX] Offload blocking hash to thread pool
+    hashed_password = await run_in_threadpool(get_password_hash, user_data.password)
+    
     user_id = str(uuid.uuid4())
     new_user = {
         "_id": user_id,
         "name": user_data.name,
         "email": user_data.email,
-        "password": get_password_hash(user_data.password),
+        "password": hashed_password,
         "subscription_type": "free",
         "subscription_expires_at": None,
         "default_currency": "usd",
@@ -99,7 +103,8 @@ async def login(user_credentials: UserLogin):
     """Login user"""
     # [FIX] Added await
     user = await users_collection.find_one({"email": user_credentials.email})
-    if not user or not verify_password(user_credentials.password, user["password"]):
+    # [FIX] Offload blocking verify to thread pool
+    if not user or not await run_in_threadpool(verify_password, user_credentials.password, user["password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
     access_token = create_access_token(
@@ -208,7 +213,10 @@ async def change_password(
 ):
     """Change user password"""
     # Verify current password
-    if not verify_password(password_data.current_password, current_user["password"]):
+    # [FIX] Offload verification
+    is_correct = await run_in_threadpool(verify_password, password_data.current_password, current_user["password"])
+    
+    if not is_correct:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect"
@@ -228,7 +236,7 @@ async def change_password(
         )
     
     # Update password
-    hashed_password = get_password_hash(password_data.new_password)
+    hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
     
     # [FIX] Added await
     await users_collection.update_one(
