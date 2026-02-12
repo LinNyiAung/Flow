@@ -97,15 +97,17 @@ async def create_transaction(
             user_profile = None
         
         # Note: check_large_transaction might still be blocking if it does DB calls internally
-        await check_large_transaction(
-        user_id=current_user["_id"],
-        transaction=new_transaction,
-        user_spending_profile=user_profile
+        background_tasks.add_task(
+            check_large_transaction,
+            user_id=current_user["_id"],
+            transaction=new_transaction,
+            user_spending_profile=user_profile
         )
     except Exception as e:
         print(f"Error checking large transaction: {e}")
     
-    await update_relevant_budgets(
+    background_tasks.add_task(
+        update_relevant_budgets,
         current_user["_id"], 
         transaction_data.date,
         transaction_data.currency.value
@@ -226,12 +228,6 @@ async def disable_transaction_recurrence(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found or recurrence not enabled"
         )
-    
-    await update_relevant_budgets(
-        current_user["_id"], 
-        transaction["date"],
-        transaction["currency"]
-    )
 
     # [FIX] Added await
     await users_collection.update_one(
@@ -277,14 +273,6 @@ async def disable_parent_transaction_recurrence(
             detail="Parent transaction not found"
         )
     
-    # ✅ FIX: Update only relevant budgets
-    
-    # FIX: Run budget update synchronously
-    await update_relevant_budgets(
-        current_user["_id"], 
-        transaction["date"],
-        transaction["currency"]
-    )
 
     # 2. Mark AI Data as Stale (Instead of refreshing immediately)
     await users_collection.update_one(
@@ -407,9 +395,10 @@ async def update_transaction(
     
     
     # FIX: Run budget update synchronously
-    await update_relevant_budgets(
+    background_tasks.add_task(
+        update_relevant_budgets,
         current_user["_id"], 
-        transaction["date"],
+        transaction["date"], 
         transaction["currency"]
     )
 
@@ -478,7 +467,8 @@ async def delete_transaction(
             detail="Failed to delete transaction"
         )
 
-    await update_relevant_budgets(
+    background_tasks.add_task(
+        update_relevant_budgets,
         current_user["_id"], 
         transaction["date"],
         transaction["currency"]
@@ -858,6 +848,7 @@ Respond in JSON format:
 @router.post("/batch-create", response_model=List[TransactionResponse])
 async def batch_create_transactions(
     transactions_data: List[TransactionCreate],
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_premium)
 ):
     """Create multiple transactions at once"""
@@ -917,7 +908,7 @@ async def batch_create_transactions(
     
     # Process updates only if transactions were actually created
     if created_transactions:
-        await update_all_user_budgets(current_user["_id"])  # <--- Added await
+        background_tasks.add_task(update_all_user_budgets, current_user["_id"])
 
         # === START FIX: Cache Invalidation ===
         # Since we just added multiple transactions, the cached balance is now stale.
