@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, UTC, timedelta
 import threading
 from typing import Dict, List, Optional
@@ -202,8 +203,15 @@ async def create_notification(
         except Exception as e:
             print(f"❌ Error sending background FCM: {e}")
 
-    # Fire and forget
-    threading.Thread(target=send_background_fcm, daemon=True).start()
+    # [FIX] Fire and forget using the event loop's thread pool
+    # This prevents blocking the async loop while keeping execution managed
+    try:
+        loop = asyncio.get_running_loop()
+        # Schedule the blocking sync function in a separate thread, managed by the loop
+        loop.create_task(asyncio.to_thread(send_background_fcm))
+    except RuntimeError:
+        # Fallback if no loop is running (e.g., synchronous testing context)
+        threading.Thread(target=send_background_fcm, daemon=True).start()
     
     return notification
 
