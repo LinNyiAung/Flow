@@ -6,6 +6,7 @@ from typing import List, Optional
 
 # Added BackgroundTasks to imports
 from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
 
 from utils import get_current_user, require_premium
 from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
@@ -948,9 +949,14 @@ async def extract_transaction_from_image(
                 detail="OpenAI API key not configured"
             )
         
-        # Read and encode image
+        # Read image (Async I/O - OK)
         image_data = await image.read()
-        base64_image = base64.b64encode(image_data).decode('utf-8')
+        
+        # [FIX] Offload CPU-intensive Base64 encoding to thread pool
+        def encode_image(data):
+            return base64.b64encode(data).decode('utf-8')
+
+        base64_image = await run_in_threadpool(encode_image, image_data)
         
         # [FIX] Added await
         inflow_cats = await categories_collection.find_one({"_id": "inflow"})
