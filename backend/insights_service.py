@@ -572,49 +572,70 @@ Total Transactions: {total_tx}
 
 
 async def generate_weekly_insights_for_all_users():
-    """Generate weekly insights for all premium users (ASYNC)"""
-    logger.info("🔄 Starting weekly insights generation for all premium users...")
+    """Generate weekly insights for all premium users using Bounded Concurrency"""
+    logger.info("🔄 Starting weekly insights generation (Concurrent Mode)...")
     
-    # [FIX] Async Cursor
-    cursor = users_collection.find({
-        "subscription_type": "premium"
-    })
+    # 1. Fetch all premium users quickly to release DB cursor
+    # Projection only gets necessary fields to save memory
+    cursor = users_collection.find(
+        {"subscription_type": "premium"},
+        {"_id": 1, "subscription_expires_at": 1}
+    )
+    users = await cursor.to_list(length=None)
+    
+    if not users:
+        logger.info("ℹ️ No premium users found for weekly insights.")
+        return
+
+    logger.info(f"📊 Processing {len(users)} premium users for weekly insights...")
+
+    # 2. Semaphore to limit concurrency (e.g., 5 users at a time = ~10 concurrent AI calls)
+    # Adjust this number based on your OpenAI/Gemini tier limits.
+    sem = asyncio.Semaphore(5)
     
     success_count = 0
     error_count = 0
-    
-    # [FIX] Use async for
-    async for user in cursor:
+
+    async def process_user_weekly(user):
+        nonlocal success_count, error_count
         user_id = user["_id"]
         
-        try:
-            # Check subscription validity
-            expires_at = user.get("subscription_expires_at")
-            if expires_at and expires_at < datetime.now(UTC):
-                logger.info(f"⏭️  Skipping user {user_id} - subscription expired")
-                continue
-            
-            # Generate insights for both providers
-            for provider in ["openai", "gemini"]:
-                result = None
-                try:
-                    # FIX: Directly await the async function
-                    result = await generate_weekly_insight(user_id, provider)
-                    
-                    if result:
-                        success_count += 1
-                        logger.info(f"✅ Generated {provider} weekly insight for user {user_id}")
-                    else:
+        async with sem:  # Wait for a free slot in the semaphore
+            try:
+                # Check subscription validity
+                expires_at = user.get("subscription_expires_at")
+                if expires_at and expires_at < datetime.now(UTC):
+                    logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
+                    return
+
+                # Run both providers concurrently for this user
+                # This cuts processing time per user in half
+                tasks = [
+                    generate_weekly_insight(user_id, "openai"),
+                    generate_weekly_insight(user_id, "gemini")
+                ]
+                
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for provider, result in zip(["openai", "gemini"], results):
+                    if isinstance(result, Exception):
+                        logger.error(f"❌ Error generating {provider} weekly insight for {user_id}: {str(result)}")
                         error_count += 1
-                        logger.warning(f"⚠️ Failed to generate {provider} insight for user {user_id}")
-                        
-                except Exception as e:
-                    error_count += 1
-                    logger.error(f"❌ Error generating {provider} insight for user {user_id}: {str(e)}")
-                    
-        except Exception as e:
-            error_count += 1
-            logger.error(f"❌ Error processing user {user_id}: {str(e)}")
+                    elif result:
+                        logger.info(f"✅ Generated {provider} weekly insight for user {user_id}")
+                        success_count += 1
+                    else:
+                        logger.warning(f"⚠️ Failed to generate {provider} weekly insight for user {user_id} (Returned None)")
+                        error_count += 1
+
+            except Exception as e:
+                logger.error(f"❌ Critical error processing user {user_id}: {str(e)}")
+                error_count += 1
+
+    # 3. Create and run all tasks
+    # This fires off the workers, which will respect the semaphore limit
+    tasks = [process_user_weekly(user) for user in users]
+    await asyncio.gather(*tasks)
     
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
 
@@ -1247,48 +1268,65 @@ Total Transactions: {total_tx}
 
 
 async def generate_monthly_insights_for_all_users():
-    """Generate monthly insights for all premium users (ASYNC)"""
-    logger.info("📅 Starting monthly insights generation for all premium users...")
+    """Generate monthly insights for all premium users using Bounded Concurrency"""
+    logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
     
-    # [FIX] Async cursor
-    cursor = users_collection.find({
-        "subscription_type": "premium"
-    })
+    # 1. Fetch all premium users
+    cursor = users_collection.find(
+        {"subscription_type": "premium"},
+        {"_id": 1, "subscription_expires_at": 1}
+    )
+    users = await cursor.to_list(length=None)
+
+    if not users:
+        logger.info("ℹ️ No premium users found for monthly insights.")
+        return
+
+    logger.info(f"📊 Processing {len(users)} premium users for monthly insights...")
+
+    # 2. Semaphore to limit concurrency
+    sem = asyncio.Semaphore(5)
     
     success_count = 0
     error_count = 0
-    
-    # [FIX] Use async for
-    async for user in cursor:
+
+    async def process_user_monthly(user):
+        nonlocal success_count, error_count
         user_id = user["_id"]
         
-        try:
-            # Check subscription validity
-            expires_at = user.get("subscription_expires_at")
-            if expires_at and expires_at < datetime.now(UTC):
-                logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
-                continue
-            
-            # Generate insights for both providers
-            for provider in ["openai", "gemini"]:
-                result = None
-                try:
-                    # FIX: Directly await the async function
-                    result = await generate_monthly_insight(user_id, provider)
-                    
-                    if result:
-                        success_count += 1
-                        logger.info(f"✅ Generated {provider} monthly insight for user {user_id}")
-                    else:
+        async with sem:
+            try:
+                # Check subscription validity
+                expires_at = user.get("subscription_expires_at")
+                if expires_at and expires_at < datetime.now(UTC):
+                    logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
+                    return
+
+                # Run both providers concurrently
+                tasks = [
+                    generate_monthly_insight(user_id, "openai"),
+                    generate_monthly_insight(user_id, "gemini")
+                ]
+                
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for provider, result in zip(["openai", "gemini"], results):
+                    if isinstance(result, Exception):
+                        logger.error(f"❌ Error generating {provider} monthly insight for {user_id}: {str(result)}")
                         error_count += 1
-                        logger.warning(f"⚠️ Failed to generate {provider} monthly insight for user {user_id}")
-                        
-                except Exception as e:
-                    error_count += 1
-                    logger.error(f"❌ Error generating {provider} monthly insight for user {user_id}: {str(e)}")
-                    
-        except Exception as e:
-            error_count += 1
-            logger.error(f"❌ Error processing user {user_id}: {str(e)}")
+                    elif result:
+                        logger.info(f"✅ Generated {provider} monthly insight for user {user_id}")
+                        success_count += 1
+                    else:
+                        logger.warning(f"⚠️ Failed to generate {provider} monthly insight for user {user_id} (Returned None)")
+                        error_count += 1
+
+            except Exception as e:
+                logger.error(f"❌ Critical error processing user {user_id}: {str(e)}")
+                error_count += 1
+
+    # 3. Run all tasks
+    tasks = [process_user_monthly(user) for user in users]
+    await asyncio.gather(*tasks)
     
     logger.info(f"✅ Monthly insights generation completed: {success_count} successful, {error_count} errors")
