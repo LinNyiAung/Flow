@@ -12,6 +12,7 @@ from typing import List, Optional
 # Added BackgroundTasks to imports
 from fastapi import APIRouter, File, HTTPException, UploadFile, logger, status, Depends, Query, Path, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
+from pymongo.errors import BulkWriteError  # <--- PRO FIX IMPORT
 
 from ai_usage_models import AIFeatureType, AIProviderType
 from ai_usage_service import track_ai_usage
@@ -74,7 +75,6 @@ async def create_transaction(
             "parent_transaction_id": None
         }
 
-    # [FIX] Added await
     result = await transactions_collection.insert_one(new_transaction)
 
     # === FIX: Cache Invalidation Strategy ===
@@ -90,7 +90,6 @@ async def create_transaction(
     
     # Check for large transaction
     try:
-        # [FIX] Async find with to_list()
         cursor = transactions_collection.find({
             "user_id": current_user["_id"],
             "type": "outflow",
@@ -104,7 +103,6 @@ async def create_transaction(
         else:
             user_profile = None
         
-        # Note: check_large_transaction might still be blocking if it does DB calls internally
         background_tasks.add_task(
             check_large_transaction,
             user_id=current_user["_id"],
@@ -122,7 +120,6 @@ async def create_transaction(
     )
 
     # 2. Mark AI Data as Stale
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
@@ -176,7 +173,6 @@ async def get_transactions(
             date_filter["$lte"] = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
         query["date"] = date_filter
 
-    # [FIX] Async query execution
     cursor = transactions_collection.find(query)\
         .sort([("date", -1), ("created_at", -1)])\
         .skip(skip)\
@@ -216,7 +212,6 @@ async def disable_transaction_recurrence(
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for a transaction"""
-    # [FIX] Added await
     transaction = await transactions_collection.find_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
@@ -228,7 +223,6 @@ async def disable_transaction_recurrence(
             detail="Transaction not found"
         )
     
-    # Note: Ensure disable_recurrence_for_transaction is also updated to be async in its service file
     success = await disable_recurrence_for_transaction(transaction_id, current_user["_id"])
     
     if not success:
@@ -237,7 +231,6 @@ async def disable_transaction_recurrence(
             detail="Transaction not found or recurrence not enabled"
         )
 
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
@@ -253,7 +246,6 @@ async def disable_parent_transaction_recurrence(
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
-    # Get the transaction to find its parent
     transaction = await transactions_collection.find_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
@@ -281,8 +273,6 @@ async def disable_parent_transaction_recurrence(
             detail="Parent transaction not found"
         )
     
-
-    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
@@ -326,7 +316,6 @@ async def get_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Get single transaction"""
-    # [FIX] Added await
     transaction = await transactions_collection.find_one({
         "_id": transaction_id,
         "user_id": current_user["_id"]
@@ -389,20 +378,13 @@ async def update_transaction(
     {"$set": update_data}
     )
 
-
-    # === START FIX: Cache Invalidation ===
-    # Force a recalculation on next read to ensure accuracy after edit/delete
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
     )
-    # === END FIX ===
 
     updated_transaction = await transactions_collection.find_one({"_id": transaction_id})
     
-    
-    
-    # FIX: Run budget update synchronously
     background_tasks.add_task(
         update_relevant_budgets,
         current_user["_id"], 
@@ -410,13 +392,11 @@ async def update_transaction(
         transaction["currency"]
     )
 
-    # 2. Mark AI Data as Stale (Instead of refreshing immediately)
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
     )
     
-
     recurrence_obj = None
     if updated_transaction.get("recurrence"):
         recurrence_obj = TransactionRecurrence(**updated_transaction["recurrence"])
@@ -445,7 +425,6 @@ async def delete_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete transaction"""
-    # [FIX] Added await
     transaction = await transactions_collection.find_one({
         "_id": transaction_id, 
         "user_id": current_user["_id"]
@@ -457,13 +436,11 @@ async def delete_transaction(
             detail="Transaction not found"
         )
 
-    # [FIX] Added await
     result = await transactions_collection.delete_one({
         "_id": transaction_id, 
         "user_id": current_user["_id"]
     })
 
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$unset": {"balances": ""}}
@@ -482,7 +459,6 @@ async def delete_transaction(
         transaction["currency"]
     )
 
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"ai_data_stale": True}}
@@ -499,15 +475,12 @@ async def transcribe_audio(
     """Transcribe audio to text using OpenAI Whisper (Memory Optimized)"""
     temp_path = None
     try:
-        # 1. Validation
         if not settings.OPENAI_API_KEY:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="OpenAI API key not configured"
             )
         
-        # Optional: Validate file size via Content-Length header (e.g., limit to 25MB)
-        # OpenAI Whisper limit is 25MB
         MAX_AUDIO_SIZE = 25 * 1024 * 1024 
         content_length = audio.headers.get('content-length')
         if content_length and int(content_length) > MAX_AUDIO_SIZE:
@@ -516,24 +489,18 @@ async def transcribe_audio(
                 detail="Audio file exceeds the 25MB limit."
             )
 
-        # 2. Stream file to disk (Fixes OOM Memory Leak)
-        # We determine extension from filename, default to .wav if missing
         file_ext = os.path.splitext(audio.filename)[1] if audio.filename else ".wav"
         if not file_ext:
             file_ext = ".wav"
             
-        # Create a temp file and stream the upload data into it
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
-            # shutil.copyfileobj reads in chunks (default 16KB-64KB) preventing RAM spikes
             shutil.copyfileobj(audio.file, temp_audio)
             temp_path = temp_audio.name
         
-        # 3. Transcribe with OpenAI
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
             
-            # Open the saved temp file for reading
             with open(temp_path, 'rb') as audio_file:
                 transcript = await client.audio.transcriptions.create(
                     model="whisper-1",
@@ -541,9 +508,7 @@ async def transcribe_audio(
                     language="en" 
                 )
             
-            # 4. Track AI Usage
             transcription_length = len(transcript.text)
-            # Rough estimation: 1 token ~= 4 chars for English
             estimated_input_tokens = int(transcription_length / 4) 
             estimated_output_tokens = int(transcription_length / 4)
             estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
@@ -568,7 +533,6 @@ async def transcribe_audio(
             return {"transcription": transcript.text}
 
         except Exception as e:
-            # Catch OpenAI specific errors
             logger.error(f"OpenAI API Error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY, 
@@ -584,7 +548,6 @@ async def transcribe_audio(
             detail=f"Failed to transcribe audio: {str(e)}"
         )
     finally:
-        # 5. Cleanup: Always delete the temp file
         if temp_path and os.path.exists(temp_path):
             try:
                 os.unlink(temp_path)
@@ -605,7 +568,6 @@ async def extract_transaction_from_text(
                 detail="OpenAI API key not configured"
             )
         
-        # [FIX] Added await
         inflow_cats = await categories_collection.find_one({"_id": "inflow"})
         outflow_cats = await categories_collection.find_one({"_id": "outflow"})
         
@@ -619,7 +581,6 @@ async def extract_transaction_from_text(
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
         
-        # Get user's default currency
         user_default_currency = current_user.get("default_currency", "usd")
         
         system_prompt = f"""You are a financial transaction extraction assistant. Extract transaction details from user text.
@@ -672,7 +633,6 @@ Respond in JSON format:
             temperature=0.3
         )
 
-        # Track AI usage
         if hasattr(response, 'usage'):
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
@@ -702,7 +662,6 @@ Respond in JSON format:
         
         result = json.loads(response.choices[0].message.content)
         
-        # Validate and parse
         return TransactionExtraction(
             type=result["type"],
             main_category=result["main_category"],
@@ -710,7 +669,7 @@ Respond in JSON format:
             date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
             description=result.get("description"),
             amount=float(result["amount"]),
-            currency=Currency(result.get("currency", user_default_currency)),  # Fallback to user default
+            currency=Currency(result.get("currency", user_default_currency)),
             confidence=float(result["confidence"]),
             reasoning=result.get("reasoning")
         )
@@ -736,7 +695,6 @@ async def extract_multiple_transactions_from_text(
                 detail="OpenAI API key not configured"
             )
         
-        # Get user's categories
         inflow_cats = await categories_collection.find_one({"_id": "inflow"})
         outflow_cats = await categories_collection.find_one({"_id": "outflow"})
         
@@ -750,7 +708,6 @@ async def extract_multiple_transactions_from_text(
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
         
-        # Get user's default currency
         user_default_currency = current_user.get("default_currency", "usd")
         
         system_prompt = f"""You are a financial transaction extraction assistant. Extract ALL transaction details from user text, even if there are multiple transactions mentioned.
@@ -818,7 +775,6 @@ Respond in JSON format:
         )
 
 
-        # Track AI usage
         if hasattr(response, 'usage'):
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
@@ -848,7 +804,6 @@ Respond in JSON format:
         
         result = json.loads(response.choices[0].message.content)
         
-        # Parse and validate transactions
         transactions = []
         for tx_data in result.get("transactions", []):
             transactions.append(TransactionExtraction(
@@ -858,7 +813,7 @@ Respond in JSON format:
                 date=datetime.fromisoformat(tx_data["date"]).replace(tzinfo=UTC),
                 description=tx_data.get("description"),
                 amount=float(tx_data["amount"]),
-                currency=Currency(tx_data.get("currency", user_default_currency)),  # Fallback to user default
+                currency=Currency(tx_data.get("currency", user_default_currency)),
                 confidence=float(tx_data["confidence"]),
                 reasoning=tx_data.get("reasoning")
             ))
@@ -884,88 +839,104 @@ async def batch_create_transactions(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_premium)
 ):
-    """Create multiple transactions at once"""
-    created_transactions = []
-    errors = []
+    """Create multiple transactions at once (Optimized with BulkWriteError handling)"""
+    new_transactions = []
+    response_models = []
     
-    for idx, transaction_data in enumerate(transactions_data):
-        try:
-            transaction_id = str(uuid.uuid4())
-            now = datetime.now(UTC)
-            
-            new_transaction = {
-                "_id": transaction_id,
-                "user_id": current_user["_id"],
-                "type": transaction_data.type.value,
-                "main_category": transaction_data.main_category,
-                "sub_category": transaction_data.sub_category,
-                "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
-                "description": transaction_data.description,
-                "amount": transaction_data.amount,
-                "currency": transaction_data.currency.value,  
-                "created_at": now,
-                "updated_at": now
+    now = datetime.now(UTC)
+
+    # 1. Prepare all documents in memory (Fast)
+    for transaction_data in transactions_data:
+        transaction_id = str(uuid.uuid4())
+        
+        doc = {
+            "_id": transaction_id,
+            "user_id": current_user["_id"],
+            "type": transaction_data.type.value,
+            "main_category": transaction_data.main_category,
+            "sub_category": transaction_data.sub_category,
+            "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
+            "description": transaction_data.description,
+            "amount": transaction_data.amount,
+            "currency": transaction_data.currency.value,
+            "created_at": now,
+            "updated_at": now
+        }
+
+        # Add recurrence logic
+        if transaction_data.recurrence:
+            doc["recurrence"] = transaction_data.recurrence.dict()
+            if transaction_data.recurrence.enabled:
+                doc["recurrence"]["last_created_date"] = doc["date"]
+        else:
+            doc["recurrence"] = {
+                "enabled": False,
+                "config": None,
+                "last_created_date": None,
+                "parent_transaction_id": None
             }
+        
+        new_transactions.append(doc)
+
+        # Prepare response model immediately
+        recurrence_obj = None
+        if transaction_data.recurrence:
+             recurrence_obj = transaction_data.recurrence # Re-use input model or construct from dict
+
+        response_models.append(TransactionResponse(
+            id=transaction_id,
+            user_id=current_user["_id"],
+            type=transaction_data.type,
+            main_category=transaction_data.main_category,
+            sub_category=transaction_data.sub_category,
+            date=transaction_data.date,
+            description=transaction_data.description,
+            amount=transaction_data.amount,
+            currency=transaction_data.currency,
+            created_at=now,
+            updated_at=now,
+            recurrence=recurrence_obj,
+            parent_transaction_id=None
+        ))
+
+    # 2. Bulk Insert with "Pro" Error Handling
+    if new_transactions:
+        try:
+            # ordered=False continues inserting even if one fails
+            await transactions_collection.insert_many(new_transactions, ordered=False)
             
-            # [ADD THIS BLOCK to match create_transaction logic]
-            if transaction_data.recurrence:
-                new_transaction["recurrence"] = transaction_data.recurrence.dict()
-                if transaction_data.recurrence.enabled:
-                    new_transaction["recurrence"]["last_created_date"] = new_transaction["date"]
-            else:
-                new_transaction["recurrence"] = {
-                    "enabled": False,
-                    "config": None,
-                    "last_created_date": None,
-                    "parent_transaction_id": None
-                }
+        except BulkWriteError as bwe:
+            # === PRO FIX: Handle partial failures ===
+            # This catches cases where some inserts failed but others succeeded.
+            # bwe.details['nInserted'] tells you how many worked.
+            inserted_count = bwe.details['nInserted']
+            logger.warning(f"Batch insert partial failure. {inserted_count}/{len(new_transactions)} inserted. Errors: {bwe.details['writeErrors']}")
             
-            result = await transactions_collection.insert_one(new_transaction)
-            
-            if result.inserted_id:
-                created_transactions.append(TransactionResponse(
-                    id=transaction_id,
-                    user_id=current_user["_id"],
-                    type=transaction_data.type,
-                    main_category=transaction_data.main_category,
-                    sub_category=transaction_data.sub_category,
-                    date=transaction_data.date,
-                    description=transaction_data.description,
-                    amount=transaction_data.amount,
-                    currency=transaction_data.currency,
-                    created_at=now,
-                    updated_at=now
-                ))
+            # If at least ONE succeeded, we proceed with post-processing.
+            if inserted_count == 0:
+                 raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="All batch transactions failed to insert."
+                )
+        
         except Exception as e:
-            errors.append(f"Transaction {idx + 1}: {str(e)}")
-    
-    # Process updates only if transactions were actually created
-    if created_transactions:
+            # Catch other unexpected errors
+            logger.error(f"Batch insert critical failure: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Batch insert failed: {str(e)}"
+            )
+
+        # 3. Post-processing (Background tasks & Cache invalidation)
+        # We run this if at least one transaction succeeded (either normal flow or partial BulkWriteError)
         background_tasks.add_task(update_all_user_budgets, current_user["_id"])
 
-        # === START FIX: Cache Invalidation ===
-        # Since we just added multiple transactions, the cached balance is now stale.
-        # Invalidate it so it recalculates on the next dashboard load.
         await users_collection.update_one(
             {"_id": current_user["_id"]},
-            {"$unset": {"balances": ""}}
+            {"$unset": {"balances": ""}, "$set": {"ai_data_stale": True}}
         )
-        # === END FIX ===
-        
-        # 2. Mark AI Data as Stale (Fast & Lazy)
-        # This prevents unnecessary AI processing until the user actually chats
-        await users_collection.update_one(
-            {"_id": current_user["_id"]},
-            {"$set": {"ai_data_stale": True}}
-        )
-    
-    if errors and not created_transactions:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create transactions: {'; '.join(errors)}"
-        )
-    
-    return created_transactions
+
+    return response_models
 
 
 # Constants
