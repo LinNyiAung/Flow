@@ -579,8 +579,8 @@ def is_budget_active(budget: Dict, current_date: datetime) -> bool:
 
 async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: Optional[Dict] = None):
     """
-    Recalculate spent amounts for a budget based on transactions.
-    Uses Optimistic Locking to prevent race conditions during concurrent updates.
+    Recalculate spent amounts for a budget using MongoDB Aggregation for O(1) memory usage.
+    Uses Optimistic Locking to prevent race conditions.
     """
     max_retries = 3
     attempt = 0
@@ -588,7 +588,6 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
     while attempt < max_retries:
         try:
             # 1. Get the budget document and its version (updated_at)
-            # If provided doc is fresh (attempt 0), use it; otherwise fetch from DB
             if attempt == 0 and budget_doc:
                 budget = budget_doc
             else:
@@ -597,8 +596,7 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
             if not budget:
                 return
 
-            # CAPTURE THE VERSION for the lock
-            # We will only update if the DB still has this exact timestamp
+            # CAPTURE VERSION for optimistic lock
             current_version_timestamp = budget.get("updated_at")
 
             # Store old values for notification checks
@@ -610,60 +608,76 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
             
             budget_currency = budget.get("currency", "usd")
             
-            # 2. Fetch Transactions (Standard Logic)
-            cursor = transactions_collection.find(
+            # 2. AGGREGATION PIPELINE (The Fix)
+            # Instead of fetching all transactions, we ask Mongo to sum them up by category
+            pipeline = [
                 {
-                    "user_id": user_id,
-                    "type": "outflow",
-                    "currency": budget_currency,
-                    "date": {
-                        "$gte": budget["start_date"],
-                        "$lte": budget["end_date"]
+                    "$match": {
+                        "user_id": user_id,
+                        "type": "outflow",
+                        "currency": budget_currency,
+                        "date": {
+                            "$gte": budget["start_date"],
+                            "$lte": budget["end_date"]
+                        }
                     }
                 },
-                {"amount": 1, "main_category": 1, "sub_category": 1, "_id": 1} 
-            )
-            transactions = await cursor.to_list(length=None)
+                {
+                    "$group": {
+                        "_id": {
+                            "main": "$main_category",
+                            "sub": "$sub_category"
+                        },
+                        "total_amount": {"$sum": "$amount"}
+                    }
+                }
+            ]
             
-            # 3. Calculation Logic (Your Optimized O(N) Algorithm)
-            # Create a set of relevant categories for fast lookup
+            # Execute aggregation
+            cursor = transactions_collection.aggregate(pipeline)
+            agg_results = await cursor.to_list(length=None)
+            
+            # 3. Process Results in Memory
+            # Create a lookup set for categories actually in the budget
             budget_category_keys = set(cat["main_category"] for cat in budget["category_budgets"])
             
-            # Aggregation containers
+            # Temporary storage for calculations
             category_spent_map = defaultdict(float)
-            matched_transaction_ids = set()
+            total_spent_accum = 0.0
             
-            # Single pass over transactions
-            for t in transactions:
-                amount = t["amount"]
-                t_id = t["_id"]
-                main_cat = t["main_category"]
-                sub_cat = t["sub_category"]
+            for res in agg_results:
+                group_key = res["_id"]
+                amount = res["total_amount"]
                 
-                # Construct possible keys
+                main_cat = group_key.get("main")
+                sub_cat = group_key.get("sub")
+                
+                # Construct keys matching budget format
                 main_key = main_cat
                 sub_key = f"{main_cat} - {sub_cat}"
                 
-                matched_any = False
+                # Determine if this transaction group matches ANY bucket in the budget
+                is_relevant = False
                 
-                # Check main category match
+                # 1. Match Main Category (e.g., "Food")
                 if main_key in budget_category_keys:
                     category_spent_map[main_key] += amount
-                    matched_any = True
+                    is_relevant = True
                     
-                # Check sub-category match
+                # 2. Match Specific Sub-Category (e.g., "Food - Groceries")
                 if sub_key in budget_category_keys:
                     category_spent_map[sub_key] += amount
-                    matched_any = True
-                    
-                if matched_any:
-                    matched_transaction_ids.add(t_id)
+                    is_relevant = True
+                
+                # Only add to total spent if it matched a tracked category
+                if is_relevant:
+                    total_spent_accum += amount
 
-            # Update category objects in memory
+            # Update category objects in the budget dictionary
             for cat_budget in budget["category_budgets"]:
                 budget_category = cat_budget["main_category"]
                 
-                spent = category_spent_map.get(budget_category, 0)
+                spent = category_spent_map.get(budget_category, 0.0)
                 allocated = cat_budget["allocated_amount"]
                 
                 # Calculate percentage
@@ -673,19 +687,17 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
                 cat_budget["percentage_used"] = new_cat_percentage
                 cat_budget["is_exceeded"] = spent > allocated
                     
-            # Calculate Total Spent based on unique transactions
-            total_spent = sum(t["amount"] for t in transactions if t["_id"] in matched_transaction_ids)
-            
+            # Update Totals
             total_budget = calculate_total_budget_excluding_subcategories(budget["category_budgets"])
-            remaining = total_budget - total_spent
-            new_total_percentage = (total_spent / total_budget * 100) if total_budget > 0 else 0
+            remaining = total_budget - total_spent_accum
+            new_total_percentage = (total_spent_accum / total_budget * 100) if total_budget > 0 else 0
             
             # Recalculate status
-            status = calculate_budget_status(budget, datetime.now(timezone.utc))
+            status_enum = calculate_budget_status(budget, datetime.now(timezone.utc))
             is_active = is_budget_active(budget, datetime.now(timezone.utc))
             
             # 4. Attempt Atomic Update with Optimistic Lock
-            # We filter by both _id AND updated_at. If updated_at changed in DB, this returns 0.
+            #
             result = await budgets_collection.update_one(
                 {
                     "_id": budget_id,
@@ -695,10 +707,10 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
                     "$set": {
                         "category_budgets": budget["category_budgets"],
                         "total_budget": total_budget,
-                        "total_spent": total_spent,
+                        "total_spent": total_spent_accum,
                         "remaining_budget": remaining,
                         "percentage_used": new_total_percentage,
-                        "status": status.value,
+                        "status": status_enum.value,
                         "is_active": is_active,
                         "updated_at": datetime.now(timezone.utc)
                     }
@@ -708,8 +720,7 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
             if result.modified_count == 1:
                 # === SUCCESS ===
                 
-                # Check notifications (Post-update logic)
-                # We check category notifications first
+                # Check notifications (Async - fire and forget if needed, but here we await)
                 for cat_budget in budget["category_budgets"]:
                     cat_name = cat_budget["main_category"]
                     new_pct = cat_budget["percentage_used"]
@@ -737,10 +748,7 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
                     )
                 
                 # Check Auto-Create Logic
-                if status == BudgetStatus.COMPLETED and budget.get("auto_create_enabled"):
-                    # We need to fetch the fresh document to pass to auto-create safely
-                    # or ensure auto_create_next_budget handles it. 
-                    # Ideally, fire and forget.
+                if status_enum == BudgetStatus.COMPLETED and budget.get("auto_create_enabled"):
                     updated_budget = await budgets_collection.find_one({"_id": budget_id})
                     try:
                         loop = asyncio.get_event_loop()
@@ -757,19 +765,18 @@ async def update_budget_spent_amounts(user_id: str, budget_id: str, budget_doc: 
                 # === FAILURE (Race Condition) ===
                 attempt += 1
                 if attempt < max_retries:
-                    # Clear budget_doc so we force-fetch from DB next time
-                    budget_doc = None
-                    # Small random backoff to prevent thundering herd
+                    budget_doc = None # Force re-fetch
                     await asyncio.sleep(0.05 * attempt)
                     continue
                     
         except Exception as e:
             print(f"Error in update_budget_spent_amounts (attempt {attempt}): {str(e)}")
+            import traceback
+            traceback.print_exc()
             attempt += 1
             await asyncio.sleep(0.1)
 
-    # If we exit the loop, we failed to update after retries
-    print(f"❌ Failed to update budget {budget_id} after {max_retries} attempts due to high contention.")
+    print(f"❌ Failed to update budget {budget_id} after {max_retries} attempts.")
                 
                 
                 
