@@ -8,9 +8,10 @@ from PIL import Image
 import uuid
 from datetime import datetime, UTC, timezone
 from typing import List, Optional
+import logging
 
 # Added BackgroundTasks to imports
-from fastapi import APIRouter, File, HTTPException, UploadFile, logger, status, Depends, Query, Path, BackgroundTasks
+from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from pymongo.errors import BulkWriteError  # <--- PRO FIX IMPORT
 
@@ -31,6 +32,9 @@ from notification_service import check_large_transaction
 from database import transactions_collection, categories_collection, users_collection
     
 from config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
@@ -638,7 +642,7 @@ Respond in JSON format:
             from ai_usage_models import AIFeatureType, AIProviderType
             import logging
             
-            logger = logging.getLogger(__name__)
+            
             
             input_tokens = response.usage.prompt_tokens
             output_tokens = response.usage.completion_tokens
@@ -780,7 +784,7 @@ Respond in JSON format:
             from ai_usage_models import AIFeatureType, AIProviderType
             import logging
             
-            logger = logging.getLogger(__name__)
+            
             
             input_tokens = response.usage.prompt_tokens
             output_tokens = response.usage.completion_tokens
