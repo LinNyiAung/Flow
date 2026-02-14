@@ -65,14 +65,20 @@ async def startup_db_client():
     await initialize_admin()
     await create_db_indexes()
     
-    # Start the scheduler safely inside the running loop
     try:
-        # Import here to avoid circular dependency issues if any
         from scheduler import start_scheduler
-        start_scheduler()
+        # FIX: Assign to app.state so it persists and isn't garbage collected
+        app.state.scheduler = start_scheduler() 
         print("✅ Notification scheduler started successfully (Async Mode)")
     except Exception as e:
         print(f"⚠️ Failed to start notification scheduler: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    if hasattr(app.state, "scheduler"):
+        app.state.scheduler.shutdown()
+        print("🛑 Scheduler shut down successfully")
     
     
 try:
