@@ -1,13 +1,20 @@
 import base64
+import io
 import json
+import os
+import shutil
+import tempfile
+from PIL import Image
 import uuid
 from datetime import datetime, UTC, timezone
 from typing import List, Optional
 
 # Added BackgroundTasks to imports
-from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
+from fastapi import APIRouter, File, HTTPException, UploadFile, logger, status, Depends, Query, Path, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 
+from ai_usage_models import AIFeatureType, AIProviderType
+from ai_usage_service import track_ai_usage
 from utils import get_current_user, require_premium
 from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
@@ -489,43 +496,55 @@ async def transcribe_audio(
     audio: UploadFile = File(...),
     current_user: dict = Depends(require_premium)
 ):
-    """Transcribe audio to text using OpenAI Whisper"""
+    """Transcribe audio to text using OpenAI Whisper (Memory Optimized)"""
+    temp_path = None
     try:
+        # 1. Validation
         if not settings.OPENAI_API_KEY:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="OpenAI API key not configured"
             )
         
-        # Read audio file
-        audio_data = await audio.read()
-        
-        # Save temporarily
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_audio:
-            temp_audio.write(audio_data)
+        # Optional: Validate file size via Content-Length header (e.g., limit to 25MB)
+        # OpenAI Whisper limit is 25MB
+        MAX_AUDIO_SIZE = 25 * 1024 * 1024 
+        content_length = audio.headers.get('content-length')
+        if content_length and int(content_length) > MAX_AUDIO_SIZE:
+             raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Audio file exceeds the 25MB limit."
+            )
+
+        # 2. Stream file to disk (Fixes OOM Memory Leak)
+        # We determine extension from filename, default to .wav if missing
+        file_ext = os.path.splitext(audio.filename)[1] if audio.filename else ".wav"
+        if not file_ext:
+            file_ext = ".wav"
+            
+        # Create a temp file and stream the upload data into it
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
+            # shutil.copyfileobj reads in chunks (default 16KB-64KB) preventing RAM spikes
+            shutil.copyfileobj(audio.file, temp_audio)
             temp_path = temp_audio.name
         
+        # 3. Transcribe with OpenAI
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
             
+            # Open the saved temp file for reading
             with open(temp_path, 'rb') as audio_file:
                 transcript = await client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
-                    language="en"
+                    language="en" 
                 )
             
-            # Track AI usage for audio transcription
-            from ai_usage_service import track_ai_usage
-            from ai_usage_models import AIFeatureType, AIProviderType
-            import logging
-            
-            logger = logging.getLogger(__name__)
-            
+            # 4. Track AI Usage
             transcription_length = len(transcript.text)
-            estimated_input_tokens = int(transcription_length / 4)
+            # Rough estimation: 1 token ~= 4 chars for English
+            estimated_input_tokens = int(transcription_length / 4) 
             estimated_output_tokens = int(transcription_length / 4)
             estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
             
@@ -547,17 +566,30 @@ async def transcribe_audio(
             )
             
             return {"transcription": transcript.text}
-        finally:
-            # Clean up temp file
-            import os
-            os.unlink(temp_path)
+
+        except Exception as e:
+            # Catch OpenAI specific errors
+            logger.error(f"OpenAI API Error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, 
+                detail=f"AI Service Provider Error: {str(e)}"
+            )
             
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Transcription error: {str(e)}")
+        logger.error(f"Transcription internal error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to transcribe audio: {str(e)}"
         )
+    finally:
+        # 5. Cleanup: Always delete the temp file
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
 
 @router.post("/extract-from-text", response_model=TransactionExtraction)
@@ -936,45 +968,103 @@ async def batch_create_transactions(
     return created_transactions
 
 
+# Constants
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB Hard Limit
+TARGET_IMAGE_SIZE = (1024, 1024)         # Resize target for Vision API
+
+def process_and_resize_image(image_data: bytes) -> str:
+    """
+    CPU-bound task: Opens image, resizes it, and converts to optimized Base64.
+    This runs in a threadpool to avoid blocking the async event loop.
+    """
+    try:
+        with Image.open(io.BytesIO(image_data)) as img:
+            # 1. Convert to RGB (Handy for PNGs with transparency)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            
+            # 2. Resize if the image is too large (maintains aspect ratio)
+            img.thumbnail(TARGET_IMAGE_SIZE)
+            
+            # 3. Save to optimized JPEG buffer
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85, optimize=True)
+            
+            # 4. Encode to Base64
+            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+    except Exception as e:
+        logger.error(f"Image processing failed: {e}")
+        raise ValueError("Invalid image format")
+
 @router.post("/extract-from-image", response_model=TransactionExtraction)
 async def extract_transaction_from_image(
     image: UploadFile = File(...),
     current_user: dict = Depends(require_premium)
 ):
-    """Extract transaction details from receipt image using GPT-4 Vision"""
+    """
+    Extract transaction details from receipt image using OpenAI Vision.
+    (Memory Optimized: Resizes images before processing)
+    """
     try:
+        # 1. Validate Service Availability
         if not settings.OPENAI_API_KEY:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="OpenAI API key not configured"
             )
-        
-        # Read image (Async I/O - OK)
-        image_data = await image.read()
-        
-        # [FIX] Offload CPU-intensive Base64 encoding to thread pool
-        def encode_image(data):
-            return base64.b64encode(data).decode('utf-8')
 
-        base64_image = await run_in_threadpool(encode_image, image_data)
+        # 2. Validate File Size (Content-Length Header)
+        # Fail fast if the client reports a file larger than our limit
+        content_length = image.headers.get('content-length')
+        if content_length and int(content_length) > MAX_IMAGE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Image file too large. Please upload an image smaller than 10MB."
+            )
+
+        # 3. Read File Safely (Chunked Read)
+        # Prevent reading massive files into RAM if Content-Length was missing/faked
+        image_data = bytearray()
+        chunk_size = 1024 * 1024  # 1MB chunks
         
-        # [FIX] Added await
+        while True:
+            chunk = await image.read(chunk_size)
+            if not chunk:
+                break
+            image_data.extend(chunk)
+            if len(image_data) > MAX_IMAGE_SIZE_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Image file exceeds the 10MB limit."
+                )
+
+        # 4. Process Image (Resize & Encode)
+        # Run CPU-intensive PIL operations in a separate thread
+        try:
+            base64_image = await run_in_threadpool(process_and_resize_image, bytes(image_data))
+        except ValueError:
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid image file. Please upload a valid JPG or PNG."
+            )
+
+        # 5. Prepare Categories for Prompt
         inflow_cats = await categories_collection.find_one({"_id": "inflow"})
         outflow_cats = await categories_collection.find_one({"_id": "outflow"})
         
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
-            for cat in inflow_cats["categories"]:
+            for cat in inflow_cats.get("categories", []):
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
         
         categories_text += "\nOUTFLOW:\n"
         if outflow_cats:
-            for cat in outflow_cats["categories"]:
+            for cat in outflow_cats.get("categories", []):
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
         
-        # Get user's default currency
         user_default_currency = current_user.get("default_currency", "usd")
         
+        # 6. Construct System Prompt
         system_prompt = f"""You are a financial receipt analyzer. Extract transaction details from receipt images.
 
 {categories_text}
@@ -1012,6 +1102,7 @@ Respond in JSON format:
     "reasoning": "what you saw on the receipt"
 }}"""
 
+        # 7. Call OpenAI API
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         
@@ -1043,15 +1134,8 @@ Respond in JSON format:
             temperature=0.3
         )
 
-
-        # Track AI usage
+        # 8. Track AI Usage
         if hasattr(response, 'usage'):
-            from ai_usage_service import track_ai_usage
-            from ai_usage_models import AIFeatureType, AIProviderType
-            import logging
-            
-            logger = logging.getLogger(__name__)
-            
             input_tokens = response.usage.prompt_tokens
             output_tokens = response.usage.completion_tokens
             total_tokens = response.usage.total_tokens
@@ -1072,6 +1156,7 @@ Respond in JSON format:
                 total_tokens=total_tokens
             )
         
+        # 9. Parse Response
         result = json.loads(response.choices[0].message.content)
         
         return TransactionExtraction(
@@ -1081,13 +1166,15 @@ Respond in JSON format:
             date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
             description=result.get("description"),
             amount=float(result["amount"]),
-            currency=Currency(result.get("currency", user_default_currency)),  # Fallback to user default
+            currency=Currency(result.get("currency", user_default_currency)),
             confidence=float(result["confidence"]),
             reasoning=result.get("reasoning")
         )
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Image extraction error: {str(e)}")
+        logger.error(f"Image extraction error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to extract from image: {str(e)}"
