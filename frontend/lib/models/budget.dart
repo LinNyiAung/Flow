@@ -1,8 +1,11 @@
-import 'package:frontend/models/user.dart';  // NEW: import Currency
+import 'package:frontend/models/user.dart';
+import 'package:intl/intl.dart';  // NEW: import Currency
 
 enum BudgetPeriod { weekly, monthly, yearly, custom }
 
 enum BudgetStatus { active, completed, exceeded, upcoming }
+
+final formatter = NumberFormat("#,##0.00", "en_US");
 
 class CategoryBudget {
   final String mainCategory;
@@ -94,15 +97,15 @@ class Budget {
 
   // NEW: Display amount with currency symbol
   String get displayTotalBudget {
-    return '${currency.symbol}${totalBudget.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalBudget)}';
   }
 
   String get displayTotalSpent {
-    return '${currency.symbol}${totalSpent.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalSpent)}';
   }
 
   String get displayRemainingBudget {
-    return '${currency.symbol}${remainingBudget.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(remainingBudget)}';
   }
 
   factory Budget.fromJson(Map<String, dynamic> json) {
@@ -158,15 +161,15 @@ class BudgetSummary {
 
   // NEW: Display methods
   String get displayTotalAllocated {
-    return '${currency.symbol}${totalAllocated.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalAllocated)}';
   }
 
   String get displayTotalSpent {
-    return '${currency.symbol}${totalSpent.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalSpent)}';
   }
 
   String get displayOverallRemaining {
-    return '${currency.symbol}${overallRemaining.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(overallRemaining)}';
   }
 
   factory BudgetSummary.fromJson(Map<String, dynamic> json) {
@@ -269,15 +272,15 @@ class CurrencyBudgetSummary {
   }
 
   String get displayTotalAllocated {
-    return '${currency.symbol}${totalAllocated.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalAllocated)}';
   }
 
   String get displayTotalSpent {
-    return '${currency.symbol}${totalSpent.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalSpent)}';
   }
 
   String get displayOverallRemaining {
-    return '${currency.symbol}${overallRemaining.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(overallRemaining)}';
   }
 
   double get percentageUsed {

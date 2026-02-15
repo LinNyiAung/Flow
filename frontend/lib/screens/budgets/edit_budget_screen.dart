@@ -27,6 +27,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
   late List<CategoryBudget> _categoryBudgets;
   bool _isLoading = false;
 
+  final formatter = NumberFormat("#,##0.00", "en_US");
+
 
   late bool _autoCreateEnabled;     // NEW
   late bool _autoCreateWithAi;      // NEW
@@ -648,7 +650,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                               ),
                             ),
                             Text(
-                              '${widget.budget.currency.symbol}${totalBudget.toStringAsFixed(2)}',  // NEW: use budget currency
+                              '${widget.budget.currency.symbol}${formatter.format(totalBudget)}', // Changed
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs24,
                                 fontWeight: FontWeight.bold,
@@ -669,7 +671,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                               ),
                             ),
                             Text(
-                              '${widget.budget.currency.symbol}${widget.budget.totalBudget.toStringAsFixed(2)}',  // NEW: use budget currency
+                              '${widget.budget.currency.symbol}${formatter.format(widget.budget.totalBudget)}', // Changed
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs20,
                                 fontWeight: FontWeight.w600,
@@ -700,7 +702,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                             ),
                             SizedBox(width: responsive.sp4),
                             Text(
-                              '${totalBudget > widget.budget.totalBudget ? '+' : ''}${widget.budget.currency.symbol}${(totalBudget - widget.budget.totalBudget).toStringAsFixed(2)}',  // NEW: use budget currency
+                              '${totalBudget > widget.budget.totalBudget ? '+' : ''}${widget.budget.currency.symbol}${formatter.format(totalBudget - widget.budget.totalBudget)}', // Changed
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs14,
                                 fontWeight: FontWeight.w600,
@@ -819,7 +821,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   ),
                 ),
                 Text(
-                  '${widget.budget.currency.symbol}${catBudget.allocatedAmount.toStringAsFixed(2)}',  // NEW: use budget currency
+                  '${widget.budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}', // Changed
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs12,
                     color: Colors.grey[600],

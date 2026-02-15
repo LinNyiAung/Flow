@@ -4,14 +4,14 @@ enum ReportPeriod { week, month, year, custom }
 
 class CategoryBreakdown {
   final String category;
-  final String mainCategory;  // NEW - Add this field
+  final String mainCategory; // NEW - Add this field
   final double amount;
   final double percentage;
   final int transactionCount;
 
   CategoryBreakdown({
     required this.category,
-    required this.mainCategory,  // NEW
+    required this.mainCategory, // NEW
     required this.amount,
     required this.percentage,
     required this.transactionCount,
@@ -20,7 +20,7 @@ class CategoryBreakdown {
   factory CategoryBreakdown.fromJson(Map<String, dynamic> json) {
     return CategoryBreakdown(
       category: json['category'],
-      mainCategory: json['main_category'],  // NEW
+      mainCategory: json['main_category'], // NEW
       amount: json['amount'].toDouble(),
       percentage: json['percentage'].toDouble(),
       transactionCount: json['transaction_count'],
@@ -47,7 +47,7 @@ class FinancialReport {
   final double averageDailyInflow;
   final double averageDailyOutflow;
   final DateTime generatedAt;
-  final Currency currency;  // NEW
+  final Currency currency; // NEW
 
   FinancialReport({
     required this.period,
@@ -68,7 +68,7 @@ class FinancialReport {
     required this.averageDailyInflow,
     required this.averageDailyOutflow,
     required this.generatedAt,
-    required this.currency,  // NEW
+    required this.currency, // NEW
   });
 
   factory FinancialReport.fromJson(Map<String, dynamic> json) {
@@ -97,10 +97,10 @@ class FinancialReport {
       averageDailyInflow: json['average_daily_inflow'].toDouble(),
       averageDailyOutflow: json['average_daily_outflow'].toDouble(),
       generatedAt: DateTime.parse(json['generated_at']),
-      currency: Currency.fromString(json['currency'] ?? 'usd'),  // NEW
+      currency: Currency.fromString(json['currency'] ?? 'usd'), // NEW
     );
   }
-  
+
   // NEW - Helper method to format amount with currency
   String formatAmount(double amount) {
     return '${currency.symbol}${amount.toStringAsFixed(2)}';
@@ -114,7 +114,7 @@ class GoalProgressReport {
   final double currentAmount;
   final double progressPercentage;
   final String status;
-  final Currency currency;  // NEW
+  final Currency currency; // NEW
 
   GoalProgressReport({
     required this.goalId,
@@ -123,7 +123,7 @@ class GoalProgressReport {
     required this.currentAmount,
     required this.progressPercentage,
     required this.status,
-    required this.currency,  // NEW
+    required this.currency, // NEW
   });
 
   factory GoalProgressReport.fromJson(Map<String, dynamic> json) {
@@ -134,11 +134,10 @@ class GoalProgressReport {
       currentAmount: json['current_amount'].toDouble(),
       progressPercentage: json['progress_percentage'].toDouble(),
       status: json['status'],
-      currency: Currency.fromString(json['currency'] ?? 'usd'),  // NEW
+      currency: Currency.fromString(json['currency'] ?? 'usd'), // NEW
     );
   }
 }
-
 
 class CurrencyReport {
   final Currency currency;

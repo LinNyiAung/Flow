@@ -30,6 +30,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  final formatter = NumberFormat("#,##0.00", "en_US");
 
   
 
@@ -551,7 +552,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
                                   ),
                                   SizedBox(height: 16),
                                   _buildDataRow(localizations.dataLabelType, _extractedData!.type.name.toUpperCase()),
-                                  _buildDataRow(localizations.dataLabelAmount, '${_extractedData!.currency.symbol}${_extractedData!.amount.toStringAsFixed(2)}'),
+                                  _buildDataRow(localizations.dataLabelAmount, '${_extractedData!.currency.symbol} ${formatter.format(_extractedData!.amount)}'),
                                   _buildDataRow(localizations.currency, _extractedData!.currency.displayName),
                                   _buildDataRow(localizations.dataLabelCategory, '${_extractedData!.mainCategory} > ${_extractedData!.subCategory}'),
                                   _buildDataRow(localizations.dataLabelDate, DateFormat('yyyy-MM-dd').format(_extractedData!.date)),

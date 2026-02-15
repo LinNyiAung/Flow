@@ -21,9 +21,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _contextController = TextEditingController(); // NEW
-
-  
+  final _contextController = TextEditingController();
 
   BudgetPeriod _selectedPeriod = BudgetPeriod.monthly;
   DateTime _startDate = DateTime.now().toUtc();
@@ -31,20 +29,20 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   List<CategoryBudget> _categoryBudgets = [];
 
   bool _isLoading = false;
-
   bool _autoCreateEnabled = false;
   bool _autoCreateWithAi = false;
-
   bool _showAiFeatures = false;
-
-
   Currency _selectedCurrency = Currency.usd;
 
+  final formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
   void initState() {
     super.initState();
-    // NEW: Set default currency from user's preference
+    // Initialize dates based on the default period (Monthly)
+    _updateDatesForPeriod(_selectedPeriod);
+
+    // Set default currency from user's preference
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
@@ -57,82 +55,103 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
-    _contextController.dispose(); // NEW
+    _contextController.dispose();
     super.dispose();
   }
 
-  void _calculateEndDate() {
-    switch (_selectedPeriod) {
-      case BudgetPeriod.weekly:
-        // Calculate the start of the week (Monday)
-        final daysSinceMonday =
-            _startDate.weekday - 1; // Monday is 1, Sunday is 7
-        final weekStart = DateTime.utc(
-          _startDate.year,
-          _startDate.month,
-          _startDate.day - daysSinceMonday,
-          0,
-          0,
-          0,
-        );
+  /// Sets the Start and End dates to the "Current" period range based on Today.
+  void _updateDatesForPeriod(BudgetPeriod period) {
+    final now = DateTime.now().toUtc();
+    // Normalize today to start of day (00:00:00)
+    final todayStart = DateTime.utc(now.year, now.month, now.day);
 
-        // End is Sunday (6 days after Monday)
-        _endDate = DateTime.utc(
-          weekStart.year,
-          weekStart.month,
-          weekStart.day + 6,
-          23,
-          59,
-          59,
-          999,
+    DateTime newStart;
+    DateTime newEnd;
+
+    switch (period) {
+      case BudgetPeriod.weekly:
+        // Start of current week (Monday)
+        // DateTime.weekday: Monday=1, Sunday=7
+        final daysToSubtract = now.weekday - 1;
+        newStart = todayStart.subtract(Duration(days: daysToSubtract));
+
+        // End is Sunday (Start + 6 days) at 23:59:59
+        newEnd = newStart.add(
+          Duration(
+            days: 6,
+            hours: 23,
+            minutes: 59,
+            seconds: 59,
+            milliseconds: 999,
+          ),
         );
         break;
 
       case BudgetPeriod.monthly:
-        // Keep the selected start date, find last day of the month
-        final monthStart = DateTime.utc(
-          _startDate.year,
-          _startDate.month,
-          _startDate.day,
-          0,
-          0,
-          0,
-        );
+        // Start of current month (1st day)
+        newStart = DateTime.utc(now.year, now.month, 1);
 
-        // Get last day of the current month
-        final nextMonth = _startDate.month == 12
-            ? DateTime.utc(_startDate.year + 1, 1, 1)
-            : DateTime.utc(_startDate.year, _startDate.month + 1, 1);
-        final lastDayOfMonth = nextMonth.subtract(Duration(days: 1));
-
-        // Set end date to last day at 23:59:59 UTC
-        _endDate = DateTime.utc(
-          lastDayOfMonth.year,
-          lastDayOfMonth.month,
-          lastDayOfMonth.day,
-          23,
-          59,
-          59,
-          999,
-        );
+        // End of current month (Last day)
+        final startOfNextMonth = DateTime.utc(now.year, now.month + 1, 1);
+        newEnd = startOfNextMonth.subtract(Duration(milliseconds: 1));
         break;
 
       case BudgetPeriod.yearly:
-        // Keep the selected start date, end is Dec 31 of the same year
-        final yearStart = DateTime.utc(
-          _startDate.year,
-          _startDate.month,
-          _startDate.day,
-          0,
-          0,
-          0,
-        );
+        // Start of current year (Jan 1st)
+        newStart = DateTime.utc(now.year, 1, 1);
 
+        // End of current year (Dec 31st)
+        newEnd = DateTime.utc(now.year, 12, 31, 23, 59, 59, 999);
+        break;
+
+      case BudgetPeriod.custom:
+        // Keep existing dates or default if null
+        newStart = _startDate;
+        newEnd = _endDate ?? _startDate.add(Duration(days: 30));
+        break;
+    }
+
+    setState(() {
+      _selectedPeriod = period;
+      _startDate = newStart;
+      _endDate = newEnd;
+    });
+  }
+
+  /// Recalculates the End Date based on the current _startDate and _selectedPeriod.
+  /// This is used when the user changes start date but keeps the Period type (if aligned).
+  void _recalculateEndDateForStandardPeriod() {
+    switch (_selectedPeriod) {
+      case BudgetPeriod.weekly:
+        // End is 6 days after start
+        _endDate = _startDate.add(
+          Duration(
+            days: 6,
+            hours: 23,
+            minutes: 59,
+            seconds: 59,
+            milliseconds: 999,
+          ),
+        );
+        break;
+
+      case BudgetPeriod.monthly:
+        // End is last day of the started month
+        final nextMonth = DateTime.utc(
+          _startDate.year,
+          _startDate.month + 1,
+          1,
+        );
+        _endDate = nextMonth.subtract(Duration(milliseconds: 1));
+        break;
+
+      case BudgetPeriod.yearly:
+        // End is Dec 31st of the started year
         _endDate = DateTime.utc(_startDate.year, 12, 31, 23, 59, 59, 999);
         break;
 
       case BudgetPeriod.custom:
-        // For custom, end date is set by user
+        // Do nothing automatically for custom
         break;
     }
   }
@@ -154,18 +173,61 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     );
 
     if (picked != null) {
+      // Set start date to beginning of day in UTC
+      final newStart = DateTime.utc(
+        picked.year,
+        picked.month,
+        picked.day,
+        0,
+        0,
+        0,
+      );
+
       setState(() {
-        // Set start date to beginning of day in UTC
-        _startDate = DateTime.utc(
-          picked.year,
-          picked.month,
-          picked.day,
-          0,
-          0,
-          0,
-        );
+        _startDate = newStart;
+
+        // CHECK ALIGNMENT:
+        // If the user picked a date that doesn't fit the standard definition
+        // of the selected period, switch to Custom.
+        bool shouldSwitchToCustom = false;
+
         if (_selectedPeriod != BudgetPeriod.custom) {
-          _calculateEndDate();
+          switch (_selectedPeriod) {
+            case BudgetPeriod.weekly:
+              // Must be a Monday (1)
+              if (newStart.weekday != 1) shouldSwitchToCustom = true;
+              break;
+            case BudgetPeriod.monthly:
+              // Must be the 1st of the month
+              if (newStart.day != 1) shouldSwitchToCustom = true;
+              break;
+            case BudgetPeriod.yearly:
+              // Must be Jan 1st
+              if (newStart.month != 1 || newStart.day != 1)
+                shouldSwitchToCustom = true;
+              break;
+            default:
+              break;
+          }
+
+          if (shouldSwitchToCustom) {
+            _selectedPeriod = BudgetPeriod.custom;
+            // Ensure end date is valid (after start date)
+            if (_endDate != null && _endDate!.isBefore(_startDate)) {
+              _endDate = _startDate.add(Duration(days: 30));
+            } else if (_endDate == null) {
+              _endDate = _startDate.add(Duration(days: 30));
+            }
+          } else {
+            // It aligns (e.g., user picked 1st of NEXT month for a Monthly budget),
+            // so we keep the period type but update the end date.
+            _recalculateEndDateForStandardPeriod();
+          }
+        } else {
+          // Already custom, just ensure end date validity
+          if (_endDate != null && _endDate!.isBefore(_startDate)) {
+            _endDate = _startDate.add(Duration(days: 1)); // Default to next day
+          }
         }
       });
     }
@@ -205,19 +267,16 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
   String? _validateDuplicateCategory(String mainCategory, String? subCategory) {
     final localizations = AppLocalizations.of(context);
-    // Check for exact duplicates
     for (var existingCat in _categoryBudgets) {
       String existingMain = existingCat.mainCategory;
       String? existingSubStr;
 
-      // Parse existing category
       if (existingMain.contains(' - ')) {
         final parts = existingMain.split(' - ');
         existingMain = parts[0];
         existingSubStr = parts[1];
       }
 
-      // Check if it's the same main category with same sub-category (or both have no sub-category)
       if (existingMain == mainCategory) {
         if ((subCategory == null || subCategory == 'All') &&
             existingSubStr == null) {
@@ -233,12 +292,10 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     return null;
   }
 
-  // In create_budget_screen.dart, replace the totalBudget calculation
   double _calculateTotalBudget() {
     Set<String> mainCategories = {};
     List<MapEntry<String, double>> subCategories = [];
 
-    // Separate main categories and sub-categories
     for (var cat in _categoryBudgets) {
       if (cat.mainCategory.contains(' - ')) {
         final parts = cat.mainCategory.split(' - ');
@@ -250,14 +307,12 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
     double total = 0.0;
 
-    // Add all main category budgets
     for (var cat in _categoryBudgets) {
       if (!cat.mainCategory.contains(' - ')) {
         total += cat.allocatedAmount;
       }
     }
 
-    // Add sub-category budgets only if their main category doesn't exist
     for (var entry in subCategories) {
       if (!mainCategories.contains(entry.key)) {
         total += entry.value;
@@ -300,7 +355,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     });
   }
 
-void _navigateToAISuggestion() async {
+  void _navigateToAISuggestion() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final localizations = AppLocalizations.of(context);
 
@@ -331,7 +386,7 @@ void _navigateToAISuggestion() async {
           startDate: _startDate,
           endDate: _endDate,
           userContext: userContext,
-          currency: _selectedCurrency,  // NEW: pass currency
+          currency: _selectedCurrency,
         ),
       ),
     );
@@ -340,7 +395,6 @@ void _navigateToAISuggestion() async {
       setState(() {
         _nameController.text = result.suggestedName;
         _categoryBudgets = result.categoryBudgets;
-        // Currency should match what was used for AI suggestion
       });
     }
   }
@@ -386,7 +440,7 @@ void _navigateToAISuggestion() async {
               : _descriptionController.text,
           autoCreateEnabled: _autoCreateEnabled,
           autoCreateWithAi: _autoCreateWithAi,
-          currency: _selectedCurrency,  // NEW: add currency
+          currency: _selectedCurrency,
         );
 
     setState(() => _isLoading = false);
@@ -406,12 +460,14 @@ void _navigateToAISuggestion() async {
 
   @override
   Widget build(BuildContext context) {
-    _calculateEndDate();
+    // NOTE: Removed _calculateEndDate() from build method to avoid side effects.
+    // Date calculation is now handled in event handlers.
 
     final totalBudget = _calculateTotalBudget();
     final authProvider = Provider.of<AuthProvider>(context);
     final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+
 
     return Scaffold(
       appBar: AppBar(
@@ -441,7 +497,7 @@ void _navigateToAISuggestion() async {
           child: ListView(
             padding: responsive.padding(all: 20),
             children: [
-              // NEW: Currency Selector (Add this BEFORE the AI Features section)
+              // Currency Selector
               Text(
                 localizations.currency,
                 style: GoogleFonts.poppins(
@@ -454,7 +510,9 @@ void _navigateToAISuggestion() async {
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(16),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.grey.withOpacity(0.1),
@@ -469,7 +527,10 @@ void _navigateToAISuggestion() async {
                     hintText: localizations.selectCurrency,
                     border: InputBorder.none,
                     contentPadding: responsive.padding(all: 15),
-                    prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
+                    prefixIcon: Icon(
+                      Icons.attach_money,
+                      color: Color(0xFF667eea),
+                    ),
                   ),
                   value: _selectedCurrency,
                   items: Currency.values.map((currency) {
@@ -495,20 +556,23 @@ void _navigateToAISuggestion() async {
                 ),
               ),
               SizedBox(height: responsive.sp12),
-              
-              // Info note about currency
+
               Container(
                 padding: responsive.padding(all: 12),
                 decoration: BoxDecoration(
                   color: Color(0xFF2196F3).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  border: Border.all(
-                    color: Color(0xFF2196F3).withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(12),
                   ),
+                  border: Border.all(color: Color(0xFF2196F3).withOpacity(0.3)),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Color(0xFF2196F3), size: responsive.icon20),
+                    Icon(
+                      Icons.info_outline,
+                      color: Color(0xFF2196F3),
+                      size: responsive.icon20,
+                    ),
                     SizedBox(width: responsive.sp8),
                     Expanded(
                       child: Text(
@@ -523,12 +587,15 @@ void _navigateToAISuggestion() async {
                 ),
               ),
               SizedBox(height: responsive.sp24),
-              // NEW: Collapsible AI Features Section
+
+              // Collapsible AI Features Section
               Container(
                 margin: EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(12),
+                  ),
                   border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
                   boxShadow: [
                     BoxShadow(
@@ -540,14 +607,15 @@ void _navigateToAISuggestion() async {
                 ),
                 child: Column(
                   children: [
-                    // Toggle Header
                     InkWell(
                       onTap: () {
                         setState(() {
                           _showAiFeatures = !_showAiFeatures;
                         });
                       },
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                      borderRadius: BorderRadius.circular(
+                        responsive.borderRadius(12),
+                      ),
                       child: Container(
                         padding: responsive.padding(all: 16),
                         child: Row(
@@ -561,7 +629,9 @@ void _navigateToAISuggestion() async {
                                     Color(0xFF764ba2).withOpacity(0.2),
                                   ],
                                 ),
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                                borderRadius: BorderRadius.circular(
+                                  responsive.borderRadius(8),
+                                ),
                               ),
                               child: Icon(
                                 Icons.auto_awesome,
@@ -586,31 +656,47 @@ void _navigateToAISuggestion() async {
                                       ),
                                       SizedBox(width: responsive.sp8),
                                       if (!authProvider.isPremium)
-                                        Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
-                                        SizedBox(width: responsive.sp8),
-                                      if (!authProvider.isPremium)
-                                      Container(
-                                        padding: responsive.padding(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Color(0xFFFFD700).withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                                          border: Border.all(color: Color(0xFFFFD700), width: 1),
+                                        Icon(
+                                          Icons.lock,
+                                          size: responsive.icon16,
+                                          color: Color(0xFFFFD700),
                                         ),
-                                        child: Text(
-                                          localizations.premium,
-                                          style: GoogleFonts.poppins(
-                                            fontSize: responsive.fs10,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFFFFD700),
+                                      SizedBox(width: responsive.sp8),
+                                      if (!authProvider.isPremium)
+                                        Container(
+                                          padding: responsive.padding(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Color(
+                                              0xFFFFD700,
+                                            ).withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(
+                                              responsive.borderRadius(8),
+                                            ),
+                                            border: Border.all(
+                                              color: Color(0xFFFFD700),
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            localizations.premium,
+                                            style: GoogleFonts.poppins(
+                                              fontSize: responsive.fs10,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFFFFD700),
+                                            ),
                                           ),
                                         ),
-                                      )
                                     ],
                                   ),
                                   Text(
                                     _showAiFeatures
-                                        ? localizations.getAiPoweredBudgetSuggestions
-                                        : localizations.tapToUseAiBudgetSuggestions,
+                                        ? localizations
+                                              .getAiPoweredBudgetSuggestions
+                                        : localizations
+                                              .tapToUseAiBudgetSuggestions,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs12,
                                       color: Colors.grey[600],
@@ -630,7 +716,6 @@ void _navigateToAISuggestion() async {
                       ),
                     ),
 
-                    // Collapsible Content
                     if (_showAiFeatures) ...[
                       Divider(height: 1),
                       Padding(
@@ -638,12 +723,13 @@ void _navigateToAISuggestion() async {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // AI Context Input
                             Container(
                               padding: responsive.padding(all: 16),
                               decoration: BoxDecoration(
                                 color: Color(0xFF667eea).withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                                borderRadius: BorderRadius.circular(
+                                  responsive.borderRadius(12),
+                                ),
                                 border: Border.all(
                                   color: Color(0xFF667eea).withOpacity(0.2),
                                 ),
@@ -681,8 +767,8 @@ void _navigateToAISuggestion() async {
                                   TextFormField(
                                     controller: _contextController,
                                     decoration: InputDecoration(
-                                      hintText:
-                                          localizations.egTravelingHolidaySeason,
+                                      hintText: localizations
+                                          .egTravelingHolidaySeason,
                                       hintStyle: GoogleFonts.poppins(
                                         fontSize: responsive.fs12,
                                         color: Colors.grey[400],
@@ -690,19 +776,25 @@ void _navigateToAISuggestion() async {
                                       filled: true,
                                       fillColor: Colors.white,
                                       border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                                        borderRadius: BorderRadius.circular(
+                                          responsive.borderRadius(12),
+                                        ),
                                         borderSide: BorderSide(
                                           color: Colors.grey[300]!,
                                         ),
                                       ),
                                       enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                                        borderRadius: BorderRadius.circular(
+                                          responsive.borderRadius(12),
+                                        ),
                                         borderSide: BorderSide(
                                           color: Colors.grey[300]!,
                                         ),
                                       ),
                                       focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                                        borderRadius: BorderRadius.circular(
+                                          responsive.borderRadius(12),
+                                        ),
                                         borderSide: BorderSide(
                                           color: Color(0xFF667eea),
                                           width: 2,
@@ -723,7 +815,6 @@ void _navigateToAISuggestion() async {
 
                             SizedBox(height: responsive.sp16),
 
-                            // Generate Button
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
@@ -732,7 +823,9 @@ void _navigateToAISuggestion() async {
                                   backgroundColor: Color(0xFF667eea),
                                   padding: responsive.padding(vertical: 14),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                                    borderRadius: BorderRadius.circular(
+                                      responsive.borderRadius(12),
+                                    ),
                                   ),
                                 ),
                                 child: Row(
@@ -759,7 +852,6 @@ void _navigateToAISuggestion() async {
 
                             SizedBox(height: responsive.sp8),
 
-                            // Info note
                             Row(
                               children: [
                                 Icon(
@@ -770,7 +862,8 @@ void _navigateToAISuggestion() async {
                                 SizedBox(width: responsive.sp4),
                                 Expanded(
                                   child: Text(
-                                    localizations.aiWillAnalyzeAndSuggestBudgets,
+                                    localizations
+                                        .aiWillAnalyzeAndSuggestBudgets,
                                     style: GoogleFonts.poppins(
                                       fontSize: responsive.fs11,
                                       color: Color(0xFF667eea),
@@ -819,7 +912,9 @@ void _navigateToAISuggestion() async {
                 padding: responsive.padding(all: 4),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(12),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.grey.withOpacity(0.1),
@@ -831,9 +926,15 @@ void _navigateToAISuggestion() async {
                 child: Row(
                   children: [
                     _buildPeriodButton(localizations.week, BudgetPeriod.weekly),
-                    _buildPeriodButton(localizations.month, BudgetPeriod.monthly),
+                    _buildPeriodButton(
+                      localizations.month,
+                      BudgetPeriod.monthly,
+                    ),
                     _buildPeriodButton(localizations.year, BudgetPeriod.yearly),
-                    _buildPeriodButton(localizations.custom, BudgetPeriod.custom),
+                    _buildPeriodButton(
+                      localizations.custom,
+                      BudgetPeriod.custom,
+                    ),
                   ],
                 ),
               ),
@@ -850,7 +951,9 @@ void _navigateToAISuggestion() async {
                         padding: responsive.padding(all: 12),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                          borderRadius: BorderRadius.circular(
+                            responsive.borderRadius(12),
+                          ),
                           border: Border.all(color: Colors.grey[300]!),
                         ),
                         child: Column(
@@ -888,7 +991,9 @@ void _navigateToAISuggestion() async {
                           color: _selectedPeriod == BudgetPeriod.custom
                               ? Colors.white
                               : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                          borderRadius: BorderRadius.circular(
+                            responsive.borderRadius(12),
+                          ),
                           border: Border.all(color: Colors.grey[300]!),
                         ),
                         child: Column(
@@ -945,7 +1050,9 @@ void _navigateToAISuggestion() async {
                         Color(0xFF764ba2).withOpacity(0.1),
                       ],
                     ),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
                     border: Border.all(
                       color: Color(0xFF667eea).withOpacity(0.3),
                     ),
@@ -1001,7 +1108,7 @@ void _navigateToAISuggestion() async {
                       if (_autoCreateEnabled) ...[
                         Divider(),
                         Text(
-                         localizations.chooseHowToCreateNextBudget,
+                          localizations.chooseHowToCreateNextBudget,
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs13,
                             fontWeight: FontWeight.w500,
@@ -1019,7 +1126,9 @@ void _navigateToAISuggestion() async {
                           },
                           title: Text(
                             localizations.useCurrentCategories,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs13),
+                            style: GoogleFonts.poppins(
+                              fontSize: responsive.fs13,
+                            ),
                           ),
                           subtitle: Text(
                             localizations.keepTheSameBudgetAmounts,
@@ -1050,7 +1159,9 @@ void _navigateToAISuggestion() async {
                               Expanded(
                                 child: Text(
                                   localizations.aiOptimizedBudget,
-                                  style: GoogleFonts.poppins(fontSize: responsive.fs13),
+                                  style: GoogleFonts.poppins(
+                                    fontSize: responsive.fs13,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1098,13 +1209,14 @@ void _navigateToAISuggestion() async {
 
               SizedBox(height: responsive.sp12),
 
-              // Category Budgets List
               if (_categoryBudgets.isEmpty)
                 Container(
                   padding: responsive.padding(all: 32),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
                   ),
                   child: Center(
                     child: Text(
@@ -1129,7 +1241,9 @@ void _navigateToAISuggestion() async {
                   gradient: LinearGradient(
                     colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                   ),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(12),
+                  ),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1143,7 +1257,7 @@ void _navigateToAISuggestion() async {
                       ),
                     ),
                     Text(
-                      '${_selectedCurrency.symbol}${totalBudget.toStringAsFixed(2)}',  // NEW: use selected currency
+                      '${_selectedCurrency.symbol}${formatter.format(totalBudget)}', // Changed
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs24,
                         fontWeight: FontWeight.bold,
@@ -1164,7 +1278,9 @@ void _navigateToAISuggestion() async {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Color(0xFF667eea),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                      borderRadius: BorderRadius.circular(
+                        responsive.borderRadius(12),
+                      ),
                     ),
                   ),
                   child: _isLoading
@@ -1192,12 +1308,8 @@ void _navigateToAISuggestion() async {
     return Expanded(
       child: GestureDetector(
         onTap: () {
-          setState(() {
-            _selectedPeriod = period;
-            if (period != BudgetPeriod.custom) {
-              _calculateEndDate();
-            }
-          });
+          // Updates dates to the current period start/end when tapped
+          _updateDatesForPeriod(period);
         },
         child: Container(
           padding: responsive.padding(vertical: 10),
@@ -1247,7 +1359,11 @@ void _navigateToAISuggestion() async {
               color: Color(0xFF667eea).withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(Icons.category, color: Color(0xFF667eea), size: responsive.icon20),
+            child: Icon(
+              Icons.category,
+              color: Color(0xFF667eea),
+              size: responsive.icon20,
+            ),
           ),
           SizedBox(width: responsive.sp12),
           Expanded(
@@ -1263,7 +1379,7 @@ void _navigateToAISuggestion() async {
                   ),
                 ),
                 Text(
-                  '\$${catBudget.allocatedAmount.toStringAsFixed(2)}',
+                  '\$${formatter.format(catBudget.allocatedAmount)}', // Changed
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs12,
                     color: Colors.grey[600],
@@ -1273,11 +1389,19 @@ void _navigateToAISuggestion() async {
             ),
           ),
           IconButton(
-            icon: Icon(Icons.edit, color: Color(0xFF667eea), size: responsive.icon20),
+            icon: Icon(
+              Icons.edit,
+              color: Color(0xFF667eea),
+              size: responsive.icon20,
+            ),
             onPressed: () => _editCategoryBudget(index),
           ),
           IconButton(
-            icon: Icon(Icons.delete, color: Colors.red, size: responsive.icon20),
+            icon: Icon(
+              Icons.delete,
+              color: Colors.red,
+              size: responsive.icon20,
+            ),
             onPressed: () => _removeCategoryBudget(index),
           ),
         ],
@@ -1286,15 +1410,11 @@ void _navigateToAISuggestion() async {
   }
 }
 
-
 class _AddCategoryDialog extends StatefulWidget {
   final CategoryBudget? initialCategory;
   final Function(CategoryBudget) onAdd;
 
-  _AddCategoryDialog({
-    this.initialCategory,
-    required this.onAdd,
-  });
+  _AddCategoryDialog({this.initialCategory, required this.onAdd});
 
   @override
   _AddCategoryDialogState createState() => _AddCategoryDialogState();
@@ -1312,12 +1432,13 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   @override
   void initState() {
     super.initState();
-    
+
     // Set amount immediately
     if (widget.initialCategory != null) {
-      _amountController.text = widget.initialCategory!.allocatedAmount.toString();
+      _amountController.text = widget.initialCategory!.allocatedAmount
+          .toString();
     }
-    
+
     // Load categories, then parse initial values
     _loadCategories();
   }
@@ -1328,12 +1449,14 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     });
 
     try {
-      final categories = await ApiService.getCategories(TransactionType.outflow);
-      
+      final categories = await ApiService.getCategories(
+        TransactionType.outflow,
+      );
+
       setState(() {
         _categories = categories;
         _isLoadingCategories = false;
-        
+
         // NOW parse the initial category after categories are loaded
         if (widget.initialCategory != null) {
           final categoryName = widget.initialCategory!.mainCategory;
@@ -1341,11 +1464,11 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
             final parts = categoryName.split(' - ');
             final mainCat = parts[0];
             final subCat = parts[1];
-            
+
             // Validate that this main category exists
             if (_categories.any((cat) => cat.mainCategory == mainCat)) {
               _selectedMainCategory = mainCat;
-              
+
               // Validate that this sub-category exists under this main category
               final mainCategory = _categories.firstWhere(
                 (cat) => cat.mainCategory == mainCat,
@@ -1382,7 +1505,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+      ),
       title: Text(
         widget.initialCategory == null
             ? localizations.addCategoryBudget
@@ -1399,7 +1524,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                  borderRadius: BorderRadius.circular(
+                    responsive.borderRadius(12),
+                  ),
                   border: Border.all(color: Colors.grey[300]!),
                 ),
                 child: _isLoadingCategories
@@ -1417,7 +1544,10 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                         decoration: InputDecoration(
                           hintText: localizations.selectMainCategoryHint,
                           border: InputBorder.none,
-                          contentPadding: responsive.padding(horizontal: 16, vertical: 12),
+                          contentPadding: responsive.padding(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
                           prefixIcon: Icon(
                             Icons.category,
                             color: Color(0xFF667eea),
@@ -1430,7 +1560,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                             value: category.mainCategory,
                             child: Text(
                               category.mainCategory,
-                              style: GoogleFonts.poppins(fontSize: responsive.fs14),
+                              style: GoogleFonts.poppins(
+                                fontSize: responsive.fs14,
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           );
@@ -1456,14 +1588,19 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
                     border: Border.all(color: Colors.grey[300]!),
                   ),
                   child: DropdownButtonFormField<String?>(
                     decoration: InputDecoration(
                       hintText: localizations.subCategory,
                       border: InputBorder.none,
-                      contentPadding: responsive.padding(horizontal: 16, vertical: 12),
+                      contentPadding: responsive.padding(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       prefixIcon: Icon(
                         Icons.list_outlined,
                         color: Color(0xFF667eea),
@@ -1498,7 +1635,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                               value: subCategory,
                               child: Text(
                                 subCategory,
-                                style: GoogleFonts.poppins(fontSize: responsive.fs14),
+                                style: GoogleFonts.poppins(
+                                  fontSize: responsive.fs14,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             );
@@ -1527,11 +1666,15 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                     color: Color(0xFF667eea),
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
                     borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(12),
+                    ),
                     borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
                   ),
                 ),
@@ -1555,7 +1698,9 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                   padding: responsive.padding(all: 12),
                   decoration: BoxDecoration(
                     color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                    borderRadius: BorderRadius.circular(
+                      responsive.borderRadius(8),
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -1604,16 +1749,15 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
               // Validate for duplicates
               final createParent = context
                   .findAncestorStateOfType<_CreateBudgetScreenState>();
-              
-              
+
               String? error;
               if (createParent != null) {
                 error = createParent._validateDuplicateCategory(
                   _selectedMainCategory!,
                   _selectedSubCategory,
                 );
-              } 
-              
+              }
+
               if (error != null) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

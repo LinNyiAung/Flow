@@ -839,7 +839,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              '${_budget.currency.symbol}${catBudget.spentAmount.toStringAsFixed(2)}',  // NEW: use budget currency
+              '${_budget.currency.symbol}${formatter.format(catBudget.spentAmount)}', // Changed
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs16,
                 fontWeight: FontWeight.bold,
@@ -847,7 +847,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               ),
             ),
             Text(
-              '${_budget.currency.symbol}${catBudget.allocatedAmount.toStringAsFixed(2)}',  // NEW: use budget currency
+              '${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}', // Changed
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs14,
                 color: Colors.grey[600],
@@ -874,7 +874,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               ),
             ),
             Text(
-              '${localizations.remaining}: ${_budget.currency.symbol}${(catBudget.allocatedAmount - catBudget.spentAmount).toStringAsFixed(2)}',  // NEW: use budget currency
+              '${localizations.remaining}: ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount - catBudget.spentAmount)}', // Changed
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs11,
                 fontWeight: FontWeight.w600,

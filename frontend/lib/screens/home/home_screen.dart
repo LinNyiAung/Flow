@@ -22,6 +22,8 @@ import '../transactions/edit_transaction_screen.dart'; // Import for editing
 import '../../widgets/app_drawer.dart'; // Import the drawer widget
 import 'package:frontend/services/responsive_helper.dart';
 
+final formatter = NumberFormat("#,##0.00", "en_US");
+
 class HomeScreen extends StatefulWidget {
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -317,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            '${localizations.available}: ${transactionProvider.balance != null ? '${transactionProvider.balance!.currency.symbol}${transactionProvider.balance!.availableBalance.toStringAsFixed(2)}' : '${authProvider.defaultCurrency.symbol}0.00'}',
+                            '${localizations.available}: ${transactionProvider.balance != null ? '${transactionProvider.balance!.currency.symbol}${formatter.format(transactionProvider.balance!.availableBalance)}' : '${authProvider.defaultCurrency.symbol}0.00'}',
                             style: GoogleFonts.poppins(
                               color: Colors.white.withOpacity(0.9),
                               fontSize: responsive.fs14,
@@ -328,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               transactionProvider.balance!.allocatedToGoals > 0) ...[
                             SizedBox(height: 2),
                             Text(
-                              '${localizations.allocatedToGoals}: ${transactionProvider.balance!.currency.symbol}${transactionProvider.balance!.allocatedToGoals.toStringAsFixed(2)}',
+                              '${localizations.allocatedToGoals}: ${transactionProvider.balance!.currency.symbol}${formatter.format(transactionProvider.balance!.allocatedToGoals)}',
                               style: GoogleFonts.poppins(
                                 color: Colors.white.withOpacity(0.7),
                                 fontSize: responsive.fs12,
@@ -757,7 +759,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       Text(
-        '${currency.symbol}${amount.toStringAsFixed(2)}',
+        '${currency.symbol}${formatter.format(amount)}', // Changed from toStringAsFixed(2)
         style: GoogleFonts.poppins(
           color: Colors.white,
           fontSize: responsive.fs18,
@@ -921,7 +923,7 @@ void _showMultiCurrencyBottomSheet() async {
                               ),
                             ),
                             Text(
-                              '${currency.symbol}${balance.availableBalance.toStringAsFixed(2)}',
+                              '${currency.symbol}${formatter.format(balance.availableBalance)}',
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
@@ -941,7 +943,7 @@ void _showMultiCurrencyBottomSheet() async {
                               ),
                             ),
                             Text(
-                              '${currency.symbol}${balance.allocatedToGoals.toStringAsFixed(2)}',
+                              '${currency.symbol}${formatter.format(balance.allocatedToGoals)}',
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs16,
                                 fontWeight: FontWeight.w600,
@@ -963,7 +965,7 @@ void _showMultiCurrencyBottomSheet() async {
                             Icon(Icons.arrow_upward, size: responsive.icon16, color: Colors.green),
                             SizedBox(width: 4),
                             Text(
-                              '${currency.symbol}${balance.totalInflow.toStringAsFixed(2)}',
+                              '${currency.symbol}${formatter.format(balance.totalInflow)}',
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs13,
                                 color: Colors.green,
@@ -977,7 +979,7 @@ void _showMultiCurrencyBottomSheet() async {
                             Icon(Icons.arrow_downward, size: responsive.icon16, color: Colors.red),
                             SizedBox(width: 4),
                             Text(
-                              '${currency.symbol}${balance.totalOutflow.toStringAsFixed(2)}',
+                              '${currency.symbol}${formatter.format(balance.totalOutflow)}',
                               style: GoogleFonts.poppins(
                                 fontSize: responsive.fs13,
                                 color: Colors.red,
@@ -1143,8 +1145,7 @@ void _showMultiCurrencyBottomSheet() async {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  // Display amount with +/- sign and formatted to 2 decimal places
-                  '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}',
+                  '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${formatter.format(transaction.amount)}',
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs16,
                     fontWeight: FontWeight.bold,

@@ -125,6 +125,7 @@ void initState() {
     final availableBalance = transactionProvider.balance?.availableBalance ?? 0.0;
     final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final formatter = NumberFormat("#,##0.00", "en_US");
 
     return Scaffold(
       appBar: AppBar(
@@ -188,9 +189,9 @@ void initState() {
                         ),
                       ),
                       Text(
-                        transactionProvider.balance != null && 
-                        transactionProvider.balance!.currency == _selectedCurrency
-                            ? '${_selectedCurrency.symbol}${transactionProvider.balance!.availableBalance.toStringAsFixed(2)}'
+                        transactionProvider.balance != null &&
+                            transactionProvider.balance!.currency == _selectedCurrency
+                            ? '${_selectedCurrency.symbol}${formatter.format(transactionProvider.balance!.availableBalance)}'
                             : '${_selectedCurrency.symbol}0.00',
                         style: GoogleFonts.poppins(
                           color: Colors.white,

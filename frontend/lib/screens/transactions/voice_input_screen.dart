@@ -29,6 +29,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   MultipleExtractedTransactions? _extractedData;
   String? _audioPath;
   String? _error;
+  final formatter = NumberFormat("#,##0.00", "en_US");
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -582,7 +583,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                 ),
                                 SizedBox(height: 16),
                                 Text(
-                                  '${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}',  // Use detected currency
+                                  '${transaction.currency.symbol} ${formatter.format(transaction.amount)}',  // CHANGED
                                   style: GoogleFonts.poppins(
                                     fontSize: responsive.fs28,
                                     fontWeight: FontWeight.bold,

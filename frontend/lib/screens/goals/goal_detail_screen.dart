@@ -143,11 +143,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           children: [
             // UPDATE to show currency symbol
             Text(
-              '${localizations.available}: ${_currentGoal.currency.symbol}${availableBalance.toStringAsFixed(2)}',
+              '${localizations.available}: ${_currentGoal.currency.symbol}${formatter.format(availableBalance)}',
               style: GoogleFonts.poppins(
-                fontSize: responsive.fs14, 
-                color: Color(0xFF667eea), 
-                fontWeight: FontWeight.w600
+                  fontSize: responsive.fs14,
+                  color: Color(0xFF667eea),
+                  fontWeight: FontWeight.w600
               ),
             ),
             SizedBox(height: responsive.sp4),
@@ -688,25 +688,35 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       ),
                     ),
                     SizedBox(height: responsive.sp8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _currentGoal.displayCurrentAmount,  // UPDATED
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontSize: responsive.fs32,
-                            fontWeight: FontWeight.bold,
+                    SizedBox(
+                      width: double.infinity, // Ensures spaceBetween works correctly
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween, // Pushes items to edges
+                        crossAxisAlignment: WrapCrossAlignment.end, // Aligns text baselines
+                        spacing: responsive.sp8, // Horizontal gap
+                        runSpacing: 0, // Vertical gap if it wraps
+                        children: [
+                          Text(
+                            _currentGoal.displayCurrentAmount,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: responsive.fs32,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                        Text(
-                          'of ${_currentGoal.displayTargetAmount}',  // UPDATED
-                          style: GoogleFonts.poppins(
-                            color: Colors.white.withOpacity(0.8),
-                            fontSize: responsive.fs16,
+                          Padding(
+                            // Add a little bottom padding to align with the large text nicely
+                            padding: EdgeInsets.only(bottom: 6.0),
+                            child: Text(
+                              'of ${_currentGoal.displayTargetAmount}',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white.withOpacity(0.8),
+                                fontSize: responsive.fs16,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     SizedBox(height: responsive.sp16),
                     LinearProgressIndicator(

@@ -25,6 +25,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   bool _isLoading = false;
   bool _isDownloading = false;
   String? _error;
+  final formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
   void initState() {
@@ -602,7 +603,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Expanded(
               child: _buildInfoCard(
                 localizations.goalsAllocated,
-                '${report.currency.symbol}${report.totalAllocatedToGoals.toStringAsFixed(0)}',
+                '${report.currency.symbol}${formatter.format(report.totalAllocatedToGoals)}', // CHANGED
                 Icons.flag,
               ),
             ),
@@ -759,7 +760,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 SizedBox(height: responsive.sp4),
                 Text(
-                  '${report.currency.symbol}${amount.toStringAsFixed(2)}',
+                  '${report.currency.symbol}${formatter.format(amount)}',
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs28,
                     fontWeight: FontWeight.bold,
@@ -806,7 +807,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           SizedBox(height: responsive.sp4),
           Text(
-            '${report.currency.symbol}${amount.toStringAsFixed(2)}',
+            '${report.currency.symbol}${formatter.format(amount)}',
             style: GoogleFonts.poppins(
               fontSize: responsive.fs18,
               fontWeight: FontWeight.bold,
@@ -1068,7 +1069,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
               ),
             ),
             Text(
-              '${currency.symbol}${netBalance.toStringAsFixed(2)}',
+              '${currency.symbol}${formatter.format(netBalance)}',
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs20,
                 fontWeight: FontWeight.bold,
@@ -1102,7 +1103,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   ),
                   SizedBox(height: responsive.sp4),
                   Text(
-                    '${currency.symbol}${currencyReport.totalInflow.toStringAsFixed(2)}',
+                    '${currency.symbol}${formatter.format(currencyReport.totalInflow)}', // CHANGED
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,
@@ -1144,7 +1145,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                   ),
                   SizedBox(height: responsive.sp4),
                   Text(
-                    '${currency.symbol}${currencyReport.totalOutflow.toStringAsFixed(2)}',
+                    '${currency.symbol}${formatter.format(currencyReport.totalOutflow)}', // CHANGED
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs16,
                       fontWeight: FontWeight.bold,
@@ -1186,7 +1187,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                     ),
                   ),
                   Text(
-                    '${currency.symbol}${currencyReport.averageDailyInflow.toStringAsFixed(2)}',
+                    '${currency.symbol}${formatter.format(currencyReport.averageDailyInflow)}', // CHANGED
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs13,
                       fontWeight: FontWeight.w600,
@@ -1207,7 +1208,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                     ),
                   ),
                   Text(
-                    '${currency.symbol}${currencyReport.averageDailyOutflow.toStringAsFixed(2)}',
+                    '${currency.symbol}${formatter.format(currencyReport.averageDailyOutflow)}', // CHANGED
                     style: GoogleFonts.poppins(
                       fontSize: responsive.fs13,
                       fontWeight: FontWeight.w600,
@@ -1259,7 +1260,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                           ),
                         ),
                         Text(
-                          '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
+                          '${currency.symbol}${formatter.format(cat.amount)}', // CHANGED
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs13,
                             fontWeight: FontWeight.w600,
@@ -1296,7 +1297,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
                           ),
                         ),
                         Text(
-                          '${currency.symbol}${cat.amount.toStringAsFixed(2)}',
+                          '${currency.symbol}${formatter.format(cat.amount)}', // CHANGED
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs13,
                             fontWeight: FontWeight.w600,
@@ -1371,7 +1372,7 @@ Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
           ),
         ),
         Text(
-          '${report.currency.symbol}${amount.toStringAsFixed(2)}',
+          '${report.currency.symbol}${formatter.format(amount)}', // CHANGED
           style: GoogleFonts.poppins(
             fontSize: responsive.fs16,
             fontWeight: FontWeight.bold,
@@ -1415,7 +1416,7 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
                 ),
               ),
               Text(
-                '${report.currency.symbol}${amount.toStringAsFixed(2)}',
+                '${report.currency.symbol}${formatter.format(amount)}', // CHANGED
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs16,
                   fontWeight: FontWeight.bold,
@@ -1507,7 +1508,7 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '${goal.currency.symbol}${goal.currentAmount.toStringAsFixed(2)}',  // Use goal.currency instead
+                '${goal.currency.symbol}${formatter.format(goal.currentAmount)}', // CHANGED
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs16,
                   fontWeight: FontWeight.bold,
@@ -1515,7 +1516,7 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
                 ),
               ),
               Text(
-                '${goal.currency.symbol}${goal.targetAmount.toStringAsFixed(2)}',  // Use goal.currency instead
+                '${goal.currency.symbol}${formatter.format(goal.targetAmount)}', // CHANGED
                 style: GoogleFonts.poppins(
                   fontSize: responsive.fs14,
                   color: Colors.grey[600],

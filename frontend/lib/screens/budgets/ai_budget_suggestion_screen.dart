@@ -117,12 +117,12 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               ),
               _buildSummaryItem(
                 localizations.avgMonthlyIncome,
-                '\$${_suggestion!.analysisSummary['average_monthly_income'].toStringAsFixed(2)}',
+                '\$${formatter.format(_suggestion!.analysisSummary['average_monthly_income'])}', // Changed
                 Icons.trending_up,
               ),
               _buildSummaryItem(
                 localizations.avgMonthlyExpenses,
-                '\$${_suggestion!.analysisSummary['average_monthly_expenses'].toStringAsFixed(2)}',
+                '\$${formatter.format(_suggestion!.analysisSummary['average_monthly_expenses'])}', // Changed
                 Icons.trending_down,
               ),
               _buildSummaryItem(
@@ -510,7 +510,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               _buildInfoRow(
                 Icons.attach_money,
                 localizations.totalBudget,
-                '\$${_suggestion!.totalBudget.toStringAsFixed(2)}',
+                '\$${formatter.format(_suggestion!.totalBudget)}', // Changed
               ),
             ],
           ),
@@ -609,7 +609,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                       ),
                     ),
                     Text(
-                      '${_suggestion!.currency.symbol}${catBudget.allocatedAmount.toStringAsFixed(2)}',  // NEW: use currency symbol
+                      '${_suggestion!.currency.symbol}${formatter.format(catBudget.allocatedAmount)}', // Changed
                       style: GoogleFonts.poppins(
                         fontSize: responsive.fs16,
                         fontWeight: FontWeight.bold,

@@ -470,6 +470,7 @@ Widget _buildAddOption({
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
     final responsive = ResponsiveHelper(context);
+    final formatter = NumberFormat("#,##0.00", "en_US");
     
     return Scaffold(
       key: _scaffoldKey,
@@ -1181,7 +1182,7 @@ Widget _buildAddOption({
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${transaction.amount.toStringAsFixed(2)}', // UPDATED to include currency
+                  '${transaction.type == TransactionType.inflow ? '+' : '-'}${transaction.currency.symbol}${formatter.format(transaction.amount)}',
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs16,
                     fontWeight: FontWeight.bold,

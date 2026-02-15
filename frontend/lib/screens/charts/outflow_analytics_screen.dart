@@ -28,6 +28,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
   int _touchedPieIndex = -1;
   int _touchedBarIndex = -1;
   bool _isLoading = false;
+  final formatter = NumberFormat("#,##0.00", "en_US");
 
   Currency? _selectedCurrency;
 
@@ -512,7 +513,7 @@ Future<void> _loadBalance() async {
                           ),
                           SizedBox(height: responsive.sp8),
                           Text(
-                            '${_selectedCurrency?.symbol ?? '\$'}${totalSpending.toStringAsFixed(2)}',
+                            '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalSpending)}', // CHANGED
                             style: GoogleFonts.poppins(
                               color: Colors.white,
                               fontSize: responsive.fs32,
@@ -660,7 +661,7 @@ Future<void> _loadBalance() async {
                                 getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                   String label = timeSeriesData.keys.toList()[group.x.toInt()];
                                   return BarTooltipItem(
-                                    '$label\n${_selectedCurrency?.symbol ?? '\$'}${rod.toY.toStringAsFixed(2)}',
+                                    '$label\n${_selectedCurrency?.symbol ?? '\$'}${formatter.format(rod.toY)}', // CHANGED
                                     GoogleFonts.poppins(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
@@ -724,7 +725,7 @@ Future<void> _loadBalance() async {
                                   showTitles: true,
                                   getTitlesWidget: (value, meta) {
                                     return Text(
-                                      '${_selectedCurrency?.symbol ?? '\$'}${value.toInt()}',
+                                      '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(value)}', // CHANGED
                                       style: GoogleFonts.poppins(
                                         fontSize: responsive.fs10,
                                         color: Colors.grey[600],

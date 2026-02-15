@@ -1,8 +1,11 @@
-import 'package:frontend/models/user.dart';  // NEW - import Currency
+import 'package:frontend/models/user.dart';
+import 'package:intl/intl.dart';  // NEW - import Currency
 
 enum GoalType { savings, debt_reduction, large_purchase }
 
 enum GoalStatus { active, achieved }
+
+final formatter = NumberFormat("#,##0.00", "en_US");
 
 class Goal {
   final String id;
@@ -55,15 +58,15 @@ class Goal {
   
   // NEW - Helper method to display amounts with currency symbol
   String get displayCurrentAmount {
-    return '${currency.symbol}${currentAmount.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(currentAmount)}';
   }
   
   String get displayTargetAmount {
-    return '${currency.symbol}${targetAmount.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(targetAmount)}';
   }
   
   String get displayRemainingAmount {
-    return '${currency.symbol}${(targetAmount - currentAmount).toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format((targetAmount - currentAmount))}';
   }
 }
 
@@ -140,11 +143,11 @@ class CurrencySummary {
   }
 
   String get displayTotalAllocated {
-    return '${currency.symbol}${totalAllocated.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalAllocated)}';
   }
 
   String get displayTotalTarget {
-    return '${currency.symbol}${totalTarget.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(totalTarget)}';
   }
 }
 

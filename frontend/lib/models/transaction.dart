@@ -1,7 +1,10 @@
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
+import 'package:intl/intl.dart';
 
 enum TransactionType { inflow, outflow }
+
+final formatter = NumberFormat("#,##0.00", "en_US");
 
 class Transaction {
   final String id;
@@ -78,7 +81,7 @@ class Transaction {
 
   // Helper method to display amount with currency symbol
   String get displayAmount {
-    return '${currency.symbol}${amount.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(amount)}';
   }
 }
 
@@ -113,7 +116,7 @@ class Balance {
 
   // Helper method to display balance with currency symbol
   String get displayBalance {
-    return '${currency.symbol}${balance.toStringAsFixed(2)}';
+    return '${currency.symbol}${formatter.format(balance)}';
   }
 }
 

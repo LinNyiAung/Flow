@@ -28,6 +28,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
   int _touchedPieIndex = -1;
   int _touchedBarIndex = -1;
   bool _isLoading = false;
+  final formatter = NumberFormat("#,##0.00", "en_US");
 
   Currency? _selectedCurrency;
 
@@ -508,7 +509,7 @@ void initState() {
                           ),
                           SizedBox(height: responsive.sp8),
                           Text(
-                            '${_selectedCurrency?.symbol ?? '\$'}${totalIncome.toStringAsFixed(2)}',
+                            '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalIncome)}', // CHANGED
                             style: GoogleFonts.poppins(
                               color: Colors.white,
                               fontSize: responsive.fs32,
@@ -656,7 +657,7 @@ void initState() {
                                 getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                   String label = timeSeriesData.keys.toList()[group.x.toInt()];
                                   return BarTooltipItem(
-                                    '$label\n${_selectedCurrency?.symbol ?? '\$'}${rod.toY.toStringAsFixed(2)}',
+                                    '$label\n${_selectedCurrency?.symbol ?? '\$'}${formatter.format(rod.toY)}', // CHANGED
                                     GoogleFonts.poppins(
                                       color: Colors.white,
                                       fontWeight: FontWeight.bold,
@@ -720,7 +721,7 @@ void initState() {
                                   showTitles: true,
                                   getTitlesWidget: (value, meta) {
                                     return Text(
-                                      '${_selectedCurrency?.symbol ?? '\$'}${value.toInt()}',
+                                      '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(value)}',
                                       style: GoogleFonts.poppins(
                                         fontSize: responsive.fs10,
                                         color: Colors.grey[600],

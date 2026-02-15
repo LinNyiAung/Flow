@@ -95,6 +95,7 @@ void initState() {
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final formatter = NumberFormat("#,##0.00", "en_US");
 
     return Scaffold(
       key: _scaffoldKey,
@@ -318,7 +319,7 @@ actions: [
                                       '${summary.displayTotalAllocated} / ${summary.displayTotalTarget}',
                                       style: GoogleFonts.poppins(
                                         color: Colors.white,
-                                        fontSize: responsive.fs18,
+                                        fontSize: responsive.fs16,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -423,8 +424,8 @@ actions: [
                                     children: [
                                       Text(
                                         transactionProvider.balance != null &&
-                                                transactionProvider.balance!.currency == _selectedCurrency
-                                            ? '${_selectedCurrency.symbol}${transactionProvider.balance!.availableBalance.toStringAsFixed(2)}'
+                                            transactionProvider.balance!.currency == _selectedCurrency
+                                            ? '${_selectedCurrency.symbol}${formatter.format(transactionProvider.balance!.availableBalance)}'
                                             : '${_selectedCurrency.symbol}0.00',
                                         style: GoogleFonts.poppins(
                                           fontSize: responsive.fs20,
@@ -548,6 +549,7 @@ actions: [
   void _showAllCurrencyBalancesBottomSheet() async {
     final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final formatter = NumberFormat("#,##0.00", "en_US");
   showDialog(
     context: context,
     barrierDismissible: false,
@@ -697,7 +699,7 @@ actions: [
                       ),
                       SizedBox(height: responsive.sp4),
                       Text(
-                        '${currency.symbol}${balance.availableBalance.toStringAsFixed(2)}',
+                        '${currency.symbol}${formatter.format(balance.availableBalance)}',
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs24,
                           fontWeight: FontWeight.bold,
@@ -741,7 +743,7 @@ actions: [
                                 ),
                               ),
                               Text(
-                                '${currency.symbol}${balance.allocatedToGoals.toStringAsFixed(2)}',
+                                '${currency.symbol}${formatter.format(balance.allocatedToGoals)}',
                                 style: GoogleFonts.poppins(
                                   fontSize: responsive.fs14,
                                   fontWeight: FontWeight.w600,
