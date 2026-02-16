@@ -291,18 +291,18 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 prompt += f"\n{currency_name}:\n"
-                prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
+                prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):,.2f}\n"
                 
                 # Goals allocation for this currency
                 if goals_summary:
                     curr_goals = [g for g in goals_summary.get('goals_by_currency', {}).get(currency, [])]
                     if curr_goals:
                         allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
-                        prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:.2f}\n"
-                        prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:.2f}\n"
+                        prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:,.2f}\n"
+                        prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:,.2f}\n"
                 
-                prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):.2f}\n"
-                prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):.2f}\n"
+                prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
+                prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
                 
                 # Budget info for this currency
                 if budgets_summary:
@@ -313,9 +313,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         budget_remaining = curr_budgets.get('remaining', 0)
                         budget_percentage = curr_budgets.get('percentage_used', 0)
                         
-                        prompt += f"  📊 Active Budget: {currency_symbol}{budget_allocated:.2f}\n"
-                        prompt += f"  💸 Budget Spent: {currency_symbol}{budget_spent:.2f} ({budget_percentage:.1f}%)\n"
-                        prompt += f"  💰 Budget Left: {currency_symbol}{budget_remaining:.2f}\n"
+                        prompt += f"  📊 Active Budget: {currency_symbol}{budget_allocated:,.2f}\n"
+                        prompt += f"  💸 Budget Spent: {currency_symbol}{budget_spent:,.2f} ({budget_percentage:.1f}%)\n"
+                        prompt += f"  💰 Budget Left: {currency_symbol}{budget_remaining:,.2f}\n"
                         
                         if budget_percentage >= 100:
                             prompt += f"  ⚠️  BUDGET EXCEEDED!\n"
@@ -330,7 +330,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
                         available -= allocated
                 
-                prompt += f"  ✨ Available Balance: {currency_symbol}{available:.2f}\n"
+                prompt += f"  ✨ Available Balance: {currency_symbol}{available:,.2f}\n"
                 
                 
         # Goals summary by currency
@@ -357,7 +357,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 status_icon = "🔴" if percentage >= 100 else ("🟡" if percentage >= 80 else "🟢")
                 
                 prompt += f"  {currency_name}: {active_count} active budget(s) - "
-                prompt += f"{currency_symbol}{total_spent:.2f}/{currency_symbol}{total_allocated:.2f} "
+                prompt += f"{currency_symbol}{total_spent:,.2f}/{currency_symbol}{total_allocated:,.2f} "
                 prompt += f"({percentage:.1f}%) {status_icon}\n"
         
         prompt += f"""

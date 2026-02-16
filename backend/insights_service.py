@@ -474,9 +474,9 @@ Total Transactions: {total_tx}
         net = data['inflow'] - data['outflow']
         
         context += f"\n{currency_name}:\n"
-        context += f"  Income: {currency_symbol}{data['inflow']:.2f}\n"
-        context += f"  Expenses: {currency_symbol}{data['outflow']:.2f}\n"
-        context += f"  Net: {currency_symbol}{net:.2f}\n"
+        context += f"  Income: {currency_symbol}{data['inflow']:,.2f}\n"
+        context += f"  Expenses: {currency_symbol}{data['outflow']:,.2f}\n"
+        context += f"  Net: {currency_symbol}{net:,.2f}\n"
         context += f"  Transactions: {data['count']}\n"
         
         # Top spending categories from aggregation
@@ -484,7 +484,7 @@ Total Transactions: {total_tx}
         top_items = curr_cats.get(currency, [])
         if top_items:
             for item in top_items:
-                context += f"    - {item['category']}: {currency_symbol}{item['amount']:.2f}\n"
+                context += f"    - {item['category']}: {currency_symbol}{item['amount']:,.2f}\n"
         else:
             context += "    - No expenses recorded\n"
     
@@ -509,8 +509,8 @@ Total Transactions: {total_tx}
             expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
             
             context += f"{currency_name}:\n"
-            context += f"  Income: {currency_symbol}{prev['inflow']:.2f} → {currency_symbol}{current['inflow']:.2f} ({income_change:+.1f}%)\n"
-            context += f"  Expenses: {currency_symbol}{prev['outflow']:.2f} → {currency_symbol}{current['outflow']:.2f} ({expense_change:+.1f}%)\n\n"
+            context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change:+.1f}%)\n"
+            context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change:+.1f}%)\n\n"
     
     # --- GOALS & BUDGETS Logic remains exactly the same as before ---
     
@@ -531,7 +531,7 @@ Total Transactions: {total_tx}
             context += f"{name} Goals:\n"
             for goal in active_goals[:5]:
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-                context += f"  - {goal['name']}: {sym}{goal['current_amount']:.2f} / {sym}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
+                context += f"  - {goal['name']}: {sym}{goal['current_amount']:,.2f} / {sym}{goal['target_amount']:,.2f} ({progress:.1f}%)\n"
             context += "\n"
 
     # Budgets progress
@@ -552,12 +552,12 @@ Total Transactions: {total_tx}
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
                 context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
-                context += f"     Total: {sym}{budget['total_spent']:.2f} / {sym}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
+                context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
                 
                 # Show category breakdowns
                 for cat_budget in budget.get('category_budgets', [])[:5]:
                     cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:.2f} / {sym}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
+                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
                 context += "\n"
     
     # Previous insight summary
@@ -1173,9 +1173,9 @@ Total Transactions: {total_tx}
         net = data['inflow'] - data['outflow']
         
         context += f"\n{currency_name}:\n"
-        context += f"  Income: {currency_symbol}{data['inflow']:.2f}\n"
-        context += f"  Expenses: {currency_symbol}{data['outflow']:.2f}\n"
-        context += f"  Net: {currency_symbol}{net:.2f}\n"
+        context += f"  Income: {currency_symbol}{data['inflow']:,.2f}\n"
+        context += f"  Expenses: {currency_symbol}{data['outflow']:,.2f}\n"
+        context += f"  Net: {currency_symbol}{net:,.2f}\n"
         context += f"  Transactions: {data['count']}\n"
         
         # Top spending categories
@@ -1183,7 +1183,7 @@ Total Transactions: {total_tx}
         top_items = curr_cats.get(currency, [])
         if top_items:
             for item in top_items:
-                context += f"    - {item['category']}: {currency_symbol}{item['amount']:.2f}\n"
+                context += f"    - {item['category']}: {currency_symbol}{item['amount']:,.2f}\n"
         else:
             context += "    - No expenses recorded\n"
     
@@ -1207,8 +1207,8 @@ Total Transactions: {total_tx}
             expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
             
             context += f"{currency_name}:\n"
-            context += f"  Income: {currency_symbol}{prev['inflow']:.2f} → {currency_symbol}{current['inflow']:.2f} ({income_change:+.1f}%)\n"
-            context += f"  Expenses: {currency_symbol}{prev['outflow']:.2f} → {currency_symbol}{current['outflow']:.2f} ({expense_change:+.1f}%)\n\n"
+            context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change:+.1f}%)\n"
+            context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change:+.1f}%)\n\n"
     
     # Goals - Logic remains same
     if goals:
@@ -1227,7 +1227,7 @@ Total Transactions: {total_tx}
             context += f"{name} Goals:\n"
             for goal in active_goals[:5]:
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-                context += f"  - {goal['name']}: {sym}{goal['current_amount']:.2f} / {sym}{goal['target_amount']:.2f} ({progress:.1f}%)\n"
+                context += f"  - {goal['name']}: {sym}{goal['current_amount']:,.2f} / {sym}{goal['target_amount']:,.2f} ({progress:.1f}%)\n"
             context += "\n"
 
     # Budgets - Logic remains same
@@ -1248,12 +1248,12 @@ Total Transactions: {total_tx}
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
                 context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
-                context += f"     Total: {sym}{budget['total_spent']:.2f} / {sym}{budget['total_budget']:.2f} ({utilization:.1f}%)\n"
+                context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
                 
                 # Show category breakdowns
                 for cat_budget in budget.get('category_budgets', [])[:8]:
                     cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:.2f} / {sym}{cat_budget['allocated_amount']:.2f} ({cat_util:.1f}%)\n"
+                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
                 context += "\n"
     
     # Previous insight

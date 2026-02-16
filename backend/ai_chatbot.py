@@ -251,8 +251,8 @@ class FinancialDataProcessor:
                 goals_text += f"  • Total Goals: {len(curr_goals)}\n"
                 goals_text += f"  • Active Goals: {len(active_goals)}\n"
                 goals_text += f"  • Achieved Goals: {len(achieved_goals)}\n"
-                goals_text += f"  • Total Allocated: {currency_symbol}{total_allocated:.2f}\n"
-                goals_text += f"  • Total Target (Active): {currency_symbol}{total_target:.2f}\n"
+                goals_text += f"  • Total Allocated: {currency_symbol}{total_allocated:,.2f}\n"
+                goals_text += f"  • Total Target (Active): {currency_symbol}{total_target:,.2f}\n"
                 goals_text += f"  • Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
                 
                 if active_goals:
@@ -263,9 +263,9 @@ class FinancialDataProcessor:
                         
                         goals_text += f"──── Goal #{idx}: {g['name']} ────\n"
                         goals_text += f"Type: {g['goal_type'].replace('_', ' ').title()}\n"
-                        goals_text += f"Target: {currency_symbol}{g['target_amount']:.2f}\n"
-                        goals_text += f"Current: {currency_symbol}{g['current_amount']:.2f}\n"
-                        goals_text += f"Remaining: {currency_symbol}{remaining:.2f}\n"
+                        goals_text += f"Target: {currency_symbol}{g['target_amount']:,.2f}\n"
+                        goals_text += f"Current: {currency_symbol}{g['current_amount']:,.2f}\n"
+                        goals_text += f"Remaining: {currency_symbol}{remaining:,.2f}\n"
                         goals_text += f"Progress: {progress:.1f}%\n"
                         
                         if g.get("target_date"):
@@ -276,14 +276,14 @@ class FinancialDataProcessor:
                             
                             if days_remaining > 0 and remaining > 0:
                                 daily_needed = remaining / days_remaining
-                                goals_text += f"Daily Savings Needed: {currency_symbol}{daily_needed:.2f}\n"
+                                goals_text += f"Daily Savings Needed: {currency_symbol}{daily_needed:,.2f}\n"
                         
                         goals_text += f"Created: {ensure_utc_datetime(g['created_at']).strftime('%b %d, %Y')}\n\n"
                 
                 if achieved_goals:
                     goals_text += f"🏆 ACHIEVED {currency_name} GOALS:\n\n"
                     for idx, g in enumerate(achieved_goals, 1):
-                        goals_text += f"✓ {g['name']}: {currency_symbol}{g['target_amount']:.2f}\n"
+                        goals_text += f"✓ {g['name']}: {currency_symbol}{g['target_amount']:,.2f}\n"
                         if g.get("achieved_at"):
                             achieved_date = ensure_utc_datetime(g["achieved_at"])
                             goals_text += f"  Achieved: {achieved_date.strftime('%b %d, %Y')}\n"
@@ -326,9 +326,9 @@ class FinancialDataProcessor:
                 
                 budgets_text += f"💰 {currency_name} BUDGETS:\n"
                 budgets_text += f"  • Total Active Budgets: {len(curr_budgets)}\n"
-                budgets_text += f"  • Total Allocated: {currency_symbol}{total_allocated:.2f}\n"
-                budgets_text += f"  • Total Spent: {currency_symbol}{total_spent:.2f}\n"
-                budgets_text += f"  • Overall Remaining: {currency_symbol}{overall_remaining:.2f}\n"
+                budgets_text += f"  • Total Allocated: {currency_symbol}{total_allocated:,.2f}\n"
+                budgets_text += f"  • Total Spent: {currency_symbol}{total_spent:,.2f}\n"
+                budgets_text += f"  • Overall Remaining: {currency_symbol}{overall_remaining:,.2f}\n"
                 budgets_text += f"  • Overall Usage: {overall_percentage:.1f}%\n\n"
                 
                 budgets_text += f"📊 ACTIVE {currency_name} BUDGETS:\n\n"
@@ -342,9 +342,9 @@ class FinancialDataProcessor:
                     budgets_text += f"Period: {b['period'].title()}\n"
                     budgets_text += f"Duration: {start_date.strftime('%b %d, %Y')} - {end_date.strftime('%b %d, %Y')}\n"
                     budgets_text += f"Days Remaining: {days_remaining} of {days_total}\n"
-                    budgets_text += f"Total Budget: {currency_symbol}{b['total_budget']:.2f}\n"
-                    budgets_text += f"Total Spent: {currency_symbol}{b['total_spent']:.2f}\n"
-                    budgets_text += f"Remaining: {currency_symbol}{b['remaining_budget']:.2f}\n"
+                    budgets_text += f"Total Budget: {currency_symbol}{b['total_budget']:,.2f}\n"
+                    budgets_text += f"Total Spent: {currency_symbol}{b['total_spent']:,.2f}\n"
+                    budgets_text += f"Remaining: {currency_symbol}{b['remaining_budget']:,.2f}\n"
                     budgets_text += f"Usage: {b['percentage_used']:.1f}%\n"
                     
                     # Status indicator
@@ -366,9 +366,9 @@ class FinancialDataProcessor:
                         status_icon = "🔴" if cat.get('is_exceeded') else ("🟡" if cat_percentage >= 80 else "🟢")
                         
                         budgets_text += f"  {status_icon} {cat_name}:\n"
-                        budgets_text += f"     Budget: {currency_symbol}{cat_allocated:.2f} | "
-                        budgets_text += f"Spent: {currency_symbol}{cat_spent:.2f} | "
-                        budgets_text += f"Left: {currency_symbol}{cat_remaining:.2f} | "
+                        budgets_text += f"     Budget: {currency_symbol}{cat_allocated:,.2f} | "
+                        budgets_text += f"Spent: {currency_symbol}{cat_spent:,.2f} | "
+                        budgets_text += f"Left: {currency_symbol}{cat_remaining:,.2f} | "
                         budgets_text += f"{cat_percentage:.1f}%\n"
                     
                     budgets_text += "\n"
@@ -403,7 +403,7 @@ class FinancialDataProcessor:
             chronological_text += f"─── Transaction #{idx} ({recency_indicator}) ───\n"
             chronological_text += f"Date: {date_obj.strftime('%A, %B %d, %Y')} ({get_date_only(t['date'])})\n"
             chronological_text += f"Type: {t['type'].title()}\n"
-            chronological_text += f"Amount: {currency_symbol}{t['amount']:.2f} ({currency_name})\n"
+            chronological_text += f"Amount: {currency_symbol}{t['amount']:,.2f} ({currency_name})\n"
             chronological_text += f"Category: {t['main_category']} > {t['sub_category']}\n"
             if t.get("description"):
                 chronological_text += f"Description: {t['description']}\n"
@@ -432,7 +432,7 @@ class FinancialDataProcessor:
                 currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 summary_text += f"💰 {currency_name} SUMMARY:\n"
-                summary_text += f"Current Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
+                summary_text += f"Current Balance: {currency_symbol}{data.get('balance', 0):,.2f}\n"
                 
                 # Add goals impact if exists
                 curr_goals = [g for g in goals if g.get("currency", "usd") == currency and g["status"] == "active"]
@@ -440,22 +440,22 @@ class FinancialDataProcessor:
                     total_allocated = sum(g["current_amount"] for g in curr_goals)
                     available_balance = data.get('balance', 0) - total_allocated
                     
-                    summary_text += f"Allocated to Goals: {currency_symbol}{total_allocated:.2f}\n"
-                    summary_text += f"Available Balance: {currency_symbol}{available_balance:.2f}\n"
+                    summary_text += f"Allocated to Goals: {currency_symbol}{total_allocated:,.2f}\n"
+                    summary_text += f"Available Balance: {currency_symbol}{available_balance:,.2f}\n"
                 
-                summary_text += f"Total Income: {currency_symbol}{data.get('total_inflow', 0):.2f}\n"
-                summary_text += f"Total Expenses: {currency_symbol}{data.get('total_outflow', 0):.2f}\n"
+                summary_text += f"Total Income: {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
+                summary_text += f"Total Expenses: {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
                 summary_text += f"Total Transactions: {data.get('total_transactions', 0)}\n"
-                summary_text += f"Average Transaction: {currency_symbol}{data.get('avg_transaction_amount', 0):.2f}\n"
+                summary_text += f"Average Transaction: {currency_symbol}{data.get('avg_transaction_amount', 0):,.2f}\n"
                 summary_text += f"Data Period: {data.get('date_range', {}).get('from', 'N/A')[:10]} to {data.get('date_range', {}).get('to', 'N/A')[:10]}\n\n"
                 
                 summary_text += f"Top Income Sources ({currency_name}):\n"
                 for cat, amount in list(data.get('top_inflow_categories', {}).items())[:5]:
-                    summary_text += f"  • {cat}: {currency_symbol}{amount:.2f}\n"
+                    summary_text += f"  • {cat}: {currency_symbol}{amount:,.2f}\n"
                 
                 summary_text += f"\nTop Expense Categories ({currency_name}):\n"
                 for cat, amount in list(data.get('top_outflow_categories', {}).items())[:5]:
-                    summary_text += f"  • {cat}: {currency_symbol}{amount:.2f}\n"
+                    summary_text += f"  • {cat}: {currency_symbol}{amount:,.2f}\n"
                 
                 summary_text += "\n"
         
@@ -483,9 +483,9 @@ class FinancialDataProcessor:
             goal_text += f"Currency: {currency_name}\n"
             goal_text += f"Status: {goal['status'].upper()}\n"
             goal_text += f"Type: {goal['goal_type'].replace('_', ' ').title()}\n"
-            goal_text += f"Target Amount: {currency_symbol}{goal['target_amount']:.2f}\n"
-            goal_text += f"Current Amount: {currency_symbol}{goal['current_amount']:.2f}\n"
-            goal_text += f"Remaining: {currency_symbol}{remaining:.2f}\n"
+            goal_text += f"Target Amount: {currency_symbol}{goal['target_amount']:,.2f}\n"
+            goal_text += f"Current Amount: {currency_symbol}{goal['current_amount']:,.2f}\n"
+            goal_text += f"Remaining: {currency_symbol}{remaining:,.2f}\n"
             goal_text += f"Progress: {progress:.1f}%\n\n"
             
             if goal.get("target_date"):
@@ -502,9 +502,9 @@ class FinancialDataProcessor:
                         monthly_needed = daily_needed * 30
                         
                         goal_text += f"\nSavings Needed:\n"
-                        goal_text += f"  • Daily: {currency_symbol}{daily_needed:.2f}\n"
-                        goal_text += f"  • Weekly: {currency_symbol}{weekly_needed:.2f}\n"
-                        goal_text += f"  • Monthly: {currency_symbol}{monthly_needed:.2f}\n"
+                        goal_text += f"  • Daily: {currency_symbol}{daily_needed:,.2f}\n"
+                        goal_text += f"  • Weekly: {currency_symbol}{weekly_needed:,.2f}\n"
+                        goal_text += f"  • Monthly: {currency_symbol}{monthly_needed:,.2f}\n"
             
             goal_text += f"\nCreated: {ensure_utc_datetime(goal['created_at']).strftime('%B %d, %Y')}\n"
             
@@ -553,15 +553,15 @@ class FinancialDataProcessor:
             budget_text += f"Days Remaining: {days_remaining}\n\n"
             
             budget_text += f"💰 OVERALL BUDGET:\n"
-            budget_text += f"Total Budget: {currency_symbol}{budget['total_budget']:.2f}\n"
-            budget_text += f"Total Spent: {currency_symbol}{budget['total_spent']:.2f}\n"
-            budget_text += f"Remaining: {currency_symbol}{budget['remaining_budget']:.2f}\n"
+            budget_text += f"Total Budget: {currency_symbol}{budget['total_budget']:,.2f}\n"
+            budget_text += f"Total Spent: {currency_symbol}{budget['total_spent']:,.2f}\n"
+            budget_text += f"Remaining: {currency_symbol}{budget['remaining_budget']:,.2f}\n"
             budget_text += f"Usage: {budget['percentage_used']:.1f}%\n"
             
             if budget['percentage_used'] >= 100:
-                budget_text += f"⚠️  BUDGET EXCEEDED by {currency_symbol}{budget['total_spent'] - budget['total_budget']:.2f}\n"
+                budget_text += f"⚠️  BUDGET EXCEEDED by {currency_symbol}{budget['total_spent'] - budget['total_budget']:,.2f}\n"
             elif budget['percentage_used'] >= 80:
-                budget_text += f"⚠️  CAUTION: High usage - {currency_symbol}{budget['remaining_budget']:.2f} remaining\n"
+                budget_text += f"⚠️  CAUTION: High usage - {currency_symbol}{budget['remaining_budget']:,.2f} remaining\n"
             
             # Daily rate analysis
             if days_remaining > 0:
@@ -569,8 +569,8 @@ class FinancialDataProcessor:
                 daily_budget_remaining = budget['remaining_budget'] / days_remaining
                 
                 budget_text += f"\n📊 SPENDING RATE:\n"
-                budget_text += f"Current Daily Avg: {currency_symbol}{daily_rate_current:.2f}\n"
-                budget_text += f"Daily Budget Left: {currency_symbol}{daily_budget_remaining:.2f}\n"
+                budget_text += f"Current Daily Avg: {currency_symbol}{daily_rate_current:,.2f}\n"
+                budget_text += f"Daily Budget Left: {currency_symbol}{daily_budget_remaining:,.2f}\n"
                 
                 if daily_rate_current > daily_budget_remaining:
                     budget_text += f"⚠️  Spending faster than budget allows!\n"
@@ -584,13 +584,13 @@ class FinancialDataProcessor:
                 cat_percentage = cat.get('percentage_used', 0)
                 
                 budget_text += f"──── {cat_name} ────\n"
-                budget_text += f"Allocated: {currency_symbol}{cat_allocated:.2f}\n"
-                budget_text += f"Spent: {currency_symbol}{cat_spent:.2f}\n"
-                budget_text += f"Remaining: {currency_symbol}{cat_remaining:.2f}\n"
+                budget_text += f"Allocated: {currency_symbol}{cat_allocated:,.2f}\n"
+                budget_text += f"Spent: {currency_symbol}{cat_spent:,.2f}\n"
+                budget_text += f"Remaining: {currency_symbol}{cat_remaining:,.2f}\n"
                 budget_text += f"Usage: {cat_percentage:.1f}%\n"
                 
                 if cat.get('is_exceeded'):
-                    budget_text += f"🔴 EXCEEDED by {currency_symbol}{abs(cat_remaining):.2f}\n"
+                    budget_text += f"🔴 EXCEEDED by {currency_symbol}{abs(cat_remaining):,.2f}\n"
                 elif cat_percentage >= 80:
                     budget_text += f"🟡 HIGH USAGE - approaching limit\n"
                 else:
@@ -649,9 +649,9 @@ class FinancialDataProcessor:
                 currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 daily_text += f"{currency_name}:\n"
-                daily_text += f"  Income: +{currency_symbol}{totals['inflow']:.2f}\n"
-                daily_text += f"  Expenses: -{currency_symbol}{totals['outflow']:.2f}\n"
-                daily_text += f"  Net: {currency_symbol}{totals['inflow'] - totals['outflow']:.2f}\n\n"
+                daily_text += f"  Income: +{currency_symbol}{totals['inflow']:,.2f}\n"
+                daily_text += f"  Expenses: -{currency_symbol}{totals['outflow']:,.2f}\n"
+                daily_text += f"  Net: {currency_symbol}{totals['inflow'] - totals['outflow']:,.2f}\n\n"
             
             daily_text += "Transactions:\n"
             for t in daily_transactions:
@@ -659,7 +659,7 @@ class FinancialDataProcessor:
                 currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
                 currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
-                daily_text += f"  • {t['type'].title()}: {currency_symbol}{t['amount']:.2f} ({currency_name}) - {t['main_category']} > {t['sub_category']}"
+                daily_text += f"  • {t['type'].title()}: {currency_symbol}{t['amount']:,.2f} ({currency_name}) - {t['main_category']} > {t['sub_category']}"
                 if t.get("description"):
                     daily_text += f" ({t['description']})"
                 daily_text += "\n"
@@ -695,14 +695,14 @@ class FinancialDataProcessor:
             for category, data in sorted(categories.items(), key=lambda x: x[1]["total"], reverse=True)[:8]:
                 category_text = f"─── Category: {category} ({currency_name}) ───\n\n"
                 category_text += f"Type: {data['type'].title()}\n"
-                category_text += f"Total: {currency_symbol}{data['total']:.2f}\n"
+                category_text += f"Total: {currency_symbol}{data['total']:,.2f}\n"
                 category_text += f"Transactions: {len(data['transactions'])}\n"
-                category_text += f"Average: {currency_symbol}{data['total'] / len(data['transactions']):.2f}\n\n"
+                category_text += f"Average: {currency_symbol}{data['total'] / len(data['transactions']):,.2f}\n\n"
                 category_text += "Recent Examples:\n"
                 
                 for t in data['transactions'][:5]:
                     date_obj = ensure_utc_datetime(t["date"])
-                    category_text += f"  • {date_obj.strftime('%b %d, %Y')}: {currency_symbol}{t['amount']:.2f}"
+                    category_text += f"  • {date_obj.strftime('%b %d, %Y')}: {currency_symbol}{t['amount']:,.2f}"
                     if t.get("description"):
                         category_text += f" - {t['description']}"
                     category_text += "\n"
@@ -960,15 +960,15 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 
                 prompt += f"\n{currency_name}:\n"
-                prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):.2f}\n"
+                prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):,.2f}\n"
                 
                 # Goals allocation for this currency
                 if goals_summary:
                     curr_goals = [g for g in goals_summary.get('goals_by_currency', {}).get(currency, [])]
                     if curr_goals:
                         allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
-                        prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:.2f}\n"
-                        prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:.2f}\n"
+                        prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:,.2f}\n"
+                        prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:,.2f}\n"
                 
                 # Budget info for this currency
                 if budgets_summary:
@@ -979,9 +979,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         budget_remaining = curr_budgets.get('remaining', 0)
                         budget_percentage = curr_budgets.get('percentage_used', 0)
                         
-                        prompt += f"  📊 Active Budget: {currency_symbol}{budget_allocated:.2f}\n"
-                        prompt += f"  💸 Budget Spent: {currency_symbol}{budget_spent:.2f} ({budget_percentage:.1f}%)\n"
-                        prompt += f"  💰 Budget Left: {currency_symbol}{budget_remaining:.2f}\n"
+                        prompt += f"  📊 Active Budget: {currency_symbol}{budget_allocated:,.2f}\n"
+                        prompt += f"  💸 Budget Spent: {currency_symbol}{budget_spent:,.2f} ({budget_percentage:.1f}%)\n"
+                        prompt += f"  💰 Budget Left: {currency_symbol}{budget_remaining:,.2f}\n"
                         
                         if budget_percentage >= 100:
                             prompt += f"  ⚠️  BUDGET EXCEEDED!\n"
@@ -996,9 +996,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
                         available -= allocated
                 
-                prompt += f"  ✨ Available Balance: {currency_symbol}{available:.2f}\n"
-                prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):.2f}\n"
-                prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):.2f}\n"
+                prompt += f"  ✨ Available Balance: {currency_symbol}{available:,.2f}\n"
+                prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
+                prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
         
         # Goals summary by currency
         if goals_summary and goals_summary.get('goals_by_currency'):
@@ -1024,7 +1024,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 status_icon = "🔴" if percentage >= 100 else ("🟡" if percentage >= 80 else "🟢")
                 
                 prompt += f"  {currency_name}: {active_count} active budget(s) - "
-                prompt += f"{currency_symbol}{total_spent:.2f}/{currency_symbol}{total_allocated:.2f} "
+                prompt += f"{currency_symbol}{total_spent:,.2f}/{currency_symbol}{total_allocated:,.2f} "
                 prompt += f"({percentage:.1f}%) {status_icon}\n"
         
         prompt += f"""
