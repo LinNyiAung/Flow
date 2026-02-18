@@ -524,51 +524,49 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 
                 # Gemini streaming call (using sync client in a thread or async client if available)
                 # Assuming 'self.client.models.generate_content_stream' is blocking:
-                response = await self.client.aio.models.generate_content_stream(
-                    model=self.gemini_model,
-                    contents=[
-                        # Note: Gemini system prompt is usually config, but putting it in text works too
-                        f"{system_prompt}\n\nUSER QUERY: {user_prompt}"
-                    ],
-                    config={
-                    "temperature": temperature_map.get(response_style, 0.3),
-                    "max_output_tokens": 8192,
-                }
-                )
-                
+                # ADD this
+                full_prompt = f"{system_prompt}\n\nUSER QUERY: {user_prompt}"
+
+                def _sync_stream():
+                    chunks = []
+                    usage = None
+                    response = self.client.models.generate_content_stream(
+                        model=self.gemini_model,
+                        contents=[full_prompt],
+                        config={
+                            "temperature": temperature_map.get(response_style, 0.3),
+                            "max_output_tokens": 8192,
+                        }
+                    )
+                    for chunk in response:
+                        if chunk.text:
+                            chunks.append(chunk.text)
+                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                            usage = chunk.usage_metadata
+                    return chunks, usage
+
                 full_response_text = ""
-                
-                # Iterate through the stream (this part is synchronous if response is a generator)
-                async for chunk in response:
-                    if chunk.text:
-                        full_response_text += chunk.text
-                        yield chunk.text, None
-                        await asyncio.sleep(0.01)  # Yield control to event loop
-                
-                # Calculate final usage
+                chunks, usage_metadata = await asyncio.to_thread(_sync_stream)
+
+                for chunk_text in chunks:
+                    full_response_text += chunk_text
+                    yield chunk_text, None
+                    await asyncio.sleep(0.01)
+
+                # Now estimated_output can be calculated since full_response_text is populated
                 estimated_output = len(full_response_text) // 4
-                
-                # Try to get actual usage metadata if available
-                # (Note: Google GenAI Python SDK usage metadata access varies by version)
-                if hasattr(response, 'usage_metadata'):
-                    actual_input = getattr(response.usage_metadata, 'prompt_token_count', estimated_input)
-                    actual_output = getattr(response.usage_metadata, 'candidates_token_count', estimated_output)
-                    actual_total = getattr(response.usage_metadata, 'total_token_count', actual_input + actual_output)
-                else:
-                    actual_input = estimated_input
-                    actual_output = estimated_output
-                    actual_total = actual_input + actual_output
-                
-                # If the response object has usage_metadata at the end (depends on SDK version)
-                # You might access it here. For now, we fallback to estimates or the generator's final state.
-                
+
+                actual_input = getattr(usage_metadata, 'prompt_token_count', estimated_input) if usage_metadata else estimated_input
+                actual_output = getattr(usage_metadata, 'candidates_token_count', estimated_output) if usage_metadata else estimated_output
+                actual_total = getattr(usage_metadata, 'total_token_count', actual_input + actual_output) if usage_metadata else actual_input + actual_output
+
                 usage_data = {
                     'input_tokens': actual_input,
                     'output_tokens': actual_output,
                     'total_tokens': actual_total,
                     'model_name': self.gemini_model
                 }
-                
+
                 yield "", usage_data
                     
             except Exception as usage_error:
