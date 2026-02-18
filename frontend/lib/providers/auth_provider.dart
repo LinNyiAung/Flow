@@ -7,15 +7,21 @@ class AuthProvider with ChangeNotifier {
   User? _user;
   bool _isLoading = false;
   String? _error;
+  // [FIX] Add this new variable
+  bool _isAuthChecking = true;
+
+  // [FIX] Add this getter
+  bool get isAuthChecking => _isAuthChecking;
 
   User? get user => _user;
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _user != null;
-  
+
   // NEW: Premium status getters
   bool get isPremium => _user?.isPremium ?? false;
-  SubscriptionType get subscriptionType => _user?.subscriptionType ?? SubscriptionType.free;
+  SubscriptionType get subscriptionType =>
+      _user?.subscriptionType ?? SubscriptionType.free;
   DateTime? get subscriptionExpiresAt => _user?.subscriptionExpiresAt;
 
   Currency get defaultCurrency => _user?.defaultCurrency ?? Currency.usd;
@@ -30,7 +36,6 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-
   // ADD THIS HELPER METHOD
   Future<void> _sendFCMToken() async {
     try {
@@ -42,19 +47,19 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<bool> updateDefaultCurrency({required Currency currency}) async {
-  _setLoading(true);
-  _setError(null);
+    _setLoading(true);
+    _setError(null);
 
-  try {
-    _user = await ApiService.updateDefaultCurrency(currency: currency);
-    _setLoading(false);
-    return true;
-  } catch (e) {
-    _setError(e.toString().replaceAll('Exception: ', ''));
-    _setLoading(false);
-    return false;
+    try {
+      _user = await ApiService.updateDefaultCurrency(currency: currency);
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setLoading(false);
+      return false;
+    }
   }
-}
 
   Future<bool> register({
     required String name,
@@ -71,10 +76,10 @@ class AuthProvider with ChangeNotifier {
         password: password,
       );
       _user = authResponse.user;
-      
+
       // Send FCM token after successful registration
-      await _sendFCMToken();  // ADD THIS
-      
+      await _sendFCMToken(); // ADD THIS
+
       _setLoading(false);
       return true;
     } catch (e) {
@@ -84,10 +89,7 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> login({
-    required String email,
-    required String password,
-  }) async {
+  Future<bool> login({required String email, required String password}) async {
     _setLoading(true);
     _setError(null);
 
@@ -97,10 +99,10 @@ class AuthProvider with ChangeNotifier {
         password: password,
       );
       _user = authResponse.user;
-      
+
       // Send FCM token after successful login
-      await _sendFCMToken();  // ADD THIS
-      
+      await _sendFCMToken(); // ADD THIS
+
       _setLoading(false);
       return true;
     } catch (e) {
@@ -110,28 +112,26 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-
   Future<bool> deleteAccount() async {
-  _setLoading(true);
-  _setError(null);
+    _setLoading(true);
+    _setError(null);
 
-  try {
-    await ApiService.deleteAccount();
-    _user = null;
-    _setLoading(false);
-    notifyListeners();
-    return true;
-  } catch (e) {
-    _setError(e.toString().replaceAll('Exception: ', ''));
-    _setLoading(false);
-    return false;
+    try {
+      await ApiService.deleteAccount();
+      _user = null;
+      _setLoading(false);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setLoading(false);
+      return false;
+    }
   }
-}
-
 
   Future<bool> canAccessPremiumFeature(BuildContext context) async {
     if (isPremium) return true;
-    
+
     // Show upgrade dialog
     await _showUpgradeDialog(context);
     return false;
@@ -160,17 +160,20 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> checkAuthStatus() async {
+    _isAuthChecking = true;
+    // We don't notify here to prevent unnecessary rebuilds before the check starts
+
     try {
       _user = await ApiService.getCurrentUser();
-      
-      // Send FCM token if user is already authenticated
+
       if (_user != null) {
-        await _sendFCMToken();  // ADD THIS
+        await _sendFCMToken();
       }
-      
-      notifyListeners();
     } catch (e) {
       _user = null;
+    } finally {
+      // [FIX] Ensure we stop checking and notify listeners regardless of success/failure
+      _isAuthChecking = false;
       notifyListeners();
     }
   }
@@ -209,6 +212,7 @@ class AuthProvider with ChangeNotifier {
           createdAt: _user!.createdAt,
           subscriptionType: status.subscriptionType,
           subscriptionExpiresAt: status.expiresAt,
+          defaultCurrency: _user!.defaultCurrency,
         );
         notifyListeners();
       }
@@ -217,29 +221,28 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-
   Future<bool> changePassword({
-  required String currentPassword,
-  required String newPassword,
-  required String confirmPassword,
-}) async {
-  _setLoading(true);
-  _setError(null);
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    _setLoading(true);
+    _setError(null);
 
-  try {
-    await ApiService.changePassword(
-      currentPassword: currentPassword,
-      newPassword: newPassword,
-      confirmPassword: confirmPassword,
-    );
-    _setLoading(false);
-    return true;
-  } catch (e) {
-    _setError(e.toString().replaceAll('Exception: ', ''));
-    _setLoading(false);
-    return false;
+    try {
+      await ApiService.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setLoading(false);
+      return false;
+    }
   }
-}
 
   Future<void> _showUpgradeDialog(BuildContext context) async {
     showDialog(

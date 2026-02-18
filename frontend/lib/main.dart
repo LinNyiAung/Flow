@@ -34,16 +34,16 @@ import 'screens/ai/ai_chat_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // ADD THIS
-  
+
   // Initialize Firebase
   await Firebase.initializeApp();
-  
+
   // Initialize FCM Service
   await FCMService().initialize();
-  
+
   // Initialize notification service (keep existing)
   await NotificationService().initialize();
-  
+
   runApp(MyApp());
 }
 
@@ -91,10 +91,7 @@ class _MyAppState extends State<MyApp> {
         title: 'Flow Finance',
         debugShowCheckedModeBanner: false,
         locale: _locale,
-        supportedLocales: [
-          Locale('en', ''),
-          Locale('my', ''),
-        ],
+        supportedLocales: [Locale('en', ''), Locale('my', '')],
         localizationsDelegates: [
           AppLocalizations.delegate,
           GlobalMaterialLocalizations.delegate,
@@ -125,7 +122,10 @@ class _MyAppState extends State<MyApp> {
             ),
             filled: true,
             fillColor: Colors.grey[50],
-            contentPadding: EdgeInsets.symmetric(vertical: 15.0, horizontal: 15.0),
+            contentPadding: EdgeInsets.symmetric(
+              vertical: 15.0,
+              horizontal: 15.0,
+            ),
           ),
         ),
         initialRoute: '/',
@@ -151,9 +151,8 @@ class _MyAppState extends State<MyApp> {
         onGenerateRoute: (settings) {
           if (settings.name == '/language-settings') {
             return MaterialPageRoute(
-              builder: (context) => LanguageSettingsScreen(
-                onLanguageChanged: _changeLanguage,
-              ),
+              builder: (context) =>
+                  LanguageSettingsScreen(onLanguageChanged: _changeLanguage),
             );
           }
           return null;
@@ -169,26 +168,32 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async { // CHANGE TO async
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      await authProvider.checkAuthStatus(); // ADD await
+    // Trigger the auth check once when the app starts
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<AuthProvider>(context, listen: false).checkAuthStatus();
     });
   }
 
-
-
-
-@override
+  @override
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
-        if (authProvider.isLoading) {
-          return Scaffold(body: Center(child: CircularProgressIndicator()));
-        } else if (authProvider.isAuthenticated) {
+        // [FIX] Use isAuthChecking to keep loading screen visible during initial check
+        if (authProvider.isAuthChecking) {
+          return Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+              ),
+            ),
+          );
+        }
+
+        // Once check is complete, decide where to go
+        if (authProvider.isAuthenticated) {
           return HomeScreen();
         } else {
           return LoginScreen();
