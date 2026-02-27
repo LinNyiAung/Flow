@@ -14,7 +14,7 @@ enum SubscriptionType {
 enum Currency {
   usd,
   mmk,
-  thb;  // ADD THIS LINE
+  thb;
 
   static Currency fromString(String value) {
     return Currency.values.firstWhere(
@@ -22,25 +22,25 @@ enum Currency {
       orElse: () => Currency.usd,
     );
   }
-  
+
   String get symbol {
     switch (this) {
       case Currency.usd:
         return '\$';
       case Currency.mmk:
         return 'K';
-      case Currency.thb:  // ADD THIS CASE
+      case Currency.thb:
         return '฿';
     }
   }
-  
+
   String get displayName {
     switch (this) {
       case Currency.usd:
         return 'US Dollar (USD)';
       case Currency.mmk:
         return 'Myanmar Kyat (MMK)';
-      case Currency.thb:  // ADD THIS CASE
+      case Currency.thb:
         return 'Thai Baht (THB)';
     }
   }
@@ -53,7 +53,8 @@ class User {
   final DateTime createdAt;
   final SubscriptionType subscriptionType;
   final DateTime? subscriptionExpiresAt;
-  final Currency defaultCurrency;  // NEW
+  final Currency defaultCurrency;
+  final bool isVerified; // <-- NEW FIELD
 
   User({
     required this.id,
@@ -62,7 +63,8 @@ class User {
     required this.createdAt,
     this.subscriptionType = SubscriptionType.free,
     this.subscriptionExpiresAt,
-    this.defaultCurrency = Currency.usd,  // NEW
+    this.defaultCurrency = Currency.usd,
+    this.isVerified = false, // <-- NEW FIELD
   });
 
   bool get isPremium {
@@ -89,9 +91,8 @@ class User {
       subscriptionExpiresAt: json['subscription_expires_at'] != null
           ? DateTime.parse(json['subscription_expires_at'])
           : null,
-      defaultCurrency: Currency.fromString(  // NEW
-        json['default_currency'] ?? 'usd',
-      ),
+      defaultCurrency: Currency.fromString(json['default_currency'] ?? 'usd'),
+      isVerified: json['is_verified'] ?? false, // <-- NEW FIELD PARSING
     );
   }
 
@@ -103,7 +104,8 @@ class User {
       'created_at': createdAt.toIso8601String(),
       'subscription_type': subscriptionType.name,
       'subscription_expires_at': subscriptionExpiresAt?.toIso8601String(),
-      'default_currency': defaultCurrency.name,  // NEW
+      'default_currency': defaultCurrency.name,
+      'is_verified': isVerified, // <-- NEW FIELD
     };
   }
 }
@@ -128,7 +130,6 @@ class AuthResponse {
   }
 }
 
-// NEW: Subscription status response
 class SubscriptionStatus {
   final SubscriptionType subscriptionType;
   final bool isPremium;

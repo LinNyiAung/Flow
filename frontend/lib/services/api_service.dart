@@ -18,7 +18,7 @@ import '../models/user.dart';
 import '../models/transaction.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://flowfinance.onrender.com';
+  static const String baseUrl = 'https://flowfinancetest.onrender.com';
 
   static Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -42,7 +42,6 @@ class ApiService {
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
-
 
   // Add this method to ApiService class
   static Future<void> updateFCMToken(String fcmToken) async {
@@ -72,7 +71,12 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final authResponse = AuthResponse.fromJson(jsonDecode(response.body));
-      await saveToken(authResponse.accessToken);
+
+      // <-- NEW: Only save the token if the user is verified
+      if (authResponse.user.isVerified) {
+        await saveToken(authResponse.accessToken);
+      }
+
       return authResponse;
     } else {
       final error = jsonDecode(response.body);
@@ -1570,7 +1574,6 @@ class ApiService {
       throw Exception('Failed to get unread count');
     }
   }
-
 
   static Future<void> submitFeedback(FeedbackCreate feedback) async {
     final response = await http.post(

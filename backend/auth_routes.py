@@ -1,9 +1,11 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta, UTC
 
-from fastapi import APIRouter, HTTPException, status, Depends,  Path
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends,  Path
 from fastapi.concurrency import run_in_threadpool
 
+from email_service import send_verification_email
 from utils import create_access_token, get_current_user, get_password_hash, verify_password
 from models import (
     Currency, CurrencyUpdate, LanguageUpdate, PasswordChange, ProfileUpdate, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType,
@@ -21,16 +23,16 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # ==================== AUTHENTICATION ====================
 
 @router.post("/register", response_model=Token)
-async def register(user_data: UserCreate):
+async def register(user_data: UserCreate, background_tasks: BackgroundTasks): # <-- Inject BackgroundTasks
     """Register new user"""
-    # [FIX] Added await
     if await users_collection.find_one({"email": user_data.email}):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     
-    # [FIX] Offload blocking hash to thread pool
     hashed_password = await run_in_threadpool(get_password_hash, user_data.password)
     
     user_id = str(uuid.uuid4())
+    verification_token = secrets.token_urlsafe(32) # <-- Generate a secure random token
+    
     new_user = {
         "_id": user_id,
         "name": user_data.name,
@@ -40,11 +42,15 @@ async def register(user_data: UserCreate):
         "subscription_expires_at": None,
         "default_currency": "usd",
         "language": "en",
-        "created_at": datetime.now(UTC)
+        "created_at": datetime.now(UTC),
+        "is_verified": False, # <-- Default to False
+        "verification_token": verification_token # <-- Save the token to the DB
     }
     
-    # [FIX] Added await
     await users_collection.insert_one(new_user)
+
+    # Trigger the email to send in the background
+    background_tasks.add_task(send_verification_email, user_data.email, verification_token)
 
     access_token = create_access_token(
         data={"sub": user_data.email},
@@ -61,9 +67,36 @@ async def register(user_data: UserCreate):
             created_at=new_user["created_at"],
             subscription_type=SubscriptionType.FREE,
             subscription_expires_at=None,
-            default_currency=Currency.USD
+            default_currency=Currency.USD,
+            is_verified=False # <-- Reflect in response
         )
     )
+
+
+@router.get("/verify-email")
+async def verify_email(email: str, token: str):
+    """Verify user's email address using the token"""
+    user = await users_collection.find_one({"email": email})
+    
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+    if user.get("is_verified"):
+        return {"message": "Email is already verified. You can log in."}
+        
+    if user.get("verification_token") != token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification token")
+        
+    # Update user to verified and remove the token so it can't be reused
+    await users_collection.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {"is_verified": True},
+            "$unset": {"verification_token": ""} 
+        }
+    )
+    
+    return {"message": "Email verified successfully! Your account is now active."}
     
     
 @router.put("/language", response_model=UserResponse)
@@ -101,11 +134,17 @@ async def update_language(
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin):
     """Login user"""
-    # [FIX] Added await
     user = await users_collection.find_one({"email": user_credentials.email})
-    # [FIX] Offload blocking verify to thread pool
+    
     if not user or not await run_in_threadpool(verify_password, user_credentials.password, user["password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+
+    # <-- NEW: Block login if the user hasn't verified their email
+    if not user.get("is_verified", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Please verify your email address before logging in. Check your inbox."
+        )
 
     access_token = create_access_token(
         data={"sub": user["email"]},
@@ -122,7 +161,8 @@ async def login(user_credentials: UserLogin):
             created_at=user["created_at"],
             subscription_type=SubscriptionType(user.get("subscription_type", "free")),
             subscription_expires_at=user.get("subscription_expires_at"),
-            default_currency=Currency(user.get("default_currency", "usd"))
+            default_currency=Currency(user.get("default_currency", "usd")),
+            is_verified=user.get("is_verified", True) # <-- Pass status to frontend
         )
     )
 

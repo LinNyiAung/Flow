@@ -407,186 +407,240 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _register() async {
-  if (_formKey.currentState!.validate()) {
-    // Check if terms are accepted
-    if (!_acceptedTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Please accept the Terms and Conditions to continue',
-            style: GoogleFonts.poppins(color: Colors.white),
+    if (_formKey.currentState!.validate()) {
+      if (!_acceptedTerms) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please accept the Terms and Conditions to continue',
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      );
-      return;
-    }
+        );
+        return;
+      }
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.register(
-      name: _nameController.text.trim(),
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
-
-    if (success) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => HomeScreen()),
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final success = await authProvider.register(
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
       );
+
+      if (success) {
+        // <-- NEW: Show a dialog instead of navigating to HomeScreen
+        final responsive = ResponsiveHelper(context);
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext dialogContext) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(
+                  responsive.borderRadius(16),
+                ),
+              ),
+              title: Row(
+                children: [
+                  Icon(Icons.mark_email_unread, color: Color(0xFF667eea)),
+                  SizedBox(width: 8),
+                  Text(
+                    'Verify Email',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold,
+                      fontSize: responsive.fs18,
+                    ),
+                  ),
+                ],
+              ),
+              content: Text(
+                'We have sent a verification link to your email address. Please check your inbox and click the link to activate your account.',
+                style: GoogleFonts.poppins(
+                  fontSize: responsive.fs14,
+                  color: Colors.grey[700],
+                  height: 1.5,
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext); // Close the dialog
+                    Navigator.pushReplacementNamed(
+                      context,
+                      '/login',
+                    ); // Send back to login
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF667eea),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    'Go to Login',
+                    style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      }
     }
   }
-}
 
+  void _showTermsAndConditions() {
+    final responsive = ResponsiveHelper(context);
 
-void _showTermsAndConditions() {
-  final responsive = ResponsiveHelper(context);
-  
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.description, color: Color(0xFF667eea)),
-            SizedBox(width: 8),
-            Text(
-              'Terms and Conditions',
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.bold,
-                fontSize: responsive.fs18,
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+          ),
+          title: Row(
             children: [
+              Icon(Icons.description, color: Color(0xFF667eea)),
+              SizedBox(width: 8),
               Text(
-                'Welcome to Flow - Personal Finance AI',
+                'Terms and Conditions',
                 style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.w600,
-                  fontSize: responsive.fs14,
-                ),
-              ),
-              SizedBox(height: 12),
-              Text(
-                'By using Flow, you agree to:\n\n'
-                '1. Use the app for personal financial management only\n\n'
-                '2. Provide accurate information when creating transactions\n\n'
-                '3. Keep your account credentials secure\n\n'
-                '4. Not misuse AI features or attempt to manipulate the system\n\n'
-                '5. Understand that financial insights are suggestions, not professional advice\n\n'
-                '6. Accept that premium features require an active subscription\n\n'
-                '7. Allow us to process your financial data to provide personalized insights',
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs13,
-                  color: Colors.grey[700],
-                  height: 1.5,
+                  fontWeight: FontWeight.bold,
+                  fontSize: responsive.fs18,
                 ),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Close',
-              style: GoogleFonts.poppins(
-                color: Color(0xFF667eea),
-                fontWeight: FontWeight.w600,
-              ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Welcome to Flow - Personal Finance AI',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    fontSize: responsive.fs14,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'By using Flow, you agree to:\n\n'
+                  '1. Use the app for personal financial management only\n\n'
+                  '2. Provide accurate information when creating transactions\n\n'
+                  '3. Keep your account credentials secure\n\n'
+                  '4. Not misuse AI features or attempt to manipulate the system\n\n'
+                  '5. Understand that financial insights are suggestions, not professional advice\n\n'
+                  '6. Accept that premium features require an active subscription\n\n'
+                  '7. Allow us to process your financial data to provide personalized insights',
+                  style: GoogleFonts.poppins(
+                    fontSize: responsive.fs13,
+                    color: Colors.grey[700],
+                    height: 1.5,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      );
-    },
-  );
-}
-
-void _showPrivacyPolicy() {
-  final responsive = ResponsiveHelper(context);
-  
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.privacy_tip, color: Color(0xFF667eea)),
-            SizedBox(width: 8),
-            Text(
-              'Privacy Policy',
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.bold,
-                fontSize: responsive.fs18,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Close',
+                style: GoogleFonts.poppins(
+                  color: Color(0xFF667eea),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+        );
+      },
+    );
+  }
+
+  void _showPrivacyPolicy() {
+    final responsive = ResponsiveHelper(context);
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+          ),
+          title: Row(
             children: [
+              Icon(Icons.privacy_tip, color: Color(0xFF667eea)),
+              SizedBox(width: 8),
               Text(
-                'Your Privacy Matters',
+                'Privacy Policy',
                 style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.w600,
-                  fontSize: responsive.fs14,
-                ),
-              ),
-              SizedBox(height: 12),
-              Text(
-                'We collect and use your data to:\n\n'
-                '• Provide personalized financial insights\n'
-                '• Improve our AI recommendations\n'
-                '• Secure your account and transactions\n'
-                '• Send important notifications about your finances\n\n'
-                'We protect your data by:\n\n'
-                '• Encrypting all sensitive information\n'
-                '• Never sharing your data with third parties without consent\n'
-                '• Allowing you to delete your data at any time\n'
-                '• Following industry-standard security practices\n\n'
-                'Your financial data is stored securely and used only to enhance your experience with Flow.',
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs13,
-                  color: Colors.grey[700],
-                  height: 1.5,
+                  fontWeight: FontWeight.bold,
+                  fontSize: responsive.fs18,
                 ),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Close',
-              style: GoogleFonts.poppins(
-                color: Color(0xFF667eea),
-                fontWeight: FontWeight.w600,
-              ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Your Privacy Matters',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    fontSize: responsive.fs14,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'We collect and use your data to:\n\n'
+                  '• Provide personalized financial insights\n'
+                  '• Improve our AI recommendations\n'
+                  '• Secure your account and transactions\n'
+                  '• Send important notifications about your finances\n\n'
+                  'We protect your data by:\n\n'
+                  '• Encrypting all sensitive information\n'
+                  '• Never sharing your data with third parties without consent\n'
+                  '• Allowing you to delete your data at any time\n'
+                  '• Following industry-standard security practices\n\n'
+                  'Your financial data is stored securely and used only to enhance your experience with Flow.',
+                  style: GoogleFonts.poppins(
+                    fontSize: responsive.fs13,
+                    color: Colors.grey[700],
+                    height: 1.5,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      );
-    },
-  );
-}
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Close',
+                style: GoogleFonts.poppins(
+                  color: Color(0xFF667eea),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   void dispose() {

@@ -42,7 +42,8 @@ class UserResponse(BaseModel):
     created_at: datetime
     subscription_type: SubscriptionType
     subscription_expires_at: Optional[datetime] = None
-    default_currency: Currency = Currency.USD  # NEW
+    default_currency: Currency = Currency.USD
+    is_verified: bool = False  # <--- NEW FIELD
     
     
 

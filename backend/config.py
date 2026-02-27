@@ -19,6 +19,9 @@ class Settings:
     # NEW: Gemini settings
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+    EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
     
     
     FIREBASE_CREDENTIALS_PATH: str = os.getenv(

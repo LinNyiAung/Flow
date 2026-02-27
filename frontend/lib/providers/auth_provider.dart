@@ -75,10 +75,16 @@ class AuthProvider with ChangeNotifier {
         email: email,
         password: password,
       );
-      _user = authResponse.user;
 
-      // Send FCM token after successful registration
-      await _sendFCMToken(); // ADD THIS
+      // <-- NEW: If not verified, don't log them in locally
+      if (!authResponse.user.isVerified) {
+        _setLoading(false);
+        return true; // Return true to indicate successful registration creation
+      }
+
+      // If they somehow are verified immediately, proceed as normal
+      _user = authResponse.user;
+      await _sendFCMToken();
 
       _setLoading(false);
       return true;
