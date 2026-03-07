@@ -15,7 +15,7 @@ def send_verification_email(receiver_email: str, verification_token: str):
     msg['To'] = receiver_email
     
     # In production, change localhost to your actual frontend domain
-    verification_link = f"https://flowfinancetest.onrender.com/api/auth/verify-email?email={receiver_email}&token={verification_token}"
+    verification_link = f"https://flowfinance.onrender.com/api/auth/verify-email?email={receiver_email}&token={verification_token}"
     
     msg.set_content(f"""
     Welcome to Flow Finance!
