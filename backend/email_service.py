@@ -22,8 +22,6 @@ def send_verification_email(receiver_email: str, verification_token: str):
     
     Please verify your email address to activate your account. 
     
-    Verification Token: {verification_token}
-    
     Click the link below to verify instantly:
     {verification_link}
     """)
