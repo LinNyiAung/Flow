@@ -11,6 +11,8 @@ import 'package:frontend/services/notification_event_bus.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('📨 Background message received: ${message.notification?.title}');
+  // Background subscription_updated is handled when the app next foregrounds.
+  // The app will call checkAuthStatus() on resume which re-fetches the user.
 }
 
 class FCMService {
@@ -31,10 +33,8 @@ class FCMService {
     if (_isInitialized) return;
 
     try {
-      // Initialize local notifications
       await _initializeLocalNotifications();
 
-      // Request permission
       NotificationSettings settings = await _fcm.requestPermission(
         alert: true,
         badge: true,
@@ -45,12 +45,9 @@ class FCMService {
       if (settings.authorizationStatus == AuthorizationStatus.authorized) {
         print('✅ FCM permission granted');
 
-        // Get FCM token
         _fcmToken = await _fcm.getToken();
         print('📱 FCM Token: $_fcmToken');
 
-
-        // Listen for token refresh
         _fcm.onTokenRefresh.listen((newToken) {
           _fcmToken = newToken;
           print('🔄 FCM Token refreshed: $newToken');
@@ -103,8 +100,7 @@ class FCMService {
     );
   }
 
-
-  // NEW: Method to send token when user is authenticated
+  /// Call this after the user logs in so their FCM token is registered.
   Future<void> sendTokenToBackend() async {
     if (_fcmToken != null) {
       await _sendTokenToBackend(_fcmToken!);
@@ -121,32 +117,35 @@ class FCMService {
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
-    print('📨 Foreground message: ${message.notification?.title}');
+    print('📨 Foreground message: type=${message.data['type']}');
+
+    // ── NEW: Silent data-only message from admin subscription update ──
+    if (message.data['type'] == 'subscription_updated') {
+      print('🔄 Subscription update received — refreshing user profile');
+      NotificationEventBus().notifySubscriptionUpdated();
+      return; // Do NOT show a local notification for this silent message
+    }
+    // ─────────────────────────────────────────────────────────────────
+
     _showLocalNotification(message);
-    // NEW: Notify via event bus
     NotificationEventBus().notifyReceived();
   }
 
   void _handleMessageOpenedApp(RemoteMessage message) {
     print('📨 Message opened app: ${message.notification?.title}');
-    // TODO: Navigate to appropriate screen based on message.data
     _handleNotificationNavigation(message.data);
   }
 
   void _onNotificationTapped(NotificationResponse response) {
     print('📨 Local notification tapped: ${response.payload}');
-    // TODO: Parse payload and navigate
   }
 
   void _handleNotificationNavigation(Map<String, dynamic> data) {
-    // This will be called when user taps notification
-    // You can add navigation logic here later
     final notificationType = data['type'];
     final goalId = data['goal_id'];
     final notificationId = data['notification_id'];
     
     print('Navigate to: type=$notificationType, goalId=$goalId');
-    // TODO: Implement navigation in your main app
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
@@ -154,7 +153,6 @@ class FCMService {
     
     if (notification == null) return;
 
-    // Parse notification type from data
     final notificationType = message.data['type'] ?? 'goal_progress';
     final color = _getNotificationColor(notificationType);
 
@@ -213,10 +211,10 @@ class FCMService {
       case 'payment_reminder':
         return Color(0xFF2196F3);
       case 'monthly_insights_generated':
-      return Color(0xFF764ba2);
-      case 'system_broadcast':  // NEW
+        return Color(0xFF764ba2);
+      case 'system_broadcast':
         return Color(0xFF667eea);
-      case 'admin_announcement':  // NEW
+      case 'admin_announcement':
         return Color(0xFFFF9800);
       default:
         return Color(0xFF667eea);
