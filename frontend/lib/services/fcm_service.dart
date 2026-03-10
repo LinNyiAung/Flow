@@ -157,9 +157,9 @@ class FCMService {
     final color = _getNotificationColor(notificationType);
 
     final androidDetails = AndroidNotificationDetails(
-      'flow_finance_notifications',
-      'Flow Finance',
-      channelDescription: 'Financial notifications from Flow Finance',
+      'toe_pwar_notifications',
+      'Toe Pwar',
+      channelDescription: 'Financial notifications from Toe Pwar',
       importance: Importance.high,
       priority: Priority.high,
       icon: '@mipmap/ic_launcher',

@@ -97,10 +97,10 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
             
-            placeholder_content = """## 👋 Welcome to Flow Finance!
+            placeholder_content = """## 👋 Welcome to Tow Pwar!
 ### 🎯 Get Started with Your Financial Journey
 
-It looks like you're just getting started with Flow Finance. To generate personalized AI insights, you'll need to add some financial activities first.
+It looks like you're just getting started with Toe Pwar. To generate personalized AI insights, you'll need to add some financial activities first.
 
 ### 📊 What to Add:
 
@@ -644,16 +644,16 @@ async def translate_insight_to_myanmar(english_content: str, ai_provider: str = 
     """Translate English insights to Myanmar language"""
     try:
                 # NEW: Check if this is a placeholder insight by checking for the welcome message
-        is_placeholder = "Welcome to Flow Finance!" in english_content and "Get Started with Your Financial Journey" in english_content
+        is_placeholder = "Welcome to Toe Pwar!" in english_content and "Get Started with Your Financial Journey" in english_content
         
         if is_placeholder:
             # Return Myanmar placeholder without calling AI API
             logger.info("Returning Myanmar placeholder for new user")
-            myanmar_placeholder = """## 👋 Flow Finance မှ ကြိုဆိုပါတယ်!
+            myanmar_placeholder = """## 👋 Toe Pwar မှ ကြိုဆိုပါတယ်!
 
 ### 🎯 သင့်ရဲ့ ငွေကြေးခရီးစဉ်ကို စတင်ပါ
 
-Flow Finance နဲ့ စတင်အသုံးပြုနေပုံရပါတယ်။ AI မှ ပုဂ္ဂိုလ်ရေးအရ ဆန်းစစ်ချက်များ ရရှိရန် ပထမဆုံး သင့်ရဲ့ ငွေကြေးလှုပ်ရှားမှုများကို ထည့်သွင်းဖို့ လိုအပ်ပါတယ်။
+Toe Pwar နဲ့ စတင်အသုံးပြုနေပုံရပါတယ်။ AI မှ ပုဂ္ဂိုလ်ရေးအရ ဆန်းစစ်ချက်များ ရရှိရန် ပထမဆုံး သင့်ရဲ့ ငွေကြေးလှုပ်ရှားမှုများကို ထည့်သွင်းဖို့ လိုအပ်ပါတယ်။
 
 ### 📊 ထည့်သွင်းရမည့် အရာများ:
 
@@ -875,10 +875,10 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
             
-            placeholder_content = """## 👋 Welcome to Flow Finance!
+            placeholder_content = """## 👋 Welcome to Toe Pwar!
 ### 🎯 Get Started with Your Financial Journey
 
-It looks like you're just getting started with Flow Finance. To generate personalized monthly AI insights, you'll need to add some financial activities first.
+It looks like you're just getting started with Toe Pwar. To generate personalized monthly AI insights, you'll need to add some financial activities first.
 
 ### 📊 What to Add:
 
@@ -1036,7 +1036,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
 def _build_monthly_system_prompt():
     """Build system prompt for monthly insights generation"""
-    return """You are Flow Finance AI, an expert financial analyst providing monthly financial insights.
+    return """You are Toe Pwar AI, an expert financial analyst providing monthly financial insights.
 
 Your task is to analyze the user's financial activity from the past month and generate a comprehensive monthly report.
 

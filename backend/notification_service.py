@@ -39,9 +39,9 @@ NOTIFICATION_TRANSLATIONS = {
         "payment_reminder_title": "Upcoming Payment Reminder 📅",
         "payment_reminder_msg": "Your '{description}' payment of {amount} is due in {days} days.",
         "weekly_insights_title": "Weekly Insights Ready! 📊",
-        "weekly_insights_msg": "Your weekly financial insights powered by Flow Finance AI are now available. Check them out to see your financial progress!",
+        "weekly_insights_msg": "Your weekly financial insights powered by Toe Pwar AI are now available. Check them out to see your financial progress!",
         "monthly_insights_title": "Monthly Insights Ready! 📊",
-        "monthly_insights_msg": "Your monthly financial insights powered by Flow Finance AI are now available. Check them out to see your monthly financial progress!",
+        "monthly_insights_msg": "Your monthly financial insights powered by Toe Pwar AI are now available. Check them out to see your monthly financial progress!",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -73,9 +73,9 @@ NOTIFICATION_TRANSLATIONS = {
         "payment_reminder_title": "ပေးချေရန်ရှိသည်များကို သတိပေးခြင်း 📅",
         "payment_reminder_msg": "'{description}' အတွက် ပေးချေရန် {amount} ရှိပြီး နောက်ထပ် {days} ရက်အတွင်း ပေးချေရပါမည်။",
         "weekly_insights_title": "အပတ်စဉ်သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ! 📊",
-        "weekly_insights_msg": "Flow Finance AI မှ ထုတ်ပြန်ပေးသော သင်၏ အပတ်စဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ သင်၏ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။",
+        "weekly_insights_msg": "Toe Pwar AI မှ ထုတ်ပြန်ပေးသော သင်၏ အပတ်စဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ သင်၏ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။",
         "monthly_insights_title": "လစဉ်သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ! 📊",
-        "monthly_insights_msg": "Flow Finance AI မှ ထုတ်ပြန်ပေးသော သင်၏ လစဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ တစ်လတာ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။"
+        "monthly_insights_msg": "Toe Pwar AI မှ ထုတ်ပြန်ပေးသော သင်၏ လစဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ တစ်လတာ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။"
     }
 }
 

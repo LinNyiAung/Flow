@@ -374,7 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             _buildSettingCard(
               icon: Icons.info_outline,
-              title: localizations.aboutFlowFinance,
+              title: localizations.aboutToePwar,
               subtitle: 'Version 1.0.0',
               gradientColors: [Color(0xFF2196F3), Color(0xFF1976D2)],
               onTap: () {
@@ -565,7 +565,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             SizedBox(width: responsive.sp12),
             Text(
-              'Flow Finance',
+              'Toe Pwar',
               style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
             ),
           ],
@@ -583,12 +583,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             SizedBox(height: responsive.sp16),
             Text(
-              'Flow Finance is your personal finance management app with AI-powered insights and budget tracking.',
+              'Toe Pwar is your personal finance management app with AI-powered insights and budget tracking.',
               style: GoogleFonts.poppins(fontSize: responsive.fs14),
             ),
             SizedBox(height: responsive.sp16),
             Text(
-              '© 2025 Flow Finance. All rights reserved.',
+              '© 2025 Toe Pwar. All rights reserved.',
               style: GoogleFonts.poppins(
                 fontSize: responsive.fs12,
                 color: Colors.grey[500],

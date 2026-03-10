@@ -49,7 +49,7 @@ from report_routes import router as report_router
 from admin_routes import router as admin_router
 from feedback_routes import router as feedback_router
 
-app = FastAPI(title="Flow Finance API", version="1.0.0")
+app = FastAPI(title="Toe Pwar API", version="1.0.0")
 app.include_router(transaction_router)
 app.include_router(auth_router)
 app.include_router(goal_router)
@@ -904,7 +904,7 @@ async def analyze_spending_patterns(current_user: dict = Depends(get_current_use
 
 @app.get("/")
 async def root():
-    return {"message": "Flow Finance API with AI Assistant is running"}
+    return {"message": "Toe Pwar API with AI Assistant is running"}
 
 
 if __name__ == "__main__":

@@ -205,7 +205,7 @@ async def initialize_admin():
         default_admin = {
             "_id": str(uuid.uuid4()),
             "name": "Super Admin",
-            "email": "admin@flowfinance.com",
+            "email": "admin@toepwar.com",
             "password": get_password_hash("admin123"),  # Change this in production!
             "role": "super_admin",
             "created_at": datetime.now(UTC),
@@ -214,5 +214,5 @@ async def initialize_admin():
         
         # [FIX] Added await
         await admins_collection.insert_one(default_admin)
-        print("✅ Default super admin created (email: admin@flowfinance.com, password: admin123)")
+        print("✅ Default super admin created (email: admin@toepwar.com, password: admin123)")
 

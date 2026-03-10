@@ -102,13 +102,13 @@ class TermsAndConditionsScreen extends StatelessWidget {
               _buildSection(
                 context,
                 title: '1. Acceptance of Terms',
-                content: 'By accessing and using Flow Finance ("the App"), you accept and agree to be bound by these Terms and Conditions. If you do not agree to these terms, please do not use the App.',
+                content: 'By accessing and using Toe Pwar ("the App"), you accept and agree to be bound by these Terms and Conditions. If you do not agree to these terms, please do not use the App.',
               ),
 
               _buildSection(
                 context,
                 title: '2. Use of Service',
-                content: 'Flow Finance provides personal finance management tools, including:\n\n'
+                content: 'Toe Pwar provides personal finance management tools, including:\n\n'
                     '• Transaction tracking and categorization\n'
                     '• AI-powered financial insights and recommendations\n'
                     '• Budget management and goal tracking\n'
@@ -170,7 +170,7 @@ class TermsAndConditionsScreen extends StatelessWidget {
               _buildSection(
                 context,
                 title: '8. Intellectual Property',
-                content: 'All content, features, and functionality of the App are owned by Flow Finance and protected by copyright, trademark, and other laws. You may not:\n\n'
+                content: 'All content, features, and functionality of the App are owned by Toe Pwar and protected by copyright, trademark, and other laws. You may not:\n\n'
                     '• Copy, modify, or distribute our content\n'
                     '• Reverse engineer or attempt to extract source code\n'
                     '• Use our trademarks without permission',
@@ -179,7 +179,7 @@ class TermsAndConditionsScreen extends StatelessWidget {
               _buildSection(
                 context,
                 title: '9. Limitation of Liability',
-                content: 'Flow Finance is provided "as is" without warranties. We are not liable for:\n\n'
+                content: 'Toe Pwar is provided "as is" without warranties. We are not liable for:\n\n'
                     '• Financial decisions made using the App\n'
                     '• Loss of data or service interruptions\n'
                     '• Indirect or consequential damages\n'
@@ -206,8 +206,8 @@ class TermsAndConditionsScreen extends StatelessWidget {
                 context,
                 title: '12. Contact Information',
                 content: 'For questions about these Terms and Conditions, please contact us at:\n\n'
-                    'Email: support@flowfinance.com\n'
-                    'Website: www.flowfinance.com',
+                    'Email: toepwarai@gmail.com\n'
+                    'Website: www.toepwar.com',
               ),
 
               SizedBox(height: responsive.sp32),
@@ -233,7 +233,7 @@ class TermsAndConditionsScreen extends StatelessWidget {
                     SizedBox(width: responsive.sp12),
                     Expanded(
                       child: Text(
-                        'By using Flow Finance, you agree to these Terms and Conditions',
+                        'By using Toe Pwar, you agree to these Terms and Conditions',
                         style: GoogleFonts.poppins(
                           fontSize: responsive.fs13,
                           color: Color(0xFF4CAF50),

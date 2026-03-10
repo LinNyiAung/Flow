@@ -165,7 +165,7 @@ class GeminiFinancialChatbot:
         
         style_instruction = style_instructions.get(response_style, style_instructions["normal"])
         
-        return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history, financial goals, and budgets.
+        return f"""You are Toe Pwar AI, an expert personal finance assistant with complete access to the user's transaction history, financial goals, and budgets.
 
 📅 Today's date: {today}
 

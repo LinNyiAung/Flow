@@ -29,6 +29,7 @@ class AppLocalizations {
   static final Map<String, Map<String, String>> _localizedValues = {
     'en': {
       // Home Screen
+      'toePwar': 'Toe Pwar',
       'welcomeBack': 'Welcome back,',
       'totalBalance': 'Total Balance',
       'available': 'Available',
@@ -475,7 +476,7 @@ class AppLocalizations {
       'viewManageSubscription': 'View and manage your subscription',
       'unlockPremiumFeatures': 'Unlock all premium features',
       'about': 'About',
-      'aboutFlowFinance': 'About Flow Finance',
+      'aboutToePwar': 'About Toe Pwar',
 
 
       //notification settings screen
@@ -652,6 +653,7 @@ class AppLocalizations {
     },
     'my': {
       // Home Screen
+      'toePwar': 'တိုးပွား',
       'welcomeBack': 'ပြန်လာတာ ကြိုဆိုပါတယ်၊',
       'totalBalance': 'စုစုပေါင်း လက်ကျန်ငွေ',
       'available': 'အသုံးပြုနိုင်သော',
@@ -1090,7 +1092,7 @@ class AppLocalizations {
       'viewManageSubscription': 'သင့်ပရီမီယံစာရင်းသွင်းမှုကို ကြည့်ရှုပြီး စီမံခန့်ခွဲပါ',
       'unlockPremiumFeatures': 'ပရီမီယံ ဝန်ဆောင်မှုများ အားလုံးကို ဖွင့်ရန်',
       'about': 'အကြောင်း',
-      'aboutFlowFinance': 'Flow Finance အကြောင်း',
+      'aboutToePwar': 'တိုးပွား အကြောင်း',
 
       //notification settings screen
       'notificationsEnabled': 'အကြောင်းကြားချက်များ ဖွင့်ထားသည်! 🔔',
@@ -1264,6 +1266,7 @@ class AppLocalizations {
     return _localizedValues[locale.languageCode]?[key] ?? key;
   }
 
+  String get toePwar => translate('toePwar');
   String get welcomeBack => translate('welcomeBack');
   String get totalBalance => translate('totalBalance');
   String get available => translate('available');
@@ -1731,7 +1734,7 @@ class AppLocalizations {
   String get viewManageSubscription => translate('viewManageSubscription');
   String get unlockPremiumFeatures => translate('unlockPremiumFeatures');
   String get about => translate('about');
-  String get aboutFlowFinance => translate('aboutFlowFinance');
+  String get aboutToePwar => translate('aboutToePwar');
 
 
 

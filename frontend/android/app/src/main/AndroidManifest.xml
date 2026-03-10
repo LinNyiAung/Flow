@@ -12,7 +12,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     
     <application
-        android:label="Flow"
+        android:label="Toe Pwar"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
 

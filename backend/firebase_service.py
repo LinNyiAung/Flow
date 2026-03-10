@@ -62,7 +62,7 @@ def send_fcm_notification(
                 priority='high',
                 notification=messaging.AndroidNotification(
                     sound='default',
-                    channel_id='flow_finance_notifications',
+                    channel_id='toe_pwar_notifications',
                 ),
             ),
             apns=messaging.APNSConfig(
@@ -116,7 +116,7 @@ def send_fcm_to_multiple(
                 priority='high',
                 notification=messaging.AndroidNotification(
                     sound='default',
-                    channel_id='flow_finance_notifications',
+                    channel_id='toe_pwar_notifications',
                 ),
             ),
             apns=messaging.APNSConfig(

@@ -88,7 +88,7 @@ class _MyAppState extends State<MyApp> {
         ChangeNotifierProvider(create: (_) => FeedbackProvider()),
       ],
       child: MaterialApp(
-        title: 'Flow Finance',
+        title: 'Toe Pwar',
         debugShowCheckedModeBanner: false,
         locale: _locale,
         supportedLocales: [Locale('en', ''), Locale('my', '')],

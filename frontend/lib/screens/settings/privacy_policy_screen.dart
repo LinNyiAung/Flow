@@ -102,7 +102,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
               _buildSection(
                 context,
                 title: '1. Introduction',
-                content: 'Flow Finance ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application.',
+                content: 'Toe Pwar ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application.',
               ),
 
               _buildSection(
@@ -197,7 +197,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
               _buildSection(
                 context,
                 title: '9. Children\'s Privacy',
-                content: 'Flow Finance is not intended for users under 18 years of age. We do not knowingly collect information from children. If you believe we have collected information from a child, please contact us immediately.',
+                content: 'Toe Pwar is not intended for users under 18 years of age. We do not knowingly collect information from children. If you believe we have collected information from a child, please contact us immediately.',
               ),
 
               _buildSection(
@@ -216,8 +216,8 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 context,
                 title: '12. Contact Us',
                 content: 'If you have questions about this Privacy Policy or our data practices:\n\n'
-                    'Email: privacy@flowfinance.com\n'
-                    'Website: www.flowfinance.com\n\n'
+                    'Email: toepwarai@gmail.com\n'
+                    'Website: www.toepwar.com\n\n'
                     'We will respond to your inquiry within 30 days.',
               ),
 

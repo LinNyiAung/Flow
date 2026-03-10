@@ -66,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         SizedBox(height: responsive.sp16),
                         Text(
-                          'Flow',
+                          'Toe Pwar',
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs32,
                             fontWeight: FontWeight.bold,

@@ -70,7 +70,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         SizedBox(height: responsive.sp16),
                         Text(
-                          'Join Flow',
+                          'Join Toe Pwar',
                           style: GoogleFonts.poppins(
                             fontSize: responsive.fs28,
                             fontWeight: FontWeight.bold,
@@ -526,7 +526,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Welcome to Flow - Personal Finance AI',
+                  'Welcome to Toe Pwar - Personal Finance AI',
                   style: GoogleFonts.poppins(
                     fontWeight: FontWeight.w600,
                     fontSize: responsive.fs14,
@@ -534,7 +534,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 SizedBox(height: 12),
                 Text(
-                  'By using Flow, you agree to:\n\n'
+                  'By using Toe Pwar, you agree to:\n\n'
                   '1. Use the app for personal financial management only\n\n'
                   '2. Provide accurate information when creating transactions\n\n'
                   '3. Keep your account credentials secure\n\n'
@@ -615,7 +615,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   '• Never sharing your data with third parties without consent\n'
                   '• Allowing you to delete your data at any time\n'
                   '• Following industry-standard security practices\n\n'
-                  'Your financial data is stored securely and used only to enhance your experience with Flow.',
+                  'Your financial data is stored securely and used only to enhance your experience with Toe Pwar.',
                   style: GoogleFonts.poppins(
                     fontSize: responsive.fs13,
                     color: Colors.grey[700],

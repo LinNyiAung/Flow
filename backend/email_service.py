@@ -10,7 +10,7 @@ def send_verification_email(receiver_email: str, verification_token: str):
     app_password = os.getenv("EMAIL_PASSWORD")
     
     msg = EmailMessage()
-    msg['Subject'] = 'Verify your Flow Finance account'
+    msg['Subject'] = 'Verify your Toe Pwar account'
     msg['From'] = sender_email
     msg['To'] = receiver_email
     
@@ -18,7 +18,7 @@ def send_verification_email(receiver_email: str, verification_token: str):
     verification_link = f"https://flowfinance.onrender.com/api/auth/verify-email?email={receiver_email}&token={verification_token}"
     
     msg.set_content(f"""
-    Welcome to Flow Finance!
+    Welcome to Toe Pwar!
     
     Please verify your email address to activate your account. 
     
