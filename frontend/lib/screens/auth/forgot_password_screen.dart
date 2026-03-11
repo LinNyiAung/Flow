@@ -1,3 +1,4 @@
+import 'dart:async'; // Required for Timer
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pinput/pinput.dart';
@@ -129,15 +130,32 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   bool _isResending = false;
   String? _error;
 
-  // Countdown timer for resend cooldown
+  // Timer Variables
+  Timer? _timer;
   int _secondsLeft = 60;
-  late final _ticker = _startTicker();
 
-  Stream<int> _startTicker() async* {
-    while (_secondsLeft > 0) {
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted) setState(() => _secondsLeft--);
-    }
+  @override
+  void initState() {
+    super.initState();
+    _startTimer(); // Start the countdown when the screen loads
+  }
+
+  void _startTimer() {
+    _timer?.cancel(); // Cancel any existing timer
+    setState(() => _secondsLeft = 60);
+    
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      if (_secondsLeft > 0) {
+        setState(() => _secondsLeft--);
+      } else {
+        timer.cancel(); // Stop timer when it hits 0
+      }
+    });
   }
 
   String get _otp => pinController.text;
@@ -159,6 +177,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         otp: _otp,
       );
       if (!mounted) return;
+      
+      _timer?.cancel(); // Cancel timer before navigating away
+      
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -181,17 +202,18 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     setState(() {
       _isResending = true;
       _error = null;
-      _secondsLeft = 60;
     });
-    // Restart ticker
-    _startTicker();
 
     try {
       await ApiService.requestPasswordResetOtp(email: widget.email);
       if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('A new code has been sent to your email.')),
       );
+      
+      _startTimer(); // Restart the timer only on success
+      
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
     } finally {
@@ -201,6 +223,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   @override
   void dispose() {
+    _timer?.cancel(); // Crucial: prevent memory leaks
     pinController.dispose();
     focusNode.dispose();
     super.dispose();
@@ -238,7 +261,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Better OTP input handling using pinput
               Pinput(
                 length: 6,
                 controller: pinController,
@@ -449,8 +471,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 TextFormField(
                   controller: _newPasswordController,
                   obscureText: _obscureNew,
-                  enableSuggestions: false, // Ensures OS doesn't try to spellcheck
-                  autocorrect: false, // Prevents autocorrection of passwords
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: _inputDecoration(
                     label: 'New Password',
                     icon: Icons.lock_outlined,
