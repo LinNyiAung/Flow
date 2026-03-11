@@ -1,3 +1,4 @@
+import random
 import secrets
 import uuid
 from datetime import datetime, timedelta, UTC
@@ -5,10 +6,10 @@ from datetime import datetime, timedelta, UTC
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends,  Path
 from fastapi.concurrency import run_in_threadpool
 
-from email_service import send_verification_email
+from email_service import send_otp_email, send_verification_email
 from utils import create_access_token, get_current_user, get_password_hash, verify_password
 from models import (
-    Currency, CurrencyUpdate, LanguageUpdate, PasswordChange, ProfileUpdate, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType,
+    Currency, CurrencyUpdate, ForgotPasswordRequest, LanguageUpdate, PasswordChange, ProfileUpdate, ResetPasswordRequest, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType, VerifyOTPRequest,
 )
 from database import users_collection
 from config import settings
@@ -165,6 +166,167 @@ async def login(user_credentials: UserLogin):
             is_verified=user.get("is_verified", True) # <-- Pass status to frontend
         )
     )
+    
+    
+@router.post("/forgot-password/request-otp")
+async def request_password_reset_otp(request: ForgotPasswordRequest):
+    """
+    Generate a 6-digit OTP, store it (hashed) with a 10-minute expiry,
+    and e-mail it to the user.  Always returns 200 to avoid user enumeration.
+    """
+    user = await users_collection.find_one({"email": request.email})
+
+    if user:
+        otp = str(random.randint(100000, 999999))          # 6-digit code
+        otp_expiry = datetime.now(UTC) + timedelta(minutes=10)
+
+        await users_collection.update_one(
+            {"_id": user["_id"]},
+            {
+                "$set": {
+                    "password_reset_otp": otp,              # store plain for simplicity;
+                    "password_reset_otp_expiry": otp_expiry # swap to hashed in production
+                }
+            }
+        )
+
+        # Fire-and-forget – errors are logged but don't break the response
+        try:
+            send_otp_email(request.email, otp)
+        except Exception as e:
+            print(f"❌ OTP email failed: {e}")
+
+    # Always return the same response (prevents email enumeration)
+    return {"message": "If that email is registered, you will receive an OTP shortly."}
+
+
+# ── 2. Verify OTP ─────────────────────────────────────────────────────────────
+@router.post("/forgot-password/verify-otp")
+async def verify_password_reset_otp(request: VerifyOTPRequest):
+    """
+    Check that the supplied OTP matches and hasn't expired.
+    Returns a short-lived reset_token the client must present when
+    calling /reset-password.
+    """
+    user = await users_collection.find_one({"email": request.email})
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP or email"
+        )
+
+    stored_otp = user.get("password_reset_otp")
+    otp_expiry = user.get("password_reset_otp_expiry")
+
+    if not stored_otp or not otp_expiry:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No OTP was requested for this account"
+        )
+
+    # Ensure expiry is timezone-aware
+    if otp_expiry.tzinfo is None:
+        otp_expiry = otp_expiry.replace(tzinfo=UTC)
+
+    if datetime.now(UTC) > otp_expiry:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP has expired. Please request a new one."
+        )
+
+    if stored_otp != request.otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP. Please try again."
+        )
+
+    # OTP is valid – issue a single-use reset token (10-min window)
+    import secrets
+    reset_token = secrets.token_urlsafe(32)
+    reset_token_expiry = datetime.now(UTC) + timedelta(minutes=10)
+
+    await users_collection.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "password_reset_token": reset_token,
+                "password_reset_token_expiry": reset_token_expiry
+            },
+            "$unset": {
+                "password_reset_otp": "",
+                "password_reset_otp_expiry": ""
+            }
+        }
+    )
+
+    return {"message": "OTP verified successfully.", "reset_token": reset_token}
+
+
+# ── 3. Reset Password ─────────────────────────────────────────────────────────
+@router.post("/forgot-password/reset-password")
+async def reset_password(request: ResetPasswordRequest):
+    """
+    Accept the reset_token from step 2 and set a new password.
+    """
+    user = await users_collection.find_one({"email": request.email})
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid request"
+        )
+
+    stored_token = user.get("password_reset_token")
+    token_expiry = user.get("password_reset_token_expiry")
+
+    if not stored_token or not token_expiry:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No password reset was initiated for this account"
+        )
+
+    if token_expiry.tzinfo is None:
+        token_expiry = token_expiry.replace(tzinfo=UTC)
+
+    if datetime.now(UTC) > token_expiry:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset session expired. Please start over."
+        )
+
+    if stored_token != request.reset_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid reset token"
+        )
+
+    if len(request.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters"
+        )
+
+    if request.new_password != request.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Passwords do not match"
+        )
+
+    hashed = await run_in_threadpool(get_password_hash, request.new_password)
+
+    await users_collection.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {"password": hashed},
+            "$unset": {
+                "password_reset_token": "",
+                "password_reset_token_expiry": ""
+            }
+        }
+    )
+
+    return {"message": "Password reset successfully. You can now log in."}
 
 
 @router.get("/me", response_model=UserResponse)

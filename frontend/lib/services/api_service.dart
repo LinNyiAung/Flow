@@ -104,6 +104,65 @@ class ApiService {
     }
   }
 
+
+    /// Step 1 – send OTP to the given email address
+  static Future<void> requestPasswordResetOtp({required String email}) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/forgot-password/request-otp'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email}),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to send OTP');
+    }
+  }
+
+  /// Step 2 – verify the OTP; returns the short-lived reset_token on success
+  static Future<String> verifyPasswordResetOtp({
+    required String email,
+    required String otp,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/forgot-password/verify-otp'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email, 'otp': otp}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['reset_token'] as String;
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Invalid OTP');
+    }
+  }
+
+  /// Step 3 – set the new password using the reset_token from step 2
+  static Future<void> resetPassword({
+    required String email,
+    required String resetToken,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/forgot-password/reset-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'reset_token': resetToken,
+        'new_password': newPassword,
+        'confirm_password': confirmPassword,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to reset password');
+    }
+  }
+
   static Future<void> updateLanguage(String language) async {
     final response = await http.put(
       Uri.parse('$baseUrl/api/auth/language'),

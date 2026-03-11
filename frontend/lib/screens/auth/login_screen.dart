@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import 'register_screen.dart';
+import 'forgot_password_screen.dart';   // ← NEW IMPORT
 import '../home/home_screen.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -39,7 +40,8 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Card(
                 elevation: 8,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
+                  borderRadius:
+                      BorderRadius.circular(responsive.borderRadius(16)),
                 ),
                 child: Padding(
                   padding: responsive.padding(all: 32),
@@ -56,7 +58,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             gradient: LinearGradient(
                               colors: [Color(0xFF667eea), Color(0xFF764ba2)],
                             ),
-                            borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
+                            borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(20)),
                           ),
                           child: Icon(
                             Icons.account_balance_wallet,
@@ -90,7 +93,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             labelText: 'Email',
                             prefixIcon: Icon(Icons.email_outlined),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                              borderRadius: BorderRadius.circular(
+                                  responsive.borderRadius(12)),
                             ),
                             filled: true,
                             fillColor: Colors.grey[50],
@@ -99,7 +103,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your email';
                             }
-                            if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                            if (!RegExp(
+                                    r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                                .hasMatch(value)) {
                               return 'Please enter a valid email';
                             }
                             return null;
@@ -127,7 +133,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               },
                             ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                              borderRadius: BorderRadius.circular(
+                                  responsive.borderRadius(12)),
                             ),
                             filled: true,
                             fillColor: Colors.grey[50],
@@ -139,7 +146,37 @@ class _LoginScreenState extends State<LoginScreen> {
                             return null;
                           },
                         ),
-                        SizedBox(height: responsive.sp24),
+
+                        // ── NEW: Forgot Password link ─────────────────────
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ForgotPasswordScreen(),
+                                ),
+                              );
+                            },
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size(0, 36),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              'Forgot Password?',
+                              style: GoogleFonts.poppins(
+                                color: Color(0xFF667eea),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // ─────────────────────────────────────────────────
+
+                        SizedBox(height: responsive.sp8),
 
                         // Error Message
                         Consumer<AuthProvider>(
@@ -150,11 +187,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                 margin: responsive.padding(bottom: 16),
                                 decoration: BoxDecoration(
                                   color: Colors.red[50],
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                                  borderRadius: BorderRadius.circular(
+                                      responsive.borderRadius(8)),
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.error_outline, color: Colors.red),
+                                    Icon(Icons.error_outline,
+                                        color: Colors.red),
                                     SizedBox(width: responsive.sp8),
                                     Expanded(
                                       child: Text(
@@ -175,25 +214,29 @@ class _LoginScreenState extends State<LoginScreen> {
                           builder: (context, authProvider, child) {
                             return SizedBox(
                               width: double.infinity,
-                              height: responsive.cardHeight(baseHeight: 50),
+                              height:
+                                  responsive.cardHeight(baseHeight: 50),
                               child: ElevatedButton(
-                                onPressed: authProvider.isLoading ? null : _login,
+                                onPressed:
+                                    authProvider.isLoading ? null : _login,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Color(0xFF667eea),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                                    borderRadius: BorderRadius.circular(
+                                        responsive.borderRadius(12)),
                                   ),
                                 ),
                                 child: authProvider.isLoading
-                                    ? CircularProgressIndicator(color: Colors.white)
+                                    ? CircularProgressIndicator(
+                                        color: Colors.white)
                                     : Text(
-                                  'Sign In',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: responsive.fs16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                                        'Sign In',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: responsive.fs16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                      ),
                               ),
                             );
                           },
@@ -209,7 +252,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           onPressed: () {
                             Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (_) => RegisterScreen()),
+                              MaterialPageRoute(
+                                  builder: (_) => RegisterScreen()),
                             );
                           },
                           child: Text(
@@ -234,7 +278,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _login() async {
     if (_formKey.currentState!.validate()) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final authProvider =
+          Provider.of<AuthProvider>(context, listen: false);
       final success = await authProvider.login(
         email: _emailController.text.trim(),
         password: _passwordController.text,

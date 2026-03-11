@@ -46,6 +46,22 @@ class UserResponse(BaseModel):
     is_verified: bool = False  # <--- NEW FIELD
     
     
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str  # 6-digit string e.g. "482910"
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    reset_token: str
+    new_password: str
+    confirm_password: str
+    
+    
 
 # NEW: Subscription update model
 class SubscriptionUpdate(BaseModel):
