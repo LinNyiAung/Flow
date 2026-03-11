@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:pinput/pinput.dart';
 import '../../services/api_service.dart';
 import 'login_screen.dart';
 
@@ -121,10 +122,8 @@ class OtpVerificationScreen extends StatefulWidget {
 }
 
 class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
-  // 6 individual controllers for the digit boxes
-  final List<TextEditingController> _controllers =
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  final pinController = TextEditingController();
+  final focusNode = FocusNode();
 
   bool _isLoading = false;
   bool _isResending = false;
@@ -141,7 +140,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     }
   }
 
-  String get _otp => _controllers.map((c) => c.text).join();
+  String get _otp => pinController.text;
 
   Future<void> _verify() async {
     if (_otp.length < 6) {
@@ -171,11 +170,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       );
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
-      // Clear boxes on wrong OTP
-      for (final c in _controllers) {
-        c.clear();
-      }
-      _focusNodes.first.requestFocus();
+      pinController.clear();
+      focusNode.requestFocus();
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -205,13 +201,28 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   @override
   void dispose() {
-    for (final c in _controllers) c.dispose();
-    for (final f in _focusNodes) f.dispose();
+    pinController.dispose();
+    focusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final defaultPinTheme = PinTheme(
+      width: 48,
+      height: 56,
+      textStyle: GoogleFonts.poppins(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: const Color(0xFF667eea),
+      ),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFDDDDDD)),
+      ),
+    );
+
     return Scaffold(
       body: _GradientBackground(
         child: _AuthCard(
@@ -227,22 +238,19 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               ),
               const SizedBox(height: 32),
 
-              // OTP digit boxes
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: List.generate(6, (i) => _OtpBox(
-                  controller: _controllers[i],
-                  focusNode: _focusNodes[i],
-                  onChanged: (val) {
-                    if (val.length == 1 && i < 5) {
-                      _focusNodes[i + 1].requestFocus();
-                    }
-                    if (val.isEmpty && i > 0) {
-                      _focusNodes[i - 1].requestFocus();
-                    }
-                    setState(() => _error = null);
-                  },
-                )),
+              // Better OTP input handling using pinput
+              Pinput(
+                length: 6,
+                controller: pinController,
+                focusNode: focusNode,
+                defaultPinTheme: defaultPinTheme,
+                focusedPinTheme: defaultPinTheme.copyWith(
+                  decoration: defaultPinTheme.decoration!.copyWith(
+                    border: Border.all(color: const Color(0xFF667eea), width: 2),
+                  ),
+                ),
+                onChanged: (value) => setState(() => _error = null),
+                onCompleted: (pin) => _verify(),
               ),
 
               const SizedBox(height: 16),
@@ -441,6 +449,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 TextFormField(
                   controller: _newPasswordController,
                   obscureText: _obscureNew,
+                  enableSuggestions: false, // Ensures OS doesn't try to spellcheck
+                  autocorrect: false, // Prevents autocorrection of passwords
                   decoration: _inputDecoration(
                     label: 'New Password',
                     icon: Icons.lock_outlined,
@@ -465,6 +475,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 TextFormField(
                   controller: _confirmPasswordController,
                   obscureText: _obscureConfirm,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: _inputDecoration(
                     label: 'Confirm Password',
                     icon: Icons.lock_outlined,
@@ -593,54 +605,6 @@ class _StepHeader extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _OtpBox extends StatelessWidget {
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final ValueChanged<String> onChanged;
-
-  const _OtpBox({
-    required this.controller,
-    required this.focusNode,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 44,
-      height: 52,
-      child: TextFormField(
-        controller: controller,
-        focusNode: focusNode,
-        keyboardType: TextInputType.number,
-        textAlign: TextAlign.center,
-        maxLength: 1,
-        style: GoogleFonts.poppins(
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-          color: const Color(0xFF667eea),
-        ),
-        decoration: InputDecoration(
-          counterText: '',
-          contentPadding: EdgeInsets.zero,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: Color(0xFFDDDDDD)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide:
-                const BorderSide(color: Color(0xFF667eea), width: 2),
-          ),
-          filled: true,
-          fillColor: Colors.grey[50],
-        ),
-        onChanged: onChanged,
-      ),
     );
   }
 }

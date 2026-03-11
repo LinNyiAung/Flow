@@ -1,9 +1,10 @@
+import hashlib
 import random
 import secrets
 import uuid
 from datetime import datetime, timedelta, UTC
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends,  Path
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends, Path
 from fastapi.concurrency import run_in_threadpool
 
 from email_service import send_otp_email, send_verification_email
@@ -19,12 +20,10 @@ from database import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-
-
 # ==================== AUTHENTICATION ====================
 
 @router.post("/register", response_model=Token)
-async def register(user_data: UserCreate, background_tasks: BackgroundTasks): # <-- Inject BackgroundTasks
+async def register(user_data: UserCreate, background_tasks: BackgroundTasks):
     """Register new user"""
     if await users_collection.find_one({"email": user_data.email}):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
@@ -32,7 +31,7 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks): # 
     hashed_password = await run_in_threadpool(get_password_hash, user_data.password)
     
     user_id = str(uuid.uuid4())
-    verification_token = secrets.token_urlsafe(32) # <-- Generate a secure random token
+    verification_token = secrets.token_urlsafe(32)
     
     new_user = {
         "_id": user_id,
@@ -44,8 +43,8 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks): # 
         "default_currency": "usd",
         "language": "en",
         "created_at": datetime.now(UTC),
-        "is_verified": False, # <-- Default to False
-        "verification_token": verification_token # <-- Save the token to the DB
+        "is_verified": False,
+        "verification_token": verification_token
     }
     
     await users_collection.insert_one(new_user)
@@ -69,10 +68,9 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks): # 
             subscription_type=SubscriptionType.FREE,
             subscription_expires_at=None,
             default_currency=Currency.USD,
-            is_verified=False # <-- Reflect in response
+            is_verified=False
         )
     )
-
 
 @router.get("/verify-email")
 async def verify_email(email: str, token: str):
@@ -88,7 +86,6 @@ async def verify_email(email: str, token: str):
     if user.get("verification_token") != token:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification token")
         
-    # Update user to verified and remove the token so it can't be reused
     await users_collection.update_one(
         {"_id": user["_id"]},
         {
@@ -98,7 +95,6 @@ async def verify_email(email: str, token: str):
     )
     
     return {"message": "Email verified successfully! Your account is now active."}
-    
     
 @router.put("/language", response_model=UserResponse)
 async def update_language(
@@ -112,13 +108,11 @@ async def update_language(
             detail="Invalid language. Must be 'en' or 'my'"
         )
     
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"language": language_data.language}}
     )
     
-    # [FIX] Added await
     updated_user = await users_collection.find_one({"_id": current_user["_id"]})
     
     return UserResponse(
@@ -131,7 +125,6 @@ async def update_language(
         default_currency=Currency(updated_user.get("default_currency", "usd"))
     )
 
-
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin):
     """Login user"""
@@ -140,7 +133,6 @@ async def login(user_credentials: UserLogin):
     if not user or not await run_in_threadpool(verify_password, user_credentials.password, user["password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
-    # <-- NEW: Block login if the user hasn't verified their email
     if not user.get("is_verified", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
@@ -163,40 +155,37 @@ async def login(user_credentials: UserLogin):
             subscription_type=SubscriptionType(user.get("subscription_type", "free")),
             subscription_expires_at=user.get("subscription_expires_at"),
             default_currency=Currency(user.get("default_currency", "usd")),
-            is_verified=user.get("is_verified", True) # <-- Pass status to frontend
+            is_verified=user.get("is_verified", True)
         )
     )
     
-    
 @router.post("/forgot-password/request-otp")
-async def request_password_reset_otp(request: ForgotPasswordRequest):
+async def request_password_reset_otp(request: ForgotPasswordRequest, background_tasks: BackgroundTasks):
     """
-    Generate a 6-digit OTP, store it (hashed) with a 10-minute expiry,
-    and e-mail it to the user.  Always returns 200 to avoid user enumeration.
+    Generate a secure 6-digit OTP, store it with a 10-minute expiry and attempt counter,
+    and e-mail it to the user in the background. Always returns 200 to avoid enumeration.
     """
     user = await users_collection.find_one({"email": request.email})
 
     if user:
-        otp = str(random.randint(100000, 999999))          # 6-digit code
+        # Generate a cryptographically secure 6-digit OTP
+        otp = str(secrets.randbelow(900000) + 100000)
         otp_expiry = datetime.now(UTC) + timedelta(minutes=10)
 
         await users_collection.update_one(
             {"_id": user["_id"]},
             {
                 "$set": {
-                    "password_reset_otp": otp,              # store plain for simplicity;
-                    "password_reset_otp_expiry": otp_expiry # swap to hashed in production
+                    "password_reset_otp": otp,
+                    "password_reset_otp_expiry": otp_expiry,
+                    "password_reset_attempts": 0 # Initialize attempt counter
                 }
             }
         )
 
-        # Fire-and-forget – errors are logged but don't break the response
-        try:
-            send_otp_email(request.email, otp)
-        except Exception as e:
-            print(f"❌ OTP email failed: {e}")
+        # Send email in background to prevent blocking the API response
+        background_tasks.add_task(send_otp_email, request.email, otp)
 
-    # Always return the same response (prevents email enumeration)
     return {"message": "If that email is registered, you will receive an OTP shortly."}
 
 
@@ -204,9 +193,8 @@ async def request_password_reset_otp(request: ForgotPasswordRequest):
 @router.post("/forgot-password/verify-otp")
 async def verify_password_reset_otp(request: VerifyOTPRequest):
     """
-    Check that the supplied OTP matches and hasn't expired.
-    Returns a short-lived reset_token the client must present when
-    calling /reset-password.
+    Check that the supplied OTP matches, hasn't expired, and hasn't exceeded attempt limits.
+    Returns a short-lived reset_token the client must present when calling /reset-password.
     """
     user = await users_collection.find_one({"email": request.email})
 
@@ -218,6 +206,7 @@ async def verify_password_reset_otp(request: VerifyOTPRequest):
 
     stored_otp = user.get("password_reset_otp")
     otp_expiry = user.get("password_reset_otp_expiry")
+    attempts = user.get("password_reset_attempts", 0)
 
     if not stored_otp or not otp_expiry:
         raise HTTPException(
@@ -225,7 +214,23 @@ async def verify_password_reset_otp(request: VerifyOTPRequest):
             detail="No OTP was requested for this account"
         )
 
-    # Ensure expiry is timezone-aware
+    # Brute-force protection: Max 5 attempts
+    if attempts >= 5:
+        await users_collection.update_one(
+            {"_id": user["_id"]},
+            {
+                "$unset": {
+                    "password_reset_otp": "",
+                    "password_reset_otp_expiry": "",
+                    "password_reset_attempts": ""
+                }
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Too many failed attempts. OTP invalidated. Please request a new one."
+        )
+
     if otp_expiry.tzinfo is None:
         otp_expiry = otp_expiry.replace(tzinfo=UTC)
 
@@ -236,30 +241,37 @@ async def verify_password_reset_otp(request: VerifyOTPRequest):
         )
 
     if stored_otp != request.otp:
+        # Increment failed attempts
+        await users_collection.update_one(
+            {"_id": user["_id"]},
+            {"$inc": {"password_reset_attempts": 1}}
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid OTP. Please try again."
         )
 
     # OTP is valid – issue a single-use reset token (10-min window)
-    import secrets
     reset_token = secrets.token_urlsafe(32)
+    hashed_reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
     reset_token_expiry = datetime.now(UTC) + timedelta(minutes=10)
 
     await users_collection.update_one(
         {"_id": user["_id"]},
         {
             "$set": {
-                "password_reset_token": reset_token,
+                "password_reset_token": hashed_reset_token, # Store hashed version
                 "password_reset_token_expiry": reset_token_expiry
             },
             "$unset": {
                 "password_reset_otp": "",
-                "password_reset_otp_expiry": ""
+                "password_reset_otp_expiry": "",
+                "password_reset_attempts": ""
             }
         }
     )
 
+    # Return plaintext token to the client
     return {"message": "OTP verified successfully.", "reset_token": reset_token}
 
 
@@ -277,10 +289,10 @@ async def reset_password(request: ResetPasswordRequest):
             detail="Invalid request"
         )
 
-    stored_token = user.get("password_reset_token")
+    stored_token_hash = user.get("password_reset_token")
     token_expiry = user.get("password_reset_token_expiry")
 
-    if not stored_token or not token_expiry:
+    if not stored_token_hash or not token_expiry:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No password reset was initiated for this account"
@@ -295,7 +307,10 @@ async def reset_password(request: ResetPasswordRequest):
             detail="Reset session expired. Please start over."
         )
 
-    if stored_token != request.reset_token:
+    # Hash the incoming token to compare with the stored hash
+    incoming_token_hash = hashlib.sha256(request.reset_token.encode()).hexdigest()
+
+    if stored_token_hash != incoming_token_hash:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid reset token"
@@ -313,12 +328,12 @@ async def reset_password(request: ResetPasswordRequest):
             detail="Passwords do not match"
         )
 
-    hashed = await run_in_threadpool(get_password_hash, request.new_password)
+    hashed_pw = await run_in_threadpool(get_password_hash, request.new_password)
 
     await users_collection.update_one(
         {"_id": user["_id"]},
         {
-            "$set": {"password": hashed},
+            "$set": {"password": hashed_pw},
             "$unset": {
                 "password_reset_token": "",
                 "password_reset_token_expiry": ""
@@ -339,11 +354,9 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         created_at=current_user["created_at"],
         subscription_type=SubscriptionType(current_user.get("subscription_type", "free")),
         subscription_expires_at=current_user.get("subscription_expires_at"),
-        default_currency=Currency(current_user.get("default_currency", "usd"))  # NEW
+        default_currency=Currency(current_user.get("default_currency", "usd"))
     )
 
-    
-    
 @router.put("/profile", response_model=UserResponse)
 async def update_profile(
     profile_data: ProfileUpdate,
@@ -362,13 +375,11 @@ async def update_profile(
             detail="Name must be at least 2 characters"
         )
     
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"name": profile_data.name.strip()}}
     )
     
-    # [FIX] Added await
     updated_user = await users_collection.find_one({"_id": current_user["_id"]})
     
     return UserResponse(
@@ -381,20 +392,17 @@ async def update_profile(
         default_currency=Currency(updated_user.get("default_currency", "usd"))
     )
     
-    
 @router.put("/currency", response_model=UserResponse)
 async def update_default_currency(
     currency_data: CurrencyUpdate,
     current_user: dict = Depends(get_current_user)
 ):
     """Update user's default currency"""
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"default_currency": currency_data.default_currency.value}}
     )
     
-    # [FIX] Added await
     updated_user = await users_collection.find_one({"_id": current_user["_id"]})
     
     return UserResponse(
@@ -407,15 +415,12 @@ async def update_default_currency(
         default_currency=Currency(updated_user["default_currency"])
     )
     
-    
 @router.put("/change-password")
 async def change_password(
     password_data: PasswordChange,
     current_user: dict = Depends(get_current_user)
 ):
     """Change user password"""
-    # Verify current password
-    # [FIX] Offload verification
     is_correct = await run_in_threadpool(verify_password, password_data.current_password, current_user["password"])
     
     if not is_correct:
@@ -424,7 +429,6 @@ async def change_password(
             detail="Current password is incorrect"
         )
     
-    # Validate new password
     if len(password_data.new_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -437,18 +441,14 @@ async def change_password(
             detail="New passwords do not match"
         )
     
-    # Update password
     hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
     
-    # [FIX] Added await
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"password": hashed_password}}
     )
     
     return {"message": "Password changed successfully"}
-    
-    
 
 @router.delete("/delete-account")
 async def delete_account(
@@ -458,8 +458,6 @@ async def delete_account(
     try:
         user_id = current_user["_id"]
         
-        # Delete all user data
-        # [FIX] Added await to all calls
         await transactions_collection.delete_many({"user_id": user_id})
         await goals_collection.delete_many({"user_id": user_id})
         await budgets_collection.delete_many({"user_id": user_id})
@@ -468,8 +466,6 @@ async def delete_account(
         await notifications_collection.delete_many({"user_id": user_id})
         await notification_preferences_collection.delete_many({"user_id": user_id})
         
-        # Finally, delete the user account
-        # [FIX] Added await
         result = await users_collection.delete_one({"_id": user_id})
         
         if result.deleted_count == 0:
@@ -488,9 +484,6 @@ async def delete_account(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete account"
         )
-    
-    
-    
     
 @router.get("/subscription-status")
 async def get_subscription_status(current_user: dict = Depends(get_current_user)):
