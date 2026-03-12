@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import 'register_screen.dart';
-import 'forgot_password_screen.dart';   // ← NEW IMPORT
+import 'forgot_password_screen.dart';   
 import '../home/home_screen.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -50,21 +50,28 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Logo and Title
+                        // Logo and Title (Updated to App Icon)
                         Container(
                           width: responsive.iconSize(mobile: 80),
                           height: responsive.iconSize(mobile: 80),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                            ),
                             borderRadius: BorderRadius.circular(
                                 responsive.borderRadius(20)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black12,
+                                blurRadius: 8,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
                           ),
-                          child: Icon(
-                            Icons.account_balance_wallet,
-                            color: Colors.white,
-                            size: 40,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(20)),
+                            child: Image.asset(
+                              'assets/icon/flow.png', // Change to .jpg if necessary
+                              fit: BoxFit.cover,
+                            ),
                           ),
                         ),
                         SizedBox(height: responsive.sp16),
@@ -147,7 +154,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
 
-                        // ── NEW: Forgot Password link ─────────────────────
+                        // Forgot Password link
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
@@ -174,8 +181,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ),
-                        // ─────────────────────────────────────────────────
-
+                        
                         SizedBox(height: responsive.sp8),
 
                         // Error Message

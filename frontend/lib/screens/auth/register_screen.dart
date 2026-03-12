@@ -50,22 +50,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Logo and Title
+                        // Logo and Title (Updated to App Icon)
                         Container(
                           width: responsive.iconSize(mobile: 80),
                           height: responsive.iconSize(mobile: 80),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                            ),
                             borderRadius: BorderRadius.circular(
                               responsive.borderRadius(20),
                             ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black12,
+                                blurRadius: 8,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
                           ),
-                          child: Icon(
-                            Icons.account_balance_wallet,
-                            color: Colors.white,
-                            size: 40,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                                responsive.borderRadius(20)),
+                            child: Image.asset(
+                              'assets/icon/flow.png', // Change to .jpg if necessary
+                              fit: BoxFit.cover,
+                            ),
                           ),
                         ),
                         SizedBox(height: responsive.sp16),
@@ -433,7 +440,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (success) {
-        // <-- NEW: Show a dialog instead of navigating to HomeScreen
         final responsive = ResponsiveHelper(context);
         showDialog(
           context: context,
