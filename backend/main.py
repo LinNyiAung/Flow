@@ -23,23 +23,22 @@ from chat_models import (
     AIProvider, ChatRequest, ChatResponse, ChatMessage, MessageRole,
 )
 
-
 from notification_models import NotificationResponse, NotificationType
 from notification_service import (
     analyze_unusual_spending,
     notify_budget_started
 )
 
-
 from database import (
-    categories_collection, chat_sessions_collection, create_db_indexes, initialize_admin, initialize_categories, insights_collection, notifications_collection, notification_preferences_collection, users_collection
+    categories_collection, chat_sessions_collection, create_db_indexes, initialize_admin,
+    initialize_categories, insights_collection, notifications_collection,
+    notification_preferences_collection, users_collection
 )
 from ai_chatbot import financial_chatbot
 from ai_chatbot_gemini import gemini_financial_chatbot
 from ai_usage_service import track_ai_usage
 from ai_usage_models import AIFeatureType, AIProviderType
 from config import settings
-
 
 from transaction_routes import router as transaction_router
 from goal_routes import router as goal_router
@@ -49,7 +48,12 @@ from report_routes import router as report_router
 from admin_routes import router as admin_router
 from feedback_routes import router as feedback_router
 
+# NEW: App version routers
+from app_version_routes import admin_router as app_version_admin_router
+from app_version_routes import user_router as app_version_user_router
+
 app = FastAPI(title="Toe Pwar API", version="1.0.0")
+
 app.include_router(transaction_router)
 app.include_router(auth_router)
 app.include_router(goal_router)
@@ -57,6 +61,10 @@ app.include_router(budget_router)
 app.include_router(report_router)
 app.include_router(admin_router)
 app.include_router(feedback_router)
+
+# NEW: Register app version routes
+app.include_router(app_version_admin_router)
+app.include_router(app_version_user_router)
 
 
 @app.on_event("startup")
@@ -67,8 +75,7 @@ async def startup_db_client():
     
     try:
         from scheduler import start_scheduler
-        # FIX: Assign to app.state so it persists and isn't garbage collected
-        app.state.scheduler = start_scheduler() 
+        app.state.scheduler = start_scheduler()
         print("✅ Notification scheduler started successfully (Async Mode)")
     except Exception as e:
         print(f"⚠️ Failed to start notification scheduler: {e}")
@@ -100,7 +107,6 @@ app.add_middleware(
 @app.get("/api/categories/{transaction_type}", response_model=List[CategoryResponse])
 async def get_categories(transaction_type: TransactionType):
     """Get categories for transaction type"""
-    # [FIX] Added await
     categories_doc = await categories_collection.find_one({"_id": transaction_type.value})
     if not categories_doc:
         return []
@@ -120,9 +126,9 @@ async def get_balance(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Get user's financial balance including goal allocations
-    If currency is specified, returns balance for that currency only
-    Otherwise returns balances for all currencies
+    Get user's financial balance including goal allocations.
+    If currency is specified, returns balance for that currency only.
+    Otherwise returns balances for all currencies.
     """
     return await get_user_balance(current_user["_id"], currency.value if currency else None)
 
@@ -153,20 +159,17 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str, c
         if len(messages) > settings.MAX_CHAT_HISTORY:
             messages = messages[-settings.MAX_CHAT_HISTORY:]
         
-        # [FIX] Added await
         existing_session = await chat_sessions_collection.find_one(
             {"user_id": user_id},
             sort=[("updated_at", -1)]
         )
         
         if existing_session:
-            # [FIX] Added await
             await chat_sessions_collection.update_one(
                 {"_id": existing_session["_id"]},
                 {"$set": {"messages": messages, "updated_at": current_time}}
             )
         else:
-            # [FIX] Added await
             await chat_sessions_collection.insert_one({
                 "_id": str(uuid.uuid4()),
                 "user_id": user_id,

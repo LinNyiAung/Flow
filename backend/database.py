@@ -28,11 +28,14 @@ feedback_collection = database.feedback
 admins_collection = database.admins
 admin_action_logs_collection = database.admin_action_logs
 
+# App version collection
+app_versions_collection = database.app_versions  # NEW
+
+
 # ==================== INITIALIZATION FUNCTIONS ====================
 
 async def initialize_categories():
     """Initialize default categories if they don't exist"""
-    # [FIX] Added await
     if await categories_collection.count_documents({}) == 0:
         default_categories = [
             {
@@ -167,7 +170,6 @@ async def initialize_categories():
                 ]
             }
         ]
-        # [FIX] Added await
         await categories_collection.insert_many(default_categories)
         print("✅ Default categories initialized")
 
@@ -175,7 +177,6 @@ async def initialize_categories():
 async def create_db_indexes():
     """Create indexes - Must be async now"""
     try:
-        # [FIX] Added await
         await budgets_collection.create_index(
             [("user_id", ASCENDING), ("parent_budget_id", ASCENDING), ("start_date", ASCENDING)],
             unique=True,
@@ -184,6 +185,13 @@ async def create_db_indexes():
                 "parent_budget_id": {"$type": "string"} 
             }
         )
+
+        # NEW: Index for fast version lookups
+        await app_versions_collection.create_index(
+            [("platform", ASCENDING), ("is_active", ASCENDING), ("created_at", ASCENDING)],
+            background=True,
+        )
+
         print("✅ Database indexes verified/created")
     except Exception as e:
         print(f"⚠️ Failed to create indexes: {e}")
@@ -191,17 +199,14 @@ async def create_db_indexes():
 
 async def initialize_notification_preferences():
     """Initialize default notification preferences for users who don't have them"""
-    # This will be called when a user first accesses notification settings
     pass
 
 
 async def initialize_admin():
     """Initialize default super admin if none exists"""
-    # [FIX] Added await
     if await admins_collection.count_documents({}) == 0:
         from admin_utils import get_password_hash
         
-        # Create default super admin
         default_admin = {
             "_id": str(uuid.uuid4()),
             "name": "Super Admin",
@@ -212,7 +217,5 @@ async def initialize_admin():
             "last_login": None
         }
         
-        # [FIX] Added await
         await admins_collection.insert_one(default_admin)
         print("✅ Default super admin created (email: admin@toepwar.com, password: admin123)")
-

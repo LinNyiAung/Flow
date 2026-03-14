@@ -1,6 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:frontend/providers/app_version_provider.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/feedback_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
@@ -21,9 +24,11 @@ import 'package:frontend/screens/settings/privacy_policy_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
 import 'package:frontend/screens/settings/terms_and_conditions_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
+import 'package:frontend/screens/update/force_update_screen.dart';
 import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
@@ -33,15 +38,10 @@ import 'screens/home/home_screen.dart';
 import 'screens/ai/ai_chat_screen.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // ADD THIS
+  WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
   await Firebase.initializeApp();
-
-  // Initialize FCM Service
   await FCMService().initialize();
-
-  // Initialize notification service (keep existing)
   await NotificationService().initialize();
 
   runApp(MyApp());
@@ -53,7 +53,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  Locale _locale = Locale('en');
+  Locale _locale = const Locale('en');
 
   @override
   void initState() {
@@ -79,6 +79,7 @@ class _MyAppState extends State<MyApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AppVersionProvider()), // NEW
         ChangeNotifierProvider(create: (_) => TransactionProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => GoalProvider()),
@@ -91,8 +92,8 @@ class _MyAppState extends State<MyApp> {
         title: 'Toe Pwar',
         debugShowCheckedModeBanner: false,
         locale: _locale,
-        supportedLocales: [Locale('en', ''), Locale('my', '')],
-        localizationsDelegates: [
+        supportedLocales: const [Locale('en', ''), Locale('my', '')],
+        localizationsDelegates: const [
           AppLocalizations.delegate,
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
@@ -102,7 +103,7 @@ class _MyAppState extends State<MyApp> {
           primarySwatch: Colors.blue,
           visualDensity: VisualDensity.adaptivePlatformDensity,
           scaffoldBackgroundColor: Colors.white,
-          appBarTheme: AppBarTheme(
+          appBarTheme: const AppBarTheme(
             backgroundColor: Colors.transparent,
             elevation: 0,
             centerTitle: false,
@@ -122,7 +123,7 @@ class _MyAppState extends State<MyApp> {
             ),
             filled: true,
             fillColor: Colors.grey[50],
-            contentPadding: EdgeInsets.symmetric(
+            contentPadding: const EdgeInsets.symmetric(
               vertical: 15.0,
               horizontal: 15.0,
             ),
@@ -171,19 +172,43 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   void initState() {
     super.initState();
-    // Trigger the auth check once when the app starts
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<AuthProvider>(context, listen: false).checkAuthStatus();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // 1. Check auth first
+      await Provider.of<AuthProvider>(context, listen: false).checkAuthStatus();
+
+      // 2. Then check version (only if logged in — endpoint requires auth)
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      if (authProvider.isAuthenticated) {
+        await _checkVersion();
+      }
     });
+  }
+
+  Future<void> _checkVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final platform = Platform.isIOS ? 'ios' : 'android';
+
+      await Provider.of<AppVersionProvider>(
+        context,
+        listen: false,
+      ).checkVersion(
+        currentVersion: info.version, // e.g. "1.2.0"
+        platform: platform,
+      );
+    } catch (e) {
+      // If PackageInfo or version check fails, don't block the user
+      print('⚠️ Version check skipped: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthProvider>(
-      builder: (context, authProvider, child) {
-        // [FIX] Use isAuthChecking to keep loading screen visible during initial check
-        if (authProvider.isAuthChecking) {
-          return Scaffold(
+    return Consumer2<AuthProvider, AppVersionProvider>(
+      builder: (context, authProvider, versionProvider, child) {
+        // ── Step 1: Show spinner while auth or version check is in progress ──
+        if (authProvider.isAuthChecking || versionProvider.isLoading) {
+          return const Scaffold(
             body: Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
@@ -192,12 +217,18 @@ class _AuthWrapperState extends State<AuthWrapper> {
           );
         }
 
-        // Once check is complete, decide where to go
-        if (authProvider.isAuthenticated) {
-          return HomeScreen();
-        } else {
+        // ── Step 2: Not logged in → Login screen ──
+        if (!authProvider.isAuthenticated) {
           return LoginScreen();
         }
+
+        // ── Step 3: Force update required → block with update screen ──
+        if (versionProvider.requiresForceUpdate) {
+          return const ForceUpdateScreen();
+        }
+
+        // ── Step 4: All clear → show home ──
+        return HomeScreen();
       },
     );
   }

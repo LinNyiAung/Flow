@@ -57,6 +57,8 @@ dependencies:
   firebase_messaging: ^16.1.0
   flutter_launcher_icons: ^0.14.4
   pinput: ^6.0.2
+  package_info_plus: ^9.0.0
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:frontend/models/app_version.dart';
 import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/feedback.dart';
@@ -43,7 +44,34 @@ class ApiService {
     };
   }
 
-  // Add this method to ApiService class
+  // ==================== APP VERSION ====================
+
+  /// Check whether the current installed version is up to date.
+  /// [currentVersion] e.g. "1.2.0"
+  /// [platform] "android" or "ios"
+  static Future<VersionCheckResponse> checkAppVersion({
+    required String currentVersion,
+    required String platform,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/app/check-version'),
+      headers: await _getHeaders(),
+      body: jsonEncode({
+        'current_version': currentVersion,
+        'platform': platform,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      return VersionCheckResponse.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to check app version');
+    }
+  }
+
+  // ==================== FCM ====================
+
   static Future<void> updateFCMToken(String fcmToken) async {
     final response = await http.post(
       Uri.parse('$baseUrl/api/auth/update-fcm-token'),
@@ -71,12 +99,9 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final authResponse = AuthResponse.fromJson(jsonDecode(response.body));
-
-      // <-- NEW: Only save the token if the user is verified
       if (authResponse.user.isVerified) {
         await saveToken(authResponse.accessToken);
       }
-
       return authResponse;
     } else {
       final error = jsonDecode(response.body);
@@ -104,8 +129,6 @@ class ApiService {
     }
   }
 
-
-    /// Step 1 – send OTP to the given email address
   static Future<void> requestPasswordResetOtp({required String email}) async {
     final response = await http.post(
       Uri.parse('$baseUrl/api/auth/forgot-password/request-otp'),
@@ -119,7 +142,6 @@ class ApiService {
     }
   }
 
-  /// Step 2 – verify the OTP; returns the short-lived reset_token on success
   static Future<String> verifyPasswordResetOtp({
     required String email,
     required String otp,
@@ -139,7 +161,6 @@ class ApiService {
     }
   }
 
-  /// Step 3 – set the new password using the reset_token from step 2
   static Future<void> resetPassword({
     required String email,
     required String resetToken,
@@ -259,7 +280,8 @@ class ApiService {
     }
   }
 
-  // Subscription Management
+  // ==================== SUBSCRIPTION ====================
+
   static Future<User> updateSubscription({
     required SubscriptionType subscriptionType,
     DateTime? subscriptionExpiresAt,
@@ -295,7 +317,6 @@ class ApiService {
     }
   }
 
-  // Helper method to check if a feature requires premium
   static Future<bool> canAccessPremiumFeature() async {
     try {
       final status = await getSubscriptionStatus();
@@ -1634,6 +1655,8 @@ class ApiService {
     }
   }
 
+  // ==================== FEEDBACK ====================
+
   static Future<void> submitFeedback(FeedbackCreate feedback) async {
     final response = await http.post(
       Uri.parse('$baseUrl/api/feedback'),
@@ -1646,4 +1669,8 @@ class ApiService {
       throw Exception(error['detail'] ?? 'Failed to submit feedback');
     }
   }
+
+  // ==================== TRANSACTIONS ====================
+  // (All your existing transaction, goal, budget, report, insight,
+  //  chat methods go here unchanged — no modifications needed.)
 }
