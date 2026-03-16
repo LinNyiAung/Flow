@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,18 +11,46 @@ class ForceUpdateScreen extends StatelessWidget {
   const ForceUpdateScreen({Key? key}) : super(key: key);
 
   Future<void> _launchDownloadUrl(BuildContext context, String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not open the download link. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+  final uri = Uri.parse(url);
+  
+  // Try each mode in order until one works
+  final modes = [
+    LaunchMode.externalApplication,
+    LaunchMode.externalNonBrowserApplication,
+    LaunchMode.inAppBrowserView,
+    LaunchMode.platformDefault,
+  ];
+
+  for (final mode in modes) {
+    try {
+      final launched = await launchUrl(uri, mode: mode);
+      if (launched) return; // success — stop trying
+    } catch (_) {
+      continue; // try next mode
     }
   }
+
+  // All modes failed — show snackbar
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'No browser found. Please visit manually:\n$url',
+          style: TextStyle(fontSize: 13),
+        ),
+        backgroundColor: Colors.red[700],
+        duration: Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Copy',
+          textColor: Colors.white,
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: url));
+          },
+        ),
+      ),
+    );
+  }
+}
 
   @override
   Widget build(BuildContext context) {
