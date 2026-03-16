@@ -43,7 +43,8 @@ class UserResponse(BaseModel):
     subscription_type: SubscriptionType
     subscription_expires_at: Optional[datetime] = None
     default_currency: Currency = Currency.USD
-    is_verified: bool = False  # <--- NEW FIELD
+    is_verified: bool = False
+    has_claimed_free_trial: bool = False  # <-- NEW FIELD
     
     
 class ForgotPasswordRequest(BaseModel):

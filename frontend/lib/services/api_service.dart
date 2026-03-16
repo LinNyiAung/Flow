@@ -304,6 +304,21 @@ class ApiService {
     }
   }
 
+
+    static Future<User> claimFreeTrial() async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/claim-free-trial'),
+      headers: await _getHeaders(),
+    );
+ 
+    if (response.statusCode == 200) {
+      return User.fromJson(jsonDecode(response.body));
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Failed to claim free trial');
+    }
+  }
+
   static Future<SubscriptionStatus> getSubscriptionStatus() async {
     final response = await http.get(
       Uri.parse('$baseUrl/api/auth/subscription-status'),

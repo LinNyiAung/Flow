@@ -504,3 +504,56 @@ async def get_subscription_status(current_user: dict = Depends(get_current_user)
         "expires_at": expires_at,
         "is_expired": is_expired
     }
+    
+    
+@router.post("/claim-free-trial", response_model=UserResponse)
+async def claim_free_trial(current_user: dict = Depends(get_current_user)):
+    """
+    Grants the authenticated user 1 month of free premium access.
+    Can only be claimed once per account.
+    """
+    # Prevent double-claiming
+    if current_user.get("has_claimed_free_trial", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You have already claimed your free trial."
+        )
+ 
+    # Prevent claiming if already premium (e.g. admin-granted)
+    if current_user.get("subscription_type") == "premium":
+        existing_expiry = current_user.get("subscription_expires_at")
+        if existing_expiry:
+            # Make timezone-aware for comparison
+            if existing_expiry.tzinfo is None:
+                existing_expiry = existing_expiry.replace(tzinfo=UTC)
+            if existing_expiry > datetime.now(UTC):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="You already have an active premium subscription."
+                )
+ 
+    trial_expiry = datetime.now(UTC) + timedelta(days=30)
+ 
+    await users_collection.update_one(
+        {"_id": current_user["_id"]},
+        {
+            "$set": {
+                "subscription_type": "premium",
+                "subscription_expires_at": trial_expiry,
+                "has_claimed_free_trial": True,
+            }
+        }
+    )
+ 
+    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
+ 
+    return UserResponse(
+        id=updated_user["_id"],
+        name=updated_user["name"],
+        email=updated_user["email"],
+        created_at=updated_user["created_at"],
+        subscription_type=SubscriptionType.PREMIUM,
+        subscription_expires_at=updated_user.get("subscription_expires_at"),
+        default_currency=Currency(updated_user.get("default_currency", "usd")),
+        is_verified=updated_user.get("is_verified", True),
+    )

@@ -54,7 +54,8 @@ class User {
   final SubscriptionType subscriptionType;
   final DateTime? subscriptionExpiresAt;
   final Currency defaultCurrency;
-  final bool isVerified; // <-- NEW FIELD
+  final bool isVerified;
+  final bool hasClaimedFreeTrial; // <-- NEW FIELD
 
   User({
     required this.id,
@@ -64,7 +65,8 @@ class User {
     this.subscriptionType = SubscriptionType.free,
     this.subscriptionExpiresAt,
     this.defaultCurrency = Currency.usd,
-    this.isVerified = false, // <-- NEW FIELD
+    this.isVerified = false,
+    this.hasClaimedFreeTrial = false, // <-- NEW FIELD
   });
 
   bool get isPremium {
@@ -92,7 +94,8 @@ class User {
           ? DateTime.parse(json['subscription_expires_at'])
           : null,
       defaultCurrency: Currency.fromString(json['default_currency'] ?? 'usd'),
-      isVerified: json['is_verified'] ?? false, // <-- NEW FIELD PARSING
+      isVerified: json['is_verified'] ?? false,
+      hasClaimedFreeTrial: json['has_claimed_free_trial'] ?? false, // <-- NEW
     );
   }
 
@@ -105,7 +108,8 @@ class User {
       'subscription_type': subscriptionType.name,
       'subscription_expires_at': subscriptionExpiresAt?.toIso8601String(),
       'default_currency': defaultCurrency.name,
-      'is_verified': isVerified, // <-- NEW FIELD
+      'is_verified': isVerified,
+      'has_claimed_free_trial': hasClaimedFreeTrial, // <-- NEW
     };
   }
 }

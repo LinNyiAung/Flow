@@ -20,6 +20,7 @@ class AuthProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _user != null;
+  bool get hasClaimedFreeTrial => _user?.hasClaimedFreeTrial ?? false;
 
   bool get isPremium => _user?.isPremium ?? false;
   SubscriptionType get subscriptionType =>
@@ -87,6 +88,8 @@ class AuthProvider with ChangeNotifier {
           subscriptionType: status.subscriptionType,
           subscriptionExpiresAt: status.expiresAt,
           defaultCurrency: _user!.defaultCurrency,
+          isVerified: _user!.isVerified,
+          hasClaimedFreeTrial: _user!.hasClaimedFreeTrial, // preserve
         );
         notifyListeners();
       }
@@ -228,6 +231,21 @@ class AuthProvider with ChangeNotifier {
         subscriptionType: subscriptionType,
         subscriptionExpiresAt: subscriptionExpiresAt,
       );
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setLoading(false);
+      return false;
+    }
+  }
+
+
+    Future<bool> claimFreeTrial() async {
+    _setLoading(true);
+    _setError(null);
+    try {
+      _user = await ApiService.claimFreeTrial();
       _setLoading(false);
       return true;
     } catch (e) {
