@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:frontend/screens/settings/change_password_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -434,39 +435,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // Matches the app's other destructive-confirmation sheets (e.g. Delete
+  // Budget) — icon circle, title, message, full-width filled action, then
+  // a plain Cancel below it — instead of a plain AlertDialog.
   void _showLogoutDialog(BuildContext context) {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
-    showDialog(
+    showAppBottomSheet<void>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(
-            localizations.drawerLogout,
-            style: TextStyle(fontWeight: FontWeight.bold, color: scheme.error),
+      builder: (sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: scheme.errorContainer, shape: BoxShape.circle),
+            child: Icon(Icons.logout_rounded, color: scheme.error, size: 26),
           ),
-          content: Text(localizations.dialogLogoutConfirm),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(localizations.dialogCancel),
+          const SizedBox(height: 14),
+          Text(localizations.drawerLogout, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            localizations.dialogLogoutConfirm,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: scheme.onSurfaceVariant,
+              height: 1.5,
             ),
-            FilledButton(
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: scheme.error),
               onPressed: () {
-                Navigator.pop(context);
+                Navigator.pop(sheetContext);
                 Provider.of<AuthProvider>(context, listen: false).logout();
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(builder: (_) => LoginScreen()),
                 );
               },
-              style: FilledButton.styleFrom(backgroundColor: scheme.error),
               child: Text(localizations.drawerLogout),
             ),
-          ],
-        );
-      },
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.pop(sheetContext),
+              child: Text(localizations.dialogCancel),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
