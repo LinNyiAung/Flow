@@ -28,7 +28,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+          padding: const EdgeInsets.fromLTRB(24, 62, 24, 40),
           child: _showVerify ? _buildVerifyStep(context) : _buildFormStep(context),
         ),
       ),
@@ -57,7 +57,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
             icon: const Icon(Icons.arrow_back_rounded),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 20),
           Text('Create an account', style: headingStyle),
           const SizedBox(height: 6),
           Text(
