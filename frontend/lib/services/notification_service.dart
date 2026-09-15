@@ -16,7 +16,7 @@ class NotificationService {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings('@mipmap/launcher_icon');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -76,7 +76,7 @@ class NotificationService {
       channelDescription: 'Notifications about your financial goals',
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: '@mipmap/launcher_icon',
       color: Color.fromARGB(255, color.red, color.green, color.blue),
       playSound: true,
       enableVibration: true,

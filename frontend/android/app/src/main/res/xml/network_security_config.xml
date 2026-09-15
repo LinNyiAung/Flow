@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows plain HTTP (cleartext) traffic to the backend's dev/LAN address
+  only. Android blocks cleartext by default since API 28; Flutter's debug
+  builds silently permit it for local development, which is why this only
+  ever showed up testing a release build — every network call (login,
+  version check, everything) was being blocked by the OS, leaving the app
+  stuck on its loading spinner forever.
+
+  This is scoped to the one IP the app actually talks to
+  (ApiService.baseUrl), not a blanket cleartext allowance, so no other
+  traffic gets the same relaxation. If the backend ever moves to a real
+  HTTPS domain, this file (and the manifest reference to it) can be removed
+  entirely.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.80.21.130</domain>
+    </domain-config>
+</network-security-config>

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/screens/budgets/edit_budget_screen.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/progress_meter.dart';
+import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 import '../../services/localization_service.dart';
 
@@ -34,6 +37,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     setState(() => _isRefreshing = true);
 
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
+
+    // Ask the backend to recompute this budget's spent/remaining figures from
+    // the latest transactions (POST /budgets/{id}/refresh) before pulling the
+    // now-current record. This runs automatically on load and on pull-to-
+    // refresh — there is no user-facing "refresh" button.
+    await budgetProvider.refreshBudget(_budget.id);
     final updatedBudget = await budgetProvider.getBudget(_budget.id);
 
     if (updatedBudget != null) {
@@ -46,102 +55,115 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   }
 
   void _showDeleteConfirmation() {
-  final responsive = ResponsiveHelper(context);
-  final localizations = AppLocalizations.of(context);
-  showDialog(
-    context: context,
-    barrierDismissible: !_isDeleting,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setDialogState) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          ),
-          title: Text(
-            localizations.deleteBudget,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              color: Colors.red,
-            ),
-          ),
-          content: Text(
-            localizations.deleteBudgetAlert,
-            style: GoogleFonts.poppins(),
-          ),
-          actions: [
-            TextButton(
-              onPressed: _isDeleting ? null : () => Navigator.pop(context),
-              child: Text(
-                localizations.dialogCancel,
-                style: GoogleFonts.poppins(
-                  color: _isDeleting ? Colors.grey[400] : Colors.grey[600],
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    showAppBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.delete_rounded, color: scheme.error, size: 26),
                 ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: _isDeleting
-                  ? null
-                  : () async {
-                      setDialogState(() {
-                        _isDeleting = true;
-                      });
-                      setState(() {
-                        _isDeleting = true;
-                      });
-                      
-                      await _deleteBudget();
-                      
-                      if (mounted) {
-                        setState(() {
-                          _isDeleting = false;
-                        });
-                      }
-                      
-                      Navigator.pop(context);
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+                const SizedBox(height: 14),
+                Text(
+                  '${localizations.deleteBudget}?',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-              ),
-              child: _isDeleting
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : Text(
-                      localizations.delete,
-                      style: GoogleFonts.poppins(color: Colors.white),
-                    ),
-            ),
-          ],
+                const SizedBox(height: 8),
+                Text(
+                  localizations.deleteBudgetAlert,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: scheme.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: scheme.error),
+                    onPressed: _isDeleting
+                        ? null
+                        : () async {
+                            setSheetState(() {
+                              _isDeleting = true;
+                            });
+                            setState(() {
+                              _isDeleting = true;
+                            });
+
+                            await _deleteBudget(sheetContext);
+
+                            if (mounted) {
+                              setState(() {
+                                _isDeleting = false;
+                              });
+                            }
+                          },
+                    child: _isDeleting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : Text(localizations.delete),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: _isDeleting ? null : () => Navigator.pop(sheetContext),
+                    child: Text(localizations.dialogCancel),
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
-    ),
-  );
-}
+    );
+  }
 
-  Future<void> _deleteBudget() async {
+  /// Deletes the budget, then returns to the caller exactly once. Closes
+  /// this confirmation sheet on its own route, and — only on success — pops
+  /// this screen with [_deletedResultValue] so `budgets_screen.dart` (which
+  /// awaits `Navigator.push(...)`) sees the result and shows its own
+  /// confirmation. Previously this popped twice — once here with a result,
+  /// then again unconditionally in the caller — which silently discarded
+  /// the result (and the localized value used for it didn't match the
+  /// literal the list screen checked for outside English anyway).
+  static const String _deletedResultValue = 'deleted';
+
+  Future<void> _deleteBudget(BuildContext sheetContext) async {
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
     final success = await budgetProvider.deleteBudget(_budget.id);
     final localizations = AppLocalizations.of(context);
 
     if (success) {
-      Navigator.pop(context, localizations.deleted);
+      Navigator.pop(sheetContext);
+      Navigator.pop(context, _deletedResultValue);
     } else {
+      Navigator.pop(sheetContext);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            budgetProvider.error ?? localizations.failedToDeleteBudget,
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(budgetProvider.error ?? localizations.failedToDeleteBudget)),
       );
     }
   }
@@ -151,24 +173,36 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final startDate = _budget.startDate.toUtc();
     final endDate = _budget.endDate.toUtc();
 
-    // Budget hasn't started yet
     if (now.isBefore(startDate)) {
       final daysUntilStart = startDate.difference(now).inDays;
-
       return 'Starts in $daysUntilStart days';
     }
 
-    // Budget has ended
     if (now.isAfter(endDate)) {
       final daysEnded = now.difference(endDate).inDays;
-
       return 'Ended $daysEnded days ago';
     }
 
-    // Budget is active
     final daysRemaining = endDate.difference(now).inDays;
-
     return '$daysRemaining days remaining';
+  }
+
+  // Same three states as _calculateDaysRemaining(), but without repeating the
+  // verb the info row's own label ("Starts In" / "Ended" / "Days Remaining")
+  // already says — used only there, to avoid rows reading like "Days
+  // Remaining: 20 days remaining".
+  String _daysRemainingValueOnly() {
+    final now = DateTime.now().toUtc();
+    final startDate = _budget.startDate.toUtc();
+    final endDate = _budget.endDate.toUtc();
+
+    if (now.isBefore(startDate)) {
+      return '${startDate.difference(now).inDays} days';
+    }
+    if (now.isAfter(endDate)) {
+      return '${now.difference(endDate).inDays} days ago';
+    }
+    return '${endDate.difference(now).inDays} days';
   }
 
   String _getBudgetStatusLabel() {
@@ -199,35 +233,19 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
 
   Color _getStatusColor() {
     if (_budget.isUpcoming) {
-      return Color(0xFF2196F3); // Blue for upcoming
+      return AppTheme.infoFor(context);
     }
 
+    final scheme = Theme.of(context).colorScheme;
     switch (_budget.status) {
       case BudgetStatus.exceeded:
-        return Color(0xFFFF5722);
+        return scheme.error;
       case BudgetStatus.completed:
-        return Colors.grey;
+        return scheme.onSurfaceVariant;
       case BudgetStatus.upcoming:
-        return Color(0xFF2196F3);
+        return AppTheme.infoFor(context);
       default:
-        return Color(0xFF4CAF50);
-    }
-  }
-
-  IconData _getStatusIcon() {
-    if (_budget.isUpcoming) {
-      return Icons.schedule;
-    }
-
-    switch (_budget.status) {
-      case BudgetStatus.exceeded:
-        return Icons.warning;
-      case BudgetStatus.completed:
-        return Icons.check_circle;
-      case BudgetStatus.upcoming:
-        return Icons.schedule;
-      default:
-        return Icons.trending_up;
+        return scheme.primary;
     }
   }
 
@@ -243,30 +261,19 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final statusColor = _getStatusColor();
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          localizations.budgetDetails,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
+        title: Text(localizations.budgetDetails),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF333333)),
+          icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.refresh, color: Color(0xFF667eea)),
-            onPressed: (_isRefreshing || _isDeleting) ? null : _refreshBudget,
-          ),
-          IconButton(
-            icon: Icon(Icons.edit, color: Color(0xFF667eea)),
+            icon: const Icon(Icons.edit_rounded),
             onPressed: _isDeleting ? null : () => _navigateToEditBudget(),
           ),
           IconButton(
@@ -276,152 +283,159 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                     height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                      valueColor: AlwaysStoppedAnimation<Color>(scheme.error),
                     ),
                   )
-                : Icon(Icons.delete, color: Colors.red),
+                : Icon(Icons.delete_rounded, color: scheme.error),
             onPressed: _isDeleting ? null : _showDeleteConfirmation,
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
-          ),
-        ),
-        child: RefreshIndicator(
-          onRefresh: _refreshBudget,
-          color: Color(0xFF667eea),
-          child: ListView(
-            padding: responsive.padding(all: 20),
-            children: [
-              // Budget Overview Card
-              Container(
-              padding: responsive.padding(all: 24),
+      body: Column(
+        children: [
+          if (_isRefreshing) LinearProgressIndicator(minHeight: 2, color: scheme.primary),
+          Expanded(child: _buildBody(context, scheme, statusColor, localizations)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context,
+    ColorScheme scheme,
+    Color statusColor,
+    AppLocalizations localizations,
+  ) {
+    return RefreshIndicator(
+        onRefresh: _refreshBudget,
+        color: scheme.primary,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+          children: [
+            // Hero overview card
+            Container(
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: _budget.isUpcoming
-                      ? [Color(0xFF2196F3), Color(0xFF1976D2)]
-                      : [Color(0xFF667eea), Color(0xFF764ba2)],
-                ),
-                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                boxShadow: [
-                  BoxShadow(
-                    color: statusColor.withOpacity(0.3),
-                    spreadRadius: 2,
-                    blurRadius: 8,
-                    offset: Offset(0, 4),
-                  ),
-                ],
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(24),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(color: scheme.surface, shape: BoxShape.circle),
+                        // Category icon, not a status icon — the StatusPill
+                        // to the right of this row already says ACTIVE /
+                        // EXCEEDED / etc., so an icon repeating that (e.g.
+                        // the same trending-up glyph on every active budget)
+                        // just looks identical across every budget's detail.
+                        child: Icon(iconForCategoryName(_budget.name), color: statusColor, size: 24),
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               _budget.name,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: scheme.onPrimaryContainer,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            // NEW: Show currency
+                            const SizedBox(height: 2),
                             Text(
-                              _budget.currency.displayName,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs14,
-                                color: Colors.white.withOpacity(0.8),
+                              '${_budget.period.name.toUpperCase()} · ${_calculateDaysRemaining()}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: scheme.onPrimaryContainer.withValues(alpha: 0.82),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      Container(
-                        padding: responsive.padding(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(_getStatusIcon(), color: Colors.white, size: responsive.icon16),
-                            SizedBox(width: responsive.sp4),
-                            Text(
-                              _getStatusLabel(),
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs11,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
+                      StatusPill(
+                        label: _getStatusLabel(),
+                        background: scheme.surface,
+                        foreground: statusColor,
+                      ),
+                    ],
+                  ),
+                  if (_budget.description != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _budget.description!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.jadeLabelFor(context),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        _budget.displayTotalSpent,
+                        style: AppTheme.money(32, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'of ${_budget.displayTotalBudget}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onPrimaryContainer.withValues(alpha: 0.82),
                         ),
                       ),
                     ],
                   ),
-                  SizedBox(height: responsive.sp8),
-                  Text(
-                    _budget.period.name.toUpperCase(),
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs12,
-                      color: Colors.white.withOpacity(0.8),
-                    ),
-                  ),
-                  if (_budget.description != null) ...[
-                    SizedBox(height: responsive.sp8),
-                    Text(
-                      _budget.description!,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs13,
-                        color: Colors.white.withOpacity(0.9),
-                      ),
-                    ),
-                  ],
-                  SizedBox(height: responsive.sp20),
-
-                  // NEW: Use display methods with currency
-                  Text(
-                    '${_budget.displayTotalSpent} / ${_budget.displayTotalBudget}',
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  SizedBox(height: responsive.sp12),
-                  LinearProgressIndicator(
+                  const SizedBox(height: 12),
+                  ProgressMeter(
                     value: _budget.percentageUsed / 100,
-                    backgroundColor: Colors.white.withOpacity(0.3),
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    minHeight: responsive.spacing(mobile: 8),
+                    height: 8,
+                    onHero: true,
+                    overrideColor: statusColor,
                   ),
-                  SizedBox(height: responsive.sp8),
+                  const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        '${_budget.percentageUsed.toStringAsFixed(1)}% ${localizations.used}',
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs12,
-                          color: Colors.white.withOpacity(0.8),
+                      Flexible(
+                        child: Text(
+                          '${_budget.percentageUsed.toStringAsFixed(0)}% ${localizations.used}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onPrimaryContainer.withValues(alpha: 0.82),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      Text(
-                        '${localizations.remaining}: ${_budget.displayRemainingBudget}',  // NEW: use display method
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          '${localizations.remaining}: ${_budget.displayRemainingBudget}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onPrimaryContainer,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
                         ),
                       ),
                     ],
@@ -430,461 +444,327 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               ),
             ),
 
-              if (_budget.isAutoCreated) ...[
-              SizedBox(height: responsive.sp16),
-              Container(
-                padding: responsive.padding(all: 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Color(0xFF667eea).withOpacity(0.1),
-                      Color(0xFF764ba2).withOpacity(0.1),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.autorenew,
-                      color: Color(0xFF667eea),
-                      size: responsive.icon20,
-                    ),
-                    SizedBox(width: responsive.sp8),
-                    Expanded(
-                      child: Text(
-                        _budget.autoCreateWithAi
-                            ? localizations.budgetWasAutomaticallyCreatedAi
-                            : localizations.budgetWasAutomaticallyCreatedPrevious,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs12,
-                          color: Color(0xFF667eea),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            // Over-limit / near-limit banners
+            if (_budget.status == BudgetStatus.exceeded) ...[
+              const SizedBox(height: 16),
+              _buildBanner(
+                icon: Icons.warning_rounded,
+                iconColor: scheme.error,
+                background: scheme.errorContainer,
+                titleColor: scheme.onErrorContainer,
+                title: localizations.budgetExceeded,
+                body: localizations.budgetExceededAlert,
+              ),
+            ] else if (_budget.percentageUsed > 80) ...[
+              const SizedBox(height: 16),
+              _buildBanner(
+                icon: Icons.info_rounded,
+                iconColor: scheme.tertiary,
+                background: scheme.tertiaryContainer,
+                titleColor: scheme.onTertiaryContainer,
+                title: localizations.approachingBudgetLimit,
+                body:
+                    'You\'ve used ${_budget.percentageUsed.toStringAsFixed(0)}% of your budget. Track your spending carefully.',
               ),
             ],
 
-            // NEW: Show auto-create status
+            // Auto-create explanations
+            if (_budget.isAutoCreated) ...[
+              const SizedBox(height: 16),
+              _buildAutoRow(
+                title: _budget.autoCreateWithAi
+                    ? localizations.budgetWasAutomaticallyCreatedAi
+                    : localizations.budgetWasAutomaticallyCreatedPrevious,
+              ),
+            ],
+
             if (_budget.autoCreateEnabled) ...[
-              SizedBox(height: responsive.sp16),
-              Container(
-                padding: responsive.padding(all: 12),
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  border: Border.all(color: Colors.green[200]!),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.autorenew,
-                      color: Colors.green[700],
-                      size: responsive.icon20,
-                    ),
-                    SizedBox(width: responsive.sp8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            localizations.autoCreateEnabled,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs13,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green[900],
-                            ),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            _budget.autoCreateWithAi
-                                ? localizations.nextBudgetWillBeAiOptimized
-                                : localizations.nextBudgetWillUseSameAmounts,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs11,
-                              color: Colors.green[800],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              const SizedBox(height: 16),
+              _buildAutoRow(
+                title: localizations.autoCreateEnabled,
+                subtitle: _budget.autoCreateWithAi
+                    ? localizations.nextBudgetWillBeAiOptimized
+                    : localizations.nextBudgetWillUseSameAmounts,
               ),
             ],
 
-
-              // Update the info banner section
-              if (_budget.isUpcoming) ...[
-                SizedBox(height: responsive.sp16),
-                Container(
-                  padding: responsive.padding(all: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.blue[200]!),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: Colors.blue[700],
-                        size: responsive.icon20,
-                      ),
-                      SizedBox(width: responsive.sp8),
-                      Expanded(
-                        child: Text(
-                          'This budget will start on ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}. No spending is tracked yet.',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs12,
-                            color: Colors.blue[900],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ] else if (!_budget.isActive &&
-                  DateTime.now().toUtc().isAfter(_budget.endDate.toUtc())) ...[
-                SizedBox(height: responsive.sp16),
-                Container(
-                  padding: responsive.padding(all: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle,
-                        color: Colors.grey[600],
-                        size: responsive.icon20,
-                      ),
-                      SizedBox(width: responsive.sp8),
-                      Expanded(
-                        child: Text(
-                          'This budget ended on ${DateFormat('MMMM dd, yyyy').format(_budget.endDate)}',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs12,
-                            color: Colors.grey[800],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
-              // Rest of the UI remains the same...
-              SizedBox(height: responsive.sp24),
-
-              // Budget Period Info
-              Container(
-                padding: responsive.padding(all: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.1),
-                      spreadRadius: 1,
-                      blurRadius: 4,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    _buildInfoRow(
-                      Icons.calendar_today,
-                      localizations.startDate,
-                      DateFormat('MMMM dd, yyyy').format(_budget.startDate),
-                    ),
-                    Divider(height: 24),
-                    _buildInfoRow(
-                      Icons.event,
-                      localizations.endDateNoOp,
-                      DateFormat('MMMM dd, yyyy').format(_budget.endDate),
-                    ),
-                    Divider(height: 24),
-                    _buildInfoRow(
-                      Icons.timelapse,
-                      _getBudgetStatusLabel(),
-                      _calculateDaysRemaining(),
-                    ),
-                  ],
-                ),
+            // Upcoming / ended notices
+            if (_budget.isUpcoming) ...[
+              const SizedBox(height: 16),
+              _buildBanner(
+                icon: Icons.info_outline_rounded,
+                iconColor: AppTheme.infoFor(context),
+                background: AppTheme.infoContainerFor(context),
+                titleColor: AppTheme.infoFor(context),
+                title:
+                    'This budget will start on ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}. No spending is tracked yet.',
+                body: null,
               ),
+            ] else if (!_budget.isActive &&
+                DateTime.now().toUtc().isAfter(_budget.endDate.toUtc())) ...[
+              const SizedBox(height: 16),
+              _buildBanner(
+                icon: Icons.check_circle_rounded,
+                iconColor: scheme.onSurfaceVariant,
+                background: scheme.secondaryContainer,
+                titleColor: scheme.onSurface,
+                title: 'This budget ended on ${DateFormat('MMMM dd, yyyy').format(_budget.endDate)}',
+                body: null,
+              ),
+            ],
 
-              SizedBox(height: responsive.sp24),
+            const SizedBox(height: 20),
 
-              // Category Budgets
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            // Period info
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardTheme.color,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? const Color(0x14101815), blurRadius: 8, offset: Offset(0, 1)),
+                ],
+              ),
+              child: Column(
                 children: [
-                  Text(
-                    localizations.categoryBudgets,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF333333),
-                    ),
+                  _buildInfoRow(
+                    Icons.event_available_rounded,
+                    localizations.startDate,
+                    DateFormat('MMMM dd, yyyy').format(_budget.startDate),
                   ),
-                  Text(
-                    '${_budget.categoryBudgets.length} ${localizations.categories}',
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs12,
-                      color: Colors.grey[600],
-                    ),
+                  const Divider(height: 1, indent: 52),
+                  _buildInfoRow(
+                    Icons.event_busy_rounded,
+                    localizations.endDateNoOp,
+                    DateFormat('MMMM dd, yyyy').format(_budget.endDate),
+                  ),
+                  const Divider(height: 1, indent: 52),
+                  _buildInfoRow(
+                    Icons.timelapse_rounded,
+                    _getBudgetStatusLabel(),
+                    _daysRemainingValueOnly(),
                   ),
                 ],
               ),
+            ),
 
-              SizedBox(height: responsive.sp12),
+            const SizedBox(height: 24),
 
-              ..._budget.categoryBudgets.map((catBudget) {
-              return _buildCategoryCard(catBudget);
-            }).toList(),
-              SizedBox(height: responsive.sp24),
-
-              // Budget Tips
-              if (_budget.status == BudgetStatus.exceeded)
-                Container(
-                  padding: responsive.padding(all: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.red[50],
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.red[200]!),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.red[700]),
-                      SizedBox(width: responsive.sp12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              localizations.budgetExceeded,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.red[900],
-                              ),
-                            ),
-                            Text(
-                              localizations.budgetExceededAlert,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs12,
-                                color: Colors.red[800],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else if (_budget.percentageUsed > 80)
-                Container(
-                  padding: responsive.padding(all: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.orange[50],
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.orange[200]!),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.orange[700]),
-                      SizedBox(width: responsive.sp12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              localizations.approachingBudgetLimit,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.orange[900],
-                              ),
-                            ),
-                            Text(
-                              'You\'ve used ${_budget.percentageUsed.toStringAsFixed(1)}% of your budget. Track your spending carefully.',
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs12,
-                                color: Colors.orange[800],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+            // Category caps
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: Text(
+                    localizations.categoryBudgets,
+                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-
-              SizedBox(height: 100),
-            ],
-          ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    '${_budget.categoryBudgets.length} ${localizations.categories}',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ..._budget.categoryBudgets.map((catBudget) => _buildCategoryCard(catBudget, localizations)),
+          ],
         ),
+    );
+  }
+
+  Widget _buildBanner({
+    required IconData icon,
+    required Color iconColor,
+    required Color background,
+    required Color titleColor,
+    required String title,
+    String? body,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(16)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: iconColor, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: titleColor),
+                ),
+                if (body != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    body,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: titleColor, height: 1.5),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAutoRow({required String title, String? subtitle}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? const Color(0x14101815), blurRadius: 8, offset: Offset(0, 1)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.autorenew_rounded, color: scheme.primary, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant)),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildInfoRow(IconData icon, String label, String value) {
-    final responsive = ResponsiveHelper(context);
-    return Row(
-      children: [
-        Icon(icon, color: Color(0xFF667eea), size: responsive.icon20),
-        SizedBox(width: responsive.sp12),
-        Text(
-          '$label:',
-          style: GoogleFonts.poppins(fontSize: responsive.fs13, color: Colors.grey[600]),
-        ),
-        Spacer(),
-        Text(
-          value,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs13,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF333333),
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Icon(icon, color: scheme.onSurfaceVariant, size: 22),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface)),
           ),
-        ),
-      ],
+          Flexible(
+            child: Text(
+              value,
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildCategoryCard(CategoryBudget catBudget) {
+  Widget _buildCategoryCard(CategoryBudget catBudget, AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
     final statusColor = catBudget.isExceeded
-        ? Color(0xFFFF5722)
+        ? scheme.error
         : catBudget.percentageUsed > 80
-        ? Color(0xFFFF9800)
-        : Color(0xFF4CAF50);
-
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
+        ? scheme.tertiary
+        : scheme.primary;
 
     return Container(
-      margin: EdgeInsets.only(bottom: 8),
-      padding: responsive.padding(all: 16),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
+          BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? const Color(0x14101815), blurRadius: 8, offset: Offset(0, 1)),
         ],
-        border: Border(
-          left: BorderSide(color: statusColor.withOpacity(0.3), width: 3),
-        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: Theme.of(context).colorScheme.secondaryContainer, shape: BoxShape.circle),
+                child: Icon(iconForCategoryName(catBudget.mainCategory), color: statusColor, size: 18),
+              ),
+              const SizedBox(width: 12),
               Expanded(
-                child: Row(
-                  children: [
-                    Container(
-                      padding: responsive.padding(all: 8),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                      ),
-                      child: Icon(Icons.category, color: statusColor, size: responsive.icon18),
-                    ),
-                    SizedBox(width: responsive.sp12),
-                    Expanded(
-                      child: Text(
-                        catBudget.mainCategory,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF333333),
-                        ),
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  catBudget.mainCategory,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (catBudget.isExceeded)
-                Container(
-                  padding: responsive.padding(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.red[50],
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                  ),
-                  child: Text(
-                    localizations.exceeded,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.red[700],
-                    ),
-                  ),
+              if (catBudget.isExceeded) ...[
+                StatusPill(
+                  label: localizations.exceeded.toUpperCase(),
+                  background: scheme.errorContainer,
+                  foreground: scheme.error,
+                  dense: true,
                 ),
+                const SizedBox(width: 8),
+              ],
+              Text(
+                '${catBudget.percentageUsed.toStringAsFixed(0)}%',
+                style: AppTheme.money(13, weight: FontWeight.w700, color: statusColor),
+              ),
             ],
           ),
-          SizedBox(height: responsive.sp12),
+          const SizedBox(height: 12),
+          ProgressMeter(value: catBudget.percentageUsed / 100, overrideColor: statusColor),
+          const SizedBox(height: 8),
           Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '${_budget.currency.symbol}${formatter.format(catBudget.spentAmount)}', // Changed
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs16,
-                fontWeight: FontWeight.bold,
-                color: statusColor,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  '${_budget.currency.symbol}${formatter.format(catBudget.spentAmount)} / ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
-            Text(
-              '${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}', // Changed
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs14,
-                color: Colors.grey[600],
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '${localizations.remaining}: ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount - catBudget.spentAmount)}',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: statusColor),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                ),
               ),
-            ),
-          ],
-        ),
-          SizedBox(height: responsive.sp8),
-          LinearProgressIndicator(
-            value: catBudget.percentageUsed / 100,
-            backgroundColor: Colors.grey[200],
-            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-            minHeight: responsive.spacing(mobile: 6),
+            ],
           ),
-          SizedBox(height: responsive.sp4),
-          Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '${catBudget.percentageUsed.toStringAsFixed(1)}% ${localizations.used}',
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs11,
-                color: Colors.grey[600],
-              ),
-            ),
-            Text(
-              '${localizations.remaining}: ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount - catBudget.spentAmount)}', // Changed
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs11,
-                fontWeight: FontWeight.w600,
-                color: statusColor,
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 }

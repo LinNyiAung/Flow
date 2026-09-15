@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/localization_service.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 class LanguageSettingsScreen extends StatefulWidget {
   final Function(Locale) onLanguageChanged;
@@ -30,8 +29,6 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
   }
 
   Future<void> _changeLanguage(String languageCode) async {
-    final responsive = ResponsiveHelper(context);
-
     // NEW: Update language on backend
     try {
       await ApiService.updateLanguage(languageCode);
@@ -45,18 +42,12 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
     });
     widget.onLanguageChanged(Locale(languageCode));
 
+    final changedToBurmese = languageCode == 'my';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          languageCode == 'en'
-              ? 'Language changed to English'
-              : 'ဘာသာစကားကို မြန်မာသို့ပြောင်းလဲပြီးပါပြီ',
-          style: GoogleFonts.poppins(color: Colors.white),
-        ),
-        backgroundColor: Color(0xFF4CAF50),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+          changedToBurmese ? 'ဘာသာစကားကို မြန်မာသို့ပြောင်းလဲပြီးပါပြီ' : 'Language changed to English',
+          style: changedToBurmese ? GoogleFonts.padauk(fontSize: 14, fontWeight: FontWeight.w400, height: 1.75) : null,
         ),
       ),
     );
@@ -64,160 +55,68 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
+    final isBurmese = _selectedLanguage == 'my';
+    // Manrope has no Myanmar glyphs and Padauk ships weight 400/700 only, so
+    // Burmese strings here are set explicitly in Padauk with a weight snapped
+    // to one of those two and the line-height bucket the design calls for
+    // (1.6 single-line label, 1.75 wrapping body prose, 1.5 app-bar title).
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _selectedLanguage == 'en'
-              ? 'Language Settings'
-              : 'ဘာသာစကားဆက်တင်များ',
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF333333)),
-          onPressed: () => Navigator.pop(context),
+          isBurmese ? 'ဘာသာစကားဆက်တင်များ' : 'Language Settings',
+          style: isBurmese ? GoogleFonts.padauk(fontSize: 20, fontWeight: FontWeight.w700, height: 1.5) : null,
         ),
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 10),
+            child: Text(
+              isBurmese ? 'ဘာသာစကားရွေးချယ်ပါ' : 'Select Language',
+              style: isBurmese
+                  ? GoogleFonts.padauk(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary, height: 1.6)
+                  : TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary),
+            ),
           ),
-        ),
-        child: ListView(
-          padding: responsive.padding(all: 20),
-          children: [
-            // Header Card
-            Container(
-              padding: responsive.padding(all: 20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(
-                  responsive.borderRadius(16),
+
+          Card(
+            child: Column(
+              children: [
+                _buildLanguageOption(
+                  languageCode: 'en',
+                  languageName: 'English',
+                  nativeName: 'English',
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 2,
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: responsive.padding(all: 12),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                      ),
-                      borderRadius: BorderRadius.circular(
-                        responsive.borderRadius(12),
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.language,
-                      color: Colors.white,
-                      size: responsive.icon20,
-                    ),
-                  ),
-                  SizedBox(width: responsive.sp16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _selectedLanguage == 'en'
-                              ? 'Select Language'
-                              : 'ဘာသာစကားရွေးချယ်ပါ',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs16,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        SizedBox(height: responsive.sp4),
-                        Text(
-                          _selectedLanguage == 'en'
-                              ? 'Choose your preferred language'
-                              : 'သင်နှစ်သက်သောဘာသာစကားကိုရွေးချယ်ပါ',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            SizedBox(height: responsive.sp24),
-
-            // English Option
-            _buildLanguageOption(
-              languageCode: 'en',
-              languageName: 'English',
-              nativeName: 'English',
-              flag: '🇬🇧',
-            ),
-
-            SizedBox(height: responsive.sp12),
-
-            // Myanmar Option
-            _buildLanguageOption(
-              languageCode: 'my',
-              languageName: 'Myanmar',
-              nativeName: 'မြန်မာ',
-              flag: '🇲🇲',
-            ),
-
-            SizedBox(height: responsive.sp24),
-
-            // Info Card
-            Container(
-              padding: responsive.padding(all: 16),
-              decoration: BoxDecoration(
-                color: Color(0xFF2196F3).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(
-                  responsive.borderRadius(12),
+                const Divider(),
+                _buildLanguageOption(
+                  languageCode: 'my',
+                  languageName: 'Myanmar',
+                  nativeName: 'မြန်မာ',
                 ),
-                border: Border.all(
-                  color: Color(0xFF2196F3).withOpacity(0.3),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    color: Color(0xFF2196F3),
-                    size: responsive.icon20,
-                  ),
-                  SizedBox(width: responsive.sp12),
-                  Expanded(
-                    child: Text(
-                      _selectedLanguage == 'en'
-                          ? 'The app will restart to apply the new language'
-                          : 'ဘာသာစကားအသစ်ကိုအသုံးပြုရန် အက်ပ်ကိုပြန်လည်စတင်ပါမည်',
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs13,
-                        color: Color(0xFF2196F3),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+
+          const SizedBox(height: 20),
+
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: scheme.outlineVariant,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              isBurmese
+                  ? 'ဘာသာစကားအသစ်ကိုအသုံးပြုရန် အက်ပ်ကိုပြန်လည်စတင်ပါမည်'
+                  : 'The app will restart to apply the new language',
+              style: isBurmese
+                  ? GoogleFonts.padauk(fontSize: 12, fontWeight: FontWeight.w400, color: scheme.onSurfaceVariant, height: 1.75)
+                  : TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -226,81 +125,40 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
     required String languageCode,
     required String languageName,
     required String nativeName,
-    required String flag,
   }) {
     final isSelected = _selectedLanguage == languageCode;
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return InkWell(
       onTap: () => _changeLanguage(languageCode),
-      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-      child: Container(
-        padding: responsive.padding(all: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          border: Border.all(
-            color: isSelected
-                ? Color(0xFF667eea)
-                : Colors.grey.withOpacity(0.2),
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Color(0xFF667eea).withOpacity(0.2),
-                    spreadRadius: 2,
-                    blurRadius: 8,
-                  ),
-                ]
-              : [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                  ),
-                ],
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         child: Row(
           children: [
-            Text(flag, style: TextStyle(fontSize: responsive.fs32)),
-            SizedBox(width: responsive.sp16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    languageName,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF333333),
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
                     nativeName,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs14,
-                      color: Colors.grey[600],
-                    ),
+                    // Padauk ships weight 400/700 only (no 500/600) — request
+                    // w700 explicitly so the native name actually renders
+                    // bold instead of silently falling back to regular.
+                    style: GoogleFonts.padauk(fontSize: 16, fontWeight: FontWeight.w700, color: scheme.onSurface, height: 1.75),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    languageName,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.6),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
-            if (isSelected)
-              Container(
-                padding: responsive.padding(all: 8),
-                decoration: BoxDecoration(
-                  color: Color(0xFF667eea),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.check,
-                  color: Colors.white,
-                  size: responsive.icon20,
-                ),
-              ),
+            if (isSelected) Icon(Icons.check_circle_rounded, color: scheme.primary, size: 22),
           ],
         ),
       ),

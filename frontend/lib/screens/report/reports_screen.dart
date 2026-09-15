@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/hero_card.dart';
+import 'package:frontend/widgets/progress_meter.dart';
+import 'package:frontend/widgets/stat_tile.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:provider/provider.dart';
 import '../../models/report.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_drawer.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 class ReportsScreen extends StatefulWidget {
   @override
@@ -26,76 +31,77 @@ class _ReportsScreenState extends State<ReportsScreen> {
   bool _isDownloading = false;
   String? _error;
   final formatter = NumberFormat("#,##0.00", "en_US");
+  final formatterWhole = NumberFormat("#,##0", "en_US");
 
   @override
   void initState() {
     super.initState();
-    _selectedCurrency = null;
-    _generateReport();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      setState(() {
+        _selectedCurrency = authProvider.defaultCurrency;
+      });
+      _generateReport();
+    });
   }
-  
+
   Future<void> _generateReport() async {
-  if (_selectedPeriod == ReportPeriod.custom &&
-      (_customStartDate == null || _customEndDate == null)) {
+    if (_selectedPeriod == ReportPeriod.custom &&
+        (_customStartDate == null || _customEndDate == null)) {
+      setState(() {
+        _report = null;
+        _multiCurrencyReport = null;
+        _error = null;
+      });
+      return;
+    }
+
     setState(() {
-      _report = null;
-      _multiCurrencyReport = null;
+      _isLoading = true;
       _error = null;
     });
-    return;
-  }
 
-  setState(() {
-    _isLoading = true;
-    _error = null;
-  });
+    try {
+      if (_selectedCurrency == null) {
+        final multiReport = await ApiService.generateMultiCurrencyReport(
+          period: _selectedPeriod,
+          startDate: _customStartDate,
+          endDate: _customEndDate,
+        );
 
-  try {
-    if (_selectedCurrency == null) {
-      // Generate multi-currency report
-      final multiReport = await ApiService.generateMultiCurrencyReport(
-        period: _selectedPeriod,
-        startDate: _customStartDate,
-        endDate: _customEndDate,
-      );
+        setState(() {
+          _multiCurrencyReport = multiReport;
+          _report = null;
+          _isLoading = false;
+        });
+      } else {
+        final report = await ApiService.generateReport(
+          period: _selectedPeriod,
+          startDate: _customStartDate,
+          endDate: _customEndDate,
+          currency: _selectedCurrency,
+        );
 
+        setState(() {
+          _report = report;
+          _multiCurrencyReport = null;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
       setState(() {
-        _multiCurrencyReport = multiReport;
-        _report = null;
-        _isLoading = false;
-      });
-    } else {
-      // Generate single currency report
-      final report = await ApiService.generateReport(
-        period: _selectedPeriod,
-        startDate: _customStartDate,
-        endDate: _customEndDate,
-        currency: _selectedCurrency,
-      );
-
-      setState(() {
-        _report = report;
-        _multiCurrencyReport = null;
+        _error = e.toString().replaceAll('Exception: ', '');
         _isLoading = false;
       });
     }
-  } catch (e) {
-    setState(() {
-      _error = e.toString().replaceAll('Exception: ', '');
-      _isLoading = false;
-    });
   }
-}
 
   Future<void> _downloadReport() async {
     final localizations = AppLocalizations.of(context);
     if (_selectedPeriod == ReportPeriod.custom &&
         (_customStartDate == null || _customEndDate == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(localizations.selectStartEndDates),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(localizations.selectStartEndDates)),
       );
       return;
     }
@@ -103,32 +109,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
     setState(() => _isDownloading = true);
 
     try {
-    final filePath = await ApiService.downloadReportPdf(
-      period: _selectedPeriod,
-      startDate: _customStartDate,
-      endDate: _customEndDate,
-      currency: _selectedCurrency,  // NEW - Add this
-    );
+      final filePath = await ApiService.downloadReportPdf(
+        period: _selectedPeriod,
+        startDate: _customStartDate,
+        endDate: _customEndDate,
+        currency: _selectedCurrency,
+      );
 
+      if (!mounted) return;
       setState(() => _isDownloading = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(localizations.reportDownloadedSuccessfully),
-          backgroundColor: Color(0xFF4CAF50),
           action: SnackBarAction(
             label: localizations.open,
-            textColor: Colors.white,
             onPressed: () => OpenFilex.open(filePath),
           ),
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isDownloading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to download report: ${e.toString()}'),
-          backgroundColor: Colors.red,
+          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     }
@@ -136,327 +142,408 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: Text(
-          localizations.financialReports,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
+        title: Text(localizations.financialReports),
         leading: IconButton(
-          icon: Icon(Icons.menu),
-          color: Color(0xFF333333),
+          icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
           if (_report != null)
-            Padding(
-              padding: responsive.padding(right: 16),
-              child: _isDownloading
-                  ? Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+            _isDownloading
+                ? const Padding(
+                    padding: EdgeInsets.only(right: 16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.ios_share_rounded),
+                    tooltip: localizations.downloadPDF,
+                    onPressed: _showExportSheet,
                   ),
-                ),
-              )
-                  : IconButton(
-                icon: Icon(Icons.download),
-                color: Color(0xFF667eea),
-                tooltip: localizations.downloadPDF,
-                onPressed: _downloadReport,
-              ),
-            ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
+      body: RefreshIndicator(
+        onRefresh: _generateReport,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 130),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildPeriodSelector(),
+              if (_selectedPeriod == ReportPeriod.custom) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildDateSelector(localizations.startDate, _customStartDate, (date) {
+                        setState(() => _customStartDate = date);
+                        if (_customEndDate != null) _generateReport();
+                      }),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildDateSelector(localizations.endDateNoOp, _customEndDate, (date) {
+                        setState(() => _customEndDate = date);
+                        if (_customStartDate != null) _generateReport();
+                      }),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 20),
+              if (_isLoading)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: Column(
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(localizations.generatingReport, style: TextStyle(color: scheme.onSurfaceVariant)),
+                      ],
+                    ),
+                  ),
+                )
+              else if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: Column(
+                      children: [
+                        Icon(Icons.error_outline_rounded, size: 56, color: scheme.error),
+                        const SizedBox(height: 16),
+                        Text(
+                          localizations.errorTitle,
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: scheme.error),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_error!, style: TextStyle(color: scheme.onSurfaceVariant), textAlign: TextAlign.center),
+                      ],
+                    ),
+                  ),
+                )
+              else if (_report != null)
+                _buildReportContent(_report!)
+              else if (_multiCurrencyReport != null)
+                _buildMultiCurrencyReportContent(_multiCurrencyReport!)
+              else if (_selectedPeriod == ReportPeriod.custom)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: Column(
+                      children: [
+                        Icon(Icons.date_range_rounded, size: 56, color: scheme.outline),
+                        const SizedBox(height: 16),
+                        Text(
+                          localizations.selectDatesToGenerateReport,
+                          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
-        child: RefreshIndicator(
-          onRefresh: _generateReport,
-          color: Color(0xFF667eea),
-          child: SingleChildScrollView(
-            physics: AlwaysScrollableScrollPhysics(),
-            child: Padding(
-              padding: responsive.padding(all: 20),
+      ),
+    );
+  }
+
+  // ── Export sheet ─────────────────────────────────────────────────
+
+  /// Maps to the mockup's `var(--accent)` token — a lighter mint in dark
+  /// mode, distinct from `--primary` (used for filled buttons). Neither
+  /// light nor dark [ColorScheme] exposes this role directly, so it's
+  /// derived from the theme's own accent constants.
+  Color _accentColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark ? AppTheme.darkAccent : AppTheme.jade;
+
+  Future<void> _showExportSheet() async {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = _accentColor(context);
+    final report = _report;
+
+    await showAppBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Export this report', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            if (report != null)
+              Text(
+                '${DateFormat('MMM d').format(report.startDate.toUtc())} – ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())} · '
+                '${report.currency.name.toUpperCase()} · ${report.totalTransactions} entries',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+              ),
+            const SizedBox(height: 18),
+            Card(
+              margin: EdgeInsets.zero,
+              clipBehavior: Clip.antiAlias,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Period Selector
-                  Container(
-                    padding: responsive.padding(all: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          spreadRadius: 1,
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        _buildPeriodButton(localizations.week, ReportPeriod.week),
-                        _buildPeriodButton(localizations.month, ReportPeriod.month),
-                        _buildPeriodButton(localizations.year, ReportPeriod.year),
-                        _buildPeriodButton(localizations.custom, ReportPeriod.custom),
-                      ],
-                    ),
-                  ),
-
-
-                  SizedBox(height: responsive.sp16),
-
-                  // Currency Selector
-                  Container(
-                    padding: responsive.padding(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          spreadRadius: 1,
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.attach_money, color: Color(0xFF667eea), size: responsive.icon20),
-                        SizedBox(width: responsive.sp12),
-                        Text(
-                          localizations.currencyR,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs14,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        SizedBox(width: responsive.sp12),
-                        Expanded(
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<Currency?>(
-                              value: _selectedCurrency,
-                              isExpanded: true,
-                              items: [
-                                DropdownMenuItem<Currency?>(
-                                  value: null,
-                                  child: Text(
-                                    localizations.allCurrencies,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs14,
-                                      fontWeight: FontWeight.w600,
-                                      
-                                    ),
-                                  ),
-                                ),
-                                ...Currency.values.map((currency) {
-                                  return DropdownMenuItem<Currency?>(
-                                    value: currency,
-                                    child: Text(
-                                      '${currency.displayName} (${currency.symbol})',
-                                      style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w600,),
-                                    ),
-                                  );
-                                }).toList(),
-                              ],
-                              onChanged: (Currency? newValue) {
-                                setState(() {
-                                  _selectedCurrency = newValue;
-                                });
-                                _generateReport();
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Custom Date Selector (removed Generate Report button)
-                  if (_selectedPeriod == ReportPeriod.custom) ...[
-                    SizedBox(height: responsive.sp16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildDateSelector(
-                            localizations.startDate,
-                            _customStartDate,
-                                (date) {
-                              setState(() => _customStartDate = date);
-                              // Auto-generate if both dates are selected
-                              if (_customEndDate != null) {
-                                _generateReport();
-                              }
-                            },
-                          ),
-                        ),
-                        SizedBox(width: responsive.sp12),
-                        Expanded(
-                          child: _buildDateSelector(
-                            localizations.endDateNoOp,
-                            _customEndDate,
-                                (date) {
-                              setState(() => _customEndDate = date);
-                              // Auto-generate if both dates are selected
-                              if (_customStartDate != null) {
-                                _generateReport();
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-
-                  SizedBox(height: responsive.sp24),
-
-                  // Loading or Error State
-                  if (_isLoading)
-                    Center(
-                      child: Column(
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _downloadReport();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                      child: Row(
                         children: [
-                          SizedBox(height: 60),
-                          CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(color: scheme.errorContainer, shape: BoxShape.circle),
+                            child: Icon(Icons.picture_as_pdf_rounded, color: scheme.error, size: 22),
                           ),
-                          SizedBox(height: responsive.sp16),
-                          Text(
-                            localizations.generatingReport,
-                            style: GoogleFonts.poppins(color: Colors.grey[600]),
-                          ),
-                        ],
-                      ),
-                    )
-                  else if (_error != null)
-                    Center(
-                      child: Column(
-                        children: [
-                          SizedBox(height: 40),
-                          Icon(Icons.error_outline, size: responsive.icon64, color: Colors.red),
-                          SizedBox(height: responsive.sp16),
-                          Text(
-                            localizations.errorTitle,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.red,
-                            ),
-                          ),
-                          SizedBox(height: responsive.sp8),
-                          Text(
-                            _error!,
-                            style: GoogleFonts.poppins(color: Colors.grey[600]),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    )
-                  else if (_report != null)
-                    _buildReportContent(_report!)
-                else if (_multiCurrencyReport != null)
-                    _buildMultiCurrencyReportContent(_multiCurrencyReport!)
-                else if (_selectedPeriod == ReportPeriod.custom)
-                        Center(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 60),
+                          const SizedBox(width: 14),
+                          Expanded(
                             child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(
-                                  Icons.date_range,
-                                  size: responsive.icon64,
-                                  color: Colors.grey[300],
-                                ),
-                                SizedBox(height: responsive.sp16),
+                                const Text('PDF', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 2),
                                 Text(
-                                  localizations.selectDatesToGenerateReport,
-                                  style: GoogleFonts.poppins(
-                                    color: Colors.grey[600],
-                                    fontSize: responsive.fs16,
-                                  ),
+                                  'Charts, category tables and daily averages',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),
                           ),
-                        ),
-
-                  SizedBox(height: 100),
+                          Icon(Icons.download_rounded, size: 20, color: scheme.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Divider(height: 1, indent: 70, color: Theme.of(context).dividerTheme.color),
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _downloadReport();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
+                            child: Icon(Icons.share_rounded, color: accent, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Send it on', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Same PDF, straight to Viber or email',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right_rounded, size: 20, color: scheme.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ── Selectors ────────────────────────────────────────────────────
+
+  // Horizontally scrollable rather than Wrap — on narrow screens the four
+  // period pills can run wider than the row, and wrapping them produces the
+  // "two rows of filters" look this layout was meant to get away from. The
+  // currency picker now lives inside the hero card itself (or, in the "All
+  // Currencies" view where there's no single hero, the summary line above
+  // the per-currency cards) rather than in this row.
+  Widget _buildPeriodSelector() {
+    final localizations = AppLocalizations.of(context);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _segments([
+          _Segment(localizations.week, _selectedPeriod == ReportPeriod.week, () => _selectPeriod(ReportPeriod.week)),
+          _Segment(localizations.month, _selectedPeriod == ReportPeriod.month, () => _selectPeriod(ReportPeriod.month)),
+          _Segment(localizations.year, _selectedPeriod == ReportPeriod.year, () => _selectPeriod(ReportPeriod.year)),
+          _Segment(localizations.custom, _selectedPeriod == ReportPeriod.custom, () => _selectPeriod(ReportPeriod.custom)),
+        ]),
+      ),
+    );
+  }
+
+  void _selectPeriod(ReportPeriod period) {
+    setState(() {
+      _selectedPeriod = period;
+      if (period == ReportPeriod.custom) {
+        _customStartDate = null;
+        _customEndDate = null;
+        _report = null;
+        _multiCurrencyReport = null;
+      }
+    });
+    if (period != ReportPeriod.custom) {
+      _generateReport();
+    }
+  }
+
+  // One dropdown chip for currency, rather than a whole separate labeled row
+  // of per-currency choice chips underneath the period selector.
+  Widget _currencyFilterChip() {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final label = _selectedCurrency == null
+        ? localizations.allCurrencies
+        : '${_selectedCurrency!.symbol} ${_selectedCurrency!.name.toUpperCase()}';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: _pickCurrencyFilter,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: scheme.outline),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurfaceVariant),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildPeriodButton(String label, ReportPeriod period) {
-    final responsive = ResponsiveHelper(context);
-    bool isSelected = _selectedPeriod == period;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedPeriod = period;
-            if (period == ReportPeriod.custom) {
-              // Clear custom dates when switching to custom
-              _customStartDate = null;
-              _customEndDate = null;
-              _report = null;
-            }
-          });
-          if (period != ReportPeriod.custom) {
-            _generateReport();
-          }
-        },
-        child: Container(
-          padding: responsive.padding(vertical: 10),
-          decoration: BoxDecoration(
-            gradient: isSelected
-                ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
-                : null,
-            color: isSelected ? null : Colors.transparent,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs12,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-              color: isSelected ? Colors.white : Colors.grey[600],
-            ),
-          ),
-        ),
+  // Same currency picker, styled to sit on the hero card's tonal fill —
+  // matches the currency pill on the Dashboard's "Available to spend" card.
+  Widget _currencyHeroChip() {
+    final scheme = Theme.of(context).colorScheme;
+    final label = _selectedCurrency == null ? '' : _selectedCurrency!.name.toUpperCase();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(color: scheme.surface, borderRadius: BorderRadius.circular(8)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+          Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurface),
+        ],
       ),
     );
+  }
+
+  void _pickCurrencyFilter() {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final options = <Currency?>[null, ...Currency.values];
+
+    showAppBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(localizations.currencyR, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          for (final currency in options)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                currency == null
+                    ? localizations.allCurrencies
+                    : '${currency.symbol} ${currency.name.toUpperCase()} · ${currency.displayName}',
+              ),
+              trailing: _selectedCurrency == currency
+                  ? Icon(Icons.check_circle_rounded, color: scheme.primary)
+                  : null,
+              onTap: () {
+                setState(() => _selectedCurrency = currency);
+                Navigator.pop(sheetContext);
+                _generateReport();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  // Mockup renders period filters as a row of discrete pills — filled
+  // primary when selected, outlined otherwise (see "Reports" markup, lines
+  // 449-452 of the prototype). Returned as a list (with gaps already
+  // interspersed) so the caller can lay them out in a non-wrapping,
+  // horizontally scrollable Row alongside the currency chip.
+  List<Widget> _segments(List<_Segment> segments) {
+    final scheme = Theme.of(context).colorScheme;
+    final chips = segments.map((s) {
+        return GestureDetector(
+          onTap: s.selected ? null : s.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: s.selected ? scheme.primary : Colors.transparent,
+              border: s.selected ? null : Border.all(color: scheme.outline),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              s.label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: s.selected ? FontWeight.w600 : FontWeight.w500,
+                color: s.selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
+      }).toList();
+    final out = <Widget>[];
+    for (var i = 0; i < chips.length; i++) {
+      if (i > 0) out.add(const SizedBox(width: 8));
+      out.add(chips[i]);
+    }
+    return out;
   }
 
   Widget _buildDateSelector(String label, DateTime? date, Function(DateTime) onDateSelected) {
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: () async {
         final picked = await showDatePicker(
@@ -464,941 +551,205 @@ class _ReportsScreenState extends State<ReportsScreen> {
           initialDate: date ?? DateTime.now(),
           firstDate: DateTime(2020),
           lastDate: DateTime.now(),
-          builder: (context, child) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
-              ),
-              child: child!,
-            );
-          },
         );
         if (picked != null) onDateSelected(picked);
       },
-      child: Container(
-        padding: responsive.padding(all: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-          border: Border.all(color: Colors.grey[300]!),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.05),
-              spreadRadius: 1,
-              blurRadius: 2,
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: GoogleFonts.poppins(fontSize: responsive.fs10, color: Colors.grey[600]),
-            ),
-            SizedBox(height: responsive.sp4),
-            Text(
-              date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
-              style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReportContent(FinancialReport report) {
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Report Period Info
-        Container(
-          width: double.infinity,
-          padding: responsive.padding(all: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                spreadRadius: 1,
-                blurRadius: 4,
-              ),
-            ],
-          ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(label, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+              const SizedBox(height: 4),
               Text(
-                localizations.reportPeriod,
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs12,
-                  color: Colors.grey[600],
-                ),
-              ),
-              SizedBox(height: responsive.sp4),
-              Text(
-                '${DateFormat('MMM d, yyyy').format(report.startDate.toUtc())} - ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())}',
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF333333),
-                ),
+                date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ],
           ),
         ),
-
-        SizedBox(height: responsive.sp20),
-
-        // Summary Cards
-        _buildSummaryCard(
-          localizations.netBalance,
-          report.netBalance,
-          report.netBalance >= 0 ? Color(0xFF4CAF50) : Color(0xFFFF5722),
-          Icons.account_balance_wallet,
-          report,
-        ),
-
-        SizedBox(height: responsive.sp12),
-
-        Row(
-          children: [
-            Expanded(
-              child: _buildSmallSummaryCard(
-                localizations.income,
-                report.totalInflow,
-                Color(0xFF4CAF50),
-                Icons.arrow_upward,
-                report,
-              ),
-            ),
-            SizedBox(width: responsive.sp12),
-            Expanded(
-              child: _buildSmallSummaryCard(
-                localizations.expenses,
-                report.totalOutflow,
-                Color(0xFFFF5722),
-                Icons.arrow_downward,
-                report,
-              ),
-            ),
-          ],
-        ),
-
-        SizedBox(height: responsive.sp12),
-
-        Row(
-          children: [
-            Expanded(
-              child: _buildInfoCard(
-                localizations.transactions,
-                report.totalTransactions.toString(),
-                Icons.receipt_long,
-              ),
-            ),
-            SizedBox(width: responsive.sp12),
-            Expanded(
-              child: _buildInfoCard(
-                localizations.goalsAllocated,
-                '${report.currency.symbol}${formatter.format(report.totalAllocatedToGoals)}', // CHANGED
-                Icons.flag,
-              ),
-            ),
-          ],
-        ),
-
-        SizedBox(height: responsive.sp24),
-
-        // Daily Averages
-        Text(
-          localizations.dailyAverages,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
-
-        SizedBox(height: responsive.sp12),
-
-        Container(
-          padding: responsive.padding(all: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                spreadRadius: 1,
-                blurRadius: 4,
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              _buildAverageRow(
-                localizations.averageDailyIncome,
-                report.averageDailyInflow,
-                Color(0xFF4CAF50),
-                report,
-              ),
-              Divider(height: 24),
-              _buildAverageRow(
-                localizations.averageDailyExpenses,
-                report.averageDailyOutflow,
-                Color(0xFFFF5722),
-                report,
-              ),
-            ],
-          ),
-        ),
-
-        SizedBox(height: responsive.sp24),
-
-        // Income Breakdown
-        if (report.inflowByCategory.isNotEmpty) ...[
-          Text(
-            localizations.incomeByCategory,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
-            ),
-          ),
-          SizedBox(height: responsive.sp12),
-          ...report.inflowByCategory.take(5).map((cat) => _buildCategoryCard(
-            cat.category,
-            cat.amount,
-            cat.percentage,
-            Color(0xFF4CAF50),
-            report,
-          )),
-          SizedBox(height: responsive.sp24),
-        ],
-
-        // Expense Breakdown
-        if (report.outflowByCategory.isNotEmpty) ...[
-          Text(
-            localizations.expensesByCategory,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
-            ),
-          ),
-          SizedBox(height: responsive.sp12),
-          ...report.outflowByCategory.take(5).map((cat) => _buildCategoryCard(
-            cat.category,
-            cat.amount,
-            cat.percentage,
-            Color(0xFFFF5722),
-            report,
-          )),
-          SizedBox(height: responsive.sp24),
-        ],
-
-        // Goals Progress
-        if (report.goals.isNotEmpty) ...[
-          Text(
-            localizations.goalsProgress,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
-            ),
-          ),
-          SizedBox(height: responsive.sp12),
-          ...report.goals.map((goal) => _buildGoalCard(goal)),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildSummaryCard(String label, double amount, Color color, IconData icon, FinancialReport report) {
-    final responsive = ResponsiveHelper(context);
-    return Container(
-      width: double.infinity,
-      padding: responsive.padding(all: 20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [color, color.withOpacity(0.8)],
-        ),
-        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.3),
-            spreadRadius: 2,
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: responsive.padding(all: 12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-            ),
-            child: Icon(icon, color: Colors.white, size: responsive.icon28),
-          ),
-          SizedBox(width: responsive.sp16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    color: Colors.white.withOpacity(0.9),
-                  ),
-                ),
-                SizedBox(height: responsive.sp4),
-                Text(
-                  '${report.currency.symbol}${formatter.format(amount)}',
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 
-  Widget _buildSmallSummaryCard(String label, double amount, Color color, IconData icon, FinancialReport report) {
-    final responsive = ResponsiveHelper(context);
-    return Container(
-      padding: responsive.padding(all: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
-        border: Border(
-          left: BorderSide(color: color, width: 3),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: responsive.icon24),
-          SizedBox(height: responsive.sp8),
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs12,
-              color: Colors.grey[600],
-            ),
-          ),
-          SizedBox(height: responsive.sp4),
-          Text(
-            '${report.currency.symbol}${formatter.format(amount)}',
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs18,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ── Single currency report ───────────────────────────────────────
 
-
-  Widget _buildMultiCurrencyReportContent(MultiCurrencyFinancialReport report) {
-    final responsive = ResponsiveHelper(context);
+  Widget _buildReportContent(FinancialReport report) {
     final localizations = AppLocalizations.of(context);
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      // Report Period Info
-      Container(
-        width: double.infinity,
-        padding: responsive.padding(all: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 4,
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.public, color: Color(0xFF667eea), size: responsive.icon20),
-                SizedBox(width: responsive.sp8),
-                Text(
-                  localizations.multiCurrencyReport,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF667eea),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: responsive.sp8),
-            Text(
-              '${DateFormat('MMM d, yyyy').format(report.startDate.toUtc())} - ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())}',
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs16,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF333333),
-              ),
-            ),
-          ],
-        ),
-      ),
+    final scheme = Theme.of(context).colorScheme;
+    final days = report.endDate.difference(report.startDate).inDays.clamp(1, 1 << 30);
+    final savedPct = report.totalInflow > 0
+        ? ((report.totalInflow - report.totalOutflow) / report.totalInflow * 100)
+        : 0.0;
 
-      SizedBox(height: responsive.sp20),
-
-      // Overview Card
-      Container(
-        width: double.infinity,
-        padding: responsive.padding(all: 16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-          ),
-          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0xFF667eea).withOpacity(0.3),
-              spreadRadius: 2,
-              blurRadius: 8,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              localizations.overview,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs16,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(height: responsive.sp12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  localizations.totalTransactions,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    color: Colors.white.withOpacity(0.9),
-                  ),
-                ),
-                Text(
-                  '${report.totalTransactions}',
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: responsive.sp8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  localizations.currencies,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    color: Colors.white.withOpacity(0.9),
-                  ),
-                ),
-                Text(
-                  '${report.currencyReports.length}',
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-
-      SizedBox(height: responsive.sp24),
-
-      // Currency Reports
-      Text(
-        localizations.byCurrency,
-        style: GoogleFonts.poppins(
-          fontSize: responsive.fs18,
-          fontWeight: FontWeight.bold,
-          color: Color(0xFF333333),
-        ),
-      ),
-
-      SizedBox(height: responsive.sp12),
-
-      ...report.currencyReports.map((currencyReport) => 
-        _buildCurrencyReportCard(currencyReport)
-      ),
-
-      SizedBox(height: responsive.sp24),
-
-      // All Goals
-      if (report.goals.isNotEmpty) ...[
-        Text(
-          localizations.allGoals,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
-        SizedBox(height: responsive.sp12),
-        ...report.goals.map((goal) => _buildGoalCard(goal)),
-      ],
-
-      SizedBox(height: 100),
-    ],
-  );
-}
-
-Widget _buildCurrencyReportCard(CurrencyReport currencyReport) {
-  final currency = currencyReport.currency;
-  final netBalance = currencyReport.netBalance;
-  final balanceColor = netBalance >= 0 ? Color(0xFF4CAF50) : Color(0xFFFF5722);
-  final responsive = ResponsiveHelper(context);
-  final localizations = AppLocalizations.of(context);
-
-  return Container(
-    margin: responsive.padding(bottom: 16),
-    padding: responsive.padding(all: 20),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.grey.withOpacity(0.1),
-          spreadRadius: 2,
-          blurRadius: 6,
-        ),
-      ],
-      border: Border(
-        left: BorderSide(color: balanceColor, width: 4),
-      ),
-    ),
-    child: Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Currency Header
+        HeroCard(
+          label:
+              'Net · ${DateFormat('MMM d').format(report.startDate.toUtc())} – ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())}',
+          value: '${report.netBalance >= 0 ? '+' : ''}${report.currency.symbol}${formatter.format(report.netBalance)}',
+          labelTrailing: _currencyHeroChip(),
+          onLabelTap: _pickCurrencyFilter,
+          stats: [
+            StatTile(icon: Icons.savings_rounded, label: 'Saved', value: '${savedPct.toStringAsFixed(0)}%'),
+            StatTile(icon: Icons.receipt_long_rounded, label: 'Entries', value: '${report.totalTransactions}'),
+            StatTile(
+              icon: Icons.calendar_today_rounded,
+              label: 'Per day',
+              value: '${report.currency.symbol}${formatterWhole.format(report.averageDailyOutflow)}',
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
+            Expanded(
+              child: _smallSummaryCard(localizations.income, report.totalInflow, scheme.primary, Icons.arrow_upward_rounded, report.currency),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _smallSummaryCard(localizations.expenses, report.totalOutflow, scheme.error, Icons.arrow_downward_rounded, report.currency),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _infoCard(localizations.goalsAllocated, '${report.currency.symbol}${formatter.format(report.totalAllocatedToGoals)}', Icons.flag_rounded)),
+            const SizedBox(width: 12),
+            Expanded(child: _infoCard('Days covered', '$days', Icons.event_note_rounded)),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Text(localizations.dailyAverages, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
               children: [
-                Container(
-                  padding: responsive.padding(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: balanceColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                  ),
-                  child: Text(
-                    currency.displayName,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.bold,
-                      color: balanceColor,
-                    ),
-                  ),
-                ),
-                SizedBox(width: responsive.sp8),
-                Text(
-                  '(${currency.symbol})',
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    color: Colors.grey[600],
-                  ),
-                ),
+                _averageRow(localizations.averageDailyIncome, report.averageDailyInflow, scheme.primary, report.currency),
+                const Divider(height: 24),
+                _averageRow(localizations.averageDailyExpenses, report.averageDailyOutflow, scheme.error, report.currency),
               ],
             ),
-            Text(
-              '${currencyReport.totalTransactions} txns',
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs12,
-                color: Colors.grey[600],
-              ),
-            ),
-          ],
-        ),
-
-        Divider(height: 24),
-
-        // Net Balance
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              localizations.netBalance,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs14,
-                color: Colors.grey[600],
-              ),
-            ),
-            Text(
-              '${currency.symbol}${formatter.format(netBalance)}',
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs20,
-                fontWeight: FontWeight.bold,
-                color: balanceColor,
-              ),
-            ),
-          ],
-        ),
-
-        SizedBox(height: responsive.sp16),
-
-        // Income and Expenses
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.arrow_upward, color: Color(0xFF4CAF50), size: responsive.icon16),
-                      SizedBox(width: responsive.sp4),
-                      Text(
-                        localizations.income,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: responsive.sp4),
-                  Text(
-                    '${currency.symbol}${formatter.format(currencyReport.totalInflow)}', // CHANGED
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF4CAF50),
-                    ),
-                  ),
-                  Text(
-                    '${currencyReport.inflowCount} transactions',
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs10,
-                      color: Colors.grey[500],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: 1,
-              height: 40,
-              color: Colors.grey[300],
-            ),
-            SizedBox(width: responsive.sp16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.arrow_downward, color: Color(0xFFFF5722), size: responsive.icon16),
-                      SizedBox(width: responsive.sp4),
-                      Text(
-                        localizations.expenses,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: responsive.sp4),
-                  Text(
-                    '${currency.symbol}${formatter.format(currencyReport.totalOutflow)}', // CHANGED
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFFFF5722),
-                    ),
-                  ),
-                  Text(
-                    '${currencyReport.outflowCount} transactions',
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs10,
-                      color: Colors.grey[500],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-
-        SizedBox(height: responsive.sp16),
-
-        // Daily Averages
-        Container(
-          padding: responsive.padding(all: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    localizations.avgDailyIncome,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  Text(
-                    '${currency.symbol}${formatter.format(currencyReport.averageDailyInflow)}', // CHANGED
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF4CAF50),
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    localizations.avgDailyExpenses,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  Text(
-                    '${currency.symbol}${formatter.format(currencyReport.averageDailyOutflow)}', // CHANGED
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFFF5722),
-                    ),
-                  ),
-                ],
-              ),
-            ],
           ),
         ),
-
-        // Top Categories (expandable)
-        if (currencyReport.inflowByCategory.isNotEmpty || currencyReport.outflowByCategory.isNotEmpty) ...[
-          SizedBox(height: responsive.sp12),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: Text(
-              localizations.viewCategories,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF667eea),
+        if (report.inflowByCategory.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Text(localizations.incomeByCategory, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: report.inflowByCategory
+                    .take(5)
+                    .map((cat) => _categoryRow(cat, scheme.primary, report.currency))
+                    .toList(),
               ),
             ),
-            children: [
-              if (currencyReport.inflowByCategory.isNotEmpty) ...[
-                Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    localizations.topIncomeCategories,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ),
-                ...currencyReport.inflowByCategory.take(3).map((cat) => 
-                  Padding(
-                    padding: responsive.padding(vertical: 7),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            cat.category,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs13),
-                          ),
-                        ),
-                        Text(
-                          '${currency.symbol}${formatter.format(cat.amount)}', // CHANGED
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs13,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF4CAF50),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-              if (currencyReport.outflowByCategory.isNotEmpty) ...[
-                Padding(
-                  padding: responsive.padding(top: 12),
-                  child: Text(
-                    localizations.topExpenseCategories,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ),
-                ...currencyReport.outflowByCategory.take(3).map((cat) => 
-                  Padding(
-                    padding: responsive.padding(vertical: 7),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            cat.category,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs13),
-                          ),
-                        ),
-                        Text(
-                          '${currency.symbol}${formatter.format(cat.amount)}', // CHANGED
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs13,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFFF5722),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ],
+          ),
+        ],
+        if (report.outflowByCategory.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Text(localizations.expensesByCategory, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: report.outflowByCategory
+                    .take(5)
+                    .map((cat) => _categoryRow(cat, scheme.error, report.currency))
+                    .toList(),
+              ),
+            ),
           ),
         ],
       ],
-    ),
-  );
-}
+    );
+  }
 
-  Widget _buildInfoCard(String label, String value, IconData icon) {
-    final responsive = ResponsiveHelper(context);
-    return Container(
-      padding: responsive.padding(all: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: Color(0xFF667eea), size: responsive.icon24),
-          SizedBox(height: responsive.sp8),
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs12,
-              color: Colors.grey[600],
+  Widget _smallSummaryCard(String label, double amount, Color color, IconData icon, Currency currency) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-          ),
-          SizedBox(height: responsive.sp4),
-          Text(
-            value,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
+            const SizedBox(height: 4),
+            Text(
+              '${currency.symbol}${formatter.format(amount)}',
+              style: AppTheme.money(17, weight: FontWeight.w700, color: color),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  
-  Widget _buildAverageRow(String label, double amount, Color color, FinancialReport report) {
-    final responsive = ResponsiveHelper(context);
+  Widget _infoCard(String label, String value, IconData icon) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: scheme.primary, size: 22),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: AppTheme.money(16, weight: FontWeight.w700, color: scheme.onSurface),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _averageRow(String label, double amount, Color color, Currency currency) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs14,
-            color: Color(0xFF333333),
-          ),
+        Expanded(
+          child: Text(label, style: const TextStyle(fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
         ),
+        const SizedBox(width: 8),
         Text(
-          '${report.currency.symbol}${formatter.format(amount)}', // CHANGED
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
+          '${currency.symbol}${formatter.format(amount)}',
+          style: AppTheme.money(15, weight: FontWeight.w700, color: color),
         ),
       ],
     );
   }
 
-Widget _buildCategoryCard(String category, double amount, double percentage, Color color, FinancialReport report) {
-    final responsive = ResponsiveHelper(context);
-    return Container(
-      margin: EdgeInsets.only(bottom: 8),
-      padding: responsive.padding(all: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
-      ),
+  Widget _categoryRow(CategoryBreakdown cat, Color color, Currency currency) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1407,142 +758,257 @@ Widget _buildCategoryCard(String category, double amount, double percentage, Col
             children: [
               Expanded(
                 child: Text(
-                  category,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
+                  cat.category,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
-                '${report.currency.symbol}${formatter.format(amount)}', // CHANGED
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs16,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+                '${currency.symbol}${formatter.format(cat.amount)}',
+                style: AppTheme.money(13, weight: FontWeight.w700, color: color),
               ),
             ],
           ),
-          SizedBox(height: responsive.sp8),
-          LinearProgressIndicator(
-            value: percentage / 100,
-            backgroundColor: Colors.grey[200],
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            minHeight: 6,
-          ),
-          SizedBox(height: responsive.sp4),
+          const SizedBox(height: 7),
+          ProgressMeter(value: cat.percentage / 100, overrideColor: color),
+          const SizedBox(height: 5),
           Text(
-            '${percentage.toStringAsFixed(1)}% of total',
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs11,
-              color: Colors.grey[600],
-            ),
+            '${cat.percentage.toStringAsFixed(1)}% of total',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildGoalCard(GoalProgressReport goal) {
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
+  // ── Multi-currency report ────────────────────────────────────────
 
-    return Container(
-      margin: EdgeInsets.only(bottom: 8),
-      padding: responsive.padding(all: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
-        border: Border(
-          left: BorderSide(
-            color: goal.status == 'achieved' ? Color(0xFF4CAF50) : Color(0xFF667eea),
-            width: 3,
+  Widget _buildMultiCurrencyReportContent(MultiCurrencyFinancialReport report) {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.public_rounded, size: 16, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '${DateFormat('MMM d').format(report.startDate.toUtc())} – ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())} · '
+                '${report.totalTransactions} ${localizations.transactions.toLowerCase()} · '
+                '${report.currencyReports.length} ${localizations.currencies.toLowerCase()}',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            _currencyFilterChip(),
+          ],
+        ),
+        const SizedBox(height: 16),
+        ...report.currencyReports.map(_currencyReportCard),
+      ],
+    );
+  }
+
+  Widget _currencyReportCard(CurrencyReport currencyReport) {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final currency = currencyReport.currency;
+    final netBalance = currencyReport.netBalance;
+    final balanceColor = netBalance >= 0 ? scheme.primary : scheme.error;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: scheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        currency.displayName,
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.primary),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${currencyReport.totalTransactions} txns',
+                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      localizations.netBalance,
+                      style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${currency.symbol}${formatter.format(netBalance)}',
+                    style: AppTheme.money(19, weight: FontWeight.w700, color: balanceColor),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _miniStat(localizations.income, currencyReport.totalInflow, currencyReport.inflowCount, scheme.primary, currency),
+                  ),
+                  Container(width: 1, height: 40, color: scheme.outlineVariant),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _miniStat(localizations.expenses, currencyReport.totalOutflow, currencyReport.outflowCount, scheme.error, currency),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: scheme.surface, borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  children: [
+                    _multiAverageRow(localizations.avgDailyIncome, currencyReport.averageDailyInflow, scheme.primary, currency),
+                    const SizedBox(height: 6),
+                    _multiAverageRow(localizations.avgDailyExpenses, currencyReport.averageDailyOutflow, scheme.error, currency),
+                  ],
+                ),
+              ),
+              if (currencyReport.inflowByCategory.isNotEmpty || currencyReport.outflowByCategory.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text(
+                    localizations.viewCategories,
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.primary),
+                  ),
+                  children: [
+                    if (currencyReport.inflowByCategory.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          localizations.topIncomeCategories,
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                      ...currencyReport.inflowByCategory.take(3).map(
+                            (cat) => _miniCategoryRow(cat, scheme.primary, currency),
+                          ),
+                    ],
+                    if (currencyReport.outflowByCategory.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          localizations.topExpenseCategories,
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                      ...currencyReport.outflowByCategory.take(3).map(
+                            (cat) => _miniCategoryRow(cat, scheme.error, currency),
+                          ),
+                    ],
+                  ],
+                ),
+              ],
+            ],
           ),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+
+  Widget _miniStat(String label, double amount, int count, Color color, Currency currency) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+        const SizedBox(height: 4),
+        Text(
+          '${currency.symbol}${formatter.format(amount)}',
+          style: AppTheme.money(16, weight: FontWeight.w700, color: color),
+        ),
+        Text('$count transactions', style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+      ],
+    );
+  }
+
+  Widget _multiAverageRow(String label, double amount, Color color, Currency currency) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${currency.symbol}${formatter.format(amount)}',
+          style: AppTheme.money(13, weight: FontWeight.w600, color: color),
+        ),
+      ],
+    );
+  }
+
+  Widget _miniCategoryRow(CategoryBreakdown cat, Color color, Currency currency) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  goal.name,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-              ),
-              if (goal.status == 'achieved')
-                Container(
-                  padding: responsive.padding(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF4CAF50).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                  ),
-                  child: Text(
-                    localizations.achieved,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs10,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF4CAF50),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(height: responsive.sp8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${goal.currency.symbol}${formatter.format(goal.currentAmount)}', // CHANGED
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF667eea),
-                ),
-              ),
-              Text(
-                '${goal.currency.symbol}${formatter.format(goal.targetAmount)}', // CHANGED
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs14,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: responsive.sp8),
-          LinearProgressIndicator(
-            value: goal.progressPercentage / 100,
-            backgroundColor: Colors.grey[200],
-            valueColor: AlwaysStoppedAnimation<Color>(
-              goal.status == 'achieved' ? Color(0xFF4CAF50) : Color(0xFF667eea),
+          Expanded(
+            child: Text(
+              cat.category,
+              style: const TextStyle(fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            minHeight: 6,
           ),
-          SizedBox(height: responsive.sp4),
+          const SizedBox(width: 8),
           Text(
-            '${goal.progressPercentage.toStringAsFixed(1)}% Complete',
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs11,
-              color: Colors.grey[600],
-            ),
+            '${currency.symbol}${formatter.format(cat.amount)}',
+            style: AppTheme.money(13, weight: FontWeight.w600, color: color),
           ),
         ],
       ),
     );
   }
+}
+
+class _Segment {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  _Segment(this.label, this.selected, this.onTap);
 }

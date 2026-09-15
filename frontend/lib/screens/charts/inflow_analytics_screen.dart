@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/hero_card.dart';
+import 'package:frontend/widgets/progress_meter.dart';
+import 'package:frontend/widgets/stat_tile.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -10,7 +15,6 @@ import '../../providers/transaction_provider.dart';
 import '../../models/transaction.dart';
 import '../../services/localization_service.dart';
 import '../../widgets/app_drawer.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 enum TimePeriod { daily, monthly, yearly, custom }
 
@@ -25,118 +29,138 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
   DateTime? _customStartDate;
   DateTime? _customEndDate;
   List<Transaction> _filteredTransactions = [];
-  int _touchedPieIndex = -1;
   int _touchedBarIndex = -1;
   bool _isLoading = false;
   final formatter = NumberFormat("#,##0.00", "en_US");
 
   Currency? _selectedCurrency;
 
-@override
-void initState() {
-  super.initState();
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    // Set default currency from user's preference
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    setState(() {
-      _selectedCurrency = authProvider.defaultCurrency;
+  // Derived from _filteredTransactions, but only recomputed when that list
+  // actually changes (see _recomputeDerivedData) rather than on every
+  // build() — build() used to call _getCategoryData/_getCategoryCounts/
+  // _getTimeSeriesData directly, which re-walks every fetched transaction
+  // (up to 10,000) on every rebuild, including the ones triggered just by
+  // tapping a bar to show its tooltip. That's what made the screen feel
+  // slow while interacting with the chart.
+  Map<String, double> _categoryData = {};
+  Map<String, int> _categoryCounts = {};
+  Map<String, double> _timeSeriesData = {};
+  double _totalIncome = 0;
+
+  void _recomputeDerivedData() {
+    _categoryData = _getCategoryData();
+    _categoryCounts = _getCategoryCounts();
+    _timeSeriesData = _getTimeSeriesData();
+    _totalIncome = _categoryData.values.fold(0.0, (sum, amount) => sum + amount);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      setState(() {
+        _selectedCurrency = authProvider.defaultCurrency;
+      });
+      _loadTransactions();
     });
-    _loadTransactions();
-  });
-}
-
-
-  Future<void> _loadBalance() async {
-  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-  await transactionProvider.fetchBalance(currency: _selectedCurrency);
-}
+  }
 
   Future<void> _loadTransactions() async {
-  setState(() => _isLoading = true);
+    setState(() => _isLoading = true);
 
-  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
-  DateTime startDate;
-  DateTime endDate = DateTime.now();
+    DateTime startDate;
+    DateTime endDate = DateTime.now();
 
-  switch (_selectedPeriod) {
-    case TimePeriod.daily:
-      startDate = DateTime(2020, 1, 1);
-      break;
-    case TimePeriod.monthly:
-      startDate = DateTime(2020, 1, 1);
-      break;
-    case TimePeriod.yearly:
-      startDate = DateTime(2020, 1, 1);
-      break;
-    case TimePeriod.custom:
-      if (_customStartDate == null || _customEndDate == null) {
-        setState(() => _isLoading = false);
-        return;
-      }
-      startDate = _customStartDate!;
-      endDate = _customEndDate!;
-      break;
-  }
-
-  startDate = DateTime.utc(startDate.year, startDate.month, startDate.day);
-  endDate = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
-
-  try {
-    await transactionProvider.fetchTransactions(
-      type: TransactionType.inflow,
-      startDate: startDate,
-      endDate: endDate,
-      currency: _selectedCurrency,  // ADD THIS LINE
-      limit: 10000,
-    );
-
-    setState(() {
-      _filteredTransactions = transactionProvider.transactions
-          .where((t) {
-        if (_selectedPeriod == TimePeriod.custom &&
-            _customStartDate != null &&
-            _customEndDate != null) {
-          DateTime transDate = t.date.toLocal();
-          DateTime customStart = DateTime(_customStartDate!.year, _customStartDate!.month, _customStartDate!.day);
-          DateTime customEnd = DateTime(_customEndDate!.year, _customEndDate!.month, _customEndDate!.day, 23, 59, 59);
-          return t.type == TransactionType.inflow &&
-              transDate.isAfter(customStart.subtract(Duration(seconds: 1))) &&
-              transDate.isBefore(customEnd.add(Duration(seconds: 1)));
+    switch (_selectedPeriod) {
+      case TimePeriod.daily:
+        startDate = DateTime(2020, 1, 1);
+        break;
+      case TimePeriod.monthly:
+        startDate = DateTime(2020, 1, 1);
+        break;
+      case TimePeriod.yearly:
+        startDate = DateTime(2020, 1, 1);
+        break;
+      case TimePeriod.custom:
+        if (_customStartDate == null || _customEndDate == null) {
+          setState(() => _isLoading = false);
+          return;
         }
-        return t.type == TransactionType.inflow;
-      })
-          .toList();
-      _isLoading = false;
-    });
-  } catch (e) {
-    print('Error loading transactions: $e');
-    setState(() => _isLoading = false);
+        startDate = _customStartDate!;
+        endDate = _customEndDate!;
+        break;
+    }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error loading transactions: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
+    startDate = DateTime.utc(startDate.year, startDate.month, startDate.day);
+    endDate = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+
+    try {
+      await transactionProvider.fetchTransactions(
+        type: TransactionType.inflow,
+        startDate: startDate,
+        endDate: endDate,
+        currency: _selectedCurrency,
+        limit: 10000,
       );
+
+      setState(() {
+        _filteredTransactions = transactionProvider.transactions.where((t) {
+          if (_selectedPeriod == TimePeriod.custom &&
+              _customStartDate != null &&
+              _customEndDate != null) {
+            DateTime transDate = t.date.toLocal();
+            DateTime customStart = DateTime(_customStartDate!.year, _customStartDate!.month, _customStartDate!.day);
+            DateTime customEnd = DateTime(_customEndDate!.year, _customEndDate!.month, _customEndDate!.day, 23, 59, 59);
+            return t.type == TransactionType.inflow &&
+                transDate.isAfter(customStart.subtract(Duration(seconds: 1))) &&
+                transDate.isBefore(customEnd.add(Duration(seconds: 1)));
+          }
+          return t.type == TransactionType.inflow;
+        }).toList();
+        _recomputeDerivedData();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading transactions: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
     }
   }
-}
+
+  /// Maps to the mockup's `var(--accent)` token — a lighter mint in dark
+  /// mode, distinct from `--primary` (used for filled buttons). Neither
+  /// light nor dark [ColorScheme] exposes this role directly, so it's
+  /// derived from the theme's own accent constants.
+  Color _accentColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark ? AppTheme.darkAccent : AppTheme.jade;
 
   Map<String, double> _getCategoryData() {
     Map<String, double> categoryTotals = {};
 
     for (var transaction in _filteredTransactions) {
-      if (categoryTotals.containsKey(transaction.mainCategory)) {
-        categoryTotals[transaction.mainCategory] =
-            categoryTotals[transaction.mainCategory]! + transaction.amount;
-      } else {
-        categoryTotals[transaction.mainCategory] = transaction.amount;
-      }
+      categoryTotals[transaction.mainCategory] =
+          (categoryTotals[transaction.mainCategory] ?? 0) + transaction.amount;
     }
 
     return categoryTotals;
+  }
+
+  Map<String, int> _getCategoryCounts() {
+    Map<String, int> counts = {};
+    for (var transaction in _filteredTransactions) {
+      counts[transaction.mainCategory] = (counts[transaction.mainCategory] ?? 0) + 1;
+    }
+    return counts;
   }
 
   Map<String, double> _getTimeSeriesData() {
@@ -147,18 +171,15 @@ void initState() {
 
       switch (_selectedPeriod) {
         case TimePeriod.daily:
-        // Group by day of week with date (e.g., "Monday (Oct 7)")
           DateTime localDate = transaction.date.toLocal();
           String dayName = DateFormat('EEEE').format(localDate);
           String dateStr = DateFormat('MMM d').format(localDate);
           key = '$dayName ($dateStr)';
           break;
         case TimePeriod.monthly:
-        // Group by month (January, February, etc.)
           key = DateFormat('MMMM').format(transaction.date.toLocal());
           break;
         case TimePeriod.yearly:
-        // Group by year (2024, 2025, etc.)
           key = DateFormat('yyyy').format(transaction.date.toLocal());
           break;
         case TimePeriod.custom:
@@ -180,15 +201,10 @@ void initState() {
       }
 
       if (key.isNotEmpty) {
-        if (timeSeries.containsKey(key)) {
-          timeSeries[key] = timeSeries[key]! + transaction.amount;
-        } else {
-          timeSeries[key] = transaction.amount;
-        }
+        timeSeries[key] = (timeSeries[key] ?? 0) + transaction.amount;
       }
     }
 
-    // Sort the data appropriately
     return _sortTimeSeriesData(timeSeries);
   }
 
@@ -197,9 +213,7 @@ void initState() {
 
     switch (_selectedPeriod) {
       case TimePeriod.daily:
-      // Sort by actual date for daily view (since we now have dates in the key)
         entries.sort((a, b) {
-          // Extract dates from keys like "Monday (Oct 7)"
           RegExp datePattern = RegExp(r'\(([^)]+)\)');
           String? dateStrA = datePattern.firstMatch(a.key)?.group(1);
           String? dateStrB = datePattern.firstMatch(b.key)?.group(1);
@@ -217,697 +231,378 @@ void initState() {
         });
         break;
       case TimePeriod.monthly:
-      // Sort by month (January to December)
         final monthOrder = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December'];
         entries.sort((a, b) => monthOrder.indexOf(a.key).compareTo(monthOrder.indexOf(b.key)));
         break;
       case TimePeriod.yearly:
-      // Sort by year (ascending)
         entries.sort((a, b) => a.key.compareTo(b.key));
         break;
       case TimePeriod.custom:
-      // Keep original order for custom
         break;
     }
 
     return Map.fromEntries(entries);
   }
 
-  Color _getColorForIndex(int index) {
-    List<Color> colors = [
-      Color(0xFF667eea),
-      Color(0xFF764ba2),
-      Color(0xFF4CAF50),
-      Color(0xFFFF5722),
-      Color(0xFF2196F3),
-      Color(0xFFFFC107),
-      Color(0xFF9C27B0),
-      Color(0xFFFF9800),
-      Color(0xFF00BCD4),
-      Color(0xFFE91E63),
-    ];
-    return colors[index % colors.length];
-  }
-
   @override
   Widget build(BuildContext context) {
-    final categoryData = _getCategoryData();
-    final timeSeriesData = _getTimeSeriesData();
-    final totalIncome = categoryData.values.fold(0.0, (sum, amount) => sum + amount);
-    final responsive = ResponsiveHelper(context);
+    final categoryData = _categoryData;
+    final categoryCounts = _categoryCounts;
+    final timeSeriesData = _timeSeriesData;
+    final totalIncome = _totalIncome;
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       key: _scaffoldKey,
       drawer: AppDrawer(),
-      drawerEnableOpenDragGesture: true,  
+      drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: Text(
-          localizations.inflowAnalytics,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
+        title: Text(localizations.inflowAnalytics),
         leading: IconButton(
-          icon: Icon(Icons.menu),
-          color: Color(0xFF333333),
+          icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
-          // Notification Icon with Badge
           Padding(
-            padding: responsive.padding(right: 16),
+            padding: const EdgeInsets.only(right: 8),
             child: Consumer<NotificationProvider>(
               builder: (context, notificationProvider, child) {
-                return Stack(
-                  children: [
-                    Container(
-                      padding: responsive.padding(all: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            spreadRadius: 1,
-                            blurRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: IconButton(
-                        icon: Icon(
-                          Icons.notifications_outlined,
-                          color: Color(0xFF667eea),
-                        ),
-                        onPressed: () {
-                          Navigator.pushNamed(context, '/notifications').then((
-                            _,
-                          ) {
-                            // Refresh data when returning from notifications
-                            notificationProvider.fetchUnreadCount();
-                          });
-                        },
-                      ),
-                    ),
-                    if (notificationProvider.unreadCount > 0)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: Container(
-                          padding: responsive.padding(all: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: BoxConstraints(
-                            minWidth: 20,
-                            minHeight: 20,
-                          ),
-                          child: Text(
-                            '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
-                            style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontSize: responsive.fs10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                  ],
+                return IconButton(
+                  icon: Badge(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    textColor: Colors.white,
+                    isLabelVisible: notificationProvider.unreadCount > 0,
+                    label: Text(notificationProvider.unreadCount > 9 ? '9+' : '${notificationProvider.unreadCount}'),
+                    child: const Icon(Icons.notifications_rounded),
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(context, '/notifications').then((_) {
+                      notificationProvider.fetchUnreadCount();
+                    });
+                  },
                 );
               },
             ),
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: RefreshIndicator(
-          onRefresh: _loadTransactions,
-          color: Color(0xFF667eea),
-          child: SingleChildScrollView(
-            physics: AlwaysScrollableScrollPhysics(),
+      body: RefreshIndicator(
+        onRefresh: _loadTransactions,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 130),
+          // Isolates this screen's content (the chart's custom painting in
+          // particular) into its own cached GPU layer. Without this, opening
+          // the drawer — which animates a scrim/slide-in as an overlay on
+          // top of this same body — forces the renderer to keep re-rastering
+          // everything behind it every frame, even though nothing here
+          // actually changed. That's the "even opening the sidebar is slow"
+          // symptom: zero extra build() calls (confirmed via logging), pure
+          // raster-thread cost.
+          child: RepaintBoundary(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(height: responsive.sp20),
-
-                // Period Selector
-                Padding(
-                  padding: responsive.padding(horizontal: 20),
-                  child: Container(
-                    padding: responsive.padding(all: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          spreadRadius: 1,
-                          blurRadius: 4,
-                        ),
-                      ],
+                _buildPeriodSelector(),
+              if (_selectedPeriod == TimePeriod.custom) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildDateSelector(localizations.startDate, _customStartDate, (date) {
+                        setState(() => _customStartDate = date);
+                        if (_customEndDate != null) _loadTransactions();
+                      }),
                     ),
-                    child: Row(
-                      children: [
-                        _buildPeriodButton(localizations.daily, TimePeriod.daily),
-                        _buildPeriodButton(localizations.monthly, TimePeriod.monthly),
-                        _buildPeriodButton(localizations.yearly, TimePeriod.yearly),
-                        _buildPeriodButton(localizations.custom, TimePeriod.custom),
-                      ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildDateSelector(localizations.endDateNoOp, _customEndDate, (date) {
+                        setState(() => _customEndDate = date);
+                        if (_customStartDate != null) _loadTransactions();
+                      }),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 20),
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 80),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else ...[
+                HeroCard(
+                  label: 'Money in · ${_getPeriodLabel()}',
+                  value: '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalIncome)}',
+                  stats: [
+                    StatTile(
+                      icon: Icons.receipt_long_rounded,
+                      label: localizations.transactions,
+                      value: '${_filteredTransactions.length}',
+                    ),
+                    StatTile(
+                      icon: Icons.calculate_rounded,
+                      label: 'Avg / entry',
+                      value:
+                          '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(_filteredTransactions.isEmpty ? 0 : totalIncome / _filteredTransactions.length)}',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                if (categoryData.isNotEmpty) ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(localizations.incomeByCategory, style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 16),
+                          ..._buildCategoryRows(categoryData, categoryCounts, totalIncome),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-
-                if (_selectedPeriod == TimePeriod.custom)
-                Padding(
-                  padding: responsive.padding(all: 20),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _buildDateSelector(
-                          localizations.startDate,
-                          _customStartDate,
-                              (date) {
-                            setState(() => _customStartDate = date);
-                            if (_customEndDate != null) _loadTransactions();
-                          },
-                        ),
+                  const SizedBox(height: 16),
+                  _buildCompositionInsight(categoryData, totalIncome),
+                  const SizedBox(height: 16),
+                ],
+                if (timeSeriesData.isNotEmpty)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_getBarChartTitle(), style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 220,
+                            child: BarChart(
+                              // BarChartData is a plain object rebuilt fresh
+                              // on every build() (no custom == ), so
+                              // fl_chart's default implicit animation treats
+                              // every rebuild — including the ones from just
+                              // touching a bar — as "new data" and re-runs a
+                              // 150ms tween. That's animation work on every
+                              // interaction for a chart that never actually
+                              // needs to animate between states.
+                              swapAnimationDuration: Duration.zero,
+                              BarChartData(
+                                alignment: BarChartAlignment.spaceAround,
+                                maxY: _chartMaxY(timeSeriesData),
+                                barTouchData: BarTouchData(
+                                  touchCallback: (FlTouchEvent event, barTouchResponse) {
+                                    setState(() {
+                                      if (!event.isInterestedForInteractions ||
+                                          barTouchResponse == null ||
+                                          barTouchResponse.spot == null) {
+                                        _touchedBarIndex = -1;
+                                        return;
+                                      }
+                                      _touchedBarIndex = barTouchResponse.spot!.touchedBarGroupIndex;
+                                    });
+                                  },
+                                  touchTooltipData: BarTouchTooltipData(
+                                    getTooltipColor: (group) => scheme.primary,
+                                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                      String label = timeSeriesData.keys.toList()[group.x.toInt()];
+                                      return BarTooltipItem(
+                                        '$label\n${_selectedCurrency?.symbol ?? '\$'}${formatter.format(rod.toY)}',
+                                        AppTheme.money(12, weight: FontWeight.w700, color: scheme.onPrimary),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                titlesData: FlTitlesData(
+                                  show: true,
+                                  bottomTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      getTitlesWidget: (value, meta) {
+                                        List<String> keys = timeSeriesData.keys.toList();
+                                        if (value.toInt() >= 0 && value.toInt() < keys.length) {
+                                          String label = keys[value.toInt()];
+                                          if (_selectedPeriod == TimePeriod.daily) {
+                                            RegExp pattern = RegExp(r'(\w+)\s+\(([^)]+)\)');
+                                            Match? match = pattern.firstMatch(label);
+                                            if (match != null) {
+                                              String dayName = match.group(1)!.substring(0, 3);
+                                              String date = match.group(2)!;
+                                              return Padding(
+                                                padding: const EdgeInsets.only(top: 8.0),
+                                                child: Text(
+                                                  '$dayName\n$date',
+                                                  style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                              );
+                                            }
+                                          } else if (_selectedPeriod == TimePeriod.monthly) {
+                                            label = label.substring(0, 3);
+                                          }
+                                          return Padding(
+                                            padding: const EdgeInsets.only(top: 8.0),
+                                            child: Text(label, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+                                          );
+                                        }
+                                        return const Text('');
+                                      },
+                                      reservedSize: _selectedPeriod == TimePeriod.daily ? 40 : 30,
+                                    ),
+                                  ),
+                                  leftTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      getTitlesWidget: (value, meta) {
+                                        // Full "K936,000.00" doesn't fit the
+                                        // reserved width and wraps mid-number
+                                        // ("K936,00" / "0.00"). A compact,
+                                        // symbol-free label ("936K") is both
+                                        // narrower and the normal convention
+                                        // for repeated axis gridlines.
+                                        return Text(
+                                          _compactAxisLabel(value),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.visible,
+                                          style: AppTheme.money(10, weight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                                        );
+                                      },
+                                      reservedSize: 40,
+                                    ),
+                                  ),
+                                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                ),
+                                gridData: FlGridData(
+                                  show: true,
+                                  drawVerticalLine: false,
+                                  // Was a flat `50` — fine for values in the
+                                  // tens/hundreds, catastrophic for money
+                                  // values in the hundreds of thousands
+                                  // (fl_chart tried to draw one gridline
+                                  // every 50 units across a range like
+                                  // 0–1,100,000: tens of thousands of
+                                  // gridlines, every frame). Scaled to the
+                                  // actual axis range instead, targeting
+                                  // ~5 gridlines regardless of magnitude.
+                                  horizontalInterval: _chartMaxY(timeSeriesData) / 5,
+                                  getDrawingHorizontalLine: (value) {
+                                    return FlLine(color: scheme.outlineVariant, strokeWidth: 1);
+                                  },
+                                ),
+                                borderData: FlBorderData(show: false),
+                                barGroups: _buildBarChartGroups(timeSeriesData),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      SizedBox(width: responsive.sp12),
-                      Expanded(
-                        child: _buildDateSelector(
-                          localizations.endDateNoOp,
-                          _customEndDate,
-                              (date) {
-                            setState(() => _customEndDate = date);
-                            if (_customStartDate != null) _loadTransactions();
-                          },
-                        ),
+                    ),
+                  ),
+                if (categoryData.isEmpty && timeSeriesData.isEmpty) _buildEmptyState(),
+              ],
+            ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildCategoryRows(Map<String, double> data, Map<String, int> counts, double total) {
+    final scheme = Theme.of(context).colorScheme;
+    final categories = data.keys.toList()..sort((a, b) => data[b]!.compareTo(data[a]!));
+
+    final accent = _accentColor(context);
+
+    return categories.map((category) {
+      final amount = data[category]!;
+      final pct = total <= 0 ? 0.0 : amount / total;
+      final count = counts[category] ?? 0;
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
+                  child: Icon(iconForCategoryName(category), size: 18, color: accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        category,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        count == 1 ? '1 entry' : '$count entries',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
                 ),
-
-                SizedBox(height: responsive.sp20),
-
-              // ADD THIS CURRENCY FILTER SECTION HERE
-              Padding(
-                padding: responsive.padding(horizontal: 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      localizations.currency,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF333333),
-                      ),
+                      '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(amount)}',
+                      style: AppTheme.money(14, weight: FontWeight.w700, color: scheme.onSurface),
                     ),
-                    SizedBox(height: responsive.sp12),
-                    Container(
-                      padding: responsive.padding(all: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            spreadRadius: 1,
-                            blurRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: Currency.values.map((currency) {
-                          return _buildCurrencyFilterButton(
-                            currency.symbol,
-                            currency,
-                          );
-                        }).toList(),
-                      ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${(pct * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: accent),
                     ),
                   ],
                 ),
-              ),
-
-              SizedBox(height: responsive.sp20),
-
-                // Loading Indicator
-                if (_isLoading)
-                  Container(
-                    height: 300,
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-                      ),
-                    ),
-                  )
-                else ...[
-                  // Total Income Card
-                  Padding(
-                    padding: responsive.padding(horizontal: 20),
-                    child: Container(
-                      width: double.infinity,
-                      padding: responsive.padding(all: 20),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                        ),
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color(0xFF667eea).withOpacity(0.3),
-                            spreadRadius: 2,
-                            blurRadius: 8,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            localizations.totalIncome,
-                            style: GoogleFonts.poppins(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: responsive.fs14,
-                            ),
-                          ),
-                          SizedBox(height: responsive.sp8),
-                          Text(
-                            '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalIncome)}', // CHANGED
-                            style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontSize: responsive.fs32,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            _getPeriodLabel(),
-                            style: GoogleFonts.poppins(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: responsive.fs12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  SizedBox(height: responsive.sp30),
-
-                  // Pie Chart Section
-                  if (categoryData.isNotEmpty) ...[
-                    Padding(
-                      padding: responsive.padding(horizontal: 20),
-                      child: Row(
-                        children: [
-                          Icon(Icons.pie_chart, color: Color(0xFF667eea), size: responsive.icon24),
-                          SizedBox(width: responsive.sp8),
-                          Text(
-                            localizations.incomeByCategory,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(height: responsive.sp16),
-                    Container(
-                      margin: responsive.padding(horizontal: 20),
-                      padding: responsive.padding(all: 25),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            spreadRadius: 2,
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          SizedBox(
-                            height: 300,
-                            child: PieChart(
-                              PieChartData(
-                                pieTouchData: PieTouchData(
-                                  touchCallback: (FlTouchEvent event, pieTouchResponse) {
-                                    setState(() {
-                                      if (!event.isInterestedForInteractions ||
-                                          pieTouchResponse == null ||
-                                          pieTouchResponse.touchedSection == null) {
-                                        _touchedPieIndex = -1;
-                                        return;
-                                      }
-                                      _touchedPieIndex = pieTouchResponse
-                                          .touchedSection!.touchedSectionIndex;
-                                    });
-                                  },
-                                ),
-                                sectionsSpace: 2,
-                                centerSpaceRadius: 50,
-                                sections: _buildPieChartSections(categoryData, totalIncome),
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: responsive.sp20),
-                          _buildLegend(categoryData, totalIncome),
-                        ],
-                      ),
-                    ),
-                    SizedBox(height: responsive.sp30),
-                  ],
-
-                  // Bar Chart Section
-                  if (timeSeriesData.isNotEmpty) ...[
-                    Padding(
-                      padding: responsive.padding(horizontal: 20),
-                      child: Row(
-                        children: [
-                          Icon(Icons.bar_chart, color: Color(0xFF667eea), size: responsive.icon24),
-                          SizedBox(width: responsive.sp8),
-                          Expanded(
-                            child: Text(
-                              _getBarChartTitle(),
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs18,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF333333),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(height: responsive.sp16),
-                    Container(
-                      margin: responsive.padding(horizontal: 20),
-                      padding: responsive.padding(all: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            spreadRadius: 2,
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 300,
-                        child: BarChart(
-                          BarChartData(
-                            alignment: BarChartAlignment.spaceAround,
-                            maxY: timeSeriesData.values.reduce((a, b) => a > b ? a : b) * 1.2,
-                            barTouchData: BarTouchData(
-                              touchCallback: (FlTouchEvent event, barTouchResponse) {
-                                setState(() {
-                                  if (!event.isInterestedForInteractions ||
-                                      barTouchResponse == null ||
-                                      barTouchResponse.spot == null) {
-                                    _touchedBarIndex = -1;
-                                    return;
-                                  }
-                                  _touchedBarIndex = barTouchResponse.spot!.touchedBarGroupIndex;
-                                });
-                              },
-                              touchTooltipData: BarTouchTooltipData(
-                                getTooltipColor: (group) => Color(0xFF667eea),
-                                getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                                  String label = timeSeriesData.keys.toList()[group.x.toInt()];
-                                  return BarTooltipItem(
-                                    '$label\n${_selectedCurrency?.symbol ?? '\$'}${formatter.format(rod.toY)}', // CHANGED
-                                    GoogleFonts.poppins(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: responsive.fs12,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            titlesData: FlTitlesData(
-                              show: true,
-                              bottomTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  getTitlesWidget: (value, meta) {
-                                    List<String> keys = timeSeriesData.keys.toList();
-                                    if (value.toInt() >= 0 && value.toInt() < keys.length) {
-                                      String label = keys[value.toInt()];
-                                      // Shorten labels for better fit
-                                      if (_selectedPeriod == TimePeriod.daily) {
-                                        // For daily, extract day name and show only first 3 letters
-                                        // e.g., "Monday (Oct 7)" -> "Mon\nOct 7"
-                                        RegExp pattern = RegExp(r'(\w+)\s+\(([^)]+)\)');
-                                        Match? match = pattern.firstMatch(label);
-                                        if (match != null) {
-                                          String dayName = match.group(1)!.substring(0, 3);
-                                          String date = match.group(2)!;
-                                          return Padding(
-                                            padding: const EdgeInsets.only(top: 8.0),
-                                            child: Text(
-                                              '$dayName\n$date',
-                                              style: GoogleFonts.poppins(
-                                                fontSize: responsive.fs10,
-                                                color: Colors.grey[600],
-                                              ),
-                                              textAlign: TextAlign.center,
-                                            ),
-                                          );
-                                        }
-                                      } else if (_selectedPeriod == TimePeriod.monthly) {
-                                        label = label.substring(0, 3); // Jan, Feb, etc.
-                                      }
-                                      return Padding(
-                                        padding: const EdgeInsets.only(top: 8.0),
-                                        child: Text(
-                                          label,
-                                          style: GoogleFonts.poppins(
-                                            fontSize: responsive.fs10,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                    return Text('');
-                                  },
-                                  reservedSize: _selectedPeriod == TimePeriod.daily ? 40 : 30,
-                                ),
-                              ),
-                              leftTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  getTitlesWidget: (value, meta) {
-                                    return Text(
-                                      '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(value)}',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: responsive.fs10,
-                                        color: Colors.grey[600],
-                                      ),
-                                    );
-                                  },
-                                  reservedSize: 40,
-                                ),
-                              ),
-                              topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                              rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            ),
-                            gridData: FlGridData(
-                              show: true,
-                              drawVerticalLine: false,
-                              horizontalInterval: 50,
-                              getDrawingHorizontalLine: (value) {
-                                return FlLine(
-                                  color: Colors.grey.withOpacity(0.1),
-                                  strokeWidth: 1,
-                                );
-                              },
-                            ),
-                            borderData: FlBorderData(show: false),
-                            barGroups: _buildBarChartGroups(timeSeriesData),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-
-                  // Empty State
-                  if (categoryData.isEmpty && timeSeriesData.isEmpty)
-                    Container(
-                      padding: responsive.padding(all: 40),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: responsive.padding(all: 24),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                              ),
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                            ),
-                            child: Icon(Icons.analytics, size: 48, color: Colors.white),
-                          ),
-                          SizedBox(height: responsive.sp24),
-                          Text(
-                            localizations.noDataAvailable,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs18,
-                              color: Color(0xFF333333),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: responsive.sp8),
-                          Text(
-                            localizations.addIncomeSeeAnalytics,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs14,
-                              color: Colors.grey[500],
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-
-                SizedBox(height: 100),
               ],
             ),
-          ),
+            const SizedBox(height: 10),
+            ProgressMeter(value: pct, overrideColor: accent),
+          ],
         ),
-      ),
-    );
+      );
+    }).toList();
   }
 
+  Widget _buildCompositionInsight(Map<String, double> data, double total) {
+    if (data.isEmpty || total <= 0) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final sorted = data.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final top = sorted.first;
+    final pct = (top.value / total) * 100;
 
-  Widget _buildCurrencyFilterButton(String label, Currency currency) {
-  bool isSelected = _selectedCurrency == currency;
-  final responsive = ResponsiveHelper(context);
-  return Expanded(
-    child: GestureDetector(
-      onTap: () {
-        setState(() => _selectedCurrency = currency);
-        _loadTransactions();
-      },
-      child: Container(
-        padding: responsive.padding(vertical: 10),
-        decoration: BoxDecoration(
-          gradient: isSelected
-              ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
-              : null,
-          color: isSelected ? null : Colors.transparent,
-          borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs12,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            color: isSelected ? Colors.white : Colors.grey[600],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-  Widget _buildPeriodButton(String label, TimePeriod period) {
-    bool isSelected = _selectedPeriod == period;
-    final responsive = ResponsiveHelper(context);
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() => _selectedPeriod = period);
-          if (period != TimePeriod.custom) {
-            _loadTransactions();
-          }
-        },
-        child: Container(
-          padding: responsive.padding(vertical: 10),
-          decoration: BoxDecoration(
-            gradient: isSelected
-                ? LinearGradient(colors: [Color(0xFF667eea), Color(0xFF764ba2)])
-                : null,
-            color: isSelected ? null : Colors.transparent,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs12,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-              color: isSelected ? Colors.white : Colors.grey[600],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDateSelector(String label, DateTime? date, Function(DateTime) onDateSelected) {
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
-    return GestureDetector(
-      onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: date ?? DateTime.now(),
-          firstDate: DateTime(2020),
-          lastDate: DateTime.now(),
-          builder: (context, child) {
-            return Theme(
-              data: Theme.of(context).copyWith(
-                colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
-              ),
-              child: child!,
-            );
-          },
-        );
-        if (picked != null) onDateSelected(picked);
-      },
-      child: Container(
-        padding: responsive.padding(all: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-          border: Border.all(color: Colors.grey[300]!),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Card(
+      color: scheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
           children: [
-            Text(
-              label,
-              style: GoogleFonts.poppins(fontSize: responsive.fs10, color: Colors.grey[600]),
-            ),
-            SizedBox(height: responsive.sp4),
-            Text(
-              date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
-              style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w500),
+            Icon(Icons.lightbulb_rounded, size: 20, color: scheme.tertiary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '${top.key} is your biggest income source — ${pct.toStringAsFixed(0)}% of what came in this period.',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onTertiaryContainer, height: 1.5),
+              ),
             ),
           ],
         ),
@@ -915,88 +610,228 @@ void initState() {
     );
   }
 
-  List<PieChartSectionData> _buildPieChartSections(Map<String, double> data, double total) {
-    List<String> categories = data.keys.toList();
-
-    return List.generate(categories.length, (i) {
-      final isTouched = i == _touchedPieIndex;
-      final double radius = isTouched ? 110.0 : 100.0;
-      final double fontSize = isTouched ? 14.0 : 12.0;
-
-      double percentage = (data[categories[i]]! / total) * 100;
-
-      return PieChartSectionData(
-        color: _getColorForIndex(i),
-        value: data[categories[i]],
-        title: '${percentage.toStringAsFixed(1)}%',
-        radius: radius,
-        titleStyle: GoogleFonts.poppins(
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
+  Widget _buildEmptyState() {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 60),
+      child: Center(
+        child: Column(
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
+              child: Icon(Icons.analytics_rounded, size: 40, color: scheme.onPrimaryContainer),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              localizations.noDataAvailable,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              localizations.addIncomeSeeAnalytics,
+              style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
-      );
-    });
-  }
-
-  Widget _buildLegend(Map<String, double> data, double total) {
-    List<String> categories = data.keys.toList();
-    final responsive = ResponsiveHelper(context);
-
-    return Wrap(
-      spacing: 12,
-      runSpacing: 8,
-      children: List.generate(categories.length, (i) {
-        double percentage = (data[categories[i]]! / total) * 100;
-        return Container(
-          padding: responsive.padding(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: _getColorForIndex(i).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: _getColorForIndex(i),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              SizedBox(width: 6),
-              Text(
-                '${categories[i]} (${percentage.toStringAsFixed(1)}%)',
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs11,
-                  color: Color(0xFF333333),
-                ),
-              ),
-            ],
-          ),
-        );
-      }),
+      ),
     );
   }
 
+  Widget _buildPeriodSelector() {
+    final localizations = AppLocalizations.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: _segmentedRow([
+            _Segment(localizations.daily, TimePeriod.daily == _selectedPeriod, () => _selectPeriod(TimePeriod.daily)),
+            _Segment(localizations.monthly, TimePeriod.monthly == _selectedPeriod, () => _selectPeriod(TimePeriod.monthly)),
+            _Segment(localizations.yearly, TimePeriod.yearly == _selectedPeriod, () => _selectPeriod(TimePeriod.yearly)),
+            _Segment(localizations.custom, TimePeriod.custom == _selectedPeriod, () => _selectPeriod(TimePeriod.custom)),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        _currencyFilterChip(),
+      ],
+    );
+  }
+
+  // One dropdown chip for currency, rather than a whole separate labeled row
+  // of per-currency choice chips underneath the period selector.
+  Widget _currencyFilterChip() {
+    final scheme = Theme.of(context).colorScheme;
+    final label = _selectedCurrency?.symbol ?? Currency.usd.symbol;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: _pickCurrencyFilter,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: scheme.outline),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _pickCurrencyFilter() {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    showAppBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(localizations.currency, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          for (final currency in Currency.values)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('${currency.symbol} ${currency.name.toUpperCase()} · ${currency.displayName}'),
+              trailing: _selectedCurrency == currency
+                  ? Icon(Icons.check_circle_rounded, color: scheme.primary)
+                  : null,
+              onTap: () {
+                setState(() => _selectedCurrency = currency);
+                Navigator.pop(sheetContext);
+                _loadTransactions();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _selectPeriod(TimePeriod period) {
+    final previousPeriod = _selectedPeriod;
+    setState(() => _selectedPeriod = period);
+    if (period == TimePeriod.custom) return; // wait for a date range to be picked
+
+    // Daily, Monthly and Yearly all fetch the exact same 2020-to-now range
+    // (see _loadTransactions), so switching between them was re-fetching up
+    // to 10,000 transactions from the network for data already sitting in
+    // memory — that round trip on every tab tap is what made the screen
+    // feel slow. Only Custom uses a different range, so only refetch when
+    // there's no data yet or we're arriving from Custom; otherwise just
+    // re-bucket the transactions already loaded.
+    if (_filteredTransactions.isEmpty || previousPeriod == TimePeriod.custom) {
+      _loadTransactions();
+    } else {
+      setState(_recomputeDerivedData);
+    }
+  }
+
+  // Mockup renders period/currency filters as a row of discrete pills —
+  // filled primary when selected, outlined otherwise (see "Inflow
+  // analytics" markup, lines 602-606 of the prototype) — not a single
+  // grouped, equal-width segmented track. Wrap (rather than Row) keeps
+  // longer localized labels from overflowing on narrow screens.
+  Widget _segmentedRow(List<_Segment> segments) {
+    final scheme = Theme.of(context).colorScheme;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: segments.map((s) {
+        return GestureDetector(
+          onTap: s.selected ? null : s.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: s.selected ? scheme.primary : Colors.transparent,
+              border: s.selected ? null : Border.all(color: scheme.outline),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              s.label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: s.selected ? FontWeight.w600 : FontWeight.w500,
+                color: s.selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildDateSelector(String label, DateTime? date, Function(DateTime) onDateSelected) {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: date ?? DateTime.now(),
+          firstDate: DateTime(2020),
+          lastDate: DateTime.now(),
+        );
+        if (picked != null) onDateSelected(picked);
+      },
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Text(
+                date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  double _chartMaxY(Map<String, double> data) {
+    if (data.isEmpty) return 100;
+    final peak = data.values.reduce((a, b) => a > b ? a : b);
+    return peak <= 0 ? 100 : peak * 1.2;
+  }
+
+  String _compactAxisLabel(double value) {
+    if (value == 0) return '0';
+    return NumberFormat.compact().format(value);
+  }
+
   List<BarChartGroupData> _buildBarChartGroups(Map<String, double> data) {
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
     List<String> keys = data.keys.toList();
+    // Mockup's "Six months in" bars are muted (var(--s-container)) except
+    // the most recent/highest bar, which is highlighted in var(--accent).
+    final peakValue = data.values.isEmpty ? 0.0 : data.values.reduce((a, b) => a > b ? a : b);
 
     return List.generate(keys.length, (i) {
       final isTouched = i == _touchedBarIndex;
+      final isPeak = data[keys[i]] == peakValue;
 
       return BarChartGroupData(
         x: i,
         barRods: [
           BarChartRodData(
             toY: data[keys[i]]!,
-            gradient: LinearGradient(
-              colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-            ),
+            color: isPeak ? _accentColor(context) : scheme.secondaryContainer,
             width: isTouched ? 18 : 16,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(4)),
+            borderRadius: BorderRadius.circular(4),
           ),
         ],
       );
@@ -1033,4 +868,11 @@ void initState() {
         return localizations.incomeOverTime;
     }
   }
+}
+
+class _Segment {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  _Segment(this.label, this.selected, this.onTap);
 }

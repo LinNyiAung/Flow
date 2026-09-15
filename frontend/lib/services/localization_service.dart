@@ -40,8 +40,8 @@ class AppLocalizations {
       'getPersonalizedInsights': 'Get personalized insights',
       'aiInsights': 'AI Insights',
       'viewComprehensiveAnalysis': 'View comprehensive financial analysis',
-      'recentTransactions': 'Recent Transactions',
-      'seeMore': 'See More',
+      'recentTransactions': 'Recent',
+      'seeMore': 'See all',
       'noTransactions': 'No transactions yet',
       'tapToAddFirst': 'Tap the + button to add your first transaction',
       'addTransaction': 'Add Transaction',
@@ -77,7 +77,7 @@ class AppLocalizations {
       'expiresOn': 'Expires',
 
       // Additions for Add Transaction Screen
-      'addTransactionTitle': 'Add Transaction',
+      'addTransactionTitle': 'New entry',
       'currency': 'Currency',
       'convertCurrency': 'Convert Currency',
       'current': 'Current: ',
@@ -469,6 +469,14 @@ class AppLocalizations {
       'language': 'Language',
       'changeAppLanguage': 'Change app language',
       'changeDefaultCurrency': 'Change default currency',
+      'appearance': 'Appearance',
+      'theme': 'Theme',
+      'themeSystem': 'System',
+      'themeLight': 'Light',
+      'themeDark': 'Dark',
+      'themeSystemDesc': 'Match device setting',
+      'themeLightDesc': 'Always use light theme',
+      'themeDarkDesc': 'Always use dark theme',
       'notificationSettings': 'Notification Settings',
       'manageNotificationPreferences': 'Manage notification preferences',
       'subscription': 'Subscription',
@@ -1085,6 +1093,14 @@ class AppLocalizations {
       'language': 'ဘာသာစကား',
       'changeAppLanguage': 'အက်ပ် ဘာသာစကား ပြောင်းရန်',
       'changeDefaultCurrency': 'မူရင်း ငွေကြေးအမျိုးအစား ပြောင်းရန်',
+      'appearance': 'အသွင်အပြင်',
+      'theme': 'အပြင်အဆင်',
+      'themeSystem': 'စနစ်အလိုက်',
+      'themeLight': 'အလင်း',
+      'themeDark': 'အမှောင်',
+      'themeSystemDesc': 'စက်ပစ္စည်း ဆက်တင်နှင့် ကိုက်ညီအောင်',
+      'themeLightDesc': 'အလင်းအပြင်အဆင် အမြဲသုံးရန်',
+      'themeDarkDesc': 'အမှောင်အပြင်အဆင် အမြဲသုံးရန်',
       'notificationSettings': 'အကြောင်းကြားချက် ဆက်တင်များ',
       'manageNotificationPreferences': 'အကြောင်းကြားချက် စိတ်ကြိုက်ရွေးချယ်မှုများကို စီမံခန့်ခွဲရန်',
       'subscription': 'ပရီမီယံစာရင်းသွင်းမှု',
@@ -1727,6 +1743,14 @@ class AppLocalizations {
   String get language => translate('language');
   String get changeAppLanguage => translate('changeAppLanguage');
   String get changeDefaultCurrency => translate('changeDefaultCurrency');
+  String get appearance => translate('appearance');
+  String get theme => translate('theme');
+  String get themeSystem => translate('themeSystem');
+  String get themeLight => translate('themeLight');
+  String get themeDark => translate('themeDark');
+  String get themeSystemDesc => translate('themeSystemDesc');
+  String get themeLightDesc => translate('themeLightDesc');
+  String get themeDarkDesc => translate('themeDarkDesc');
   String get notificationSettings => translate('notificationSettings');
   String get manageNotificationPreferences => translate('manageNotificationPreferences');
   String get subscription => translate('subscription');

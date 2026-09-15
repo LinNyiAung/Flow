@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/providers/auth_provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:frontend/services/responsive_helper.dart';
+import 'package:frontend/widgets/app_list_row.dart';
 
 import '../../services/localization_service.dart';
 
@@ -27,12 +26,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (!mounted) return;
 
     if (success) {
+      final scheme = Theme.of(context).colorScheme;
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (_) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -40,49 +38,30 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 width: 72,
                 height: 72,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
-                  ),
+                  color: scheme.tertiaryContainer,
                   shape: BoxShape.circle,
                 ),
-                child:
-                    Icon(Icons.star, color: Colors.white, size: 40),
+                child: Icon(Icons.star_rounded, color: scheme.tertiary, size: 36),
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               Text(
                 '🎉 Welcome to Premium!',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
-                ),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: scheme.onSurface),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Text(
                 'You now have 1 month of free premium access. Enjoy all features!',
-                style: GoogleFonts.poppins(
-                    fontSize: 14, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
+                child: FilledButton(
                   onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFFFFD700),
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    'Let\'s Go!',
-                    style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600, fontSize: 16),
-                  ),
+                  style: FilledButton.styleFrom(backgroundColor: scheme.tertiary),
+                  child: const Text("Let's go!"),
                 ),
               ),
             ],
@@ -91,511 +70,247 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            authProvider.error ?? 'Could not claim free trial.',
-            style: GoogleFonts.poppins(fontSize: 14),
-          ),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
+        SnackBar(content: Text(authProvider.error ?? 'Could not claim free trial.')),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFFFD700).withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Consumer<AuthProvider>(
-            builder: (context, authProvider, child) {
-              final isPremium = authProvider.isPremium;
-              final hasClaimedTrial = authProvider.hasClaimedFreeTrial;
+      body: SafeArea(
+        child: Consumer<AuthProvider>(
+          builder: (context, authProvider, child) {
+            final isPremium = authProvider.isPremium;
+            final hasClaimedTrial = authProvider.hasClaimedFreeTrial;
 
-              return Column(
-                children: [
-                  // ── Header ─────────────────────────────────────────────
-                  Padding(
-                    padding: responsive.padding(all: 20),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          onPressed: () => Navigator.pop(context),
-                          icon: Container(
-                            padding: responsive.padding(all: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(
-                                  responsive.borderRadius(12)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.grey.withOpacity(0.1),
-                                  spreadRadius: 1,
-                                  blurRadius: 4,
-                                ),
-                              ],
-                            ),
-                            child: Icon(Icons.arrow_back,
-                                color: Color(0xFF333333)),
-                          ),
-                        ),
-                        SizedBox(width: responsive.sp16),
-                        Text(
-                          isPremium
-                              ? localizations.premiumStatus
-                              : localizations.upgradeToPremium,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: responsive.padding(all: 20),
-                      child: Column(
-                        children: [
-                          // ── Active premium card ─────────────────────
-                          if (isPremium) ...[
-                            Container(
-                              width: double.infinity,
-                              padding: responsive.padding(all: 24),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Color(0xFFFFD700),
-                                    Color(0xFFFFA500)
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                    responsive.borderRadius(20)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                        Color(0xFFFFD700).withOpacity(0.3),
-                                    spreadRadius: 2,
-                                    blurRadius: 12,
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  Icon(Icons.star,
-                                      color: Colors.white,
-                                      size:
-                                          responsive.iconSize(mobile: 48)),
-                                  SizedBox(height: responsive.sp16),
-                                  Text(
-                                    localizations.premiumActive,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  if (authProvider.subscriptionExpiresAt !=
-                                      null) ...[
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'Expires: ${DateFormat('MMM dd, yyyy').format(authProvider.subscriptionExpiresAt!)}',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: responsive.fs14,
-                                        color:
-                                            Colors.white.withOpacity(0.9),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                            SizedBox(height: responsive.sp32),
-                          ],
-
-                          // ── Features list ───────────────────────────
-                          Text(
-                            localizations.premiumFeatures,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs20,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-                          SizedBox(height: responsive.sp20),
-
-                          _buildFeatureCard(
-                            icon: Icons.auto_awesome,
-                            title: localizations.aiBudgetSuggestions,
-                            description:
-                                localizations.aiBudgetSuggestionsDes,
-                            gradient: [
-                              Color(0xFF667eea),
-                              Color(0xFF764ba2)
-                            ],
-                          ),
-                          _buildFeatureCard(
-                            icon: Icons.mic,
-                            title: localizations.voiceInput,
-                            description: localizations.voiceInputDes,
-                            gradient: [
-                              Color(0xFF4CAF50),
-                              Color(0xFF66BB6A)
-                            ],
-                          ),
-                          _buildFeatureCard(
-                            icon: Icons.photo_camera,
-                            title: localizations.receiptScanning,
-                            description: localizations.receiptScanningDes,
-                            gradient: [
-                              Color(0xFFFF9800),
-                              Color(0xFFF57C00)
-                            ],
-                          ),
-                          _buildFeatureCard(
-                            icon: Icons.smart_toy,
-                            title: localizations.aiFinancialAssistant,
-                            description:
-                                localizations.aiFinancialAssistantDes,
-                            gradient: [
-                              Color(0xFF2196F3),
-                              Color(0xFF1976D2)
-                            ],
-                          ),
-                          _buildFeatureCard(
-                            icon: Icons.lightbulb,
-                            title: localizations.aiInsights,
-                            description: localizations.aiInsightsDes,
-                            gradient: [
-                              Color(0xFFFFB74D),
-                              Color(0xFFFF9800)
-                            ],
-                          ),
-
-                          SizedBox(height: responsive.sp32),
-
-                          // ── Upgrade / Trial section (free users only) ─
-                          if (!isPremium) ...[
-                            Container(
-                              width: double.infinity,
-                              padding: responsive.padding(all: 24),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(
-                                    responsive.borderRadius(20)),
-                                border: Border.all(
-                                  color: Colors.grey.withOpacity(0.3),
-                                  width: 1,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                        Colors.grey.withOpacity(0.05),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    localizations.premiumPlan,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF333333),
-                                    ),
-                                  ),
-                                  SizedBox(height: 8),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.center,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '\$',
-                                        style: GoogleFonts.poppins(
-                                          fontSize: responsive.fs24,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFFFFD700),
-                                        ),
-                                      ),
-                                      Text(
-                                        '??',
-                                        style: GoogleFonts.poppins(
-                                          fontSize: responsive.iconSize(
-                                              mobile: 48),
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFFFFD700),
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: responsive.padding(
-                                            top: 20),
-                                        child: Text(
-                                          '/month',
-                                          style: GoogleFonts.poppins(
-                                            fontSize: responsive.fs16,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(height: responsive.sp24),
-
-                                  // ── FREE TRIAL BUTTON ─────────────
-                                  if (!hasClaimedTrial) ...[
-                                    _buildFreeTrialButton(
-                                        context, responsive),
-                                    SizedBox(height: responsive.sp16),
-                                    _buildDividerWithText('or'),
-                                    SizedBox(height: responsive.sp16),
-                                  ],
-
-                                  // ── Contact admin box ─────────────
-                                  _buildContactAdminBox(
-                                      context, responsive, localizations),
-                                ],
-                              ),
-                            ),
-                          ],
-
-                          SizedBox(height: 40),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Free Trial Button ──────────────────────────────────────────────────────
-  Widget _buildFreeTrialButton(
-      BuildContext context, ResponsiveHelper responsive) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius:
-            BorderRadius.circular(responsive.borderRadius(16)),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0xFFFFD700).withOpacity(0.4),
-            spreadRadius: 1,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius:
-              BorderRadius.circular(responsive.borderRadius(16)),
-          onTap: _isClaiming
-              ? null
-              : () => _claimFreeTrial(context),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: responsive.sp16,
-              horizontal: responsive.sp20,
-            ),
-            child: _isClaiming
-                ? Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2.5,
-                      ),
-                    ),
-                  )
-                : Row(
-                    mainAxisAlignment:
-                        MainAxisAlignment.center,
+            return Column(
+              children: [
+                // ── Header ─────────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 16, 4),
+                  child: Row(
                     children: [
-                      Icon(Icons.card_giftcard,
-                          color: Colors.white, size: 22),
-                      SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Claim 1 Month Free',
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs16,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                          Text(
-                            'No credit card required',
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs12,
-                              color:
-                                  Colors.white.withOpacity(0.85),
-                            ),
-                          ),
-                        ],
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          isPremium ? localizations.premiumStatus : localizations.upgradeToPremium,
+                          style: theme.textTheme.titleLarge?.copyWith(color: scheme.onSurface),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
-          ),
+                ),
+
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Active premium card ─────────────────────
+                        if (isPremium) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: scheme.tertiaryContainer,
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.star_rounded, color: scheme.tertiary, size: 44),
+                                const SizedBox(height: 14),
+                                Text(
+                                  localizations.premiumActive,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: scheme.onTertiaryContainer,
+                                  ),
+                                ),
+                                if (authProvider.subscriptionExpiresAt != null) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '${localizations.expiresOn}: ${DateFormat('MMM dd, yyyy').format(authProvider.subscriptionExpiresAt!)}',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onTertiaryContainer),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                        ],
+
+                        // ── Free-month offer (leads, per redesign) ──
+                        if (!isPremium && !hasClaimedTrial) ...[
+                          _buildOfferHero(context, scheme),
+                          const SizedBox(height: 28),
+                        ],
+
+                        // ── Features — plain list ───────────────────
+                        Text(
+                          localizations.premiumFeatures,
+                          style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildFeatureList(localizations, scheme),
+
+                        // ── Contact admin (only path to upgrade) ────
+                        if (!isPremium) ...[
+                          const SizedBox(height: 24),
+                          _buildContactAdminBox(localizations),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
-  // ── Divider with label ─────────────────────────────────────────────────────
-  Widget _buildDividerWithText(String text) {
-    return Row(
-      children: [
-        Expanded(child: Divider(color: Colors.grey[300])),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            text,
-            style: GoogleFonts.poppins(
-                fontSize: 13, color: Colors.grey[500]),
+  // ── "One month free" tonal hero ────────────────────────────────────────────
+  Widget _buildOfferHero(BuildContext context, ColorScheme scheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'ONE MONTH FREE',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.4, color: scheme.onPrimaryContainer),
           ),
-        ),
-        Expanded(child: Divider(color: Colors.grey[300])),
-      ],
+          const SizedBox(height: 8),
+          Text(
+            'Let the app read your money for you.',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: scheme.onPrimaryContainer, height: 1.25),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Weekly insights, receipt scanning, voice entry and AI budgets — on your own transactions.',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onPrimaryContainer, height: 1.4),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _isClaiming ? null : () => _claimFreeTrial(context),
+              icon: _isClaiming
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                    )
+                  : const Icon(Icons.card_giftcard_rounded, size: 20),
+              label: Text(_isClaiming ? 'Claiming…' : 'Claim 1 month free'),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Center(
+            child: Text(
+              'No card required · then contact us to continue',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onPrimaryContainer),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Feature list — plain rows instead of gradient cards ─────────────────────
+  Widget _buildFeatureList(AppLocalizations localizations, ColorScheme scheme) {
+    final features = <Widget>[
+      AppListRow(
+        icon: Icons.auto_awesome_rounded,
+        title: localizations.aiBudgetSuggestions,
+        subtitle: localizations.aiBudgetSuggestionsDes,
+      ),
+      AppListRow(
+        icon: Icons.mic_rounded,
+        title: localizations.voiceInput,
+        subtitle: localizations.voiceInputDes,
+      ),
+      AppListRow(
+        icon: Icons.photo_camera_rounded,
+        title: localizations.receiptScanning,
+        subtitle: localizations.receiptScanningDes,
+      ),
+      AppListRow(
+        icon: Icons.smart_toy_rounded,
+        title: localizations.aiFinancialAssistant,
+        subtitle: localizations.aiFinancialAssistantDes,
+      ),
+      AppListRow(
+        icon: Icons.lightbulb_rounded,
+        title: localizations.aiInsights,
+        subtitle: localizations.aiInsightsDes,
+      ),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? Colors.black12, blurRadius: 3, offset: const Offset(0, 1)),
+        ],
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < features.length; i++) ...[
+            if (i > 0) Divider(color: scheme.outlineVariant, height: 1, thickness: 1),
+            features[i],
+          ],
+        ],
+      ),
     );
   }
 
   // ── Contact admin info box ─────────────────────────────────────────────────
-  Widget _buildContactAdminBox(BuildContext context,
-      ResponsiveHelper responsive, AppLocalizations localizations) {
+  Widget _buildContactAdminBox(AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        vertical: responsive.sp16,
-        horizontal: responsive.sp20,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius:
-            BorderRadius.circular(responsive.borderRadius(16)),
-        border: Border.all(color: Colors.grey[300]!),
+        color: scheme.outlineVariant,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         children: [
-          Icon(Icons.lock_outline,
-              color: Colors.grey[600], size: 28),
-          SizedBox(height: 8),
+          Icon(Icons.lock_outline_rounded, color: scheme.onSurfaceVariant, size: 26),
+          const SizedBox(height: 8),
           Text(
             localizations.contactAdmin,
             textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs16,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[800],
-            ),
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
             localizations.contactSupport,
             textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: responsive.fs12,
-              color: Colors.grey[600],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Feature card ───────────────────────────────────────────────────────────
-  Widget _buildFeatureCard({
-    required IconData icon,
-    required String title,
-    required String description,
-    required List<Color> gradient,
-  }) {
-    final responsive = ResponsiveHelper(context);
-    return Container(
-      margin: responsive.padding(bottom: 16),
-      padding: responsive.padding(all: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(responsive.borderRadius(16)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: responsive.padding(all: 12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: gradient),
-              borderRadius:
-                  BorderRadius.circular(responsive.borderRadius(12)),
-            ),
-            child:
-                Icon(icon, color: Colors.white, size: responsive.icon24),
-          ),
-          SizedBox(width: responsive.sp16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                SizedBox(height: responsive.sp4),
-                Text(
-                  description,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs13,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
           ),
         ],
       ),

@@ -1,55 +1,37 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/app_list_row.dart';
+import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
+import '../../models/transaction.dart';
 import '../../models/voice_image_models.dart';
 import 'package:intl/intl.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 class ImageInputScreen extends StatefulWidget {
   @override
   _ImageInputScreenState createState() => _ImageInputScreenState();
 }
 
-class _ImageInputScreenState extends State<ImageInputScreen>
-    with TickerProviderStateMixin {
+class _ImageInputScreenState extends State<ImageInputScreen> {
   final ImagePicker _imagePicker = ImagePicker();
   File? _selectedImage;
   bool _isProcessing = false;
-  bool _isSaving = false; // Add this flag
+  bool _isSaving = false;
   ExtractedTransactionData? _extractedData;
   String? _error;
-
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
   final formatter = NumberFormat("#,##0.00", "en_US");
-
-  
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      duration: Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-    );
-    _slideAnimation = Tween<Offset>(
-      begin: Offset(0, 0.1),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
-
-    _animationController.forward();
     _requestPermissions();
   }
 
@@ -114,7 +96,7 @@ class _ImageInputScreenState extends State<ImageInputScreen>
 
     try {
       final extractedData = await ApiService.extractTransactionFromImage(_selectedImage!);
-      
+
       setState(() {
         _extractedData = extractedData;
         _isProcessing = false;
@@ -128,556 +110,133 @@ class _ImageInputScreenState extends State<ImageInputScreen>
   }
 
   Future<void> _saveTransaction() async {
-  if (_extractedData == null || _isSaving) return;
+    if (_extractedData == null || _isSaving) return;
 
-  setState(() {
-    _isSaving = true;
-    _error = null;
-  });
-
-  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-  
-  final success = await transactionProvider.createTransaction(
-    type: _extractedData!.type,
-    mainCategory: _extractedData!.mainCategory,
-    subCategory: _extractedData!.subCategory,
-    date: _extractedData!.date,
-    description: _extractedData!.description,
-    amount: _extractedData!.amount,
-    currency: _extractedData!.currency,  // Use detected currency from AI
-    context: context,
-  );
-
-  if (success) {
-    Navigator.pop(context, true);
-  } else {
     setState(() {
-      _isSaving = false;
-      _error = transactionProvider.error ?? 'Failed to save transaction';
+      _isSaving = true;
+      _error = null;
     });
+
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+
+    final success = await transactionProvider.createTransaction(
+      type: _extractedData!.type,
+      mainCategory: _extractedData!.mainCategory,
+      subCategory: _extractedData!.subCategory,
+      date: _extractedData!.date,
+      description: _extractedData!.description,
+      amount: _extractedData!.amount,
+      currency: _extractedData!.currency, // Use detected currency from AI
+      context: context,
+    );
+
+    if (success) {
+      Navigator.pop(context, true);
+    } else {
+      setState(() {
+        _isSaving = false;
+        _error = transactionProvider.error ?? 'Failed to save transaction';
+      });
+    }
   }
-}
 
   void _showImageSourceDialog() {
     final localizations = AppLocalizations.of(context);
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
     if (_isSaving) return; // Don't show dialog while saving
-    
-    showModalBottomSheet(
+
+    showAppBottomSheet<void>(
       context: context,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (BuildContext context) {
-        return Container(
-          padding: responsive.padding(all: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                localizations.chooseImageSourceModalTitle,
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
-                ),
+      builder: (sheetContext) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Add a receipt', style: Theme.of(context).textTheme.titleLarge),
+            SizedBox(height: 16),
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardTheme.color,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(color: const Color(0x14101815), blurRadius: 3, offset: Offset(0, 1))],
               ),
-              SizedBox(height: 20),
-              ListTile(
-                leading: Container(
-                  padding: responsive.padding(all: 12),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  AppListRow(
+                    icon: Icons.photo_camera_rounded,
+                    iconBg: scheme.secondaryContainer,
+                    title: localizations.cameraListTileTitle,
+                    subtitle: localizations.cameraListTileSubtitle,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _pickImageFromCamera();
+                    },
                   ),
-                  child: Icon(Icons.camera_alt, color: Color(0xFF667eea)),
-                ),
-                title: Text(
-                  localizations.cameraListTileTitle,
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
-                ),
-                subtitle: Text(
-                  localizations.cameraListTileSubtitle,
-                  style: GoogleFonts.poppins(fontSize: responsive.fs12),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImageFromCamera();
-                },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: responsive.padding(all: 12),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+                  Divider(height: 1, indent: 70),
+                  AppListRow(
+                    icon: Icons.photo_library_rounded,
+                    iconBg: scheme.secondaryContainer,
+                    title: localizations.galleryListTileTitle,
+                    subtitle: localizations.galleryListTileSubtitle,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _pickImageFromGallery();
+                    },
                   ),
-                  child: Icon(Icons.photo_library, color: Color(0xFF667eea)),
-                ),
-                title: Text(
-                  localizations.galleryListTileTitle,
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
-                ),
-                subtitle: Text(
-                  localizations.galleryListTileSubtitle,
-                  style: GoogleFonts.poppins(fontSize: responsive.fs12),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImageFromGallery();
-                },
+                ],
               ),
-              SizedBox(height: 10),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
   }
 
   @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final localizations = AppLocalizations.of(context);
-    final responsive = ResponsiveHelper(context);
-    
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded),
+          onPressed: _isSaving ? null : () => Navigator.pop(context),
         ),
-        child: SafeArea(
+        title: Text(localizations.imageInputTitle, style: TextStyle(fontSize: 18)),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(
             children: [
-              // Header
-              Container(
-                padding: responsive.padding(all: 20),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: _isSaving ? null : () => Navigator.pop(context), // Disable back button while saving
-                      icon: Container(
-                        padding: responsive.padding(all: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.1),
-                              spreadRadius: 1,
-                              blurRadius: 4,
-                            ),
-                          ],
-                        ),
-                        child: Icon(Icons.arrow_back, color: Color(0xFF333333)),
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Row(
-                      children: [
-                        Text(
-                          localizations.imageInputTitle,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        SizedBox(width: responsive.sp8),
-                        if (!authProvider.isPremium)
-                          Icon(Icons.lock, size: responsive.icon16, color: Color(0xFFFFD700)),
-                          SizedBox(width: responsive.sp8),
-                        if (!authProvider.isPremium)
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Color(0xFFFFD700).withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Color(0xFFFFD700), width: 1),
-                            ),
-                            child: Text(
-                              localizations.premium,
-                              style: GoogleFonts.poppins(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFFFD700),
-                              ),
-                            ),
-                          )
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+              if (!authProvider.isPremium) _buildPremiumUpsell(localizations),
 
-              Expanded(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: SlideTransition(
-                    position: _slideAnimation,
-                    child: SingleChildScrollView(
-                      padding: responsive.padding(all: 20),
-                      child: Column(
-                        children: [
-                        if (!authProvider.isPremium)
-                          Container(
-                            width: double.infinity,
-                            padding: responsive.padding(all: 20),
-                            margin: responsive.padding(bottom: 24),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
-                              ),
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Color(0xFFFFD700).withOpacity(0.3),
-                                  spreadRadius: 2,
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              children: [
-                                Icon(Icons.star, color: Colors.white, size: responsive.iconSize(mobile: 48)),
-                                SizedBox(height: 12),
-                                Text(
-                                  localizations.premiumFeatureTitle,
-                                  style: GoogleFonts.poppins(
-                                    fontSize: responsive.fs20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  localizations.premiumFeatureUpgradeDescImg,
-                                  style: GoogleFonts.poppins(
-                                    fontSize: responsive.fs14,
-                                    color: Colors.white.withOpacity(0.9),
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                SizedBox(height: 16),
-                                ElevatedButton(
-                                  onPressed: () => Navigator.pushNamed(context, '/subscription'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Color(0xFFFFD700),
-                                    padding: responsive.padding(horizontal: 32, vertical: 14),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.upgrade),
-                                      SizedBox(width: responsive.sp8),
-                                      Text(
-                                        localizations.upgradeNowButton,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: responsive.fs16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          // Image Selection Area
-                          if (authProvider.isPremium)
-                          if (_selectedImage == null) ...[
-                            SizedBox(height: 40),
-                            GestureDetector(
-                              onTap: _isSaving ? null : _showImageSourceDialog, // Disable while saving
-                              child: Container(
-                                width: double.infinity,
-                                height: responsive.cardHeight(baseHeight: 250),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                                  ),
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Color(0xFF667eea).withOpacity(0.3),
-                                      spreadRadius: 2,
-                                      blurRadius: 12,
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.add_photo_alternate,
-                                      size: responsive.iconSize(mobile: 80),
-                                      color: Colors.white,
-                                    ),
-                                    SizedBox(height: 16),
-                                    Text(
-                                      localizations.tapToAddImagePlaceholder,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: responsive.fs16,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      localizations.cameraOrGalleryPlaceholder,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: responsive.fs14,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ] else ...[
-                            // Selected Image Preview
-                            Container(
-                              width: double.infinity,
-                              height: responsive.cardHeight(baseHeight: 300),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.2),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                                child: Image.file(
-                                  _selectedImage!,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                            SizedBox(height: 16),
-                            ElevatedButton.icon(
-                              onPressed: _isSaving ? null : _showImageSourceDialog, // Disable while saving
-                              icon: Icon(Icons.refresh, color: Colors.white),
-                              label: Text(
-                                localizations.chooseDifferentImageButton,
-                                style: GoogleFonts.poppins(color: Colors.white),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Color(0xFF667eea),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                                ),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 12,
-                                ),
-                                disabledBackgroundColor: Colors.grey[400], // Style for disabled state
-                              ),
-                            ),
-                          ],
+              if (authProvider.isPremium) ...[
+                if (_selectedImage == null) _buildEmptyCapture(localizations),
+                if (_selectedImage != null) _buildImagePreview(localizations),
 
-                          SizedBox(height: 30),
+                if (_isProcessing) _buildScanningPlaceholder(localizations),
 
-                          // Processing Indicator
-                          if (_isProcessing)
-                            Container(
-                              padding: responsive.padding(all: 20),
-                              child: Column(
-                                children: [
-                                  CircularProgressIndicator(
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Color(0xFF667eea),
-                                    ),
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    localizations.analyzingReceipt,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs14,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                if (_extractedData != null) _buildExtractedResult(localizations),
+              ],
 
-                          // Extracted Data Preview
-                          if (_extractedData != null) ...[
-                            Container(
-                              width: double.infinity,
-                              padding: responsive.padding(all: 20),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                                ),
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Color(0xFF667eea).withOpacity(0.3),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    localizations.extractedTransactionTitle,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: responsive.fs18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  SizedBox(height: 16),
-                                  _buildDataRow(localizations.dataLabelType, _extractedData!.type.name.toUpperCase()),
-                                  _buildDataRow(localizations.dataLabelAmount, '${_extractedData!.currency.symbol} ${formatter.format(_extractedData!.amount)}'),
-                                  _buildDataRow(localizations.currency, _extractedData!.currency.displayName),
-                                  _buildDataRow(localizations.dataLabelCategory, '${_extractedData!.mainCategory} > ${_extractedData!.subCategory}'),
-                                  _buildDataRow(localizations.dataLabelDate, DateFormat('yyyy-MM-dd').format(_extractedData!.date)),
-                                  if (_extractedData!.description != null)
-                                    _buildDataRow(localizations.dataLabelDescription, _extractedData!.description!),
-                                  if (_extractedData!.reasoning != null) ...[
-                                    SizedBox(height: 12),
-                                    Container(
-                                      padding: responsive.padding(all: 12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(Icons.lightbulb_outline, 
-                                                color: Colors.white70, size: responsive.icon16),
-                                              SizedBox(width: responsive.sp8),
-                                              Text(
-                                                localizations.aiReasoningLabel,
-                                                style: GoogleFonts.poppins(
-                                                  fontSize: responsive.fs12,
-                                                  color: Colors.white70,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          SizedBox(height: 4),
-                                          Text(
-                                            _extractedData!.reasoning!,
-                                            style: GoogleFonts.poppins(
-                                              fontSize: responsive.fs11,
-                                              color: Colors.white70,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                  SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Icon(Icons.psychology, color: Colors.white70, size: responsive.icon16),
-                                      SizedBox(width: responsive.sp8),
-                                      Text(
-                                        '${localizations.confidenceLabel} ${(_extractedData!.confidence * 100).toStringAsFixed(0)}%',
-                                        style: GoogleFonts.poppins(
-                                          fontSize: responsive.fs12,
-                                          color: Colors.white70,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(height: 24),
-                            SizedBox(
-                              width: double.infinity,
-                              height: responsive.cardHeight(baseHeight: 56),
-                              child: ElevatedButton(
-                                onPressed: _isSaving ? null : _saveTransaction, // Disable when saving
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Color(0xFF4CAF50),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                  ),
-                                  disabledBackgroundColor: Colors.grey[400], // Style for disabled state
-                                ),
-                                child: _isSaving
-                                    ? CircularProgressIndicator(color: Colors.white) // Show loading indicator
-                                    : Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(Icons.check_circle, color: Colors.white),
-                                          SizedBox(width: responsive.sp8),
-                                          Text(
-                                            localizations.saveTransactionButton,
-                                            style: GoogleFonts.poppins(
-                                              fontSize: responsive.fs16,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                              ),
-                            ),
-                          ],
-
-                          // Error Display
-                          if (_error != null)
-                            Container(
-                              padding: responsive.padding(all: 16),
-                              margin: responsive.padding(top: 20),
-                              decoration: BoxDecoration(
-                                color: Colors.red[50],
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.error_outline, color: Colors.red),
-                                  SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      _error!,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: responsive.fs14,
-                                        color: Colors.red[700],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+              if (_error != null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  margin: const EdgeInsets.only(top: 20),
+                  decoration: BoxDecoration(color: scheme.errorContainer, borderRadius: BorderRadius.circular(12)),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline_rounded, color: scheme.error),
+                      SizedBox(width: 12),
+                      Expanded(child: Text(_error!, style: TextStyle(color: scheme.onErrorContainer))),
+                    ],
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -685,10 +244,225 @@ class _ImageInputScreenState extends State<ImageInputScreen>
     );
   }
 
-  Widget _buildDataRow(String label, String value) {
-    final responsive = ResponsiveHelper(context);
+  Widget _buildPremiumUpsell(AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.only(top: 8, bottom: 8),
+      decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        children: [
+          Icon(Icons.star_rounded, color: scheme.tertiary, size: 32),
+          SizedBox(height: 12),
+          Text(
+            localizations.premiumFeatureTitle,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: scheme.onTertiaryContainer),
+          ),
+          SizedBox(height: 8),
+          Text(
+            localizations.premiumFeatureUpgradeDescImg,
+            style: TextStyle(fontSize: 14, color: scheme.onTertiaryContainer),
+            textAlign: TextAlign.center,
+          ),
+          SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () => Navigator.pushNamed(context, '/subscription'),
+            style: FilledButton.styleFrom(backgroundColor: scheme.tertiary),
+            icon: Icon(Icons.upgrade_rounded),
+            label: Text(localizations.upgradeNowButton),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyCapture(AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        SizedBox(height: 16),
+        GestureDetector(
+          onTap: _isSaving ? null : _showImageSourceDialog,
+          child: CustomPaint(
+            painter: _DashedRoundedRectPainter(color: scheme.outline, radius: 20),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 52, horizontal: 20),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardTheme.color,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.add_a_photo_rounded, size: 48, color: scheme.primary),
+                  SizedBox(height: 14),
+                  Text(
+                    localizations.tapToAddImagePlaceholder,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    localizations.cameraOrGalleryPlaceholder,
+                    style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: 14),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: AppTheme.trackFor(context), borderRadius: BorderRadius.circular(16)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('WHAT WE READ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
+              SizedBox(height: 6),
+              Text(
+                'Merchant, date, amount and category — nothing is saved until you confirm.',
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.5),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImagePreview(AppLocalizations localizations) {
+    return Column(
+      children: [
+        SizedBox(height: 16),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Image.file(_selectedImage!, width: double.infinity, height: 220, fit: BoxFit.cover),
+        ),
+        SizedBox(height: 14),
+        OutlinedButton.icon(
+          onPressed: _isSaving ? null : _showImageSourceDialog,
+          icon: Icon(Icons.refresh_rounded),
+          label: Text(localizations.chooseDifferentImageButton),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScanningPlaceholder(AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      decoration: BoxDecoration(color: AppTheme.trackFor(context), borderRadius: BorderRadius.circular(20)),
+      child: Column(
+        children: [
+          Icon(Icons.document_scanner_rounded, size: 40, color: scheme.primary),
+          SizedBox(height: 14),
+          Text(localizations.analyzingReceipt, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          SizedBox(height: 14),
+          SizedBox(
+            width: 160,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(color: scheme.primary, backgroundColor: scheme.primaryContainer),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExtractedResult(AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
+    final data = _extractedData!;
+    final isInflow = data.type == TransactionType.inflow;
+    final amountColor = isInflow ? scheme.primary : scheme.error;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: const Color(0x14101815), blurRadius: 3, offset: Offset(0, 1))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(localizations.extractedTransactionTitle, style: Theme.of(context).textTheme.titleMedium)),
+              StatusPill(
+                label: '${(data.confidence * 100).toStringAsFixed(0)}%',
+                background: _confidenceBg(context, data.confidence),
+                foreground: _confidenceInk(context, data.confidence),
+              ),
+            ],
+          ),
+          SizedBox(height: 12),
+          Text(
+            '${data.currency.symbol}${formatter.format(data.amount)}',
+            style: AppTheme.money(28, weight: FontWeight.w800, color: amountColor),
+          ),
+          SizedBox(height: 14),
+          _dataRow(localizations.dataLabelType, data.type.name.toUpperCase()),
+          _dataRow(localizations.currency, data.currency.displayName),
+          _dataRow(localizations.dataLabelCategory, '${data.mainCategory} > ${data.subCategory}'),
+          _dataRow(localizations.dataLabelDate, DateFormat('yyyy-MM-dd').format(data.date)),
+          if (data.description != null) _dataRow(localizations.dataLabelDescription, data.description!),
+          if (data.reasoning != null) ...[
+            SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: AppTheme.trackFor(context), borderRadius: BorderRadius.circular(10)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline_rounded, size: 16, color: scheme.onSurfaceVariant),
+                      SizedBox(width: 8),
+                      Text(
+                        localizations.aiReasoningLabel,
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4),
+                  Text(data.reasoning!, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+          ],
+          SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _isSaving ? null : _saveTransaction,
+              child: _isSaving
+                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(localizations.saveTransactionButton),
+            ),
+          ),
+          SizedBox(height: 8),
+          TextButton(
+            onPressed: _isSaving ? null : _showImageSourceDialog,
+            child: Text('Use a different photo'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dataRow(String label, String value) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -696,25 +470,74 @@ class _ImageInputScreenState extends State<ImageInputScreen>
             width: 100,
             child: Text(
               label,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs13,
-                color: Colors.white70,
-                fontWeight: FontWeight.w500,
-              ),
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurfaceVariant),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs13,
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
       ),
     );
   }
+
+  Color _confidenceBg(BuildContext context, double confidence) {
+    final scheme = Theme.of(context).colorScheme;
+    if (confidence >= 0.8) return scheme.primaryContainer;
+    if (confidence >= 0.5) return scheme.tertiaryContainer;
+    return scheme.errorContainer;
+  }
+
+  Color _confidenceInk(BuildContext context, double confidence) {
+    final scheme = Theme.of(context).colorScheme;
+    if (confidence >= 0.8) return scheme.primary;
+    if (confidence >= 0.5) return scheme.tertiary;
+    return scheme.error;
+  }
+}
+
+/// Draws a dashed rounded-rect outline — matches the mockup's dashed
+/// "add a photo" drop zone, which plain [Border.all] cannot express.
+class _DashedRoundedRectPainter extends CustomPainter {
+  const _DashedRoundedRectPainter({required this.color, this.radius = 20});
+
+  final Color color;
+  final double radius;
+
+  static const _strokeWidth = 2.0;
+  static const _dashWidth = 6.0;
+  static const _gapWidth = 5.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      (Offset.zero & size).deflate(_strokeWidth / 2),
+      Radius.circular(radius),
+    );
+    final path = Path()..addRRect(rrect);
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _strokeWidth;
+
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final next = (distance + _dashWidth).clamp(0.0, metric.length);
+        canvas.drawPath(metric.extractPath(distance, next), paint);
+        distance = next + _gapWidth;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRoundedRectPainter oldDelegate) =>
+      color != oldDelegate.color || radius != oldDelegate.radius;
 }

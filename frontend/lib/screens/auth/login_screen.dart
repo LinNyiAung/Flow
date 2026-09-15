@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import 'register_screen.dart';
-import 'forgot_password_screen.dart';   
+import 'forgot_password_screen.dart';
 import '../home/home_screen.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -20,260 +18,188 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final headingStyle = theme.textTheme.titleLarge?.copyWith(
+      fontSize: 28,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -0.2,
+      color: scheme.onSurface,
+    );
+
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF667eea),
-              Color(0xFF764ba2),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: responsive.padding(all: 24),
-              child: Card(
-                elevation: 8,
-                shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(responsive.borderRadius(16)),
-                ),
-                child: Padding(
-                  padding: responsive.padding(all: 32),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Logo and Title (Updated to App Icon)
-                        Container(
-                          width: responsive.iconSize(mobile: 80),
-                          height: responsive.iconSize(mobile: 80),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(
-                                responsive.borderRadius(20)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black12,
-                                blurRadius: 8,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                                responsive.borderRadius(20)),
-                            child: Image.asset(
-                              'assets/icon/flow.png', // Change to .jpg if necessary
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
-                        SizedBox(height: responsive.sp16),
-                        Text(
-                          'Toe Pwar',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs32,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        Text(
-                          'Personal Finance AI',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        SizedBox(height: responsive.sp32),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 56, 24, 40),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                    child: Icon(Icons.trending_up_rounded, size: 44, color: scheme.primary),
+                  ),
+                  const SizedBox(height: 18),
+                  Text('Toe Pwar', style: headingStyle),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Money that grows because you watch it',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 34),
 
-                        // Email Field
-                        TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: InputDecoration(
-                            labelText: 'Email',
-                            prefixIcon: Icon(Icons.email_outlined),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  responsive.borderRadius(12)),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey[50],
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter your email';
-                            }
-                            if (!RegExp(
-                                    r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                                .hasMatch(value)) {
-                              return 'Please enter a valid email';
-                            }
-                            return null;
-                          },
-                        ),
-                        SizedBox(height: responsive.sp16),
+                  // Email field
+                  TextFormField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: Icon(Icons.mail_outline_rounded),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your email';
+                      }
+                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                        return 'Please enter a valid email';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
 
-                        // Password Field
-                        TextFormField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            prefixIcon: Icon(Icons.lock_outlined),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  responsive.borderRadius(12)),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey[50],
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter your password';
-                            }
-                            return null;
-                          },
+                  // Password field
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword ? Icons.visibility_rounded : Icons.visibility_off_rounded,
                         ),
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your password';
+                      }
+                      return null;
+                    },
+                  ),
 
-                        // Forgot Password link
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => ForgotPasswordScreen(),
-                                ),
-                              );
-                            },
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: Size(0, 36),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            child: Text(
-                              'Forgot Password?',
-                              style: GoogleFonts.poppins(
-                                color: Color(0xFF667eea),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-                        
-                        SizedBox(height: responsive.sp8),
-
-                        // Error Message
-                        Consumer<AuthProvider>(
-                          builder: (context, authProvider, child) {
-                            if (authProvider.error != null) {
-                              return Container(
-                                padding: responsive.padding(all: 12),
-                                margin: responsive.padding(bottom: 16),
-                                decoration: BoxDecoration(
-                                  color: Colors.red[50],
-                                  borderRadius: BorderRadius.circular(
-                                      responsive.borderRadius(8)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.error_outline,
-                                        color: Colors.red),
-                                    SizedBox(width: responsive.sp8),
-                                    Expanded(
-                                      child: Text(
-                                        authProvider.error!,
-                                        style: TextStyle(color: Colors.red),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-                            return SizedBox.shrink();
-                          },
-                        ),
-
-                        // Login Button
-                        Consumer<AuthProvider>(
-                          builder: (context, authProvider, child) {
-                            return SizedBox(
-                              width: double.infinity,
-                              height:
-                                  responsive.cardHeight(baseHeight: 50),
-                              child: ElevatedButton(
-                                onPressed:
-                                    authProvider.isLoading ? null : _login,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Color(0xFF667eea),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        responsive.borderRadius(12)),
-                                  ),
-                                ),
-                                child: authProvider.isLoading
-                                    ? CircularProgressIndicator(
-                                        color: Colors.white)
-                                    : Text(
-                                        'Sign In',
-                                        style: GoogleFonts.poppins(
-                                          fontSize: responsive.fs16,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                              ),
-                            );
-                          },
-                        ),
-                        SizedBox(height: responsive.sp16),
-
-                        // Register Link
-                        Text(
-                          "Don't have an account? ",
-                          style: GoogleFonts.poppins(color: Colors.grey[600]),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => RegisterScreen()),
-                            );
-                          },
-                          child: Text(
-                            'Sign Up',
-                            style: GoogleFonts.poppins(
-                              color: Color(0xFF667eea),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
+                  // Forgot Password link
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => ForgotPasswordScreen()),
+                        );
+                      },
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text('Forgot password?'),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 4),
+
+                  // Error message
+                  Consumer<AuthProvider>(
+                    builder: (context, authProvider, child) {
+                      if (authProvider.error == null) return const SizedBox.shrink();
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: scheme.errorContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline_rounded, color: scheme.error, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                authProvider.error!,
+                                style: TextStyle(
+                                  color: scheme.onErrorContainer,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+
+                  // Login Button
+                  Consumer<AuthProvider>(
+                    builder: (context, authProvider, child) {
+                      return SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: authProvider.isLoading ? null : _login,
+                          child: authProvider.isLoading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Sign in'),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 18),
+
+                  // Register link
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => RegisterScreen()),
+                      );
+                    },
+                    child: RichText(
+                      text: TextSpan(
+                        style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                        children: [
+                          const TextSpan(text: 'New here? '),
+                          TextSpan(
+                            text: 'Create an account',
+                            style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

@@ -211,6 +211,9 @@ async def get_budgets(
                 status=BudgetStatus(b["status"]),
                 description=b.get("description"),
                 is_active=b["is_active"],
+                auto_create_enabled=b.get("auto_create_enabled", False),
+                auto_create_with_ai=b.get("auto_create_with_ai", False),
+                parent_budget_id=b.get("parent_budget_id"),
                 currency=Currency(b.get("currency", "usd")),
                 created_at=b["created_at"],
                 updated_at=b["updated_at"]
@@ -373,11 +376,14 @@ async def get_budget(
             status=BudgetStatus(budget["status"]),
             description=budget.get("description"),
             is_active=budget["is_active"],
+            auto_create_enabled=budget.get("auto_create_enabled", False),
+            auto_create_with_ai=budget.get("auto_create_with_ai", False),
+            parent_budget_id=budget.get("parent_budget_id"),
             currency=Currency(budget.get("currency", "usd")),
             created_at=budget["created_at"],
             updated_at=budget["updated_at"]
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -430,10 +436,16 @@ async def update_budget(
                 cat_dict["percentage_used"] = 0
                 cat_dict["is_exceeded"] = False
                 category_budgets.append(cat_dict)
-            
+
             update_data["category_budgets"] = category_budgets
             update_data["total_budget"] = sum(cat.allocated_amount for cat in budget_data.category_budgets)
-        
+
+        if budget_data.auto_create_enabled is not None:
+            update_data["auto_create_enabled"] = budget_data.auto_create_enabled
+
+        if budget_data.auto_create_with_ai is not None:
+            update_data["auto_create_with_ai"] = budget_data.auto_create_with_ai
+
         # [FIX] Added await
         await budgets_collection.update_one(
             {"_id": budget_id},
@@ -470,11 +482,14 @@ async def update_budget(
             status=BudgetStatus(updated_budget["status"]),
             description=updated_budget.get("description"),
             is_active=updated_budget["is_active"],
+            auto_create_enabled=updated_budget.get("auto_create_enabled", False),
+            auto_create_with_ai=updated_budget.get("auto_create_with_ai", False),
+            parent_budget_id=updated_budget.get("parent_budget_id"),
             currency=Currency(updated_budget.get("currency", "usd")),
             created_at=updated_budget["created_at"],
             updated_at=updated_budget["updated_at"]
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:

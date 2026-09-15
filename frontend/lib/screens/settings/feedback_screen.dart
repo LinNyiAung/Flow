@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/feedback.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import '../../providers/feedback_provider.dart';
-import '../../services/responsive_helper.dart';
 import '../../services/localization_service.dart';
 
 class FeedbackScreen extends StatefulWidget {
@@ -18,25 +17,44 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   int _rating = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _messageController.addListener(() => setState(() {}));
+  }
+
+  @override
   void dispose() {
     _messageController.dispose();
     super.dispose();
   }
 
+  String _ratingHelper() {
+    switch (_rating) {
+      case 1:
+        return 'Sorry to hear that — tell us what went wrong below.';
+      case 2:
+        return 'Thanks — what could be better?';
+      case 3:
+        return 'Good to know. What would make it great?';
+      case 4:
+        return 'Glad you like it — anything to polish?';
+      case 5:
+        return 'Wonderful! Thanks for the love.';
+      default:
+        return 'Tap a star to rate your experience';
+    }
+  }
+
   void _submitFeedback() async {
     final localizations = AppLocalizations.of(context);
     if (!_formKey.currentState!.validate()) return;
-    
+
     // For general feedback or usability, require a rating
-    if ((_selectedCategory == FeedbackCategory.general || 
-         _selectedCategory == FeedbackCategory.usability) && 
-         _rating == 0) {
+    if ((_selectedCategory == FeedbackCategory.general ||
+            _selectedCategory == FeedbackCategory.usability) &&
+        _rating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(localizations.pleaseSelectRating),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text(localizations.pleaseSelectRating)),
       );
       return;
     }
@@ -50,22 +68,16 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(localizations.feedbackSubmittedSuccess),
-          backgroundColor: Color(0xFF4CAF50),
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text(localizations.feedbackSubmittedSuccess)),
       );
       Navigator.pop(context);
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            Provider.of<FeedbackProvider>(context, listen: false).error ?? 
-            localizations.feedbackFailed,
+            Provider.of<FeedbackProvider>(context, listen: false).error ??
+                localizations.feedbackFailed,
           ),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -73,265 +85,171 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
     final feedbackProvider = Provider.of<FeedbackProvider>(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final messageLength = _messageController.text.trim().length;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          localizations.sendFeedback,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF333333)),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: Container(
-        height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: SingleChildScrollView(
-          padding: responsive.padding(all: 20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header Card
-                Container(
-                  padding: responsive.padding(all: 20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                    ),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Color(0xFF667eea).withOpacity(0.3),
-                        spreadRadius: 2,
-                        blurRadius: 8,
+      appBar: AppBar(title: Text(localizations.sendFeedback)),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Card
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.feedback_rounded, color: scheme.onPrimaryContainer, size: 30),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            localizations.weValueYourInput,
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: scheme.onPrimaryContainer),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            localizations.feedbackHeaderSubtitle,
+                            style: TextStyle(fontSize: 12, color: scheme.onPrimaryContainer.withValues(alpha: 0.85)),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Row(
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Topic Chips
+              Text(
+                localizations.whatIsThisRegarding,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: FeedbackCategory.values.map((category) {
+                  final isSelected = category == _selectedCategory;
+                  return ChoiceChip(
+                    label: Text(category.getDisplayName(context)),
+                    selected: isSelected,
+                    onSelected: (_) => setState(() => _selectedCategory = category),
+                    selectedColor: scheme.primary,
+                    backgroundColor: scheme.secondaryContainer,
+                    labelStyle: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isSelected ? Colors.white : scheme.primary,
+                    ),
+                    side: BorderSide.none,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  );
+                }).toList(),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Star Rating
+              Text(
+                localizations.howRateExperience,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
                     children: [
-                      Container(
-                        padding: responsive.padding(all: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.feedback_outlined,
-                          color: Colors.white,
-                          size: responsive.icon32,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: List.generate(5, (index) {
+                          return GestureDetector(
+                            onTap: () => setState(() => _rating = index + 1),
+                            child: Icon(
+                              index < _rating ? Icons.star_rounded : Icons.star_border_rounded,
+                              color: index < _rating ? AppTheme.starFor(context) : AppTheme.hintFor(context),
+                              size: 34,
+                            ),
+                          );
+                        }),
                       ),
-                      SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              localizations.weValueYourInput,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              localizations.feedbackHeaderSubtitle,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs12,
-                                color: Colors.white.withOpacity(0.9),
-                              ),
-                            ),
-                          ],
-                        ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _ratingHelper(),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                        textAlign: TextAlign.center,
                       ),
                     ],
                   ),
                 ),
-                
-                SizedBox(height: 24),
+              ),
 
-                // Category Dropdown
-                Text(
-                  localizations.whatIsThisRegarding,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
+              const SizedBox(height: 24),
+
+              // Message Input
+              Text(
+                localizations.tellUsMore,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _messageController,
+                maxLines: 5,
+                decoration: InputDecoration(hintText: localizations.feedbackHint),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return localizations.pleaseEnterMessage;
+                  }
+                  if (value.trim().length < 10) {
+                    return localizations.feedbackMinLength;
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(
+                  '$messageLength/10 minimum',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: messageLength >= 10 ? scheme.primary : AppTheme.hintFor(context),
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
                   ),
                 ),
-                SizedBox(height: 8),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<FeedbackCategory>(
-                      value: _selectedCategory,
-                      isExpanded: true,
-                      icon: Icon(Icons.keyboard_arrow_down, color: Color(0xFF667eea)),
-                      items: FeedbackCategory.values.map((category) {
-                        return DropdownMenuItem(
-                          value: category,
-                          child: Text(
-                            // FIXED: Use getDisplayName(context) instead of .displayName
-                            category.getDisplayName(context),
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs14,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _selectedCategory = value);
-                        }
-                      },
-                    ),
-                  ),
-                ),
+              ),
 
-                SizedBox(height: 24),
+              const SizedBox(height: 28),
 
-                // Star Rating
-                Text(
-                  localizations.howRateExperience,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton(
+                  onPressed: feedbackProvider.isLoading ? null : _submitFeedback,
+                  child: feedbackProvider.isLoading
+                      ? const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : Text(localizations.submitFeedback),
                 ),
-                SizedBox(height: 8),
-                Container(
-                  padding: responsive.padding(all: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: List.generate(5, (index) {
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() => _rating = index + 1);
-                        },
-                        child: Icon(
-                          index < _rating ? Icons.star : Icons.star_border,
-                          color: index < _rating ? Color(0xFFFFD700) : Colors.grey[400],
-                          size: responsive.icon32,
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-
-                SizedBox(height: 24),
-
-                // Message Input
-                Text(
-                  localizations.tellUsMore,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                SizedBox(height: 8),
-                TextFormField(
-                  controller: _messageController,
-                  maxLines: 5,
-                  decoration: InputDecoration(
-                    hintText: localizations.feedbackHint,
-                    hintStyle: GoogleFonts.poppins(color: Colors.grey[400]),
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      borderSide: BorderSide(color: Colors.grey[300]!),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      borderSide: BorderSide(color: Colors.grey[300]!),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return localizations.pleaseEnterMessage;
-                    }
-                    if (value.trim().length < 10) {
-                      return localizations.feedbackMinLength;
-                    }
-                    return null;
-                  },
-                ),
-
-                SizedBox(height: 32),
-
-                // Submit Button
-                SizedBox(
-                  width: double.infinity,
-                  height: responsive.cardHeight(baseHeight: 50),
-                  child: ElevatedButton(
-                    onPressed: feedbackProvider.isLoading ? null : _submitFeedback,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF667eea),
-                      disabledBackgroundColor: Colors.grey[300],
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      ),
-                      elevation: 4,
-                    ),
-                    child: feedbackProvider.isLoading
-                        ? SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : Text(
-                            localizations.submitFeedback,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

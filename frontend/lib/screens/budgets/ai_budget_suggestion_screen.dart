@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/progress_meter.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 class AIBudgetSuggestionScreen extends StatefulWidget {
   final BudgetPeriod period;
   final DateTime startDate;
   final DateTime? endDate;
-  final String? userContext; // NEW
+  final String? userContext;
   final Currency currency;
 
   AIBudgetSuggestionScreen({
     required this.period,
     required this.startDate,
     this.endDate,
-    this.userContext, // NEW
+    this.userContext,
     required this.currency,
   });
 
@@ -68,6 +68,9 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
     });
   }
 
+  /// Hands the reviewed suggestion back to the create-budget flow. This
+  /// screen never saves a budget itself — the caller decides whether to
+  /// create it.
   void _acceptSuggestion() {
     if (_suggestion != null) {
       Navigator.pop(context, _suggestion);
@@ -76,23 +79,16 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
   void _showAnalysisSummary() {
     if (_suggestion == null) return;
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
         title: Row(
           children: [
-            Icon(Icons.analytics, color: Color(0xFF667eea)),
-            SizedBox(width: responsive.sp12),
-            Expanded(
-              child: Text(
-                localizations.analysisSummary,
-                style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-              ),
-            ),
+            Icon(Icons.analytics_rounded, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(child: Text(localizations.analysisSummary)),
           ],
         ),
         content: SingleChildScrollView(
@@ -103,32 +99,32 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               _buildSummaryItem(
                 localizations.transactionsAnalyzed,
                 _suggestion!.analysisSummary['transaction_count'].toString(),
-                Icons.receipt_long,
+                Icons.receipt_long_rounded,
               ),
               _buildSummaryItem(
                 localizations.analysisPeriod,
                 '${_suggestion!.analysisSummary['analysis_months']} months',
-                Icons.calendar_today,
+                Icons.calendar_today_rounded,
               ),
               _buildSummaryItem(
                 localizations.categoriesFound,
                 _suggestion!.analysisSummary['categories_analyzed'].toString(),
-                Icons.category,
+                Icons.category_rounded,
               ),
               _buildSummaryItem(
                 localizations.avgMonthlyIncome,
-                '\$${formatter.format(_suggestion!.analysisSummary['average_monthly_income'])}', // Changed
-                Icons.trending_up,
+                '${_suggestion!.currency.symbol}${formatter.format(_suggestion!.analysisSummary['average_monthly_income'])}',
+                Icons.trending_up_rounded,
               ),
               _buildSummaryItem(
                 localizations.avgMonthlyExpenses,
-                '\$${formatter.format(_suggestion!.analysisSummary['average_monthly_expenses'])}', // Changed
-                Icons.trending_down,
+                '${_suggestion!.currency.symbol}${formatter.format(_suggestion!.analysisSummary['average_monthly_expenses'])}',
+                Icons.trending_down_rounded,
               ),
               _buildSummaryItem(
                 localizations.activeGoals,
                 _suggestion!.analysisSummary['active_goals'].toString(),
-                Icons.flag,
+                Icons.flag_rounded,
               ),
             ],
           ),
@@ -136,50 +132,42 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(
-              localizations.close,
-              style: GoogleFonts.poppins(color: Color(0xFF667eea)),
-            ),
+            child: Text(localizations.close),
           ),
         ],
       ),
     );
   }
 
+  /// Mockup's `--tint-neutral` (F1F5F3 light / 1F2723 dark) — a plain
+  /// neutral surface, distinct from the jade-tinted `secondaryContainer`.
+  /// Not in [AppTheme] as a named token, so it's reproduced here directly,
+  /// brightness-aware.
+  Color _tintNeutral(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFF1F2723)
+      : const Color(0xFFF1F5F3);
+
   Widget _buildSummaryItem(String label, String value, IconData icon) {
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Container(
-            padding: responsive.padding(all: 8),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Color(0xFF667eea).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
+              color: scheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: Color(0xFF667eea), size: responsive.icon20),
+            child: Icon(icon, color: scheme.primary, size: 20),
           ),
-          SizedBox(width: responsive.sp12),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                Text(
-                  value,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
+                Text(label, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface)),
               ],
             ),
           ),
@@ -190,102 +178,61 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          localizations.aiBudgetSuggestion,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
+        title: Text(localizations.aiBudgetSuggestion),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF333333)),
+          icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
           if (_suggestion != null)
             IconButton(
-              icon: Icon(Icons.info_outline, color: Color(0xFF667eea)),
+              icon: const Icon(Icons.info_outline_rounded),
               tooltip: localizations.analysisDetails,
               onPressed: _showAnalysisSummary,
             ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
-          ),
-        ),
-        child: _isLoading
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        Color(0xFF667eea),
-                      ),
-                    ),
-                    SizedBox(height: responsive.sp16),
-                    Text(
-                      'Analyzing your ${widget.currency.displayName} spending patterns...',  // NEW
-                      style: GoogleFonts.poppins(color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              )
-            : _error != null
-            ? _buildErrorState()
-            : _suggestion != null
-            ? _buildSuggestionContent()
-            : _buildErrorState(),
-      ),
+      body: _isLoading
+          ? _buildLoadingState()
+          : _error != null
+          ? _buildErrorState()
+          : _suggestion != null
+          ? _buildSuggestionContent()
+          : _buildErrorState(),
     );
   }
 
-  Widget _buildErrorState() {
-    final responsive = ResponsiveHelper(context);
-    final localizations = AppLocalizations.of(context);
+  Widget _buildLoadingState() {
+    final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
-        padding: responsive.padding(all: 32),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: responsive.iconSize(mobile: 64), color: Colors.red),
-            SizedBox(height: responsive.sp16),
-            Text(
-              localizations.failedToGenerateSuggestion,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs18,
-                fontWeight: FontWeight.bold,
-                color: Colors.red,
-              ),
+            Container(
+              width: 72,
+              height: 72,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: scheme.tertiaryContainer, shape: BoxShape.circle),
+              child: Icon(Icons.auto_awesome_rounded, color: scheme.tertiary, size: 34),
             ),
-            SizedBox(height: responsive.sp8),
+            const SizedBox(height: 20),
             Text(
-              _error ?? 'An error occurred',
-              style: GoogleFonts.poppins(color: Colors.grey[600]),
+              'Analyzing your ${widget.currency.displayName} spending patterns...',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: responsive.sp24),
-            ElevatedButton.icon(
-              onPressed: _generateSuggestion,
-              icon: Icon(Icons.refresh),
-              label: Text(localizations.tryAgain),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF667eea),
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: 160,
+              child: LinearProgressIndicator(
+                minHeight: 4,
+                backgroundColor: scheme.tertiaryContainer,
+                valueColor: AlwaysStoppedAnimation<Color>(scheme.tertiary),
               ),
             ),
           ],
@@ -294,66 +241,90 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
     );
   }
 
-  Widget _buildSuggestionContent() {
-    final responsive = ResponsiveHelper(context);
+  Widget _buildErrorState() {
     final localizations = AppLocalizations.of(context);
-    return ListView(
-      padding: responsive.padding(all: 20),
-      children: [
-        // Confidence Indicator
-        Container(
-          padding: responsive.padding(all: 16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: _suggestion!.dataConfidence >= 0.7
-                  ? [Color(0xFF4CAF50), Color(0xFF45a049)]
-                  : _suggestion!.dataConfidence >= 0.5
-                  ? [Color(0xFFFF9800), Color(0xFFF57C00)]
-                  : [Color(0xFFFF5722), Color(0xFFE64A19)],
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline_rounded, size: 64, color: scheme.error),
+            const SizedBox(height: 16),
+            Text(
+              localizations.failedToGenerateSuggestion,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.error),
             ),
-            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-          ),
+            const SizedBox(height: 8),
+            Text(
+              _error ?? 'An error occurred',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _generateSuggestion,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(localizations.tryAgain),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionContent() {
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final confidence = _suggestion!.dataConfidence;
+    final Color confidenceBg;
+    final Color confidenceFg;
+    final IconData confidenceIcon;
+    final String confidenceLabel;
+    if (confidence >= 0.7) {
+      confidenceBg = scheme.primaryContainer;
+      confidenceFg = AppTheme.jadeLabel2For(context);
+      confidenceIcon = Icons.verified_rounded;
+      confidenceLabel = localizations.highConfidence;
+    } else if (confidence >= 0.5) {
+      confidenceBg = scheme.tertiaryContainer;
+      confidenceFg = scheme.onTertiaryContainer;
+      confidenceIcon = Icons.warning_amber_rounded;
+      confidenceLabel = localizations.moderateConfidence;
+    } else {
+      confidenceBg = scheme.errorContainer;
+      confidenceFg = scheme.onErrorContainer;
+      confidenceIcon = Icons.info_rounded;
+      confidenceLabel = localizations.lowConfidence;
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+      children: [
+        // Confidence banner
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(color: confidenceBg, borderRadius: BorderRadius.circular(16)),
           child: Row(
             children: [
-              Icon(
-                _suggestion!.dataConfidence >= 0.7
-                    ? Icons.check_circle
-                    : _suggestion!.dataConfidence >= 0.5
-                    ? Icons.warning
-                    : Icons.info,
-                color: Colors.white,
-                size: responsive.iconSize(mobile: 32),
-              ),
-              SizedBox(width: responsive.sp16),
+              Icon(confidenceIcon, color: confidenceFg, size: 26),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       localizations.dataConfidence,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs14,
-                        color: Colors.white.withOpacity(0.9),
-                      ),
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: confidenceFg),
                     ),
                     Text(
-                      '${(_suggestion!.dataConfidence * 100).toStringAsFixed(0)}%',
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                      '${(confidence * 100).toStringAsFixed(0)}%',
+                      style: AppTheme.money(24, weight: FontWeight.w800, color: confidenceFg),
                     ),
                     Text(
-                      _suggestion!.dataConfidence >= 0.7
-                          ? localizations.highConfidence
-                          : _suggestion!.dataConfidence >= 0.5
-                          ? localizations.moderateConfidence
-                          : localizations.lowConfidence,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs11,
-                        color: Colors.white.withOpacity(0.8),
-                      ),
+                      confidenceLabel,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: confidenceFg),
                     ),
                   ],
                 ),
@@ -363,95 +334,63 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
         ),
 
         if (widget.userContext != null && widget.userContext!.isNotEmpty) ...[
-          SizedBox(height: responsive.sp16),
+          const SizedBox(height: 16),
           Container(
-            padding: responsive.padding(all: 16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Color(0xFF667eea).withOpacity(0.1),
-                  Color(0xFF764ba2).withOpacity(0.1),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-              border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
-            ),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(16)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Icon(Icons.note_alt, color: Color(0xFF667eea), size: responsive.icon20),
-                    SizedBox(width: responsive.sp8),
+                    Icon(Icons.note_alt_rounded, color: scheme.tertiary, size: 20),
+                    const SizedBox(width: 8),
                     Text(
                       localizations.yourContext,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF333333),
-                      ),
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onTertiaryContainer),
                     ),
                   ],
                 ),
-                SizedBox(height: responsive.sp8),
+                const SizedBox(height: 8),
                 Text(
                   widget.userContext!,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs13,
-                    color: Color(0xFF333333),
-                    fontStyle: FontStyle.italic,
-                  ),
+                  style: TextStyle(fontSize: 13, color: scheme.onTertiaryContainer, fontStyle: FontStyle.italic),
                 ),
               ],
             ),
           ),
         ],
 
-        // Warnings
         if (_suggestion!.warnings.isNotEmpty) ...[
-          SizedBox(height: responsive.sp16),
+          const SizedBox(height: 16),
           Container(
-            padding: responsive.padding(all: 16),
-            decoration: BoxDecoration(
-              color: Colors.orange[50],
-              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-              border: Border.all(color: Colors.orange[200]!),
-            ),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(16)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.orange[700],
-                    ),
-                    SizedBox(width: responsive.sp8),
+                    Icon(Icons.warning_amber_rounded, color: scheme.tertiary),
+                    const SizedBox(width: 8),
                     Text(
                       localizations.importantNotes,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.orange[900],
-                      ),
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onTertiaryContainer),
                     ),
                   ],
                 ),
-                SizedBox(height: responsive.sp8),
+                const SizedBox(height: 8),
                 ..._suggestion!.warnings.map(
                   (warning) => Padding(
-                    padding: EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.only(top: 4),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('• ', style: TextStyle(color: Colors.orange[700])),
+                        Text('•  ', style: TextStyle(color: scheme.tertiary)),
                         Expanded(
                           child: Text(
                             warning,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs12,
-                              color: Colors.orange[900],
-                            ),
+                            style: TextStyle(fontSize: 12, color: scheme.onTertiaryContainer),
                           ),
                         ),
                       ],
@@ -463,133 +402,84 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
           ),
         ],
 
-        SizedBox(height: responsive.sp24),
+        const SizedBox(height: 24),
 
-        // Suggested Budget Info
+        // Suggested plan
         Container(
-          padding: responsive.padding(all: 20),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+            color: Theme.of(context).cardTheme.color,
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
-                spreadRadius: 2,
-                blurRadius: 8,
-              ),
+              BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? const Color(0x14101815), blurRadius: 8, offset: Offset(0, 1)),
             ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                localizations.suggestedBudgetPlan,
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF333333),
-                ),
-              ),
-              SizedBox(height: responsive.sp12),
-              _buildInfoRow(Icons.label, localizations.name, _suggestion!.suggestedName),
+              Text(localizations.suggestedBudgetPlan, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
+              _buildInfoRow(Icons.label_outline_rounded, localizations.name, _suggestion!.suggestedName),
+              _buildInfoRow(Icons.calendar_today_rounded, localizations.period, widget.period.name.toUpperCase()),
               _buildInfoRow(
-                Icons.calendar_today,
-                localizations.period,
-                widget.period.name.toUpperCase(),
-              ),
-              _buildInfoRow(
-                Icons.date_range,
+                Icons.date_range_rounded,
                 localizations.duration,
                 '${DateFormat('MMM d').format(_suggestion!.startDate)} - ${DateFormat('MMM d, yyyy').format(_suggestion!.endDate)}',
               ),
+              _buildInfoRow(Icons.attach_money_rounded, localizations.currency, _suggestion!.currency.displayName),
               _buildInfoRow(
-                Icons.attach_money,
-                localizations.currency,
-                _suggestion!.currency.displayName,  // NEW
-              ),
-              _buildInfoRow(
-                Icons.attach_money,
+                Icons.attach_money_rounded,
                 localizations.totalBudget,
-                '\$${formatter.format(_suggestion!.totalBudget)}', // Changed
+                '${_suggestion!.currency.symbol}${formatter.format(_suggestion!.totalBudget)}',
               ),
             ],
           ),
         ),
 
-        SizedBox(height: responsive.sp24),
+        const SizedBox(height: 16),
 
-        // AI Reasoning
+        // AI reasoning — mockup's "HOW IT WAS SET" box, a plain neutral
+        // surface (not the jade-tinted secondary container).
         Container(
-          padding: responsive.padding(all: 16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFF667eea).withOpacity(0.1),
-                Color(0xFF764ba2).withOpacity(0.1),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-          ),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: _tintNeutral(context), borderRadius: BorderRadius.circular(16)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(Icons.psychology, color: Color(0xFF667eea)),
-                  SizedBox(width: responsive.sp8),
-                  Text(
-                    localizations.aiAnalysis,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF333333),
-                    ),
-                  ),
+                  Icon(Icons.psychology_rounded, color: scheme.primary),
+                  const SizedBox(width: 8),
+                  Text(localizations.aiAnalysis, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onSurface)),
                 ],
               ),
-              SizedBox(height: responsive.sp12),
+              const SizedBox(height: 10),
               Text(
                 _suggestion!.reasoning,
-                style: GoogleFonts.poppins(
-                  fontSize: responsive.fs13,
-                  color: Color(0xFF333333),
-                  height: 1.5,
-                ),
+                style: TextStyle(fontSize: 13, color: scheme.onSurface, height: 1.5),
               ),
             ],
           ),
         ),
 
-        SizedBox(height: responsive.sp24),
+        const SizedBox(height: 24),
 
-        // Category Budgets
-        Text(
-          localizations.categoryBudgets,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
-        SizedBox(height: responsive.sp12),
+        Text(localizations.categoryBudgets, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 10),
 
         ..._suggestion!.categoryBudgets.map((catBudget) {
           final percentage = (_suggestion!.totalBudget > 0
               ? (catBudget.allocatedAmount / _suggestion!.totalBudget * 100)
-              : 0);
+              : 0.0);
 
           return Container(
-            margin: EdgeInsets.only(bottom: 8),
-            padding: responsive.padding(all: 16),
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
+              color: Theme.of(context).cardTheme.color,
+              borderRadius: BorderRadius.circular(16),
               boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
-                  spreadRadius: 1,
-                  blurRadius: 4,
-                ),
+                BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? const Color(0x14101815), blurRadius: 8, offset: Offset(0, 1)),
               ],
             ),
             child: Column(
@@ -601,120 +491,79 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     Expanded(
                       child: Text(
                         catBudget.mainCategory,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs14,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF333333),
-                        ),
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
-                      '${_suggestion!.currency.symbol}${formatter.format(catBudget.allocatedAmount)}', // Changed
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF667eea),
-                      ),
+                      '${_suggestion!.currency.symbol}${formatter.format(catBudget.allocatedAmount)}',
+                      style: AppTheme.money(16, weight: FontWeight.w700),
                     ),
-                  
                   ],
                 ),
-                SizedBox(height: responsive.sp8),
-                LinearProgressIndicator(
-                  value: percentage / 100,
-                  backgroundColor: Colors.grey[200],
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
-                  minHeight: responsive.spacing(mobile: 6),
-                ),
-                SizedBox(height: responsive.sp4),
+                const SizedBox(height: 8),
+                ProgressMeter(value: percentage / 100),
+                const SizedBox(height: 6),
                 Text(
                   '${percentage.toStringAsFixed(1)}% of total budget',
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs11,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                 ),
               ],
             ),
           );
-        }).toList(),
+        }),
 
-        SizedBox(height: responsive.sp32),
+        const SizedBox(height: 28),
 
-        // Action Buttons
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
                 onPressed: () => Navigator.pop(context),
-                style: OutlinedButton.styleFrom(
-                  padding: responsive.padding(vertical: 16),
-                  side: BorderSide(color: Color(0xFF667eea)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  ),
-                ),
-                child: Text(
-                  localizations.dialogCancel,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF667eea),
-                  ),
-                ),
+                child: Text(localizations.dialogCancel),
               ),
             ),
-            SizedBox(width: responsive.sp12),
+            const SizedBox(width: 12),
             Expanded(
-              child: ElevatedButton(
+              child: FilledButton(
                 onPressed: _acceptSuggestion,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xFF667eea),
-                  padding: responsive.padding(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  ),
-                ),
-                child: Text(
-                  localizations.useThisBudget,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
+                child: Text(localizations.useThisBudget),
               ),
             ),
           ],
         ),
 
-        SizedBox(height: responsive.sp16),
+        const SizedBox(height: 16),
       ],
     );
   }
 
   Widget _buildInfoRow(IconData icon, String label, String value) {
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, color: Color(0xFF667eea), size: responsive.icon20),
-          SizedBox(width: responsive.sp12),
-          Text(
-            '$label:',
-            style: GoogleFonts.poppins(fontSize: responsive.fs13, color: Colors.grey[600]),
+          Icon(icon, color: scheme.onSurfaceVariant, size: 20),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              '$label:',
+              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          SizedBox(width: responsive.sp8),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               value,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF333333),
-              ),
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface),
               textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],

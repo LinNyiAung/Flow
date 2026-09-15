@@ -3,14 +3,20 @@ import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
 import '../../models/transaction.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
-import 'package:frontend/services/responsive_helper.dart';
+import 'voice_input_screen.dart';
+import 'image_input_screen.dart';
+
+/// Display order for currency chips — MMK first, matching the product's
+/// Myanmar-first audience rather than the model's declaration order.
+const _kCurrencyOrder = [Currency.mmk, Currency.usd, Currency.thb];
 
 // Extension for safely finding an element in a list
 extension FirstWhereOrNullExtension<E> on Iterable<E> {
@@ -29,10 +35,7 @@ class AddTransactionScreen extends StatefulWidget {
   _AddTransactionScreenState createState() => _AddTransactionScreenState();
 }
 
-class _AddTransactionScreenState extends State<AddTransactionScreen>
-    with TickerProviderStateMixin { // Mixin for animation controllers
-  final _formKey = GlobalKey<FormState>();
-  final _amountController = TextEditingController();
+class _AddTransactionScreenState extends State<AddTransactionScreen> {
   final _descriptionController = TextEditingController();
 
   TransactionType _selectedType = TransactionType.outflow; // Default to outflow (expense)
@@ -42,34 +45,16 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   bool _isLoadingCategories = false;
   DateTime _selectedDate = DateTime.now(); // Default date is today
 
-
   TransactionRecurrence? _recurrence;
 
-  // Animation controllers for screen transition
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
-
-
   Currency _selectedCurrency = Currency.usd;
+
+  String _amountText = '';
 
   @override
   void initState() {
     super.initState();
-    // Initialize animations
-    _animationController = AnimationController(
-      duration: Duration(milliseconds: 300),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-    );
-    _slideAnimation = Tween<Offset>(
-      begin: Offset(0, 0.1), // Start slightly above
-      end: Offset.zero, // End at original position
-    ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
         _selectedCurrency = authProvider.defaultCurrency;
@@ -77,7 +62,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
     });
 
     _loadCategories(); // Load categories when the screen initializes
-    _animationController.forward(); // Start the animation
   }
 
   // Load categories from the API based on the selected transaction type
@@ -104,6 +88,21 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
     }
   }
 
+  /// One real sub-category per main category, capped at 6 — quick-pick
+  /// shortcuts below the category row. No usage-frequency data exists, so
+  /// this takes the first sub-category of each main category rather than
+  /// fabricating a "most used" ranking.
+  List<(String, String)> _quickPickSubCategories() {
+    final picks = <(String, String)>[];
+    for (final cat in _categories) {
+      if (cat.subCategories.isNotEmpty) {
+        picks.add((cat.mainCategory, cat.subCategories.first));
+      }
+      if (picks.length >= 6) break;
+    }
+    return picks;
+  }
+
   // Function to show the date picker dialog
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
@@ -112,26 +111,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
       firstDate: DateTime(2000), // Set the earliest possible date
       lastDate: DateTime.now().add(Duration(days: 365)), // Set the latest possible date (1 year from now)
       builder: (BuildContext context, Widget? child) {
-        // Customize the date picker theme
-        return Theme(
-          data: ThemeData.light().copyWith(
-            // Dynamically set accent color based on transaction type
-            primaryColor: _selectedType == TransactionType.inflow ? Colors.green : Colors.red, // Header and accent colors
-            hintColor: _selectedType == TransactionType.inflow ? Colors.green : Colors.red, // For selected day
-            colorScheme: ColorScheme.light(
-              primary: _selectedType == TransactionType.inflow ? Colors.green : Colors.red, // Primary color for app bar
-              onPrimary: Colors.white, // Text color on primary
-              surface: Colors.white, // Background of the calendar
-              onSurface: Colors.black, // Text color for day numbers
-            ),
-            dialogBackgroundColor: Colors.white, // Background of the date picker dialog
-            appBarTheme: AppBarTheme( // Theme for the date picker's app bar
-              backgroundColor: _selectedType == TransactionType.inflow ? Colors.green : Colors.red,
-              elevation: 0,
-            ),
-          ),
-          child: child!,
-        );
+        return child!;
       },
     );
     // If a date was picked and it's different from the current selection, update the state
@@ -142,65 +122,565 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
     }
   }
 
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _goVoice() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => VoiceInputScreen()));
+    if (result == true && mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> _goScan() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => ImageInputScreen()));
+    if (result == true && mounted) Navigator.pop(context, true);
+  }
+
+  void _pressKey(String key) {
+    setState(() {
+      if (key == '⌫') {
+        if (_amountText.isNotEmpty) {
+          _amountText = _amountText.substring(0, _amountText.length - 1);
+        }
+      } else if (key == '.') {
+        if (!_amountText.contains('.')) {
+          _amountText = _amountText.isEmpty ? '0.' : '$_amountText.';
+        }
+      } else {
+        if (_amountText.contains('.')) {
+          final decimals = _amountText.split('.')[1];
+          if (decimals.length >= 2) return;
+        }
+        if (_amountText.replaceAll('.', '').length >= 12) return;
+        if (_amountText == '0') {
+          _amountText = key;
+        } else {
+          _amountText += key;
+        }
+      }
+    });
+  }
+
+  String get _displayAmount {
+    if (_amountText.isEmpty) return '0';
+    final dotIndex = _amountText.indexOf('.');
+    if (dotIndex == -1) {
+      final n = int.tryParse(_amountText) ?? 0;
+      return NumberFormat('#,##0').format(n);
+    }
+    final intPart = _amountText.substring(0, dotIndex);
+    final fracPart = _amountText.substring(dotIndex + 1);
+    final n = int.tryParse(intPart.isEmpty ? '0' : intPart) ?? 0;
+    return '${NumberFormat('#,##0').format(n)}.$fracPart';
+  }
+
+  double? _parsedAmount() {
+    var text = _amountText;
+    if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+    return double.tryParse(text);
+  }
+
+  String _formatAmountForField(double amount) {
+    if (amount == amount.roundToDouble()) {
+      return amount.toInt().toString();
+    }
+    var s = amount.toStringAsFixed(2);
+    if (s.endsWith('0')) s = s.substring(0, s.length - 1);
+    if (s.endsWith('.')) s = s.substring(0, s.length - 1);
+    return s;
+  }
+
+  String _dateRowLabel() {
+    final now = DateTime.now();
+    final isToday = _selectedDate.year == now.year && _selectedDate.month == now.month && _selectedDate.day == now.day;
+    final formatted = DateFormat('d MMM yyyy').format(_selectedDate);
+    return isToday ? 'Today, $formatted' : formatted;
+  }
+
+  Future<void> _editNote() async {
+    final localizations = AppLocalizations.of(context);
+    final controller = TextEditingController(text: _descriptionController.text);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(localizations.descriptionLabel),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          autofocus: true,
+          decoration: InputDecoration(hintText: localizations.descriptionHint),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text(localizations.dialogCancel)),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: Text(localizations.save)),
+        ],
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        _descriptionController.text = result.trim();
+      });
+    }
+  }
+
+  void _openCategorySheet({String? initialMain}) {
+    String? viewingMain = initialMain;
+    showAppBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final scheme = Theme.of(context).colorScheme;
+            final currentMainData =
+                viewingMain == null ? null : _categories.firstWhereOrNull((c) => c.mainCategory == viewingMain);
+            return SizedBox(
+              height: MediaQuery.of(context).size.height * 0.7,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (viewingMain == null) ...[
+                    Text('Pick a category', style: Theme.of(context).textTheme.titleLarge),
+                    SizedBox(height: 4),
+                    Text(
+                      'Then choose a sub-category inside it',
+                      style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        InkWell(
+                          onTap: () => setSheetState(() => viewingMain = null),
+                          borderRadius: BorderRadius.circular(18),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(color: AppTheme.trackFor(context), shape: BoxShape.circle),
+                            child: Icon(Icons.arrow_back_rounded, size: 20),
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                viewingMain!,
+                                style: Theme.of(context).textTheme.titleMedium,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                'Choose a sub-category',
+                                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  SizedBox(height: 14),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardTheme.color,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: viewingMain == null
+                          ? (_categories.isEmpty
+                              ? Center(
+                                  child: _isLoadingCategories
+                                      ? CircularProgressIndicator()
+                                      : Text('No categories', style: TextStyle(color: scheme.onSurfaceVariant)),
+                                )
+                              : ListView.separated(
+                                  itemCount: _categories.length,
+                                  separatorBuilder: (_, __) => Divider(height: 1, indent: 66),
+                                  itemBuilder: (context, index) {
+                                    final cat = _categories[index];
+                                    return ListTile(
+                                      leading: Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: scheme.secondaryContainer,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(Icons.category_rounded, size: 20, color: scheme.primary),
+                                      ),
+                                      title: Text(
+                                        cat.mainCategory,
+                                        style: TextStyle(fontWeight: FontWeight.w600),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        '${cat.subCategories.length} sub-categories',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                                      onTap: () => setSheetState(() => viewingMain = cat.mainCategory),
+                                    );
+                                  },
+                                ))
+                          : ListView.separated(
+                              itemCount: currentMainData?.subCategories.length ?? 0,
+                              separatorBuilder: (_, __) => Divider(height: 1, indent: 16),
+                              itemBuilder: (context, index) {
+                                final sub = currentMainData!.subCategories[index];
+                                final isSelected = viewingMain == _selectedMainCategory && sub == _selectedSubCategory;
+                                return ListTile(
+                                  title: Text(
+                                    sub,
+                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: isSelected ? Icon(Icons.check_circle_rounded, color: scheme.primary) : null,
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedMainCategory = viewingMain;
+                                      _selectedSubCategory = sub;
+                                    });
+                                    Navigator.pop(sheetContext);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _openRepeatSheet() {
+    showAppBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Repeat', style: Theme.of(context).textTheme.titleLarge),
+              SizedBox(height: 12),
+              RecurrenceSettings(
+                initialRecurrence: _recurrence,
+                transactionDate: _selectedDate,
+                startEnabled: true,
+                onRecurrenceChanged: (recurrence) {
+                  setState(() {
+                    _recurrence = recurrence;
+                  });
+                },
+              ),
+              SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: Text('Done')),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Access the TransactionProvider for state management
     final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
-    final responsive = ResponsiveHelper(context);
-    
+    final scheme = Theme.of(context).colorScheme;
+    final isInflow = _selectedType == TransactionType.inflow;
+    final typeInk = isInflow ? scheme.primary : scheme.error;
+
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          // Dynamic gradient based on transaction type
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              _selectedType == TransactionType.inflow
-                  ? Color(0xFF4CAF50).withOpacity(0.1) // Light green for inflow
-                  : Color(0xFFFF5722).withOpacity(0.1), // Light red for outflow
-              Colors.white,
-            ],
+      appBar: AppBar(
+        leading: IconButton(icon: Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
+        title: Text(localizations.addTransactionTitle, style: TextStyle(fontSize: 18)),
+        actions: [
+          _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: 'Speak it', onTap: _goVoice),
+          const SizedBox(width: 6),
+          _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: 'Scan receipt', onTap: _goScan),
+          Padding(
+            padding: const EdgeInsets.only(left: 8, right: 12),
+            child: Center(
+              child: GestureDetector(
+                onTap: transactionProvider.isLoading ? null : _addTransaction,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: transactionProvider.isLoading ? scheme.outline : scheme.primary,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: transactionProvider.isLoading
+                      ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text(
+                          localizations.save,
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                ),
+              ),
+            ),
           ),
-        ),
-        child: SafeArea(
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header Section
+              // Type segmented control
               Container(
-                padding: responsive.padding(all: 20),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(color: AppTheme.trackFor(context), borderRadius: BorderRadius.circular(12)),
                 child: Row(
                   children: [
-                    // Back Button
-                    IconButton(
-                      onPressed: () => Navigator.pop(context), // Go back to previous screen
-                      icon: Container(
-                        padding: responsive.padding(all: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.1),
-                              spreadRadius: 1,
-                              blurRadius: 4,
+                    Expanded(child: _typeSegment(localizations.outflow, TransactionType.outflow)),
+                    Expanded(child: _typeSegment(localizations.inflow, TransactionType.inflow)),
+                  ],
+                ),
+              ),
+              SizedBox(height: 12),
+
+              // Currency chips
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                children: _kCurrencyOrder.map((currency) => _currencyPill(currency)).toList(),
+              ),
+
+              // Amount display
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 14, 0, 6),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '${localizations.amountLabel} · ${_selectedCurrency.name.toUpperCase()}',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                        ),
+                        const SizedBox(width: 6),
+                        InkWell(
+                          onTap: () {
+                            if (_amountText.isEmpty) {
+                              _showError(localizations.enterAmountBeforeConverting);
+                              return;
+                            }
+                            _showCurrencyConversionDialog();
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Icon(Icons.currency_exchange_rounded, size: 16, color: scheme.primary),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          _selectedCurrency.symbol,
+                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          _displayAmount,
+                          style: AppTheme.money(
+                            42,
+                            weight: FontWeight.w800,
+                            color: _amountText.isEmpty ? scheme.onSurfaceVariant : typeInk,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Category picker
+              InkWell(
+                onTap: () => _openCategorySheet(),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardTheme.color,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [BoxShadow(color: const Color(0x14101815), blurRadius: 3, offset: Offset(0, 1))],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
+                        child: Icon(Icons.category_rounded, color: scheme.primary),
+                      ),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _selectedSubCategory ??
+                                  (_selectedMainCategory != null
+                                      ? localizations.selectSubCategoryHint
+                                      : 'Choose a category'),
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              _selectedMainCategory ?? 'Category and sub-category',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
-                        child: Icon(Icons.arrow_back, color: Color(0xFF333333)),
+                      ),
+                      Icon(Icons.unfold_more_rounded, color: scheme.onSurfaceVariant),
+                    ],
+                  ),
+                ),
+              ),
+              if (_categories.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: SizedBox(
+                    height: 36,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: _quickPickSubCategories().map((pick) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ActionChip(
+                            avatar: Icon(Icons.label_rounded, size: 16, color: scheme.primary),
+                            label: Text(pick.$2),
+                            labelStyle: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                            backgroundColor: Theme.of(context).cardTheme.color,
+                            side: BorderSide(color: scheme.outline),
+                            onPressed: () => setState(() {
+                              _selectedMainCategory = pick.$1;
+                              _selectedSubCategory = pick.$2;
+                            }),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+
+              SizedBox(height: 18),
+
+              // Date / note / repeat card
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardTheme.color,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(color: const Color(0x14101815), blurRadius: 3, offset: Offset(0, 1))],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    InkWell(
+                      onTap: () => _selectDate(context),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Icon(Icons.event_rounded, color: scheme.onSurface),
+                            SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                _dateRowLabel(),
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Icon(Icons.expand_more_rounded, color: scheme.onSurfaceVariant),
+                          ],
+                        ),
                       ),
                     ),
-                    SizedBox(width: 16),
-                    // Screen Title
-                    Expanded(
-                      child: Text(
-                        localizations.addTransactionTitle,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs24,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF333333),
+                    Divider(height: 1, indent: 52),
+                    InkWell(
+                      onTap: _editNote,
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Icon(Icons.notes_rounded, color: scheme.onSurface),
+                            SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                _descriptionController.text.isEmpty
+                                    ? localizations.descriptionHint
+                                    : _descriptionController.text,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                  color: _descriptionController.text.isEmpty ? scheme.onSurfaceVariant : scheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Divider(height: 1, indent: 52),
+                    InkWell(
+                      onTap: _openRepeatSheet,
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Icon(Icons.autorenew_rounded, color: scheme.onSurface),
+                            SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Repeat', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                  SizedBox(height: 2),
+                                  Text(
+                                    _recurrence?.enabled == true
+                                        ? _recurrence!.config!.getDisplayText()
+                                        : 'Off',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Switch(
+                              value: _recurrence?.enabled ?? false,
+                              onChanged: (value) {
+                                if (value) {
+                                  _openRepeatSheet();
+                                } else {
+                                  setState(() => _recurrence = null);
+                                }
+                              },
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -208,575 +688,37 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                 ),
               ),
 
-              // Form Section
-              Expanded(
-                child: FadeTransition( // Apply fade animation
-                  opacity: _fadeAnimation,
-                  child: SlideTransition( // Apply slide animation
-                    position: _slideAnimation,
-                    child: SingleChildScrollView( // Allow scrolling for form content
-                      padding: responsive.padding(all: 20),
-                      child: Form(
-                        key: _formKey, // Assign form key for validation
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Transaction Type Toggle (Inflow/Outflow)
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.1),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  // Outflow Button
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: () {
-                                        if (_selectedType != TransactionType.outflow) {
-                                          setState(() {
-                                            _selectedType = TransactionType.outflow;
-                                            _selectedMainCategory = null; // Reset selections
-                                            _selectedSubCategory = null;
-                                          });
-                                          _loadCategories(); // Reload categories for the new type
-                                        }
-                                      },
-                                      child: Container(
-                                        padding: responsive.padding(vertical: 16),
-                                        decoration: BoxDecoration(
-                                          color: _selectedType == TransactionType.outflow
-                                              ? Color(0xFFFF5722) // Red for outflow
-                                              : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                        ),
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              Icons.arrow_downward,
-                                              color: _selectedType == TransactionType.outflow
-                                                  ? Colors.white
-                                                  : Colors.grey[600],
-                                            ),
-                                            SizedBox(width: responsive.sp8),
-                                            Text(
-                                              localizations.outflow, // Label changed from Expense
-                                              style: GoogleFonts.poppins(
-                                                color: _selectedType == TransactionType.outflow
-                                                    ? Colors.white
-                                                    : Colors.grey[600],
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  // Inflow Button
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: () {
-                                        if (_selectedType != TransactionType.inflow) {
-                                          setState(() {
-                                            _selectedType = TransactionType.inflow;
-                                            _selectedMainCategory = null; // Reset selections
-                                            _selectedSubCategory = null;
-                                          });
-                                          _loadCategories(); // Reload categories for the new type
-                                        }
-                                      },
-                                      child: Container(
-                                        padding: responsive.padding(vertical: 16),
-                                        decoration: BoxDecoration(
-                                          color: _selectedType == TransactionType.inflow
-                                              ? Color(0xFF4CAF50) // Green for inflow
-                                              : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                        ),
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              Icons.arrow_upward,
-                                              color: _selectedType == TransactionType.inflow
-                                                  ? Colors.white
-                                                  : Colors.grey[600],
-                                            ),
-                                            SizedBox(width: responsive.sp8),
-                                            Text(
-                                              localizations.inflow, // Label changed from Income
-                                              style: GoogleFonts.poppins(
-                                                color: _selectedType == TransactionType.inflow
-                                                    ? Colors.white
-                                                    : Colors.grey[600],
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(height: 24),
-
-                          // ADD CURRENCY SELECTOR HERE
-                          Text(
-                            localizations.currency,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.grey.withOpacity(0.1),
-                                  spreadRadius: 2,
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                            child: DropdownButtonFormField<Currency>(
-                              decoration: InputDecoration(
-                                hintText: localizations.selectCurrencyT,
-                                border: InputBorder.none,
-                                contentPadding: responsive.padding(all: 20),
-                                
-                              ),
-                              value: _selectedCurrency,
-                              items: Currency.values.map((currency) {
-                                return DropdownMenuItem(
-                                  value: currency,
-                                  child: Text(
-                                    '${currency.symbol} - ${currency.displayName}',
-                                    style: GoogleFonts.poppins(),
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedCurrency = value!;
-                                });
-                              },
-                              validator: (value) {
-                                if (value == null) {
-                                  return localizations.pleaseSelectCurrency;
-                                }
-                                return null;
-                              },
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                          Container(
-                            width: double.infinity,
-                            margin: responsive.padding(bottom: 24),
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                if (_amountController.text.isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        localizations.enterAmountBeforeConverting,
-                                        style: GoogleFonts.poppins(color: Colors.white),
-                                      ),
-                                      backgroundColor: Colors.orange,
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                                      ),
-                                    ),
-                                  );
-                                  return;
-                                }
-                                _showCurrencyConversionDialog();
-                              },
-                              icon: Icon(Icons.currency_exchange, size: responsive.icon18),
-                              label: Text(
-                                localizations.convertCurrency,
-                                style: GoogleFonts.poppins(fontSize: responsive.fs14, fontWeight: FontWeight.w600),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Color(0xFF667eea),
-                                side: BorderSide(color: Color(0xFF667eea), width: 1.5),
-                                padding: responsive.padding(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                                ),
-                              ),
-                            ),
-                          ),
-                          
-
-                            // Amount Field
-                            Text(
-                              localizations.amountLabel,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.1),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              child: TextFormField(
-                                controller: _amountController,
-                                keyboardType: TextInputType.numberWithOptions(decimal: true), // Allow decimal input
-                                decoration: InputDecoration(
-                                  hintText: '0.00',
-                                  prefixText: '${_selectedCurrency.symbol} ', // Currency symbol
-                                  prefixStyle: GoogleFonts.poppins(
-                                    fontSize: responsive.fs24,
-                                    fontWeight: FontWeight.bold,
-                                    color: _selectedType == TransactionType.inflow
-                                        ? Color(0xFF4CAF50)
-                                        : Color(0xFFFF5722),
-                                  ),
-                                  border: InputBorder.none, // Remove default border
-                                  contentPadding: responsive.padding(all: 20),
-                                ),
-                                style: GoogleFonts.poppins(
-                                  fontSize: responsive.fs24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF333333),
-                                ),
-                                // Validation for the amount field
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return localizations.validationAmountRequired;
-                                  }
-                                  // Check if it's a valid number
-                                  if (double.tryParse(value) == null) {
-                                    return localizations.validationAmountInvalid;
-                                  }
-                                  // Check if amount is positive
-                                  if (double.parse(value) <= 0) {
-                                    return localizations.validationAmountPositive;
-                                  }
-                                  return null; // Return null if validation passes
-                                },
-                              ),
-                            ),
-                            SizedBox(height: 24),
-
-                            // Date Field
-                            Text(
-                              localizations.dateLabel,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            InkWell( // Make the date field tappable to open date picker
-                              onTap: () => _selectDate(context),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.grey.withOpacity(0.1),
-                                      spreadRadius: 2,
-                                      blurRadius: 8,
-                                    ),
-                                  ],
-                                ),
-                                child: Padding(
-                                  padding: responsive.padding(all: 20),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.calendar_today_outlined), // Calendar icon
-                                      SizedBox(width: 16),
-                                      Expanded(
-                                        child: Text(
-                                          DateFormat('yyyy-MM-dd').format(_selectedDate), // Display selected date
-                                          style: GoogleFonts.poppins(
-                                            fontSize: responsive.fs16,
-                                            color: Color(0xFF333333),
-                                          ),
-                                        ),
-                                      ),
-                                      Icon(Icons.arrow_drop_down), // Dropdown indicator
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            SizedBox(height: 24),
-
-                            // Main Category Field
-                            Text(
-                              localizations.categoryLabel,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.1),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              // Show loading indicator while fetching categories
-                              child: _isLoadingCategories
-                                  ? Container(
-                                      padding: responsive.padding(all: 20),
-                                      child: Center(child: CircularProgressIndicator()),
-                                    )
-                                  : DropdownButtonFormField<String>(
-                                      decoration: InputDecoration(
-                                        hintText: localizations.selectMainCategoryHint,
-                                        border: InputBorder.none,
-                                        contentPadding: responsive.padding(all: 20),
-                                        prefixIcon: Icon(Icons.category_outlined),
-                                      ),
-                                      value: _selectedMainCategory, // Current selected value
-                                      items: _categories.map((category) { // Map categories to DropdownMenuItem
-                                        return DropdownMenuItem(
-                                          value: category.mainCategory,
-                                          child: Text(
-                                            category.mainCategory,
-                                            style: GoogleFonts.poppins(),
-                                          ),
-                                        );
-                                      }).toList(),
-                                      // When a category is selected
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _selectedMainCategory = value;
-                                          _selectedSubCategory = null; // Reset sub-category when main changes
-                                        });
-                                      },
-                                      // Validation for main category
-                                      validator: (value) {
-                                        if (value == null || value.isEmpty) {
-                                          return localizations.validationMainCategoryRequired;
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                            ),
-                            SizedBox(height: 16),
-
-                            // Sub Category Field (conditionally displayed)
-                            if (_selectedMainCategory != null) ...[ // Only show if a main category is selected
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.grey.withOpacity(0.1),
-                                      spreadRadius: 2,
-                                      blurRadius: 8,
-                                    ),
-                                  ],
-                                ),
-                                child: DropdownButtonFormField<String>(
-                                  decoration: InputDecoration(
-                                    hintText: localizations.selectSubCategoryHint,
-                                    border: InputBorder.none,
-                                    contentPadding: responsive.padding(all: 20),
-                                    prefixIcon: Icon(Icons.list_outlined),
-                                  ),
-                                  value: _selectedSubCategory, // Current selected value
-                                  // Safely get sub-categories from the selected main category
-                                  items: _categories.isEmpty || _selectedMainCategory == null
-                                      ? [] // Return empty list if no categories or no main category selected
-                                      : _categories
-                                          .firstWhereOrNull((cat) => cat.mainCategory == _selectedMainCategory)
-                                          ?.subCategories // Use ?. for safe navigation
-                                          .map((subCategory) { // Map sub-categories to DropdownMenuItem
-                                        return DropdownMenuItem(
-                                          value: subCategory,
-                                          child: Text(
-                                            subCategory,
-                                            style: GoogleFonts.poppins(),
-                                          ),
-                                        );
-                                      }).toList() ?? [], // Use ?? [] as fallback if .subCategories is null or firstWhereOrNull returns null
-
-                                  // When a sub-category is selected
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _selectedSubCategory = value;
-                                    });
-                                  },
-                                  // Validation for sub category
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return localizations.validationSubCategoryRequired;
-                                    }
-                                    return null;
-                                  },
-                                ),
-                              ),
-                              SizedBox(height: 24),
-                            ],
-
-                            // Description Field (Optional)
-                            Text(
-                              localizations.descriptionLabel,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.1),
-                                    spreadRadius: 2,
-                                    blurRadius: 8,
-                                  ),
-                                ],
-                              ),
-                              child: TextFormField(
-                                controller: _descriptionController,
-                                maxLines: 3, // Allow multiple lines for description
-                                decoration: InputDecoration(
-                                  hintText: localizations.descriptionHint,
-                                  border: InputBorder.none,
-                                  contentPadding: responsive.padding(all: 20),
-                                  prefixIcon: Padding( // Icon padding for alignment
-                                    padding: responsive.padding(top: 12),
-                                    child: Icon(Icons.notes_outlined),
-                                  ),
-                                ),
-                                style: GoogleFonts.poppins(),
-                              ),
-                            ),
-
-                            SizedBox(height: 24),
-
-                            // Recurrence Settings
-                            RecurrenceSettings(
-                              transactionDate: _selectedDate,
-                              onRecurrenceChanged: (recurrence) {
-                                setState(() {
-                                  _recurrence = recurrence;
-                                });
-                              },
-                            ),
-                            SizedBox(height: 32),
-
-                            // Display Error Message from TransactionProvider
-                            Consumer<TransactionProvider>(
-                              builder: (context, transactionProvider, child) {
-                                if (transactionProvider.error != null) {
-                                  return Container(
-                                    padding: responsive.padding(all: 12),
-                                    margin: responsive.padding(bottom: 16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red[50],
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.error_outline, color: Colors.red),
-                                        SizedBox(width: responsive.sp8),
-                                        Expanded(
-                                          child: Text(
-                                            transactionProvider.error!,
-                                            style: TextStyle(color: Colors.red),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }
-                                return SizedBox.shrink(); // Return empty if no error
-                              },
-                            ),
-
-                            // Add Transaction Button
-                            Consumer<TransactionProvider>(
-                              builder: (context, transactionProvider, child) {
-                                return SizedBox(
-                                  width: double.infinity,
-                                  height: responsive.cardHeight(baseHeight: 56),
-                                  child: ElevatedButton(
-                                    onPressed: transactionProvider.isLoading ? null : _addTransaction, // Disable button if loading
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: _selectedType == TransactionType.inflow
-                                          ? Color(0xFF4CAF50) // Green for inflow button
-                                          : Color(0xFFFF5722), // Red for outflow button
-                                    ),
-                                    child: transactionProvider.isLoading
-                                        ? CircularProgressIndicator(color: Colors.white) // Show spinner if loading
-                                        : Row( // Button text with icon
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Icon(
-                                                _selectedType == TransactionType.inflow
-                                                    ? Icons.add_circle_outline
-                                                    : Icons.remove_circle_outline,
-                                                color: Colors.white,
-                                              ),
-                                              SizedBox(width: responsive.sp8),
-                                              Text(
-                                                'Add ${_selectedType == TransactionType.inflow ? 'Inflow' : 'Outflow'}',
-                                                style: GoogleFonts.poppins(
-                                                  fontSize: responsive.fs16,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
+              if (transactionProvider.error != null)
+                Container(
+                  margin: const EdgeInsets.only(top: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline_rounded, color: scheme.error),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          transactionProvider.error!,
+                          style: TextStyle(color: scheme.onErrorContainer),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
+
+              SizedBox(height: 18),
+
+              // Keypad
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map((k) {
+                  return _keypadKey(k);
+                }).toList(),
               ),
             ],
           ),
@@ -785,318 +727,282 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
     );
   }
 
+  Widget _currencyPill(Currency currency) {
+    final selected = _selectedCurrency == currency;
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () => setState(() => _selectedCurrency = currency),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primaryContainer : Theme.of(context).cardTheme.color,
+          borderRadius: BorderRadius.circular(8),
+          border: selected ? null : Border.all(color: scheme.outline),
+        ),
+        child: Text(
+          '${currency.symbol} ${currency.name.toUpperCase()}',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
 
-void _showCurrencyConversionDialog() {
-  final localizations = AppLocalizations.of(context);
-  final TextEditingController _rateController = TextEditingController();
-  Currency? _targetCurrency;
-  final responsive = ResponsiveHelper(context);
+  Widget _appBarTonalIcon({required IconData icon, required String tooltip, required VoidCallback onTap}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
+          child: Icon(icon, size: 22, color: scheme.primary),
+        ),
+      ),
+    );
+  }
 
-  showDialog(
-    context: context,
-    builder: (BuildContext dialogContext) {
-      return StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-            ),
-            title: Row(
-              children: [
-                Icon(Icons.currency_exchange, color: Color(0xFF667eea)),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    localizations.convertCurrency,
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.bold,
-                      fontSize: responsive.fs18,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Current Currency Display
-                  Container(
-                    padding: responsive.padding(all: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(
-                          localizations.current,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs14,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            '${_selectedCurrency.symbol} ${_selectedCurrency.displayName}',
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs14,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 16),
+  Widget _typeSegment(String label, TransactionType type) {
+    final selected = _selectedType == type;
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () {
+        if (_selectedType != type) {
+          setState(() {
+            _selectedType = type;
+            _selectedMainCategory = null;
+            _selectedSubCategory = null;
+          });
+          _loadCategories();
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? Theme.of(context).cardTheme.color : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: selected ? [BoxShadow(color: const Color(0x14101815), blurRadius: 2)] : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
 
-                  // Target Currency Selector
-                  Text(
-                    localizations.convertTo,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF333333),
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  DropdownButtonFormField<Currency>(
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: responsive.padding(horizontal: 12, vertical: 8),
-                    ),
-                    hint: Text(localizations.selectTargetCurrency),
-                    value: _targetCurrency,
-                    items: Currency.values
-                        .where((c) => c != _selectedCurrency)
-                        .map((currency) {
-                      return DropdownMenuItem(
-                        value: currency,
-                        child: Text(
-                          '${currency.symbol} - ${currency.displayName}',
-                          style: GoogleFonts.poppins(fontSize: responsive.fs14),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setDialogState(() {
-                        _targetCurrency = value;
-                      });
-                    },
-                  ),
-                  SizedBox(height: 16),
+  Widget _keypadKey(String label) {
+    final width = (MediaQuery.of(context).size.width - 32 - 16) / 3;
+    return InkWell(
+      onTap: () => _pressKey(label),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: width,
+        height: 52,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardTheme.color,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: const Color(0x14101815), blurRadius: 2)],
+        ),
+        child: label == '⌫'
+            ? Icon(Icons.backspace_rounded, size: 20)
+            : Text(label, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
 
-                  // Exchange Rate Input
-                  Text(
-                    localizations.exchangeRate,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF333333),
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  TextField(
-                    controller: _rateController,
-                    keyboardType: TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      hintText: 'e.g., 3000',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: responsive.padding(horizontal: 12, vertical: 8),
-                      prefixText: '1 ${_selectedCurrency.symbol} = ',
-                      suffixText: _targetCurrency != null ? _targetCurrency!.symbol : '',
-                    ),
-                    style: GoogleFonts.poppins(fontSize: responsive.fs14),
-                  ),
-                  SizedBox(height: 12),
+  void _showCurrencyConversionDialog() {
+    final localizations = AppLocalizations.of(context);
+    final TextEditingController rateController = TextEditingController();
+    Currency? targetCurrency;
 
-                  // Preview Calculation
-                  if (_targetCurrency != null && 
-                      _rateController.text.isNotEmpty && 
-                      _amountController.text.isNotEmpty)
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final scheme = Theme.of(context).colorScheme;
+            return AlertDialog(
+              title: Text(localizations.convertCurrency),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Container(
-                      padding: responsive.padding(all: 12),
-                      decoration: BoxDecoration(
-                        color: Color(0xFF667eea).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Color(0xFF667eea).withOpacity(0.3),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: AppTheme.trackFor(context), borderRadius: BorderRadius.circular(8)),
+                      child: Row(
                         children: [
-                          Text(
-                            localizations.preview,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF667eea),
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            '${_selectedCurrency.symbol}${double.parse(_amountController.text).toStringAsFixed(2)} → ${_targetCurrency!.symbol}${(double.parse(_amountController.text) * (double.tryParse(_rateController.text) ?? 1)).toStringAsFixed(2)}',
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs14,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
+                          Text(localizations.current, style: TextStyle(color: scheme.onSurfaceVariant)),
+                          Expanded(
+                            child: Text(
+                              '${_selectedCurrency.symbol} ${_selectedCurrency.displayName}',
+                              textAlign: TextAlign.end,
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  
-                  
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: Text(
-                  localizations.dialogCancel,
-                  style: GoogleFonts.poppins(
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
+                    SizedBox(height: 16),
+                    Text(localizations.convertTo, style: TextStyle(fontWeight: FontWeight.w600)),
+                    SizedBox(height: 8),
+                    DropdownButtonFormField<Currency>(
+                      isExpanded: true,
+                      hint: Text(localizations.selectTargetCurrency),
+                      value: targetCurrency,
+                      items: Currency.values.where((c) => c != _selectedCurrency).map((currency) {
+                        return DropdownMenuItem(value: currency, child: Text('${currency.symbol} - ${currency.displayName}'));
+                      }).toList(),
+                      onChanged: (value) => setDialogState(() => targetCurrency = value),
+                    ),
+                    SizedBox(height: 16),
+                    Text(localizations.exchangeRate, style: TextStyle(fontWeight: FontWeight.w600)),
+                    SizedBox(height: 8),
+                    TextField(
+                      controller: rateController,
+                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(
+                        hintText: 'e.g., 3000',
+                        prefixText: '1 ${_selectedCurrency.symbol} = ',
+                        suffixText: targetCurrency?.symbol ?? '',
+                      ),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                    SizedBox(height: 12),
+                    if (targetCurrency != null && rateController.text.isNotEmpty && _amountText.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(localizations.preview, style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.jadeLabelFor(context))),
+                            SizedBox(height: 4),
+                            Text(
+                              '${_selectedCurrency.symbol}${(_parsedAmount() ?? 0).toStringAsFixed(2)} → ${targetCurrency!.symbol}${((_parsedAmount() ?? 0) * (double.tryParse(rateController.text) ?? 1)).toStringAsFixed(2)}',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              ElevatedButton(
-                onPressed: () {
-                  if (_targetCurrency == null || _rateController.text.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(localizations.pleaseFillAllFields),
-                        backgroundColor: Colors.red,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                    return;
-                  }
-
-                  if (_amountController.text.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(localizations.pleaseEnterAmountFirst),
-                        backgroundColor: Colors.red,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                    return;
-                  }
-
-                  final rate = double.tryParse(_rateController.text);
-                  if (rate == null || rate <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(localizations.pleaseEnterValidExchangeRate),
-                        backgroundColor: Colors.red,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                    return;
-                  }
-
-                  Navigator.pop(dialogContext);
-                  _applyConversion(_targetCurrency!, rate);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xFF667eea),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  padding: responsive.padding(horizontal: 16, vertical: 12),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text(localizations.dialogCancel)),
+                FilledButton(
+                  onPressed: () {
+                    if (targetCurrency == null || rateController.text.isEmpty) {
+                      _showError(localizations.pleaseFillAllFields);
+                      return;
+                    }
+                    if (_amountText.isEmpty) {
+                      _showError(localizations.pleaseEnterAmountFirst);
+                      return;
+                    }
+                    final rate = double.tryParse(rateController.text);
+                    if (rate == null || rate <= 0) {
+                      _showError(localizations.pleaseEnterValidExchangeRate);
+                      return;
+                    }
+                    Navigator.pop(dialogContext);
+                    _applyConversion(targetCurrency!, rate);
+                  },
+                  child: Text(localizations.convert),
                 ),
-                child: Text(
-                  localizations.convert,
-                  style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      );
-    },
-  );
-}
-
-void _applyConversion(Currency targetCurrency, double exchangeRate) {
-  final currentAmount = double.tryParse(_amountController.text);
-  final localizations = AppLocalizations.of(context);
-  final responsive = ResponsiveHelper(context);
-  if (currentAmount == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(localizations.pleaseEnterValidAmount),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ),
+              ],
+            );
+          },
+        );
+      },
     );
-    return;
   }
 
-  final convertedAmount = currentAmount * exchangeRate;
+  void _applyConversion(Currency targetCurrency, double exchangeRate) {
+    final currentAmount = _parsedAmount();
+    final localizations = AppLocalizations.of(context);
+    if (currentAmount == null) {
+      _showError(localizations.pleaseEnterValidAmount);
+      return;
+    }
 
-  setState(() {
-    _selectedCurrency = targetCurrency;
-    _amountController.text = convertedAmount.toStringAsFixed(2);
-  });
+    final convertedAmount = currentAmount * exchangeRate;
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        'Currency converted! Amount updated to ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}',
-        style: GoogleFonts.poppins(color: Colors.white),
-      ),
-      backgroundColor: Color(0xFF4CAF50),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
-      duration: Duration(seconds: 3),
-    ),
-  );
-}
+    setState(() {
+      _selectedCurrency = targetCurrency;
+      _amountText = _formatAmountForField(convertedAmount);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Currency converted! Amount updated to ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}')),
+    );
+  }
 
   // Function to handle adding the transaction
   void _addTransaction() async {
-    if (_formKey.currentState!.validate()) {
-      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-      
-      final success = await transactionProvider.createTransaction(
-        type: _selectedType,
-        mainCategory: _selectedMainCategory!,
-        subCategory: _selectedSubCategory!,
-        date: _selectedDate,
-        description: _descriptionController.text.trim().isEmpty
-            ? null
-            : _descriptionController.text.trim(),
-        amount: double.parse(_amountController.text),
-        currency: _selectedCurrency,  // ADD THIS LINE
-        context: context,
-        recurrence: _recurrence,
-      );
+    final localizations = AppLocalizations.of(context);
 
-      if (success) {
-        Navigator.pop(context, true);
-      }
+    if (_amountText.isEmpty) {
+      _showError(localizations.validationAmountRequired);
+      return;
+    }
+    final amount = _parsedAmount();
+    if (amount == null) {
+      _showError(localizations.validationAmountInvalid);
+      return;
+    }
+    if (amount <= 0) {
+      _showError(localizations.validationAmountPositive);
+      return;
+    }
+    if (_selectedMainCategory == null) {
+      _showError(localizations.validationMainCategoryRequired);
+      return;
+    }
+    if (_selectedSubCategory == null) {
+      _showError(localizations.validationSubCategoryRequired);
+      return;
+    }
+
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+
+    final success = await transactionProvider.createTransaction(
+      type: _selectedType,
+      mainCategory: _selectedMainCategory!,
+      subCategory: _selectedSubCategory!,
+      date: _selectedDate,
+      description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
+      amount: amount,
+      currency: _selectedCurrency,
+      context: context,
+      recurrence: _recurrence,
+    );
+
+    if (success) {
+      Navigator.pop(context, true);
     }
   }
 
   // Dispose of controllers to prevent memory leaks
   @override
   void dispose() {
-    _animationController.dispose();
-    _amountController.dispose();
     _descriptionController.dispose();
     super.dispose();
   }

@@ -1,6 +1,5 @@
 import 'dart:async'; // Required for Timer
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:pinput/pinput.dart';
 import '../../services/api_service.dart';
 import 'login_screen.dart';
@@ -55,55 +54,52 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _GradientBackground(
-        child: _AuthCard(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _StepHeader(
-                  icon: Icons.lock_reset_rounded,
-                  title: 'Forgot Password?',
-                  subtitle:
-                      "Enter your registered email and we'll send you a 6-digit reset code.",
+      body: _AuthShell(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _BackArrow(onTap: () => Navigator.pop(context)),
+              const _StepHeader(
+                icon: Icons.lock_reset_rounded,
+                title: 'Reset your password',
+                subtitle: "We'll email a six-digit code to the address on the account.",
+              ),
+              const SizedBox(height: 24),
+
+              // Email field
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email address',
+                  prefixIcon: Icon(Icons.mail_outline_rounded),
                 ),
-                const SizedBox(height: 28),
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Please enter your email';
+                  if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v)) {
+                    return 'Please enter a valid email';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
 
-                // Email field
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: _inputDecoration(
-                    label: 'Email Address',
-                    icon: Icons.email_outlined,
-                  ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'Please enter your email';
-                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                        .hasMatch(v)) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
+              if (_error != null) _ErrorBanner(message: _error!),
 
-                if (_error != null) _ErrorBanner(message: _error!),
+              const SizedBox(height: 4),
 
-                const SizedBox(height: 8),
+              _PrimaryButton(
+                label: 'Send the code',
+                isLoading: _isLoading,
+                onPressed: _requestOtp,
+              ),
+              const SizedBox(height: 16),
 
-                _PrimaryButton(
-                  label: 'Send Reset Code',
-                  isLoading: _isLoading,
-                  onPressed: _requestOtp,
-                ),
-                const SizedBox(height: 16),
-
-                _BackToLoginButton(),
-              ],
-            ),
+              const _BackToLoginButton(),
+            ],
           ),
         ),
       ),
@@ -143,13 +139,13 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   void _startTimer() {
     _timer?.cancel(); // Cancel any existing timer
     setState(() => _secondsLeft = 60);
-    
+
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      
+
       if (_secondsLeft > 0) {
         setState(() => _secondsLeft--);
       } else {
@@ -177,9 +173,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         otp: _otp,
       );
       if (!mounted) return;
-      
+
       _timer?.cancel(); // Cancel timer before navigating away
-      
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -207,13 +203,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     try {
       await ApiService.requestPasswordResetOtp(email: widget.email);
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('A new code has been sent to your email.')),
       );
-      
+
       _startTimer(); // Restart the timer only on success
-      
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
     } finally {
@@ -231,100 +226,113 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final defaultPinTheme = PinTheme(
       width: 48,
       height: 56,
-      textStyle: GoogleFonts.poppins(
-        fontSize: 22,
-        fontWeight: FontWeight.bold,
-        color: const Color(0xFF667eea),
-      ),
+      textStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: scheme.onSurface,
+          ),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFDDDDDD)),
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline),
+      ),
+    );
+    // A box with a digit already committed reads with a jade-tinted border;
+    // focused gets the full jade ring; a failed verification turns every
+    // box's border error-red until the next edit clears it.
+    final submittedPinTheme = defaultPinTheme.copyWith(
+      decoration: defaultPinTheme.decoration!.copyWith(
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.45)),
+      ),
+    );
+    final errorPinTheme = defaultPinTheme.copyWith(
+      decoration: defaultPinTheme.decoration!.copyWith(
+        border: Border.all(color: scheme.error, width: 1.5),
       ),
     );
 
     return Scaffold(
-      body: _GradientBackground(
-        child: _AuthCard(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _StepHeader(
-                icon: Icons.mark_email_read_rounded,
-                title: 'Enter Reset Code',
-                subtitle:
-                    'We sent a 6-digit code to\n${widget.email}\n\nIt expires in 10 minutes.',
-              ),
-              const SizedBox(height: 32),
+      body: _AuthShell(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _BackArrow(onTap: () => Navigator.pop(context)),
+            _StepHeader(
+              icon: Icons.mark_email_read_rounded,
+              title: 'Enter the code',
+              subtitle: 'Sent to ${widget.email}. It expires in ten minutes.',
+            ),
+            const SizedBox(height: 24),
 
-              Pinput(
-                length: 6,
-                controller: pinController,
-                focusNode: focusNode,
-                defaultPinTheme: defaultPinTheme,
-                focusedPinTheme: defaultPinTheme.copyWith(
-                  decoration: defaultPinTheme.decoration!.copyWith(
-                    border: Border.all(color: const Color(0xFF667eea), width: 2),
-                  ),
+            Pinput(
+              length: 6,
+              controller: pinController,
+              focusNode: focusNode,
+              defaultPinTheme: defaultPinTheme,
+              focusedPinTheme: defaultPinTheme.copyWith(
+                decoration: defaultPinTheme.decoration!.copyWith(
+                  border: Border.all(color: scheme.primary, width: 1.5),
                 ),
-                onChanged: (value) => setState(() => _error = null),
-                onCompleted: (pin) => _verify(),
               ),
+              submittedPinTheme: submittedPinTheme,
+              followingPinTheme: defaultPinTheme,
+              errorPinTheme: errorPinTheme,
+              forceErrorState: _error != null,
+              onChanged: (value) => setState(() => _error = null),
+              onCompleted: (pin) => _verify(),
+            ),
 
-              const SizedBox(height: 16),
+            const SizedBox(height: 16),
 
-              if (_error != null) _ErrorBanner(message: _error!),
+            if (_error != null) _ErrorBanner(message: _error!),
 
-              const SizedBox(height: 8),
+            const SizedBox(height: 4),
 
-              _PrimaryButton(
-                label: 'Verify Code',
-                isLoading: _isLoading,
-                onPressed: _verify,
-              ),
+            _PrimaryButton(
+              label: 'Verify code',
+              isLoading: _isLoading,
+              onPressed: _verify,
+            ),
 
-              const SizedBox(height: 20),
+            const SizedBox(height: 18),
 
-              // Resend row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "Didn't get it? ",
-                    style: GoogleFonts.poppins(color: Colors.grey[600]),
-                  ),
-                  _secondsLeft > 0
-                      ? Text(
-                          'Resend in ${_secondsLeft}s',
-                          style: GoogleFonts.poppins(color: Colors.grey[400]),
-                        )
-                      : _isResending
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : GestureDetector(
-                              onTap: _resend,
-                              child: Text(
-                                'Resend Code',
-                                style: GoogleFonts.poppins(
-                                  color: const Color(0xFF667eea),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+            // Resend row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  "Didn't get it? ",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                ),
+                _secondsLeft > 0
+                    ? Text(
+                        'Resend in ${_secondsLeft}s',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                      )
+                    : _isResending
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
+                          )
+                        : GestureDetector(
+                            onTap: _resend,
+                            child: Text(
+                              'Send a new code',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary),
                             ),
-                ],
-              ),
+                          ),
+              ],
+            ),
 
-              const SizedBox(height: 8),
-              _BackToLoginButton(),
-            ],
-          ),
+            const SizedBox(height: 8),
+            const _BackToLoginButton(),
+          ],
         ),
       ),
     );
@@ -374,63 +382,47 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       );
       if (!mounted) return;
 
+      final scheme = Theme.of(context).colorScheme;
+
       // Show success dialog then go to login
       await showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        builder: (dialogContext) => AlertDialog(
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 width: 64,
                 height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.check_circle,
-                    color: Colors.green, size: 40),
+                decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
+                child: Icon(Icons.check_circle_rounded, color: scheme.primary, size: 40),
               ),
               const SizedBox(height: 16),
               Text(
-                'Password Reset!',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                'Password reset!',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: scheme.onSurface),
               ),
               const SizedBox(height: 8),
               Text(
                 'Your password has been updated successfully. You can now log in with your new password.',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(color: Colors.grey[600]),
+                style: TextStyle(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF667eea),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
+                child: FilledButton(
                   onPressed: () {
-                    Navigator.of(context).pop(); // close dialog
+                    Navigator.of(dialogContext).pop(); // close dialog
                     Navigator.of(context).pushAndRemoveUntil(
                       MaterialPageRoute(builder: (_) => LoginScreen()),
                       (route) => false,
                     );
                   },
-                  child: Text(
-                    'Back to Login',
-                    style: GoogleFonts.poppins(
-                        color: Colors.white, fontWeight: FontWeight.w600),
-                  ),
+                  child: const Text('Back to login'),
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -452,85 +444,74 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _GradientBackground(
-        child: _AuthCard(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _StepHeader(
-                  icon: Icons.lock_outline_rounded,
-                  title: 'New Password',
-                  subtitle: 'Create a strong password for your account.',
-                ),
-                const SizedBox(height: 28),
+      body: _AuthShell(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _StepHeader(
+                icon: Icons.lock_outline_rounded,
+                title: 'Choose a new password',
+                subtitle: 'Code accepted. At least six characters.',
+              ),
+              const SizedBox(height: 22),
 
-                // New password
-                TextFormField(
-                  controller: _newPasswordController,
-                  obscureText: _obscureNew,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: _inputDecoration(
-                    label: 'New Password',
-                    icon: Icons.lock_outlined,
-                  ).copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscureNew
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined),
-                      onPressed: () =>
-                          setState(() => _obscureNew = !_obscureNew),
-                    ),
+              // New password
+              TextFormField(
+                controller: _newPasswordController,
+                obscureText: _obscureNew,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: 'New password',
+                  prefixIcon: const Icon(Icons.lock_outline_rounded),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscureNew ? Icons.visibility_rounded : Icons.visibility_off_rounded),
+                    onPressed: () => setState(() => _obscureNew = !_obscureNew),
                   ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'Please enter a password';
-                    if (v.length < 6) return 'Minimum 6 characters';
-                    return null;
-                  },
                 ),
-                const SizedBox(height: 16),
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Please enter a password';
+                  if (v.length < 6) return 'Minimum 6 characters';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
 
-                // Confirm password
-                TextFormField(
-                  controller: _confirmPasswordController,
-                  obscureText: _obscureConfirm,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: _inputDecoration(
-                    label: 'Confirm Password',
-                    icon: Icons.lock_outlined,
-                  ).copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscureConfirm
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined),
-                      onPressed: () =>
-                          setState(() => _obscureConfirm = !_obscureConfirm),
-                    ),
+              // Confirm password
+              TextFormField(
+                controller: _confirmPasswordController,
+                obscureText: _obscureConfirm,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: 'Confirm it',
+                  prefixIcon: const Icon(Icons.lock_outline_rounded),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscureConfirm ? Icons.visibility_rounded : Icons.visibility_off_rounded),
+                    onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
                   ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'Please confirm your password';
-                    if (v != _newPasswordController.text)
-                      return 'Passwords do not match';
-                    return null;
-                  },
                 ),
-                const SizedBox(height: 16),
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Please confirm your password';
+                  if (v != _newPasswordController.text) return 'Passwords do not match';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
 
-                if (_error != null) _ErrorBanner(message: _error!),
+              if (_error != null) _ErrorBanner(message: _error!),
 
-                const SizedBox(height: 8),
+              const SizedBox(height: 4),
 
-                _PrimaryButton(
-                  label: 'Reset Password',
-                  isLoading: _isLoading,
-                  onPressed: _resetPassword,
-                ),
-              ],
-            ),
+              _PrimaryButton(
+                label: 'Save and sign in',
+                isLoading: _isLoading,
+                onPressed: _resetPassword,
+              ),
+            ],
           ),
         ),
       ),
@@ -542,44 +523,37 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 // Shared private widgets
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _GradientBackground extends StatelessWidget {
+/// Full-bleed auth screen layout — no card, no gradient. The theme's
+/// scaffold background (surface) shows straight through, matching the
+/// register / login screens.
+class _AuthShell extends StatelessWidget {
   final Widget child;
-  const _GradientBackground({required this.child});
+  const _AuthShell({required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-        ),
-      ),
-      child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: child,
-          ),
-        ),
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+        child: child,
       ),
     );
   }
 }
 
-class _AuthCard extends StatelessWidget {
-  final Widget child;
-  const _AuthCard({required this.child});
+class _BackArrow extends StatelessWidget {
+  final VoidCallback onTap;
+  const _BackArrow({required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: child,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: IconButton(
+        onPressed: onTap,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+        icon: const Icon(Icons.arrow_back_rounded),
       ),
     );
   }
@@ -589,42 +563,36 @@ class _StepHeader extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  const _StepHeader(
-      {required this.icon, required this.title, required this.subtitle});
+  const _StepHeader({required this.icon, required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const SizedBox(height: 8),
         Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Icon(icon, color: Colors.white, size: 36),
+          width: 64,
+          height: 64,
+          decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(20)),
+          child: Icon(icon, size: 30, color: scheme.primary),
         ),
         const SizedBox(height: 16),
         Text(
           title,
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF333333),
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.2,
+            color: scheme.onSurface,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
           subtitle,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: 13,
-            color: Colors.grey[600],
-            height: 1.5,
-          ),
+          style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant, height: 1.4),
         ),
       ],
     );
@@ -644,27 +612,15 @@ class _PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 50,
-      child: ElevatedButton(
-        onPressed: isLoading ? null : onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF667eea),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          elevation: 4,
-        ),
-        child: isLoading
-            ? const CircularProgressIndicator(color: Colors.white)
-            : Text(
-                label,
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-      ),
+    return FilledButton(
+      onPressed: isLoading ? null : onPressed,
+      child: isLoading
+          ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+            )
+          : Text(label),
     );
   }
 }
@@ -675,22 +631,22 @@ class _ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: Colors.red[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.red[200]!),
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, color: Colors.red, size: 20),
+          Icon(Icons.error_outline_rounded, color: scheme.error, size: 20),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(color: Colors.red, fontSize: 13),
+              style: TextStyle(color: scheme.onErrorContainer, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -700,33 +656,21 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 class _BackToLoginButton extends StatelessWidget {
+  const _BackToLoginButton();
+
   @override
   Widget build(BuildContext context) {
-    return TextButton.icon(
-      onPressed: () {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => LoginScreen()),
-          (route) => false,
-        );
-      },
-      icon: const Icon(Icons.arrow_back, size: 16, color: Color(0xFF667eea)),
-      label: Text(
-        'Back to Login',
-        style: GoogleFonts.poppins(color: const Color(0xFF667eea)),
+    return Center(
+      child: TextButton.icon(
+        onPressed: () {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => LoginScreen()),
+            (route) => false,
+          );
+        },
+        icon: const Icon(Icons.arrow_back_rounded, size: 16),
+        label: const Text('Back to login'),
       ),
     );
   }
-}
-
-InputDecoration _inputDecoration({
-  required String label,
-  required IconData icon,
-}) {
-  return InputDecoration(
-    labelText: label,
-    prefixIcon: Icon(icon),
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-    filled: true,
-    fillColor: Colors.grey[50],
-  );
 }

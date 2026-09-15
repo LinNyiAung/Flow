@@ -217,7 +217,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 max_tokens=2500
             )
             insights_content = response.choices[0].message.content
-            
+
             if hasattr(response, 'usage'):
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
@@ -240,7 +240,7 @@ Start by adding your first transaction or creating a financial goal. The more da
         
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
-        
+
         new_insight = {
             "_id": insight_id,
             "user_id": user_id,
@@ -645,7 +645,7 @@ async def translate_insight_to_myanmar(english_content: str, ai_provider: str = 
     try:
                 # NEW: Check if this is a placeholder insight by checking for the welcome message
         is_placeholder = "Welcome to Toe Pwar!" in english_content and "Get Started with Your Financial Journey" in english_content
-        
+
         if is_placeholder:
             # Return Myanmar placeholder without calling AI API
             logger.info("Returning Myanmar placeholder for new user")
@@ -683,8 +683,8 @@ Toe Pwar နဲ့ စတင်အသုံးပြုနေပုံရပါ�
 ---
 *သင့်ငွေကြေး ခရီးစဉ် ဤနေရာမှ စတင်ပါသည်။ အောင်မြင်အောင် လုပ်ကြပါစို့!* 💪"""
             return myanmar_placeholder
-        
-        system_prompt = """You are a professional translator specializing in financial content. 
+
+        system_prompt = """You are a professional translator specializing in financial content.
 Translate the following financial insights from English to Myanmar (Burmese) language.
 
 CRITICAL RULES:
@@ -766,7 +766,7 @@ Translate naturally while keeping the professional yet friendly tone."""
                 temperature=0.3,
                 max_tokens=3000
             )
-            
+
             myanmar_content = response.choices[0].message.content
 
 
@@ -785,9 +785,9 @@ Translate naturally while keeping the professional yet friendly tone."""
                     output_tokens=output_tokens,
                     total_tokens=total_tokens
                 )
-        
+
         return myanmar_content
-        
+
     except Exception as e:
         logger.error(f"Translation error using {ai_provider}: {e}")
         raise Exception(f"Failed to translate insights: {str(e)}")
@@ -988,7 +988,7 @@ Start by adding your first transaction or creating a financial goal. The more da
                 max_tokens=3000
             )
             insights_content = response.choices[0].message.content
-            
+
             if hasattr(response, 'usage'):
                 input_tokens = response.usage.prompt_tokens
                 output_tokens = response.usage.completion_tokens
@@ -1006,7 +1006,7 @@ Start by adding your first transaction or creating a financial goal. The more da
         
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
-        
+
         new_insight = {
             "_id": insight_id,
             "user_id": user_id,
@@ -1018,7 +1018,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             "insight_type": "monthly",
             "ai_provider": ai_provider,
             "expires_at": None,
-            "is_placeholder": False
+            "is_placeholder": False,
         }
         
         # [FIX] Added await

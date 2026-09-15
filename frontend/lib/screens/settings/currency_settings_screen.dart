@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../models/user.dart';
 import '../../providers/auth_provider.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 import '../../services/localization_service.dart';
 
@@ -14,10 +12,8 @@ class CurrencySettingsScreen extends StatefulWidget {
 
 class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
   bool _isLoading = false;
-  
 
   Future<void> _updateCurrency(Currency currency) async {
-    final responsive = ResponsiveHelper(context);
     setState(() {
       _isLoading = true;
     });
@@ -31,27 +27,11 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Default currency updated to ${currency.displayName}',
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Color(0xFF4CAF50),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
-        ),
+        SnackBar(content: Text('Default currency updated to ${currency.displayName}')),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            authProvider.error ?? 'Failed to update currency',
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(12))),
-        ),
+        SnackBar(content: Text(authProvider.error ?? 'Failed to update currency')),
       );
     }
   }
@@ -60,134 +40,60 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final currentCurrency = authProvider.defaultCurrency;
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          localizations.currencySettings,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF333333)),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: ListView(
-          padding: responsive.padding(all: 20),
-          children: [
-            // Header Card
-            Container(
-              padding: responsive.padding(all: 20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 2,
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: responsive.padding(all: 12),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                      ),
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    ),
-                    child: Icon(Icons.attach_money, color: Colors.white, size: responsive.icon24),
-                  ),
-                  SizedBox(width: responsive.sp16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          localizations.selectDefaultCurrency,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs16,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        SizedBox(height: responsive.sp4),
-                        Text(
-                          localizations.preferredCurrency,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+      appBar: AppBar(title: Text(localizations.currencySettings)),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 10),
+            child: Text(
+              localizations.selectDefaultCurrency,
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary),
             ),
+          ),
+          Card(
+            child: Column(
+              children: [
+                for (final currency in Currency.values) ...[
+                  if (currency != Currency.values.first) const Divider(),
+                  _buildCurrencyOption(
+                    currency: currency,
+                    isSelected: currentCurrency == currency,
+                    onTap: _isLoading ? null : () => _updateCurrency(currency),
+                  ),
+                ],
+              ],
+            ),
+          ),
 
-            SizedBox(height: responsive.sp24),
+          const SizedBox(height: 20),
 
-            // Currency Options
-            ...Currency.values.map((currency) {
-              return _buildCurrencyOption(
-                currency: currency,
-                isSelected: currentCurrency == currency,
-                onTap: _isLoading ? null : () => _updateCurrency(currency),
-              );
-            }).toList(),
-
-            SizedBox(height: responsive.sp24),
-
-            // Info Card
-            Container(
-              padding: responsive.padding(all: 16),
-              decoration: BoxDecoration(
-                color: Color(0xFF2196F3).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                border: Border.all(
-                  color: Color(0xFF2196F3).withOpacity(0.3),
-                  width: 1,
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: scheme.outlineVariant,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'HOW CURRENCIES WORK HERE',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
                 ),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Color(0xFF2196F3), size: responsive.icon24),
-                  SizedBox(width: responsive.sp12),
-                  Expanded(
-                    child: Text(
-                      localizations.eachCurrencyOwnBalance,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs13,
-                        color: Color(0xFF2196F3),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                const SizedBox(height: 6),
+                Text(
+                  localizations.eachCurrencyOwnBalance,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -197,96 +103,54 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
     required bool isSelected,
     required VoidCallback? onTap,
   }) {
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-        child: Container(
-          padding: responsive.padding(all: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-            border: Border.all(
-              color: isSelected ? Color(0xFF667eea) : Colors.grey.withOpacity(0.2),
-              width: isSelected ? 2 : 1,
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: isSelected ? scheme.primaryContainer : scheme.secondaryContainer,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                currency.symbol,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: isSelected ? scheme.onPrimaryContainer : scheme.primary,
+                ),
+              ),
             ),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: Color(0xFF667eea).withOpacity(0.2),
-                      spreadRadius: 2,
-                      blurRadius: 8,
-                    ),
-                  ]
-                : [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.1),
-                      spreadRadius: 1,
-                      blurRadius: 4,
-                    ),
-                  ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: responsive.padding(all: 12),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? Color(0xFF667eea).withOpacity(0.1)
-                      : Colors.grey.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                ),
-                child: Text(
-                  currency.symbol,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs24,
-                    fontWeight: FontWeight.bold,
-                    color: isSelected ? Color(0xFF667eea) : Colors.grey[600],
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    currency.displayName,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    currency.symbol,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              SizedBox(width: responsive.sp16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      currency.displayName,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs16,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF333333),
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      currency.symbol,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs14,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isSelected)
-                Container(
-                  padding: responsive.padding(all: 8),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF667eea),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.check,
-                    color: Colors.white,
-                    size: responsive.icon20,
-                  ),
-                ),
-            ],
-          ),
+            ),
+            if (isSelected) Icon(Icons.check_circle_rounded, color: scheme.primary, size: 22),
+          ],
         ),
       ),
     );

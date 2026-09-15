@@ -1,13 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/screens/auth/login_screen.dart';
 import 'package:frontend/services/localization_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/transactions/transactions_list_screen.dart';
-import '../widgets/premium_badge.dart';  // NEW
 import 'package:frontend/services/responsive_helper.dart';
+
+class _DrawerNavItem {
+  const _DrawerNavItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isActive = false,
+    this.badgeText,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool isActive;
+
+  /// Per-item badge copy (mockup: "3 NEW" / "TRY FREE" / "FREE MONTH" — not
+  /// a generic "PREMIUM" pill). Null means no badge.
+  final String? badgeText;
+}
 
 class AppDrawer extends StatelessWidget {
   @override
@@ -16,412 +34,245 @@ class AppDrawer extends StatelessWidget {
     final user = authProvider.user;
     final localizations = AppLocalizations.of(context);
     final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
+    final currentRoute = ModalRoute.of(context)?.settings.name;
+    final isHome = currentRoute == '/';
+    final isPremium = authProvider.isPremium;
+
+    void go(String routeName) {
+      Navigator.pop(context);
+      Navigator.pushNamed(context, routeName);
+    }
+
+    // Order, icons and route keys mirror the mockup's `nav` list (lines
+    // 3195-3212): Dashboard, Transactions, Budgets, Goals, AI assistant,
+    // Inflow analytics, Outflow analytics, Reports, Insights, Premium.
+    final navItems = <_DrawerNavItem>[
+      _DrawerNavItem(
+        icon: Icons.space_dashboard_rounded,
+        label: localizations.dashboard,
+        isActive: isHome,
+        onTap: () {
+          Navigator.pop(context);
+          if (!isHome) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => HomeScreen()),
+            );
+          }
+        },
+      ),
+      _DrawerNavItem(
+        icon: Icons.receipt_long_rounded,
+        label: localizations.transactions,
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => TransactionsListScreen()),
+          );
+        },
+      ),
+      _DrawerNavItem(
+        icon: Icons.savings_rounded,
+        label: localizations.budgets,
+        isActive: currentRoute == '/budgets',
+        onTap: () => go('/budgets'),
+      ),
+      _DrawerNavItem(
+        icon: Icons.flag_rounded,
+        label: localizations.goals,
+        isActive: currentRoute == '/goals',
+        onTap: () => go('/goals'),
+      ),
+      _DrawerNavItem(
+        icon: Icons.forum_rounded,
+        label: localizations.aiAssistant,
+        isActive: currentRoute == '/ai-chat',
+        badgeText: !isPremium ? 'TRY FREE' : null,
+        onTap: () => go('/ai-chat'),
+      ),
+      _DrawerNavItem(
+        icon: Icons.trending_up_rounded,
+        label: localizations.inflowAnalytics,
+        isActive: currentRoute == '/inflow-analytics',
+        onTap: () => go('/inflow-analytics'),
+      ),
+      _DrawerNavItem(
+        icon: Icons.pie_chart_rounded,
+        label: localizations.outflowAnalytics,
+        isActive: currentRoute == '/outflow-analytics',
+        onTap: () => go('/outflow-analytics'),
+      ),
+      _DrawerNavItem(
+        icon: Icons.assessment_rounded,
+        label: localizations.financialReports,
+        isActive: currentRoute == '/reports',
+        onTap: () => go('/reports'),
+      ),
+      _DrawerNavItem(
+        icon: Icons.lightbulb_rounded,
+        label: localizations.aiInsights,
+        isActive: currentRoute == '/insights',
+        badgeText: !isPremium ? '3 NEW' : null,
+        onTap: () => go('/insights'),
+      ),
+      _DrawerNavItem(
+        icon: Icons.workspace_premium_rounded,
+        label: localizations.subscription,
+        isActive: currentRoute == '/subscription',
+        badgeText: !isPremium ? 'FREE MONTH' : null,
+        onTap: () => go('/subscription'),
+      ),
+    ];
 
     return Drawer(
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.05),
-              Colors.white.withOpacity(0.9),
-            ],
-          ),
-        ),
+      child: SafeArea(
         child: Column(
           children: <Widget>[
-            // Drawer Header
-            DrawerHeader(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                ),
-              ),
-              child: Container(
-                width: double.infinity,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: responsive.iconSize(mobile: 30),
-                          backgroundColor: Colors.white.withOpacity(0.8),
-                          child: Text(
-                            user?.name != null && user!.name.isNotEmpty
-                                ? user.name[0].toUpperCase()
-                                : 'U',
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs24,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF667eea),
-                            ),
+            // Profile header
+            Padding(
+              padding: responsive.padding(left: 20, right: 20, top: 18, bottom: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: responsive.iconSize(mobile: 52),
+                        height: responsive.iconSize(mobile: 52),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: scheme.primaryContainer,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Text(
+                          user?.name != null && user!.name.isNotEmpty
+                              ? user.name[0].toUpperCase()
+                              : 'U',
+                          style: TextStyle(
+                            fontSize: responsive.fs20,
+                            fontWeight: FontWeight.w800,
+                            color: scheme.onPrimaryContainer,
                           ),
                         ),
-                        // NEW: Show premium badge if user is premium
-                        if (authProvider.isPremium) ...[
-                          SizedBox(width: responsive.sp8),
-                          PremiumBadge(small: true),
-                        ],
+                      ),
+                      if (isPremium) ...[
+                        SizedBox(width: responsive.sp8),
+                        StatusPill(
+                          label: localizations.premium.toUpperCase(),
+                          background: scheme.tertiaryContainer,
+                          foreground: scheme.tertiary,
+                        ),
                       ],
+                    ],
+                  ),
+                  SizedBox(height: responsive.sp12),
+                  Text(
+                    user?.name ?? '',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontSize: responsive.fontSize(mobile: 17),
                     ),
-                    SizedBox(height: responsive.sp12),
-                    Text(
-                      user?.name ?? localizations.takeUploadPhoto,
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    user?.email ?? '',
+                    style: TextStyle(
+                      fontSize: responsive.fs12,
+                      fontWeight: FontWeight.w500,
+                      color: scheme.onSurfaceVariant,
                     ),
-                    Text(
-                      user?.email ?? '',
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs12,
-                        color: Colors.white.withOpacity(0.8),
-                      ),
-                    ),
-                    // NEW: Show expiry date if premium
-                    if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null)
-                      Text(
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (isPremium && authProvider.subscriptionExpiresAt != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
                         '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs10,
-                          color: Colors.white.withOpacity(0.7),
+                        style: TextStyle(
+                          fontSize: responsive.fs11,
+                          color: scheme.onSurfaceVariant,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                  ],
-                ),
-              ),
-            ),
-            
-            // Navigation Items in Expanded ListView
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: <Widget>[
-                  ListTile(
-                    leading: Icon(Icons.dashboard, color: Color(0xFF667eea)),
-                    title: Text(
-                      localizations.dashboard,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
                     ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      if (ModalRoute.of(context)?.settings.name != '/') {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => HomeScreen()),
-                        );
-                      }
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Icon(Icons.list_alt, color: Color(0xFF764ba2)),
-                    title: Text(
-                      localizations.transactions,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => TransactionsListScreen()),
-                      );
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.flag, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Text(
-                      localizations.goals,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/goals');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFFF9800), Color(0xFFF57C00)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.account_balance_wallet, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Text(
-                      localizations.budgets,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/budgets');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.trending_up, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Text(
-                      localizations.inflowAnalytics,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/inflow-analytics');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFFF5722), Color(0xFFE64A19)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.analytics, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Text(
-                      localizations.outflowAnalytics,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/outflow-analytics');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.assessment, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Text(
-                      localizations.financialReports,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/reports');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFFFB74D), Color(0xFFFF9800)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.lightbulb, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            localizations.aiInsights,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                            
-                          ),
-                        ),
-                        if (!authProvider.isPremium) ...[
-                          SizedBox(width: responsive.sp8),
-                          Icon(Icons.lock, size: responsive.icon20, color: Color(0xFFFFD700)),
-                        ],
-                      ],
-                    ),
-                        trailing: !authProvider.isPremium 
-                        ? Container(
-                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Color(0xFFFFD700).withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                              border: Border.all(color: Color(0xFFFFD700), width: 1),
-                            ),
-                            child: Text(
-                              localizations.premium,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs10,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFFFD700),
-                              ),
-                            ),
-                          )
-                        : null,
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/insights');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.smart_toy, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            localizations.aiAssistant,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                          ),
-                        ),
-                        
-                        if (!authProvider.isPremium) ...[
-                          SizedBox(width: responsive.sp8),
-                          Icon(Icons.lock, size: responsive.icon20, color: Color(0xFFFFD700)),
-                        ]
-                      ],
-                    ),
-                        trailing: !authProvider.isPremium 
-                        ? Container(
-                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Color(0xFFFFD700).withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                              border: Border.all(color: Color(0xFFFFD700), width: 1),
-                            ),
-                            child: Text(
-                              localizations.premium,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs10,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFFFD700),
-                              ),
-                            ),
-                          )
-                        : null,
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/ai-chat');
-                    },
-                  ),
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  ListTile(
-                    leading: Container(
-                      width: responsive.icon24,
-                      height: responsive.icon24,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF607D8B), Color(0xFF455A64)],
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Icon(Icons.settings, color: Colors.white, size: responsive.icon20),
-                    ),
-                    title: Text(
-                      localizations.settings,
-                      style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/settings');
-                    },
-                  ),
-                  
-                  Divider(height: 1, thickness: 1, color: Colors.grey[200]),
-                  // NEW: Subscription/Upgrade option
-                  // ListTile(
-                  //   leading: Container(
-                  //     width: responsive.icon24,
-                  //     height: responsive.icon24,
-                  //     decoration: BoxDecoration(
-                  //       gradient: LinearGradient(
-                  //         colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
-                  //       ),
-                  //       borderRadius: BorderRadius.circular(4),
-                  //     ),
-                  //     child: Icon(Icons.star, color: Colors.white, size: responsive.icon20),
-                  //   ),
-                  //   title: Text(
-                  //     authProvider.isPremium ? 'Manage Subscription' : 'Upgrade to Premium',
-                  //     style: GoogleFonts.poppins(fontSize: responsive.fs16),
-                  //   ),
-                  //   onTap: () {
-                  //     Navigator.pop(context);
-                  //     Navigator.pushNamed(context, '/subscription');
-                  //   },
-                  // ),
-                  // Divider(height: 1, thickness: 1, color: Colors.grey[200]),
                 ],
               ),
             ),
-            
-            // Logout button at bottom
-            Container(
-              padding: responsive.padding(all: 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _showLogoutDialog(context);
-                  },
-                  icon: Icon(Icons.logout, color: Colors.white),
-                  label: Text(
-                    localizations.drawerLogout,
-                    style: GoogleFonts.poppins(
-                      color: Colors.white, 
-                      fontWeight: FontWeight.w500
+
+            // Navigation items
+            Expanded(
+              child: ListView(
+                padding: responsive.padding(horizontal: 12),
+                children: [
+                  for (final item in navItems)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: _DrawerRow(item: item, responsive: responsive),
+                    ),
+                ],
+              ),
+            ),
+
+            Padding(
+              padding: responsive.padding(horizontal: 20),
+              child: Divider(height: 1),
+            ),
+
+            // Settings + logout
+            Padding(
+              padding: responsive.padding(horizontal: 12, vertical: 8),
+              child: Column(
+                children: [
+                  _DrawerRow(
+                    item: _DrawerNavItem(
+                      icon: Icons.settings_rounded,
+                      label: localizations.settings,
+                      isActive: currentRoute == '/settings',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.pushNamed(context, '/settings');
+                      },
+                    ),
+                    responsive: responsive,
+                  ),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(28),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showLogoutDialog(context);
+                    },
+                    child: Padding(
+                      padding: responsive.padding(horizontal: 16, vertical: 13),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.logout_rounded,
+                            size: responsive.iconSize(mobile: 22),
+                            color: scheme.error,
+                          ),
+                          SizedBox(width: responsive.spacing(mobile: 14)),
+                          Flexible(
+                            child: Text(
+                              localizations.drawerLogout,
+                              style: TextStyle(
+                                fontSize: responsive.fs14,
+                                fontWeight: FontWeight.w600,
+                                color: scheme.error,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                    ),
-                    padding: responsive.padding(vertical: 12, horizontal: 16),
-                  ),
-                ),
+                ],
               ),
             ),
           ],
@@ -436,33 +287,22 @@ class AppDrawer extends StatelessWidget {
 
   void _showLogoutDialog(BuildContext context) {
     final localizations = AppLocalizations.of(context);
-    final responsive = ResponsiveHelper(context);
     showDialog(
       context: context,
       builder: (BuildContext context) {
+        final scheme = Theme.of(context).colorScheme;
         return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          ),
           title: Text(
             localizations.drawerLogout,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              color: Colors.red,
-            ),
+            style: TextStyle(color: scheme.error),
           ),
-          content: Text(
-            localizations.dialogLogoutConfirm,
-            style: GoogleFonts.poppins(),
-          ),
+          content: Text(localizations.dialogLogoutConfirm),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
                 localizations.dialogCancel,
-                style: GoogleFonts.poppins(
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(color: scheme.onSurfaceVariant),
               ),
             ),
             ElevatedButton(
@@ -474,20 +314,76 @@ class AppDrawer extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => LoginScreen()),
                 );
               },
+              // errorContainer/onErrorContainer (not the bare `error` role)
+              // — `error` is a light TEXT tone in dark mode, not a fill-safe
+              // solid colour, so a filled button using it directly would be
+              // near-unreadable in dark mode.
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                ),
+                backgroundColor: scheme.errorContainer,
               ),
               child: Text(
                 localizations.drawerLogout,
-                style: GoogleFonts.poppins(color: Colors.white),
+                style: TextStyle(color: scheme.onErrorContainer),
               ),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+// Pill-shaped nav row — primaryContainer fill when [_DrawerNavItem.isActive],
+// a tonal badge (item-specific copy, not a padlock) for gated items.
+class _DrawerRow extends StatelessWidget {
+  const _DrawerRow({required this.item, required this.responsive});
+
+  final _DrawerNavItem item;
+  final ResponsiveHelper responsive;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = item.isActive ? scheme.onPrimaryContainer : scheme.onSurfaceVariant;
+
+    return Material(
+      color: item.isActive ? scheme.primaryContainer : Colors.transparent,
+      borderRadius: BorderRadius.circular(28),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(28),
+        onTap: item.onTap,
+        child: Padding(
+          padding: responsive.padding(horizontal: 16, vertical: 13),
+          child: Row(
+            children: [
+              Icon(item.icon, size: responsive.iconSize(mobile: 22), color: fg),
+              SizedBox(width: responsive.spacing(mobile: 14)),
+              Expanded(
+                child: Text(
+                  item.label,
+                  // Mockup applies one `ink` colour to the whole row (icon
+                  // + label together), not a brighter tone just for the
+                  // text — reuse `fg` here instead of `scheme.onSurface`.
+                  style: TextStyle(
+                    fontSize: responsive.fs14,
+                    fontWeight: FontWeight.w600,
+                    color: fg,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (item.badgeText != null)
+                StatusPill(
+                  label: item.badgeText!,
+                  background: scheme.tertiaryContainer,
+                  foreground: scheme.tertiary,
+                  dense: true,
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

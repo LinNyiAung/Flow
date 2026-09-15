@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/screens/settings/change_password_screen.dart';
 import 'package:frontend/services/localization_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_list_row.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../providers/notification_provider.dart';
 import '../auth/login_screen.dart';
 import 'edit_profile_screen.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 class SettingsScreen extends StatefulWidget {
   @override
@@ -21,10 +22,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
+    final themeProvider = Provider.of<ThemeProvider>(context);
     final user = authProvider.user;
-    final responsive = ResponsiveHelper(context);
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final localizations = AppLocalizations.of(context);
-
+    final languageCode = Localizations.localeOf(context).languageCode;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -32,507 +35,352 @@ class _SettingsScreenState extends State<SettingsScreen> {
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: Text(
-          localizations.settings,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
+        title: Text(localizations.settings),
         leading: IconButton(
-          icon: Icon(Icons.menu, color: Color(0xFF333333)),
+          icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
-          Padding(
-            padding: responsive.padding(right: 16),
-            child: Consumer<NotificationProvider>(
-              builder: (context, notificationProvider, child) {
-                return Stack(
+          Consumer<NotificationProvider>(
+            builder: (context, notificationProvider, child) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    Container(
-                      padding: responsive.padding(all: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            spreadRadius: 1,
-                            blurRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: IconButton(
-                        icon: Icon(
-                          Icons.notifications_outlined,
-                          color: Color(0xFF667eea),
-                        ),
-                        onPressed: () {
-                          Navigator.pushNamed(context, '/notifications').then((_) {
-                            notificationProvider.fetchUnreadCount();
-                          });
-                        },
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.notifications_rounded),
+                      onPressed: () {
+                        Navigator.pushNamed(context, '/notifications').then((_) {
+                          notificationProvider.fetchUnreadCount();
+                        });
+                      },
                     ),
                     if (notificationProvider.unreadCount > 0)
                       Positioned(
-                        right: 0,
-                        top: 0,
+                        right: 6,
+                        top: 6,
                         child: Container(
-                          padding: responsive.padding(all: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: BoxConstraints(
-                            minWidth: 20,
-                            minHeight: 20,
-                          ),
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(color: scheme.primary, shape: BoxShape.circle),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                           child: Text(
-                            '${notificationProvider.unreadCount > 9 ? '9+' : notificationProvider.unreadCount}',
-                            style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontSize: responsive.fs10,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            notificationProvider.unreadCount > 9 ? '9+' : '${notificationProvider.unreadCount}',
+                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
                             textAlign: TextAlign.center,
                           ),
                         ),
                       ),
                   ],
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
-        ),
-        child: ListView(
-          padding: responsive.padding(all: 20),
-          children: [
-            // Profile Card
-            Container(
-              padding: responsive.padding(all: 20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                ),
-                borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFF667eea).withOpacity(0.3),
-                    spreadRadius: 2,
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-              child: Column(
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          // Profile Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
                 children: [
-                  // Profile Avatar
                   Stack(
+                    clipBehavior: Clip.none,
                     children: [
                       CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Colors.white,
+                        radius: 28,
+                        backgroundColor: scheme.primaryContainer,
                         child: Text(
-                          user?.name != null && user!.name.isNotEmpty
-                              ? user.name[0].toUpperCase()
-                              : 'U',
-                          style: GoogleFonts.poppins(
-                            fontSize: 40,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF667eea),
+                          user?.name != null && user!.name.isNotEmpty ? user.name[0].toUpperCase() : 'U',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: scheme.onPrimaryContainer,
                           ),
                         ),
                       ),
                       if (authProvider.isPremium)
                         Positioned(
-                          bottom: 0,
-                          right: 0,
+                          bottom: -2,
+                          right: -2,
                           child: Container(
-                            padding: EdgeInsets.all(6),
+                            padding: const EdgeInsets.all(3),
                             decoration: BoxDecoration(
-                              color: Color(0xFFFFD700),
+                              color: scheme.tertiary,
                               shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
+                              border: Border.all(color: scheme.surface, width: 2),
                             ),
-                            child: Icon(
-                              Icons.star,
-                              color: Colors.white,
-                              size: responsive.icon16,
-                            ),
+                            child: const Icon(Icons.star_rounded, color: Colors.white, size: 12),
                           ),
                         ),
                     ],
                   ),
-                  SizedBox(height: responsive.sp16),
-                  // Name
-                  Text(
-                    user?.name ?? 'User',
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  SizedBox(height: responsive.sp4),
-                  // Email
-                  Text(
-                    user?.email ?? '',
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs14,
-                      color: Colors.white.withOpacity(0.8),
-                    ),
-                  ),
-                  SizedBox(height: responsive.sp12),
-                  // Subscription Badge
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: authProvider.isPremium
-                          ? Color(0xFFFFD700).withOpacity(0.3)
-                          : Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(20)),
-                      border: Border.all(
-                        color: authProvider.isPremium
-                            ? Color(0xFFFFD700)
-                            : Colors.white.withOpacity(0.5),
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          authProvider.isPremium ? Icons.star : Icons.lock_outline,
-                          color: Colors.white,
-                          size: responsive.icon16,
-                        ),
-                        SizedBox(width: 6),
+                        Text(user?.name ?? 'User', style: textTheme.titleMedium, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 2),
                         Text(
-                          authProvider.isPremium ? 'Premium Member' : 'Free Plan',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                          user?.email ?? '',
+                          style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: authProvider.isPremium ? scheme.tertiaryContainer : scheme.secondaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                authProvider.isPremium ? Icons.star_rounded : Icons.lock_rounded,
+                                size: 12,
+                                color: authProvider.isPremium ? scheme.onTertiaryContainer : scheme.primary,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                authProvider.isPremium ? 'Premium Member' : 'Free Plan',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: authProvider.isPremium ? scheme.onTertiaryContainer : scheme.primary,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                        if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Expires: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
+                            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                  if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null) ...[
-                    SizedBox(height: responsive.sp8),
-                    Text(
-                      'Expires: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
-                      style: GoogleFonts.poppins(
-                        fontSize: responsive.fs11,
-                        color: Colors.white.withOpacity(0.7),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
+          ),
 
-            SizedBox(height: responsive.sp24),
+          const SizedBox(height: 24),
 
-            // Account Settings Section
-            _buildSectionHeader(localizations.account),
-            SizedBox(height: responsive.sp12),
-
-            _buildSettingCard(
-              icon: Icons.person_outline,
-              title: localizations.editProfile,
-              subtitle: localizations.updateYourName,
-              gradientColors: [Color(0xFF667eea), Color(0xFF764ba2)],
-              onTap: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => EditProfileScreen()),
-                );
-                if (result == true) {
-                  setState(() {});
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        localizations.profileUpdatedSuccessfully,
-                        style: GoogleFonts.poppins(color: Colors.white),
-                      ),
-                      backgroundColor: Color(0xFF4CAF50),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              },
+          _buildSectionHeader(context, localizations.account),
+          const SizedBox(height: 10),
+          Card(
+            child: Column(
+              children: [
+                AppListRow(
+                  icon: Icons.person_rounded,
+                  title: localizations.editProfile,
+                  subtitle: localizations.updateYourName,
+                  onTap: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => EditProfileScreen()),
+                    );
+                    if (result == true) {
+                      setState(() {});
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(localizations.profileUpdatedSuccessfully)),
+                      );
+                    }
+                  },
+                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                ),
+                const Divider(),
+                AppListRow(
+                  icon: Icons.lock_rounded,
+                  title: localizations.changePassword,
+                  subtitle: localizations.updateYourPassword,
+                  onTap: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => ChangePasswordScreen()),
+                    );
+                    if (result == true) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(localizations.passwordChangedSuccessfully)),
+                      );
+                    }
+                  },
+                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                ),
+                const Divider(),
+                AppListRow(
+                  icon: Icons.language_rounded,
+                  title: localizations.language,
+                  subtitle: languageCode == 'my' ? 'မြန်မာ' : 'English',
+                  onTap: () {
+                    Navigator.pushNamed(context, '/language-settings');
+                  },
+                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                ),
+                const Divider(),
+                AppListRow(
+                  icon: Icons.payments_rounded,
+                  title: localizations.currency,
+                  subtitle: authProvider.defaultCurrency.displayName,
+                  onTap: () {
+                    Navigator.pushNamed(context, '/currency-settings');
+                  },
+                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                ),
+              ],
             ),
+          ),
 
-            SizedBox(height: responsive.sp8),
+          const SizedBox(height: 24),
 
-            _buildSettingCard(
-              icon: Icons.lock_outline,
-              title: localizations.changePassword,
-              subtitle: localizations.updateYourPassword,
-              gradientColors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
-              onTap: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => ChangePasswordScreen()),
-                );
-                if (result == true) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        localizations.passwordChangedSuccessfully,
-                        style: GoogleFonts.poppins(color: Colors.white),
-                      ),
-                      backgroundColor: Color(0xFF4CAF50),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
-                    ),
-                  );
-                }
-              },
-            ),
-
-
-            SizedBox(height: responsive.sp8),
-
-            _buildSettingCard(
-              icon: Icons.language,
-              title: localizations.language,
-              subtitle: localizations.changeAppLanguage,
-              gradientColors: [Color(0xFF00BCD4), Color(0xFF0097A7)],
+          _buildSectionHeader(context, localizations.appearance),
+          const SizedBox(height: 10),
+          Card(
+            child: AppListRow(
+              icon: Icons.dark_mode_rounded,
+              title: localizations.theme,
+              subtitle: _themeModeLabel(localizations, themeProvider.themeMode),
               onTap: () {
-                Navigator.pushNamed(context, '/language-settings');
+                Navigator.pushNamed(context, '/theme-settings');
               },
+              trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
             ),
+          ),
 
+          const SizedBox(height: 24),
 
-            SizedBox(height: responsive.sp8),
-
-            _buildSettingCard(
-              icon: Icons.attach_money,
-              title: localizations.currency,
-              subtitle: localizations.changeDefaultCurrency,
-              gradientColors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
-              onTap: () {
-                Navigator.pushNamed(context, '/currency-settings');
-              },
-            ),
-
-            SizedBox(height: responsive.sp24),
-
-            _buildSectionHeader(localizations.notifications),
-            SizedBox(height: responsive.sp12),
-
-            _buildSettingCard(
-              icon: Icons.notifications_outlined,
+          _buildSectionHeader(context, localizations.notifications),
+          const SizedBox(height: 10),
+          Card(
+            child: AppListRow(
+              icon: Icons.notifications_active_rounded,
               title: localizations.notificationSettings,
               subtitle: localizations.manageNotificationPreferences,
-              gradientColors: [Color(0xFFFF6B6B), Color(0xFFEE5A6F)],
               onTap: () {
                 Navigator.pushNamed(context, '/notification-settings');
               },
+              trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
             ),
+          ),
 
+          const SizedBox(height: 24),
 
-            SizedBox(height: responsive.sp24),
-
-            // Subscription Section
-            _buildSectionHeader(localizations.subscription),
-            SizedBox(height: responsive.sp12),
-
-            _buildSettingCard(
-              icon: authProvider.isPremium ? Icons.star : Icons.upgrade,
+          _buildSectionHeader(context, localizations.subscription),
+          const SizedBox(height: 10),
+          Card(
+            child: AppListRow(
+              icon: authProvider.isPremium ? Icons.star_rounded : Icons.upgrade_rounded,
+              iconBg: scheme.tertiaryContainer,
+              iconColor: scheme.onTertiaryContainer,
               title: authProvider.isPremium ? localizations.manageSubscription : localizations.upgradeToPremium,
               subtitle: authProvider.isPremium
                   ? localizations.viewManageSubscription
                   : localizations.unlockPremiumFeatures,
-              gradientColors: [Color(0xFFFFD700), Color(0xFFFFA500)],
               onTap: () {
                 Navigator.pushNamed(context, '/subscription');
               },
+              trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
             ),
+          ),
 
-            SizedBox(height: responsive.sp24),
+          const SizedBox(height: 24),
 
-            // About Section
-            _buildSectionHeader(localizations.about),
-            SizedBox(height: responsive.sp12),
-
-            _buildSettingCard(
-              icon: Icons.info_outline,
-              title: localizations.aboutToePwar,
-              subtitle: 'Version 1.0.0',
-              gradientColors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-              onTap: () {
-                _showAboutDialog(context);
-              },
-            ),
-
-            SizedBox(height: responsive.sp8),
-
-            _buildSettingCard(
-              icon: Icons.privacy_tip_outlined,
-              title: 'Privacy Policy',
-              subtitle: 'View our privacy policy',
-              gradientColors: [Color(0xFF9C27B0), Color(0xFF7B1FA2)],
-              onTap: () {
-                Navigator.pushNamed(context, '/privacy-policy');
-              },
-            ),
-
-            SizedBox(height: responsive.sp8),
-
-            _buildSettingCard(
-              icon: Icons.description_outlined,
-              title: 'Terms and Conditions',
-              subtitle: 'View terms and conditions',
-              gradientColors: [Color(0xFF00BCD4), Color(0xFF0097A7)],
-              onTap: () {
-                Navigator.pushNamed(context, '/terms-conditions');
-              },
-            ),
-
-            SizedBox(height: responsive.sp32),
-
-
-            _buildSettingCard(
-              icon: Icons.feedback_outlined,
-              title: localizations.sendFeedback,
-              subtitle: localizations.feedbackDesc,
-              gradientColors: [Color(0xFFE91E63), Color(0xFFC2185B)],
-              onTap: () {
-                Navigator.pushNamed(context, '/feedback');
-              },
-            ),
-
-            SizedBox(height: responsive.sp32),
-
-            // Logout Button
-            Container(
-              width: double.infinity,
-              height: responsive.cardHeight(baseHeight: 50),
-              child: ElevatedButton.icon(
-                onPressed: () => _showLogoutDialog(context),
-                icon: Icon(Icons.logout, color: Colors.white),
-                label: Text(
-                  localizations.drawerLogout,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
+          _buildSectionHeader(context, localizations.about),
+          const SizedBox(height: 10),
+          Card(
+            child: Column(
+              children: [
+                AppListRow(
+                  icon: Icons.info_rounded,
+                  title: localizations.aboutToePwar,
+                  subtitle: 'Version 1.0.0',
+                  onTap: () => _showAboutDialog(context),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  ),
-                  elevation: 4,
+                const Divider(),
+                AppListRow(
+                  icon: Icons.privacy_tip_rounded,
+                  title: 'Privacy Policy',
+                  subtitle: 'View our privacy policy',
+                  onTap: () {
+                    Navigator.pushNamed(context, '/privacy-policy');
+                  },
+                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
                 ),
+                const Divider(),
+                AppListRow(
+                  icon: Icons.description_rounded,
+                  title: 'Terms and Conditions',
+                  subtitle: 'View terms and conditions',
+                  onTap: () {
+                    Navigator.pushNamed(context, '/terms-conditions');
+                  },
+                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                ),
+                const Divider(),
+                AppListRow(
+                  icon: Icons.feedback_rounded,
+                  title: localizations.sendFeedback,
+                  subtitle: localizations.feedbackDesc,
+                  onTap: () {
+                    Navigator.pushNamed(context, '/feedback');
+                  },
+                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // Logout Button
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed: () => _showLogoutDialog(context),
+              icon: Icon(Icons.logout_rounded, color: scheme.error),
+              label: Text(
+                localizations.drawerLogout,
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.error),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: scheme.error),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               ),
             ),
+          ),
 
-            SizedBox(height: responsive.sp32),
-          ],
-        ),
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    final responsive = ResponsiveHelper(context);
+  String _themeModeLabel(AppLocalizations localizations, ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return localizations.themeLight;
+      case ThemeMode.dark:
+        return localizations.themeDark;
+      case ThemeMode.system:
+        return localizations.themeSystem;
+    }
+  }
+
+  Widget _buildSectionHeader(BuildContext context, String title) {
     return Padding(
-      padding: EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: GoogleFonts.poppins(
-          fontSize: responsive.fs18,
-          fontWeight: FontWeight.bold,
-          color: Color(0xFF333333),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSettingCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required List<Color> gradientColors,
-    required VoidCallback onTap,
-  }) {
-    final responsive = ResponsiveHelper(context);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-      child: Container(
-        padding: responsive.padding(all: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              spreadRadius: 1,
-              blurRadius: 4,
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: responsive.padding(all: 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: gradientColors),
-                borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-              ),
-              child: Icon(icon, color: Colors.white, size: responsive.icon24),
-            ),
-            SizedBox(width: responsive.sp16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF333333),
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.arrow_forward_ios,
-              size: responsive.icon16,
-              color: Colors.grey[400],
-            ),
-          ],
-        ),
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary),
       ),
     );
   }
@@ -542,70 +390,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showAboutDialog(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-        ),
         title: Row(
           children: [
             Container(
-              padding: responsive.padding(all: 8),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(Icons.account_balance_wallet, color: Colors.white, size: responsive.icon24),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+              child: Icon(Icons.savings_rounded, color: scheme.onPrimaryContainer, size: 24),
             ),
-            SizedBox(width: responsive.sp12),
-            Text(
-              'Toe Pwar',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-            ),
+            const SizedBox(width: 12),
+            const Text('Toe Pwar'),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Version 1.0.0',
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs14,
-                color: Colors.grey[600],
-              ),
-            ),
-            SizedBox(height: responsive.sp16),
-            Text(
+            Text('Version 1.0.0', style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 16),
+            const Text(
               'Toe Pwar is your personal finance management app with AI-powered insights and budget tracking.',
-              style: GoogleFonts.poppins(fontSize: responsive.fs14),
+              style: TextStyle(fontSize: 14),
             ),
-            SizedBox(height: responsive.sp16),
+            const SizedBox(height: 16),
             Text(
               '© 2025 Toe Pwar. All rights reserved.',
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs12,
-                color: Colors.grey[500],
-              ),
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(
-              localizations.close,
-              style: GoogleFonts.poppins(
-                color: Color(0xFF667eea),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            child: Text(localizations.close),
           ),
         ],
       ),
@@ -613,38 +435,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showLogoutDialog(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-          ),
           title: Text(
             localizations.drawerLogout,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              color: Colors.red,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, color: scheme.error),
           ),
-          content: Text(
-            localizations.dialogLogoutConfirm,
-            style: GoogleFonts.poppins(),
-          ),
+          content: Text(localizations.dialogLogoutConfirm),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(
-                localizations.dialogCancel,
-                style: GoogleFonts.poppins(
-                  color: Colors.grey[600],
-                ),
-              ),
+              child: Text(localizations.dialogCancel),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: () {
                 Navigator.pop(context);
                 Provider.of<AuthProvider>(context, listen: false).logout();
@@ -653,16 +461,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   MaterialPageRoute(builder: (_) => LoginScreen()),
                 );
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: Text(
-                localizations.drawerLogout,
-                style: GoogleFonts.poppins(color: Colors.white),
-              ),
+              style: FilledButton.styleFrom(backgroundColor: scheme.error),
+              child: Text(localizations.drawerLogout),
             ),
           ],
         );

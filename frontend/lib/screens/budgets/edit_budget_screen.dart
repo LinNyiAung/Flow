@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/models/transaction.dart';
+import 'package:frontend/models/transaction.dart' hide formatter;
 import 'package:frontend/services/api_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/hero_card.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
-import 'package:frontend/services/responsive_helper.dart';
 
 import '../../services/localization_service.dart';
 
@@ -27,11 +29,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
   late List<CategoryBudget> _categoryBudgets;
   bool _isLoading = false;
 
-  final formatter = NumberFormat("#,##0.00", "en_US");
-
-
-  late bool _autoCreateEnabled;     // NEW
-  late bool _autoCreateWithAi;      // NEW
+  late bool _autoCreateEnabled;
+  late bool _autoCreateWithAi;
 
   @override
   void initState() {
@@ -41,8 +40,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       text: widget.budget.description ?? '',
     );
     _categoryBudgets = List.from(widget.budget.categoryBudgets);
-    _autoCreateEnabled = widget.budget.autoCreateEnabled;     // NEW
-    _autoCreateWithAi = widget.budget.autoCreateWithAi;       // NEW
+    _autoCreateEnabled = widget.budget.autoCreateEnabled;
+    _autoCreateWithAi = widget.budget.autoCreateWithAi;
   }
 
   @override
@@ -58,23 +57,19 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     int? excludeIndex,
   }) {
     final localizations = AppLocalizations.of(context);
-    // Check for exact duplicates
     for (int i = 0; i < _categoryBudgets.length; i++) {
-      // Skip the category being edited
       if (excludeIndex != null && i == excludeIndex) continue;
 
       var existingCat = _categoryBudgets[i];
       String existingMain = existingCat.mainCategory;
       String? existingSubStr;
 
-      // Parse existing category
       if (existingMain.contains(' - ')) {
         final parts = existingMain.split(' - ');
         existingMain = parts[0];
         existingSubStr = parts[1];
       }
 
-      // Check if it's the same main category with same sub-category (or both have no sub-category)
       if (existingMain == mainCategory) {
         if ((subCategory == null || subCategory == 'All') &&
             existingSubStr == null) {
@@ -90,12 +85,10 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     return null;
   }
 
-  // In create_budget_screen.dart, replace the totalBudget calculation
   double _calculateTotalBudget() {
     Set<String> mainCategories = {};
     List<MapEntry<String, double>> subCategories = [];
 
-    // Separate main categories and sub-categories
     for (var cat in _categoryBudgets) {
       if (cat.mainCategory.contains(' - ')) {
         final parts = cat.mainCategory.split(' - ');
@@ -107,14 +100,12 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 
     double total = 0.0;
 
-    // Add all main category budgets
     for (var cat in _categoryBudgets) {
       if (!cat.mainCategory.contains(' - ')) {
         total += cat.allocatedAmount;
       }
     }
 
-    // Add sub-category budgets only if their main category doesn't exist
     for (var entry in subCategories) {
       if (!mainCategories.contains(entry.key)) {
         total += entry.value;
@@ -124,11 +115,32 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     return total;
   }
 
+  /// Category caps whose newly-entered allocation is below what has already
+  /// been spent against that same category on the live budget.
+  List<CategoryBudget> get _categoriesBelowSpent {
+    final result = <CategoryBudget>[];
+    for (final cat in _categoryBudgets) {
+      CategoryBudget? original;
+      for (final orig in widget.budget.categoryBudgets) {
+        if (orig.mainCategory == cat.mainCategory) {
+          original = orig;
+          break;
+        }
+      }
+      if (original != null && cat.allocatedAmount < original.spentAmount) {
+        result.add(cat);
+      }
+    }
+    return result;
+  }
+
   void _addCategoryBudget() {
-    showDialog(
+    showAppBottomSheet<void>(
       context: context,
-      builder: (context) => _AddCategoryDialog(
-        onAdd: (categoryBudget) {
+      builder: (context) => _CategoryCapSheet(
+        title: AppLocalizations.of(context).addCategoryBudget,
+        validateDuplicate: (main, sub) => _validateDuplicateCategory(main, sub),
+        onSave: (categoryBudget) {
           setState(() {
             _categoryBudgets.add(categoryBudget);
           });
@@ -138,12 +150,14 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
   }
 
   void _editCategoryBudget(int index) {
-    showDialog(
+    showAppBottomSheet<void>(
       context: context,
-      builder: (context) => _AddCategoryDialog(
+      builder: (context) => _CategoryCapSheet(
+        title: AppLocalizations.of(context).editCategoryBudget,
         initialCategory: _categoryBudgets[index],
-        editingIndex: index, // Pass the index being edited
-        onAdd: (categoryBudget) {
+        validateDuplicate: (main, sub) =>
+            _validateDuplicateCategory(main, sub, excludeIndex: index),
+        onSave: (categoryBudget) {
           setState(() {
             _categoryBudgets[index] = categoryBudget;
           });
@@ -158,16 +172,13 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     });
   }
 
-    Future<void> _saveBudget() async {
+  Future<void> _saveBudget() async {
     final localizations = AppLocalizations.of(context);
     if (!_formKey.currentState!.validate()) return;
 
     if (_categoryBudgets.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(localizations.addOneCategoryBudget),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(localizations.addOneCategoryBudget)),
       );
       return;
     }
@@ -175,7 +186,6 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     setState(() => _isLoading = true);
 
     final totalBudget = _calculateTotalBudget();
-    final responsive = ResponsiveHelper(context);
 
     final success = await Provider.of<BudgetProvider>(context, listen: false)
         .updateBudget(
@@ -186,8 +196,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
           description: _descriptionController.text.isEmpty
               ? null
               : _descriptionController.text,
-          autoCreateEnabled: _autoCreateEnabled,      // NEW
-          autoCreateWithAi: _autoCreateWithAi,        // NEW
+          autoCreateEnabled: _autoCreateEnabled,
+          autoCreateWithAi: _autoCreateWithAi,
         );
 
     setState(() => _isLoading = false);
@@ -195,727 +205,565 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     if (success) {
       Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            localizations.budgetUpdatedSuccessfully,
-            style: GoogleFonts.poppins(color: Colors.white),
-          ),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
-        ),
+        SnackBar(content: Text(localizations.budgetUpdatedSuccessfully)),
       );
     } else {
       final error = Provider.of<BudgetProvider>(context, listen: false).error;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error ?? localizations.failedToUpdateBudget),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(error ?? localizations.failedToUpdateBudget)),
       );
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     final totalBudget = _calculateTotalBudget();
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final belowSpent = _categoriesBelowSpent;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          localizations.editBudget,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
+        title: Text(localizations.editBudget),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF333333)),
+          icon: const Icon(Icons.close_rounded),
           onPressed: () => Navigator.pop(context),
         ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF667eea).withOpacity(0.1), Colors.white],
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: GestureDetector(
+                onTap: _isLoading ? null : _saveBudget,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: _isLoading ? scheme.outline : scheme.primary,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text(
+                          localizations.save,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                ),
+              ),
+            ),
           ),
-        ),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: responsive.padding(all: 20),
-            children: [
-              // Budget Period Info (Read-only)
-              Container(
-                padding: responsive.padding(all: 16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Color(0xFF667eea).withOpacity(0.1),
-                      Color(0xFF764ba2).withOpacity(0.1),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.info_outline, color: Color(0xFF667eea)),
-                        SizedBox(width: responsive.sp8),
-                        Expanded(
-                          child: Text(
-                            localizations.budgetPeriodC,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: responsive.sp12),
-                    _buildInfoRow(
-                      Icons.calendar_today,
-                      localizations.period,
-                      widget.budget.period.name.toUpperCase(),
-                    ),
-                    _buildInfoRow(
-                      Icons.date_range,
-                      localizations.duration,
-                      '${DateFormat('MMM d').format(widget.budget.startDate)} - ${DateFormat('MMM d, yyyy').format(widget.budget.endDate)}',
-                    ),
-                  ],
-                ),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+          children: [
+            // Locked period + currency
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _tintNeutral(context),
+                borderRadius: BorderRadius.circular(16),
               ),
-
-              SizedBox(height: responsive.sp20),
-
-                // NEW: Currency Display (Read-only)
-                Container(
-                  padding: responsive.padding(all: 16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.grey[100]!,
-                        Colors.grey[50]!,
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.grey[600], size: responsive.icon20),
-                          SizedBox(width: responsive.sp8),
-                          Text(
-                            localizations.currencyC,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: responsive.sp12),
-                      Row(
-                        children: [
-                          Container(
-                            padding: responsive.padding(all: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: Text(
-                              widget.budget.currency.symbol,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs24,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF667eea),
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: responsive.sp12),
-                          Expanded(
-                            child: Text(
-                              widget.budget.currency.displayName,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: responsive.sp8),
+                      Icon(Icons.lock_rounded, size: 18, color: scheme.onSurfaceVariant),
+                      const SizedBox(width: 8),
                       Text(
-                        'Only ${widget.budget.currency.displayName} transactions will affect this budget',
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs12,
-                          color: Colors.grey[600],
-                        ),
+                        'FIXED FOR THIS BUDGET',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
                       ),
                     ],
                   ),
-                ),
-
-              SizedBox(height: responsive.sp20),
-
-              // Name Field
-              TextFormField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: localizations.budgetName,
-                  hintText: 'e.g., Monthly Expenses',
-                  prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return localizations.enterBudgetName;
-                  }
-                  return null;
-                },
-              ),
-
-              SizedBox(height: responsive.sp16),
-
-              // Description Field
-              TextFormField(
-                controller: _descriptionController,
-                decoration: InputDecoration(
-                  labelText: localizations.descriptionLabel,
-                  hintText: 'Notes about this budget',
-                  prefixIcon: Icon(Icons.note, color: Color(0xFF667eea)),
-                ),
-                maxLines: 2,
-              ),
-
-              SizedBox(height: responsive.sp24),
-
-
-                            if (widget.budget.period != BudgetPeriod.custom) ...[
-                SizedBox(height: responsive.sp20),
-                Container(
-                  padding: responsive.padding(all: 16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Color(0xFF667eea).withOpacity(0.1),
-                        Color(0xFF764ba2).withOpacity(0.1),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Color(0xFF667eea).withOpacity(0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 10),
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.autorenew, color: Color(0xFF667eea)),
-                          SizedBox(width: responsive.sp8),
-                          Expanded(
-                            child: Text(
-                              localizations.autoCreateNextBudget,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF333333),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: responsive.sp8),
-                      Text(
-                        localizations.automaticallyCreateNewBudget,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs12,
-                          color: Colors.grey[600],
+                      Expanded(
+                        child: _lockedField(
+                          localizations.period,
+                          widget.budget.period.name.toUpperCase(),
                         ),
                       ),
-                      SizedBox(height: responsive.sp12),
-                      SwitchListTile(
-                        value: _autoCreateEnabled,
-                        onChanged: (value) {
-                          setState(() {
-                            _autoCreateEnabled = value;
-                            if (!value) {
-                              _autoCreateWithAi = false;
-                            }
-                          });
-                        },
-                        title: Text(
-                          localizations.enableAutoCreate,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs14,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _lockedField(
+                          localizations.duration,
+                          '${DateFormat('MMM d').format(widget.budget.startDate)} - ${DateFormat('MMM d, yyyy').format(widget.budget.endDate)}',
                         ),
-                        activeColor: Color(0xFF667eea),
-                        contentPadding: EdgeInsets.zero,
                       ),
-                      if (_autoCreateEnabled) ...[
-                        Divider(),
-                        Text(
-                          localizations.chooseHowToCreateNextBudget,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs13,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF333333),
-                          ),
-                        ),
-                        SizedBox(height: responsive.sp8),
-                        RadioListTile<bool>(
-                          value: false,
-                          groupValue: _autoCreateWithAi,
-                          onChanged: (value) {
-                            setState(() {
-                              _autoCreateWithAi = value!;
-                            });
-                          },
-                          title: Text(
-                            localizations.useCurrentCategories,
-                            style: GoogleFonts.poppins(fontSize: responsive.fs13),
-                          ),
-                          subtitle: Text(
-                            localizations.keepTheSameBudgetAmounts,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs11,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          activeColor: Color(0xFF667eea),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        RadioListTile<bool>(
-                          value: true,
-                          groupValue: _autoCreateWithAi,
-                          onChanged: (value) {
-                            setState(() {
-                              _autoCreateWithAi = value!;
-                            });
-                          },
-                          title: Row(
-                            children: [
-                              Icon(
-                                Icons.auto_awesome,
-                                size: responsive.icon16,
-                                color: Color(0xFF667eea),
-                              ),
-                              SizedBox(width: responsive.sp4),
-                              Expanded(
-                                child: Text(
-                                  localizations.aiOptimizedBudget,
-                                  style: GoogleFonts.poppins(fontSize: responsive.fs13),
-                                ),
-                              ),
-                            ],
-                          ),
-                          subtitle: Text(
-                            localizations.aiAnalyzesSpendingAndSuggestsAmounts,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs11,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          activeColor: Color(0xFF667eea),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ],
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  _lockedField(
+                    localizations.currencyC,
+                    '${widget.budget.currency.symbol}  ${widget.budget.currency.displayName}',
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "Period and currency can't change once a budget has spending against it — create a new budget instead.",
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Name Field
+            TextFormField(
+              controller: _nameController,
+              decoration: InputDecoration(
+                labelText: localizations.budgetName,
+                prefixIcon: const Icon(Icons.label_outline_rounded),
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return localizations.enterBudgetName;
+                }
+                return null;
+              },
+            ),
+
+            const SizedBox(height: 16),
+
+            // Description Field
+            TextFormField(
+              controller: _descriptionController,
+              decoration: InputDecoration(
+                labelText: localizations.descriptionLabel,
+                prefixIcon: const Icon(Icons.notes_rounded),
+              ),
+              maxLines: 2,
+            ),
+
+            if (widget.budget.period != BudgetPeriod.custom) ...[
+              const SizedBox(height: 24),
+              _buildAutoCreateCard(localizations),
+            ],
+
+            const SizedBox(height: 24),
+
+            // Category Budgets Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(localizations.categoryBudgets, style: _sectionLabelStyle(context)),
+                TextButton.icon(
+                  onPressed: _addCategoryBudget,
+                  icon: const Icon(Icons.add_circle_rounded, size: 18),
+                  label: Text(localizations.add),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
 
-              SizedBox(height: responsive.sp24),
-
-              // Category Budgets Section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: scheme.tertiaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
                 children: [
-                  Text(
-                    localizations.categoryBudgets,
-                    style: GoogleFonts.poppins(
-                      fontSize: responsive.fs16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF333333),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _addCategoryBudget,
-                    icon: Icon(Icons.add_circle, color: Color(0xFF667eea)),
-                    label: Text(
-                      localizations.add,
-                      style: GoogleFonts.poppins(color: Color(0xFF667eea)),
+                  Icon(Icons.warning_amber_rounded, color: scheme.tertiary, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      localizations.editingCategoriesRecalculateAlert,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: scheme.onTertiaryContainer),
                     ),
                   ),
                 ],
               ),
+            ),
 
-              SizedBox(height: responsive.sp12),
+            const SizedBox(height: 12),
 
-              // Warning about editing categories
+            if (_categoryBudgets.isEmpty)
               Container(
-                padding: responsive.padding(all: 12),
+                padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 20),
                 decoration: BoxDecoration(
-                  color: Colors.orange[50],
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  border: Border.all(color: Colors.orange[200]!),
+                  border: Border.all(color: scheme.outline, width: 2),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.orange[700],
-                      size: responsive.icon20,
-                    ),
-                    SizedBox(width: responsive.sp8),
-                    Expanded(
-                      child: Text(
-                        localizations.editingCategoriesRecalculateAlert,
-                        style: GoogleFonts.poppins(
-                          fontSize: responsive.fs11,
-                          color: Colors.orange[900],
-                        ),
-                      ),
-                    ),
+                child: Center(
+                  child: Text(
+                    localizations.noCategoriesAddedYet,
+                    style: TextStyle(color: AppTheme.hintFor(context)),
+                  ),
+                ),
+              )
+            else
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardTheme.color,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? const Color(0x14101815), blurRadius: 8, offset: Offset(0, 1)),
                   ],
-                ),
-              ),
-
-              SizedBox(height: responsive.sp12),
-
-              // Category Budgets List
-              if (_categoryBudgets.isEmpty)
-                Container(
-                  padding: responsive.padding(all: 32),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  ),
-                  child: Center(
-                    child: Text(
-                      localizations.noCategoriesAddedYet,
-                      style: GoogleFonts.poppins(color: Colors.grey[500]),
-                    ),
-                  ),
-                )
-              else
-                ..._categoryBudgets.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final catBudget = entry.value;
-                  return _buildCategoryBudgetCard(catBudget, index);
-                }).toList(),
-
-              SizedBox(height: responsive.sp24),
-
-              // Total Budget Comparison
-              Container(
-                padding: responsive.padding(all: 20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                  ),
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
                 ),
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              localizations.newTotalBudget,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs14,
-                                color: Colors.white.withOpacity(0.9),
-                              ),
-                            ),
-                            Text(
-                              '${widget.budget.currency.symbol}${formatter.format(totalBudget)}', // Changed
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Icon(Icons.arrow_forward, color: Colors.white),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              localizations.currentTotal,
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs14,
-                                color: Colors.white.withOpacity(0.9),
-                              ),
-                            ),
-                            Text(
-                              '${widget.budget.currency.symbol}${formatter.format(widget.budget.totalBudget)}', // Changed
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs20,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    if (totalBudget != widget.budget.totalBudget) ...[
-                      SizedBox(height: responsive.sp12),
-                      Container(
-                        padding: responsive.padding(all: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              totalBudget > widget.budget.totalBudget
-                                  ? Icons.trending_up
-                                  : Icons.trending_down,
-                              color: Colors.white,
-                              size: responsive.icon16,
-                            ),
-                            SizedBox(width: responsive.sp4),
-                            Text(
-                              '${totalBudget > widget.budget.totalBudget ? '+' : ''}${widget.budget.currency.symbol}${formatter.format(totalBudget - widget.budget.totalBudget)}', // Changed
-                              style: GoogleFonts.poppins(
-                                fontSize: responsive.fs14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    for (var i = 0; i < _categoryBudgets.length; i++)
+                      _buildCategoryBudgetRow(_categoryBudgets[i], i, isFirst: i == 0),
                   ],
                 ),
               ),
 
-              SizedBox(height: responsive.sp24),
-
-              // Save Button
-              SizedBox(
-                height: responsive.cardHeight(baseHeight: 50),
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _saveBudget,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF667eea),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    ),
-                  ),
-                  child: _isLoading
-                      ? CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          localizations.saveChanges,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+            if (belowSpent.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.warning_rounded, color: scheme.error, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'This cap is already spent',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onErrorContainer),
                           ),
-                        ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${belowSpent.map((c) => c.mainCategory).join(', ')} ${belowSpent.length > 1 ? 'already have' : 'already has'} more spent than the new cap allows.',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onErrorContainer, height: 1.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-
-              SizedBox(height: 100),
             ],
-          ),
+
+            if (totalBudget != widget.budget.totalBudget) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'TOTAL CAP',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer.withValues(alpha: 0.8)),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Text(
+                          '${widget.budget.currency.symbol}${formatter.format(widget.budget.totalBudget)}',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onPrimaryContainer.withValues(alpha: 0.7),
+                            decoration: TextDecoration.lineThrough,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Icon(Icons.arrow_forward_rounded, size: 20, color: scheme.onPrimaryContainer),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${widget.budget.currency.symbol}${formatter.format(totalBudget)}',
+                          style: AppTheme.money(24, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          totalBudget > widget.budget.totalBudget ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                          size: 18,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${totalBudget > widget.budget.totalBudget ? '+' : ''}${widget.budget.currency.symbol}${formatter.format(totalBudget - widget.budget.totalBudget)} against the current cap',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              HeroCard(
+                label: localizations.currentTotal,
+                value: '${widget.budget.currency.symbol}${formatter.format(totalBudget)}',
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    final responsive = ResponsiveHelper(context);
-    return Padding(
-      padding: responsive.padding(vertical: 4),
-      child: Row(
+  TextStyle _sectionLabelStyle(BuildContext context) => TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant);
+
+  /// Mockup's `--tint-neutral` (F1F5F3 light / 1F2723 dark) — a plain
+  /// neutral surface used for the "locked" info box, distinct from the
+  /// jade-tinted `secondaryContainer`. Not in [AppTheme] as a named token,
+  /// so it's reproduced here directly, brightness-aware.
+  Color _tintNeutral(BuildContext context) => Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFF1F2723)
+      : const Color(0xFFF1F5F3);
+
+  Widget _lockedField(String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+      ],
+    );
+  }
+
+  Widget _buildAutoCreateCard(AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? const Color(0x14101815), blurRadius: 8, offset: Offset(0, 1)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Color(0xFF667eea), size: responsive.icon16),
-          SizedBox(width: responsive.sp8),
-          Text(
-            '$label:',
-            style: GoogleFonts.poppins(fontSize: responsive.fs12, color: Colors.grey[600]),
-          ),
-          SizedBox(width: responsive.sp8),
-          Expanded(
-            child: Text(
-              value,
-              style: GoogleFonts.poppins(
-                fontSize: responsive.fs12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF333333),
+          Row(
+            children: [
+              Icon(Icons.autorenew_rounded, color: scheme.primary),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(localizations.autoCreateNextBudget, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                      localizations.automaticallyCreateNewBudget,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
               ),
-              textAlign: TextAlign.right,
-            ),
+              Switch(
+                value: _autoCreateEnabled,
+                onChanged: (value) {
+                  setState(() {
+                    _autoCreateEnabled = value;
+                    if (!value) {
+                      _autoCreateWithAi = false;
+                    }
+                  });
+                },
+              ),
+            ],
           ),
+          if (_autoCreateEnabled) ...[
+            const SizedBox(height: 10),
+            _autoOptionCard(
+              selected: !_autoCreateWithAi,
+              title: localizations.useCurrentCategories,
+              subtitle: localizations.keepTheSameBudgetAmounts,
+              onTap: () => setState(() => _autoCreateWithAi = false),
+            ),
+            const SizedBox(height: 8),
+            _autoOptionCard(
+              selected: _autoCreateWithAi,
+              title: localizations.aiOptimizedBudget,
+              subtitle: localizations.aiAnalyzesSpendingAndSuggestsAmounts,
+              icon: Icons.auto_awesome_rounded,
+              onTap: () => setState(() => _autoCreateWithAi = true),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildCategoryBudgetCard(CategoryBudget catBudget, int index) {
-    final responsive = ResponsiveHelper(context);
-    return Container(
-      margin: EdgeInsets.only(bottom: 8),
-      padding: responsive.padding(all: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 4,
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: responsive.iconSize(mobile: 40),
-            height: responsive.iconSize(mobile: 40),
-            decoration: BoxDecoration(
-              color: Color(0xFF667eea).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(Icons.category, color: Color(0xFF667eea), size: responsive.icon20),
-          ),
-          SizedBox(width: responsive.sp12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _autoOptionCard({
+    required bool selected,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    IconData? icon,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: selected ? scheme.secondaryContainer : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? scheme.primary : scheme.outline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  catBudget.mainCategory,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                Text(
-                  '${widget.budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}', // Changed
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs12,
-                    color: Colors.grey[600],
+                if (icon != null) ...[
+                  Icon(icon, size: 18, color: scheme.tertiary),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: Text(
+                    title,
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface),
                   ),
                 ),
               ],
             ),
-          ),
-          IconButton(
-            icon: Icon(Icons.edit, color: Color(0xFF667eea), size: responsive.icon20),
-            onPressed: () => _editCategoryBudget(index),
-          ),
-          IconButton(
-            icon: Icon(Icons.delete, color: Colors.red, size: responsive.icon20),
-            onPressed: () => _removeCategoryBudget(index),
-          ),
-        ],
+            const SizedBox(height: 3),
+            Text(subtitle, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryBudgetRow(CategoryBudget catBudget, int index, {required bool isFirst}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        border: isFirst ? null : Border(top: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
+              child: Icon(iconForCategoryName(catBudget.mainCategory), color: scheme.primary, size: 20),
+            ),
+            const SizedBox(width: 12),
+            // Name gets its own full-width line instead of sharing one with
+            // the amount — the two were fighting for space and the name
+            // (often longer, e.g. "Housing & Utilities") lost, truncating
+            // to "Housing & Uti…" even at a readable screen width.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    catBudget.mainCategory,
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${widget.budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}',
+                    style: AppTheme.money(14, weight: FontWeight.w700, color: scheme.primary),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.edit_rounded, size: 18, color: scheme.primary),
+              onPressed: () => _editCategoryBudget(index),
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_rounded, size: 20, color: scheme.error),
+              onPressed: () => _removeCategoryBudget(index),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// Reuse the same dialog from CreateBudgetScreen
-class _AddCategoryDialog extends StatefulWidget {
+/// Bottom sheet for adding or editing a single category cap.
+class _CategoryCapSheet extends StatefulWidget {
+  final String title;
   final CategoryBudget? initialCategory;
-  final int? editingIndex; // For edit screen
-  final Function(CategoryBudget) onAdd;
+  final String? Function(String mainCategory, String? subCategory) validateDuplicate;
+  final void Function(CategoryBudget) onSave;
 
-  _AddCategoryDialog({
+  const _CategoryCapSheet({
+    required this.title,
     this.initialCategory,
-    this.editingIndex,
-    required this.onAdd,
+    required this.validateDuplicate,
+    required this.onSave,
   });
 
   @override
-  _AddCategoryDialogState createState() => _AddCategoryDialogState();
+  State<_CategoryCapSheet> createState() => _CategoryCapSheetState();
 }
 
-class _AddCategoryDialogState extends State<_AddCategoryDialog> {
-  final _formKey = GlobalKey<FormState>();
+class _CategoryCapSheetState extends State<_CategoryCapSheet> {
   final _amountController = TextEditingController();
-
   String? _selectedMainCategory;
   String? _selectedSubCategory;
   List<Category> _categories = [];
   bool _isLoadingCategories = false;
+  String? _amountError;
 
   @override
   void initState() {
     super.initState();
-    
-    // Set amount immediately
     if (widget.initialCategory != null) {
       _amountController.text = widget.initialCategory!.allocatedAmount.toString();
     }
-    
-    // Load categories, then parse initial values
     _loadCategories();
   }
 
   Future<void> _loadCategories() async {
-    setState(() {
-      _isLoadingCategories = true;
-    });
+    setState(() => _isLoadingCategories = true);
 
     try {
       final categories = await ApiService.getCategories(TransactionType.outflow);
-      
+
       setState(() {
         _categories = categories;
         _isLoadingCategories = false;
-        
-        // NOW parse the initial category after categories are loaded
+
         if (widget.initialCategory != null) {
           final categoryName = widget.initialCategory!.mainCategory;
           if (categoryName.contains(' - ')) {
             final parts = categoryName.split(' - ');
             final mainCat = parts[0];
             final subCat = parts[1];
-            
-            // Validate that this main category exists
+
             if (_categories.any((cat) => cat.mainCategory == mainCat)) {
               _selectedMainCategory = mainCat;
-              
-              // Validate that this sub-category exists under this main category
-              final mainCategory = _categories.firstWhere(
-                (cat) => cat.mainCategory == mainCat,
-              );
+              final mainCategory = _categories.firstWhere((cat) => cat.mainCategory == mainCat);
               if (mainCategory.subCategories.contains(subCat)) {
                 _selectedSubCategory = subCat;
               }
             }
           } else {
-            // Just a main category
             if (_categories.any((cat) => cat.mainCategory == categoryName)) {
               _selectedMainCategory = categoryName;
               _selectedSubCategory = null;
@@ -924,9 +772,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
         }
       });
     } catch (e) {
-      setState(() {
-        _isLoadingCategories = false;
-      });
+      setState(() => _isLoadingCategories = false);
       print("Error loading categories: $e");
     }
   }
@@ -937,281 +783,170 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     super.dispose();
   }
 
+  void _submit() {
+    final localizations = AppLocalizations.of(context);
+
+    if (_selectedMainCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.validationMainCategoryRequired)),
+      );
+      return;
+    }
+
+    final amountText = _amountController.text;
+    final amount = double.tryParse(amountText);
+    if (amountText.isEmpty) {
+      setState(() => _amountError = localizations.enterAmount);
+      return;
+    }
+    if (amount == null || amount <= 0) {
+      setState(() => _amountError = localizations.enterValidAmount);
+      return;
+    }
+    setState(() => _amountError = null);
+
+    String displayName = _selectedMainCategory!;
+    if (_selectedSubCategory != null) {
+      displayName += ' - $_selectedSubCategory';
+    }
+
+    final error = widget.validateDuplicate(_selectedMainCategory!, _selectedSubCategory);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+
+    widget.onSave(
+      CategoryBudget(
+        mainCategory: displayName,
+        allocatedAmount: amount,
+        spentAmount: 0,
+        percentageUsed: 0,
+        isExceeded: false,
+      ),
+    );
+    Navigator.pop(context);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final responsive = ResponsiveHelper(context);
     final localizations = AppLocalizations.of(context);
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(16))),
-      title: Text(
-        widget.initialCategory == null
-            ? localizations.addCategoryBudget
-            : localizations.editCategoryBudget,
-        style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-      ),
-      content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Main Category Dropdown
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  border: Border.all(color: Colors.grey[300]!),
-                ),
-                child: _isLoadingCategories
-                    ? Container(
-                        padding: responsive.padding(all: 20),
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Color(0xFF667eea),
-                            ),
-                          ),
-                        ),
-                      )
-                    : DropdownButtonFormField<String>(
-                        decoration: InputDecoration(
-                          hintText: localizations.selectMainCategoryHint,
-                          border: InputBorder.none,
-                          contentPadding: responsive.padding(horizontal: 16, vertical: 12),
-                          prefixIcon: Icon(
-                            Icons.category,
-                            color: Color(0xFF667eea),
-                          ),
-                        ),
-                        isExpanded: true,
-                        value: _selectedMainCategory,
-                        items: _categories.map((category) {
-                          return DropdownMenuItem(
-                            value: category.mainCategory,
-                            child: Text(
-                              category.mainCategory,
-                              style: GoogleFonts.poppins(fontSize: responsive.fs14),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedMainCategory = value;
-                            _selectedSubCategory = null; // Reset sub-category
-                          });
-                        },
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return localizations.validationMainCategoryRequired;
-                          }
-                          return null;
-                        },
-                      ),
-              ),
+    final scheme = Theme.of(context).colorScheme;
 
-              // Sub Category Dropdown (Optional)
-              if (_selectedMainCategory != null && !_isLoadingCategories) ...[
-                SizedBox(height: responsive.sp16),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: DropdownButtonFormField<String?>(
-                    decoration: InputDecoration(
-                      hintText: localizations.subCategory,
-                      border: InputBorder.none,
-                      contentPadding: responsive.padding(horizontal: 16, vertical: 12),
-                      prefixIcon: Icon(
-                        Icons.list_outlined,
-                        color: Color(0xFF667eea),
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          Text(localizations.selectMainCategoryHint, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
+          const SizedBox(height: 8),
+          if (_isLoadingCategories)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _categories.map((category) {
+                final selected = _selectedMainCategory == category.mainCategory;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedMainCategory = category.mainCategory;
+                      _selectedSubCategory = null;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: selected ? scheme.primary : Theme.of(context).cardTheme.color,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: selected ? scheme.primary : scheme.outline),
+                    ),
+                    child: Text(
+                      category.mainCategory,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? Colors.white : scheme.onSurfaceVariant,
                       ),
                     ),
-                    isExpanded: true,
-                    value: _selectedSubCategory,
-                    items: [
-                      // Add "All" option for optional sub-category selection
-                      DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text(
-                          localizations.allNoFilter,
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs14,
-                            fontStyle: FontStyle.italic,
-                            color: Colors.grey[600],
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      // Add actual sub-categories for the selected main category
-                      ..._categories
-                          .firstWhere(
-                            (cat) => cat.mainCategory == _selectedMainCategory,
-                            orElse: () =>
-                                Category(mainCategory: '', subCategories: []),
-                          )
-                          .subCategories
-                          .map((subCategory) {
-                            return DropdownMenuItem<String?>(
-                              value: subCategory,
-                              child: Text(
-                                subCategory,
-                                style: GoogleFonts.poppins(fontSize: responsive.fs14),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          })
-                          .toList(),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedSubCategory = value;
-                      });
-                    },
                   ),
-                ),
+                );
+              }).toList(),
+            ),
+          if (_selectedMainCategory != null && !_isLoadingCategories) ...[
+            const SizedBox(height: 16),
+            Text(localizations.subCategory, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _subCategoryChip(localizations.allNoFilter, null),
+                for (final sub in _categories
+                    .firstWhere(
+                      (cat) => cat.mainCategory == _selectedMainCategory,
+                      orElse: () => Category(mainCategory: '', subCategories: []),
+                    )
+                    .subCategories)
+                  _subCategoryChip(sub, sub),
               ],
+            ),
+          ],
+          const SizedBox(height: 18),
+          Text(localizations.budgetAmount, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _amountController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              hintText: '0.00',
+              prefixIcon: const Icon(Icons.attach_money_rounded),
+              errorText: _amountError,
+            ),
+            onChanged: (_) {
+              if (_amountError != null) setState(() => _amountError = null);
+            },
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _submit,
+              child: Text(localizations.save),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-              SizedBox(height: responsive.sp16),
-
-              // Amount Field
-              TextFormField(
-                controller: _amountController,
-                decoration: InputDecoration(
-                  labelText: localizations.budgetAmount,
-                  hintText: '0.00',
-                  prefixIcon: Icon(
-                    Icons.attach_money,
-                    color: Color(0xFF667eea),
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    borderSide: BorderSide(color: Color(0xFF667eea), width: 2),
-                  ),
-                ),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return localizations.enterAmount;
-                  }
-                  if (double.tryParse(value) == null ||
-                      double.parse(value) <= 0) {
-                    return localizations.enterValidAmount;
-                  }
-                  return null;
-                },
-              ),
-
-              // Info text about sub-categories
-              if (_selectedMainCategory != null) ...[
-                SizedBox(height: responsive.sp12),
-                Container(
-                  padding: responsive.padding(all: 12),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF667eea).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: responsive.icon16,
-                        color: Color(0xFF667eea),
-                      ),
-                      SizedBox(width: responsive.sp8),
-                      Expanded(
-                        child: Text(
-                          _selectedSubCategory == null
-                              ? 'Budget will track all sub-categories in $_selectedMainCategory'
-                              : 'Budget will only track $_selectedSubCategory',
-                          style: GoogleFonts.poppins(
-                            fontSize: responsive.fs11,
-                            color: Color(0xFF667eea),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
+  Widget _subCategoryChip(String label, String? value) {
+    final selected = _selectedSubCategory == value;
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedSubCategory = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary : Theme.of(context).cardTheme.color,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: selected ? scheme.primary : scheme.outline),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : scheme.onSurfaceVariant,
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            localizations.dialogCancel,
-            style: GoogleFonts.poppins(color: Colors.grey[600]),
-          ),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            if (_formKey.currentState!.validate()) {
-              // Create display name based on selections
-              String displayName = _selectedMainCategory!;
-              if (_selectedSubCategory != null) {
-                displayName += ' - $_selectedSubCategory';
-              }
-
-              // Validate for duplicates
-              final editParent = context
-                  .findAncestorStateOfType<_EditBudgetScreenState>();
-              
-              String? error;
-              if (editParent != null) {
-                error = editParent._validateDuplicateCategory(
-                  _selectedMainCategory!,
-                  _selectedSubCategory,
-                  excludeIndex: widget.editingIndex,
-                );
-              }
-              
-              if (error != null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(error, style: GoogleFonts.poppins()),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              widget.onAdd(
-                CategoryBudget(
-                  mainCategory: displayName,
-                  allocatedAmount: double.parse(_amountController.text),
-                  spentAmount: 0,
-                  percentageUsed: 0,
-                  isExceeded: false,
-                ),
-              );
-              Navigator.pop(context);
-            }
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Color(0xFF667eea),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(responsive.borderRadius(8)),
-            ),
-            padding: responsive.padding(horizontal: 24, vertical: 12),
-          ),
-          child: Text(
-            localizations.save,
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

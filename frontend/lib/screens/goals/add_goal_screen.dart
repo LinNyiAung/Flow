@@ -2,13 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
-import 'package:frontend/services/responsive_helper.dart';
+
+/// Mockup's `--accent`: identical to `--primary` in light, but a distinct,
+/// brighter teal in dark. See goals_screen.dart for the full rationale.
+Color _accentColor(BuildContext context) {
+  final theme = Theme.of(context);
+  return theme.brightness == Brightness.dark ? theme.colorScheme.secondary : theme.colorScheme.primary;
+}
 
 class AddGoalScreen extends StatefulWidget {
   @override
@@ -20,27 +26,27 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
   final _nameController = TextEditingController();
   final _targetAmountController = TextEditingController();
   final _initialContributionController = TextEditingController();
-  
+
   GoalType _selectedGoalType = GoalType.savings;
   DateTime? _targetDate;
   bool _isLoading = false;
 
   Currency _selectedCurrency = Currency.usd;
-
+  final _formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
-void initState() {
-  super.initState();
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    setState(() {
-      _selectedCurrency = authProvider.defaultCurrency;
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+      setState(() {
+        _selectedCurrency = authProvider.defaultCurrency;
+      });
+      // Fetch balance for default currency
+      transactionProvider.fetchBalance(currency: _selectedCurrency);
     });
-    // Fetch balance for default currency
-    transactionProvider.fetchBalance(currency: _selectedCurrency);
-  });
-}
+  }
 
   @override
   void dispose() {
@@ -56,15 +62,9 @@ void initState() {
       initialDate: DateTime.now().add(Duration(days: 30)),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(Duration(days: 3650)),
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            primaryColor: Color(0xFF667eea),
-            colorScheme: ColorScheme.light(primary: Color(0xFF667eea)),
-          ),
-          child: child!,
-        );
-      },
+      // The picker already inherits the app's theme (jade in light,
+      // darkPrimary in dark) — no override needed. The previous override
+      // hardcoded AppTheme.jade, forcing light-mode green in dark mode too.
     );
 
     if (picked != null) {
@@ -75,404 +75,356 @@ void initState() {
   }
 
   Future<void> _createGoal() async {
-  if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) return;
 
-  setState(() {
-    _isLoading = true;
-  });
+    setState(() {
+      _isLoading = true;
+    });
 
-  final goalProvider = Provider.of<GoalProvider>(context, listen: false);
-  final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-  final responsive = ResponsiveHelper(context);
-  final localizations = AppLocalizations.of(context);
+    final goalProvider = Provider.of<GoalProvider>(context, listen: false);
+    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+    final localizations = AppLocalizations.of(context);
 
-  final success = await goalProvider.createGoal(
-    name: _nameController.text.trim(),
-    targetAmount: double.parse(_targetAmountController.text),
-    targetDate: _targetDate,
-    goalType: _selectedGoalType,
-    initialContribution: _initialContributionController.text.isNotEmpty
-        ? double.parse(_initialContributionController.text)
-        : 0.0,
-    currency: _selectedCurrency,  // ADD THIS LINE
-  );
-
-  setState(() {
-    _isLoading = false;
-  });
-
-  if (success) {
-    await transactionProvider.fetchBalance(currency: _selectedCurrency);  // Refresh balance
-    Navigator.pop(context, true);
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          goalProvider.error ?? localizations.failedToCreateGoal,
-          style: GoogleFonts.poppins(color: Colors.white),
-        ),
-        backgroundColor: Colors.red,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(responsive.borderRadius(8))),
-        behavior: SnackBarBehavior.floating,
-      ),
+    final success = await goalProvider.createGoal(
+      name: _nameController.text.trim(),
+      targetAmount: double.parse(_targetAmountController.text),
+      targetDate: _targetDate,
+      goalType: _selectedGoalType,
+      initialContribution: _initialContributionController.text.isNotEmpty
+          ? double.parse(_initialContributionController.text)
+          : 0.0,
+      currency: _selectedCurrency, // ADD THIS LINE
     );
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (success) {
+      await transactionProvider.fetchBalance(currency: _selectedCurrency); // Refresh balance
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(goalProvider.error ?? localizations.failedToCreateGoal),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
-}
 
   @override
   Widget build(BuildContext context) {
     final transactionProvider = Provider.of<TransactionProvider>(context);
-    final availableBalance = transactionProvider.balance?.availableBalance ?? 0.0;
-    final responsive = ResponsiveHelper(context);
+    final availableBalance = transactionProvider.balance != null && transactionProvider.balance!.currency == _selectedCurrency
+        ? transactionProvider.balance!.availableBalance
+        : 0.0;
     final localizations = AppLocalizations.of(context);
-    final formatter = NumberFormat("#,##0.00", "en_US");
+    final scheme = Theme.of(context).colorScheme;
+
+    // Available-for-goals header recalculates live as the initial amount changes.
+    final enteredInitial = double.tryParse(_initialContributionController.text) ?? 0.0;
+    final remainingAfterInitial = availableBalance - enteredInitial;
+
+    final onHeroMuted = AppTheme.jadeLabelFor(context);
+    final accent = _accentColor(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          localizations.createNewGoal,
-          style: GoogleFonts.poppins(
-            fontSize: responsive.fs20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
+        // Mockup uses a close (X) glyph here, not a back arrow — this is a
+        // modal creation flow, dismissed rather than navigated back from.
+        title: Text(localizations.createNewGoal),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF333333)),
+          icon: const Icon(Icons.close_rounded),
           onPressed: () => Navigator.pop(context),
         ),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF667eea).withOpacity(0.1),
-              Colors.white,
-            ],
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: TextButton(
+                onPressed: _isLoading ? null : _createGoal,
+                style: TextButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: scheme.primary.withValues(alpha: 0.6),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : Text(localizations.createGoal, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+            ),
           ),
-        ),
-        child: SingleChildScrollView(
-          padding: responsive.padding(all: 20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Available Balance Card
-                Container(
-                  width: double.infinity,
-                  padding: responsive.padding(all: 20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Mockup's Add Goal hero is smaller than the Dashboard/Budgets
+              // /Goal detail hero — `--p-container` at radius 16 (not 24)
+              // with a 26px amount (not 40px) — so it's hand-built here
+              // rather than reusing the shared (larger) HeroCard widget.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(16)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      localizations.availableForGoals,
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: onHeroMuted),
                     ),
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(16)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_selectedCurrency.symbol}${_formatter.format(availableBalance)}',
+                      style: AppTheme.money(26, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
+                    ),
+                    if (enteredInitial > 0) ...[
+                      const SizedBox(height: 4),
                       Text(
-                        localizations.availableForGoals,
-                        style: GoogleFonts.poppins(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: responsive.fs14,
-                        ),
-                      ),
-                      SizedBox(height: responsive.sp8),
-                      Text(
-                        _selectedCurrency.displayName,
-                        style: GoogleFonts.poppins(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: responsive.fs12,
-                        ),
-                      ),
-                      Text(
-                        transactionProvider.balance != null &&
-                            transactionProvider.balance!.currency == _selectedCurrency
-                            ? '${_selectedCurrency.symbol}${formatter.format(transactionProvider.balance!.availableBalance)}'
-                            : '${_selectedCurrency.symbol}0.00',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: responsive.fs28,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        '${_selectedCurrency.symbol}${_formatter.format(remainingAfterInitial)} left after this goal',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onHeroMuted),
                       ),
                     ],
-                  ),
+                  ],
                 ),
+              ),
 
-                SizedBox(height: responsive.sp24),
+              const SizedBox(height: 20),
 
-                // Currency Selector
-                Text(
-                  localizations.currency,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
+              _sectionLabel(localizations.goalName),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  hintText: localizations.egEmergencyFund,
                 ),
-                SizedBox(height: responsive.sp8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  ),
-                  child: DropdownButtonFormField<Currency>(
-                    value: _selectedCurrency,
-                    decoration: InputDecoration(
-                      prefixIcon: Icon(Icons.currency_exchange, color: Color(0xFF667eea)),
-                      border: InputBorder.none,
-                      contentPadding: responsive.padding(horizontal: 15, vertical: 15),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return localizations.pleaseEnterAGoalName;
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 18),
+
+              _sectionLabel(localizations.currency),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: Currency.values.map((currency) {
+                  final selected = _selectedCurrency == currency;
+                  return ChoiceChip(
+                    label: Text('${currency.symbol} ${currency.name.toUpperCase()}'),
+                    selected: selected,
+                    labelStyle: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : scheme.onSurface,
                     ),
-                    items: Currency.values.map((currency) {
-                      return DropdownMenuItem(
-                        value: currency,
-                        child: Text(
-                          '${currency.symbol} - ${currency.displayName}',
-                          style: GoogleFonts.poppins(fontSize: responsive.fs14),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) async {
-                      setState(() {
-                        _selectedCurrency = value!;
-                      });
-                      // Fetch balance for selected currency
+                    selectedColor: scheme.primary,
+                    backgroundColor: scheme.surface,
+                    side: BorderSide(color: selected ? scheme.primary : scheme.outline),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    onSelected: (_) async {
+                      setState(() => _selectedCurrency = currency);
                       final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-                      await transactionProvider.fetchBalance(currency: _selectedCurrency);
+                      await transactionProvider.fetchBalance(currency: currency);
                     },
-                  ),
-                ),
+                  );
+                }).toList(),
+              ),
 
-                SizedBox(height: responsive.sp24),
+              const SizedBox(height: 18),
 
-                // Goal Name
-                Text(
-                  localizations.goalName,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
+              _sectionLabel(localizations.goalType),
+              const SizedBox(height: 8),
+              Column(
+                children: [
+                  _goalTypeOption(
+                    type: GoalType.savings,
+                    icon: Icons.savings_rounded,
+                    title: 'Savings',
+                    subtitle: 'Put money aside for later',
                   ),
-                ),
-                SizedBox(height: responsive.sp8),
-                TextFormField(
-                  controller: _nameController,
-                  decoration: InputDecoration(
-                    hintText: localizations.egEmergencyFund,
-                    prefixIcon: Icon(Icons.label, color: Color(0xFF667eea)),
+                  const SizedBox(height: 8),
+                  _goalTypeOption(
+                    type: GoalType.debt_reduction,
+                    icon: Icons.money_off_rounded,
+                    title: 'Debt reduction',
+                    subtitle: 'Clear something you owe',
                   ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return localizations.pleaseEnterAGoalName;
-                    }
-                    return null;
-                  },
-                ),
+                  const SizedBox(height: 8),
+                  _goalTypeOption(
+                    type: GoalType.large_purchase,
+                    icon: Icons.shopping_bag_rounded,
+                    title: 'Large purchase',
+                    subtitle: 'Save towards one thing',
+                  ),
+                ],
+              ),
 
-                SizedBox(height: responsive.sp20),
+              const SizedBox(height: 18),
 
-                // Goal Type
-                Text(
-                  localizations.goalType,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
+              _sectionLabel(localizations.targetAmount),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _targetAmountController,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  hintText: '0.00',
+                  prefixIcon: Icon(Icons.flag_rounded, color: accent),
                 ),
-                SizedBox(height: responsive.sp8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                  ),
-                  child: DropdownButtonFormField<GoalType>(
-                    value: _selectedGoalType,
-                    decoration: InputDecoration(
-                      prefixIcon: Icon(Icons.category, color: Color(0xFF667eea)),
-                      border: InputBorder.none,
-                      contentPadding: responsive.padding(horizontal: 15, vertical: 15),
-                    ),
-                    items: GoalType.values.map((type) {
-                      IconData icon;
-                      switch (type) {
-                        case GoalType.savings:
-                          icon = Icons.savings;
-                          break;
-                        case GoalType.debt_reduction:
-                          icon = Icons.money_off;
-                          break;
-                        case GoalType.large_purchase:
-                          icon = Icons.shopping_bag;
-                          break;
-                      }
-                      return DropdownMenuItem(
-                        value: type,
-                        child: Row(
-                          children: [
-                            Icon(icon, size: responsive.icon20, color: Color(0xFF667eea)),
-                            SizedBox(width: responsive.sp8),
-                            Text(
-                              type.name.replaceAll('_', ' ').toUpperCase(),
-                              style: GoogleFonts.poppins(fontSize: responsive.fs14),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedGoalType = value!;
-                      });
-                    },
-                  ),
-                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return localizations.pleaseEnterTargetAmount;
+                  }
+                  final amount = double.tryParse(value);
+                  if (amount == null || amount <= 0) {
+                    return localizations.pleaseEnterAValidAmount;
+                  }
+                  return null;
+                },
+              ),
 
-                SizedBox(height: responsive.sp20),
+              const SizedBox(height: 18),
 
-                // Target Amount
-                Text(
-                  localizations.targetAmount,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
+              _sectionLabel(localizations.initialContribution),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _initialContributionController,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  hintText: '0.00',
+                  prefixIcon: Icon(Icons.account_balance_wallet_rounded, color: accent),
                 ),
-                SizedBox(height: responsive.sp8),
-                TextFormField(
-                  controller: _targetAmountController,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    hintText: '0.00',
-                    prefixIcon: Icon(Icons.attach_money, color: Color(0xFF667eea)),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return localizations.pleaseEnterTargetAmount;
-                    }
+                onChanged: (_) => setState(() {}),
+                validator: (value) {
+                  if (value != null && value.isNotEmpty) {
                     final amount = double.tryParse(value);
-                    if (amount == null || amount <= 0) {
+                    if (amount == null || amount < 0) {
                       return localizations.pleaseEnterAValidAmount;
                     }
-                    return null;
-                  },
-                ),
-
-                SizedBox(height: responsive.sp20),
-
-                // Initial Contribution
-                Text(
-                  localizations.initialContribution,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                SizedBox(height: responsive.sp8),
-                TextFormField(
-                  controller: _initialContributionController,
-                  keyboardType: TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    hintText: '0.00',
-                    prefixIcon: Icon(Icons.account_balance_wallet, color: Color(0xFF667eea)),
-                  ),
-                  validator: (value) {
-                    if (value != null && value.isNotEmpty) {
-                      final amount = double.tryParse(value);
-                      if (amount == null || amount < 0) {
-                        return localizations.pleaseEnterAValidAmount;
-                      }
-                      if (amount > availableBalance) {
-                        return localizations.insufficientBalance;
-                      }
+                    if (amount > availableBalance) {
+                      return localizations.insufficientBalance;
                     }
-                    return null;
-                  },
-                ),
+                  }
+                  return null;
+                },
+              ),
 
-                SizedBox(height: responsive.sp20),
+              const SizedBox(height: 18),
 
-                // Target Date
-                Text(
-                  localizations.targetDate,
-                  style: GoogleFonts.poppins(
-                    fontSize: responsive.fs14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                SizedBox(height: responsive.sp8),
-                InkWell(
+              // Mockup renders Target date as a single self-contained card
+              // (title + current value + chevron, radius 16, shadow — no
+              // border) rather than the external-label-then-field pattern
+              // used above; unlike those fields it carries its own title,
+              // so no separate _sectionLabel precedes it.
+              Card(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
                   onTap: _selectTargetDate,
-                  child: Container(
-                    padding: responsive.padding(all: 15),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[50],
-                      borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                    ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
                     child: Row(
                       children: [
-                        Icon(Icons.calendar_today, color: Color(0xFF667eea)),
-                        SizedBox(width: responsive.sp12),
+                        Icon(Icons.event_rounded, size: 22, color: scheme.onSurfaceVariant),
+                        const SizedBox(width: 14),
                         Expanded(
-                          child: Text(
-                            _targetDate == null
-                                ? localizations.selectTargetDate
-                                : DateFormat('MMM dd, yyyy').format(_targetDate!),
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs14,
-                              color: _targetDate == null ? Colors.grey[600] : Color(0xFF333333),
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                localizations.targetDate,
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _targetDate == null ? localizations.selectTargetDate : DateFormat('MMM dd, yyyy').format(_targetDate!),
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
                         ),
+                        Icon(Icons.expand_more_rounded, color: scheme.onSurfaceVariant),
                       ],
                     ),
                   ),
                 ),
+              ),
 
-                SizedBox(height: responsive.sp32),
-
-                // Create Button
-                SizedBox(
-                  width: double.infinity,
-                  height: responsive.cardHeight(baseHeight: 52),
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _createGoal,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF667eea),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(responsive.borderRadius(12)),
-                      ),
-                      elevation: 4,
-                    ),
-                    child: _isLoading
-                        ? SizedBox(
-                            height: responsive.iconSize(mobile: 20),
-                            width: responsive.iconSize(mobile: 20),
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : Text(
-                            localizations.createGoal,
-                            style: GoogleFonts.poppins(
-                              fontSize: responsive.fs16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ),
+              const SizedBox(height: 24),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String label) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
+      ),
+    );
+  }
+
+  Widget _goalTypeOption({
+    required GoalType type,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = _selectedGoalType == type;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => setState(() => _selectedGoalType = type),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: selected ? scheme.secondaryContainer : Theme.of(context).cardTheme.color,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? scheme.primary : scheme.outline),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: _accentColor(context)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+            if (selected) Icon(Icons.check_circle_rounded, color: scheme.primary, size: 20),
+          ],
         ),
       ),
     );

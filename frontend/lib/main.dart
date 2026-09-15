@@ -23,11 +23,14 @@ import 'package:frontend/screens/settings/notification_settings_screen.dart';
 import 'package:frontend/screens/settings/privacy_policy_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
 import 'package:frontend/screens/settings/terms_and_conditions_screen.dart';
+import 'package:frontend/screens/settings/theme_settings_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
 import 'package:frontend/screens/update/force_update_screen.dart';
 import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
+import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/providers/theme_provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
@@ -87,77 +90,54 @@ class _MyAppState extends State<MyApp> {
         ChangeNotifierProvider(create: (_) => BudgetProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => FeedbackProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()..loadThemeMode()),
       ],
-      child: MaterialApp(
-        title: 'Toe Pwar',
-        debugShowCheckedModeBanner: false,
-        locale: _locale,
-        supportedLocales: const [Locale('en', ''), Locale('my', '')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-          visualDensity: VisualDensity.adaptivePlatformDensity,
-          scaffoldBackgroundColor: Colors.white,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            centerTitle: false,
-          ),
-          elevatedButtonTheme: ElevatedButtonThemeData(
-            style: ElevatedButton.styleFrom(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              elevation: 4,
-            ),
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            filled: true,
-            fillColor: Colors.grey[50],
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 15.0,
-              horizontal: 15.0,
-            ),
-          ),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) => MaterialApp(
+          title: 'Toe Pwar',
+          debugShowCheckedModeBanner: false,
+          locale: _locale,
+          supportedLocales: const [Locale('en', ''), Locale('my', '')],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: themeProvider.themeMode,
+          initialRoute: '/',
+          routes: {
+            '/': (context) => AuthWrapper(),
+            '/ai-chat': (context) => AiChatScreen(),
+            '/goals': (context) => GoalsScreen(),
+            '/outflow-analytics': (context) => OutflowAnalyticsScreen(),
+            '/inflow-analytics': (context) => InflowAnalyticsScreen(),
+            '/insights': (context) => InsightsScreen(),
+            '/reports': (context) => ReportsScreen(),
+            '/budgets': (context) => BudgetsScreen(),
+            '/notifications': (context) => NotificationsScreen(),
+            '/subscription': (context) => SubscriptionScreen(),
+            '/settings': (context) => SettingsScreen(),
+            '/notification-settings': (context) => NotificationSettingsScreen(),
+            '/currency-settings': (context) => CurrencySettingsScreen(),
+            '/theme-settings': (context) => ThemeSettingsScreen(),
+            '/privacy-policy': (context) => PrivacyPolicyScreen(),
+            '/terms-conditions': (context) => TermsAndConditionsScreen(),
+            '/login': (context) => LoginScreen(),
+            '/feedback': (context) => FeedbackScreen(),
+          },
+          onGenerateRoute: (settings) {
+            if (settings.name == '/language-settings') {
+              return MaterialPageRoute(
+                builder: (context) =>
+                    LanguageSettingsScreen(onLanguageChanged: _changeLanguage),
+              );
+            }
+            return null;
+          },
         ),
-        initialRoute: '/',
-        routes: {
-          '/': (context) => AuthWrapper(),
-          '/ai-chat': (context) => AiChatScreen(),
-          '/goals': (context) => GoalsScreen(),
-          '/outflow-analytics': (context) => OutflowAnalyticsScreen(),
-          '/inflow-analytics': (context) => InflowAnalyticsScreen(),
-          '/insights': (context) => InsightsScreen(),
-          '/reports': (context) => ReportsScreen(),
-          '/budgets': (context) => BudgetsScreen(),
-          '/notifications': (context) => NotificationsScreen(),
-          '/subscription': (context) => SubscriptionScreen(),
-          '/settings': (context) => SettingsScreen(),
-          '/notification-settings': (context) => NotificationSettingsScreen(),
-          '/currency-settings': (context) => CurrencySettingsScreen(),
-          '/privacy-policy': (context) => PrivacyPolicyScreen(),
-          '/terms-conditions': (context) => TermsAndConditionsScreen(),
-          '/login': (context) => LoginScreen(),
-          '/feedback': (context) => FeedbackScreen(),
-        },
-        onGenerateRoute: (settings) {
-          if (settings.name == '/language-settings') {
-            return MaterialPageRoute(
-              builder: (context) =>
-                  LanguageSettingsScreen(onLanguageChanged: _changeLanguage),
-            );
-          }
-          return null;
-        },
       ),
     );
   }
@@ -208,10 +188,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
       builder: (context, authProvider, versionProvider, child) {
         // ── Step 1: Show spinner while auth or version check is in progress ──
         if (authProvider.isAuthChecking || versionProvider.isLoading) {
-          return const Scaffold(
+          return Scaffold(
             body: Center(
               child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667eea)),
+                valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
               ),
             ),
           );

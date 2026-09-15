@@ -266,12 +266,15 @@ async def stream_chat_with_ai(
                     if usage_data.get('model_name'):
                         model_name = usage_data['model_name']
             
+            if full_response:
+                # Saved before the "done" frame is sent — the client is free
+                # to navigate away as soon as it sees done:true, so the save
+                # has to be complete by then or a quick navigation away can
+                # race it and the conversation never gets persisted.
+                await save_chat_session(current_user["_id"], chat_request.message, full_response, chat_history)
+
             final_data = {"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()}
             yield f"data: {json.dumps(final_data)}\n\n"
-            
-            if full_response:
-                # [FIX] Added await (save_chat_session is now async)
-                await save_chat_session(current_user["_id"], chat_request.message, full_response, chat_history)
             
             if input_tokens > 0 or output_tokens > 0:
                 provider = AIProviderType.GEMINI if chat_request.ai_provider == AIProvider.GEMINI else AIProviderType.OPENAI
@@ -388,7 +391,7 @@ async def refresh_ai_data(
         )
     
 
-# ==================== AI INSIGHTS ====================   
+# ==================== AI INSIGHTS ====================
 
 
 @app.get("/api/insights", response_model=InsightResponse)
@@ -413,23 +416,23 @@ async def get_insights(
             # If Myanmar requested but not cached, generate translation
             if language == "mm" and not latest_insight.get("content_mm"):
                 print(f"🔄 Generating Myanmar translation using {ai_provider.value}...")
-                
+
                 from insights_service import translate_insight_to_myanmar
-                
+
                 myanmar_content = await translate_insight_to_myanmar(
                     latest_insight["content"],
                     ai_provider.value,
                     user_id=current_user["_id"]
                 )
-                
+
                 # [FIX] Added await
                 await insights_collection.update_one(
                     {"_id": latest_insight["_id"]},
                     {"$set": {"content_mm": myanmar_content}}
                 )
-                
+
                 latest_insight["content_mm"] = myanmar_content
-            
+
             return InsightResponse(
                 id=latest_insight["_id"],
                 user_id=latest_insight["user_id"],
@@ -463,7 +466,7 @@ async def get_insights(
                 {"$set": {"content_mm": myanmar_content}}
             )
             new_insight["content_mm"] = myanmar_content
-        
+
         print(f"✅ First {insight_type} {ai_provider.value} insight generated")
         return InsightResponse(
             id=new_insight["_id"],
@@ -542,9 +545,9 @@ async def regenerate_insights(
                 {"$set": {"content_mm": myanmar_content}}
             )
             new_insight["content_mm"] = myanmar_content
-        
+
         print(f"✅ Weekly {ai_provider.value} insights regenerated successfully")
-        
+
         return InsightResponse(
             id=new_insight["_id"],
             user_id=new_insight["user_id"],
@@ -585,13 +588,13 @@ async def translate_insights_to_myanmar(
         
         from insights_service import translate_insight_to_myanmar
         print(f"🔄 Translating weekly insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
-        
+
         myanmar_content = await translate_insight_to_myanmar(
             insight["content"],
             ai_provider.value,
             user_id=current_user["_id"]
         )
-        
+
         # [FIX] Added await
         await insights_collection.update_one(
             {"_id": insight["_id"]},
