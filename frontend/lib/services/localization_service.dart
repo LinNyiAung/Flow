@@ -966,6 +966,34 @@ class AppLocalizations {
       'operationFailed': 'Operation failed',
       'moneyHeldNotSpendable': 'Money held for this goal isn\'t spendable',
       'heldFundsExplanation': 'It comes out of your available balance, so the dashboard never offers you money you\'ve promised elsewhere.',
+
+      // Insights health score
+      'healthScoreTitle': 'Financial Health',
+      'healthScoreExcellent': 'Excellent',
+      'healthScoreGood': 'Good',
+      'healthScoreNeedsAttention': 'Needs attention',
+      'healthScoreAtRisk': 'At risk',
+
+      // Locked insights preview
+      'whatYoullGetTitle': 'What you\'ll get this week',
+      'sectionLastWeekSummary': 'Last Week\'s Summary',
+      'sectionWeekComparison': 'Week-over-Week Comparison',
+      'sectionSpendingAnalysis': 'Spending Analysis',
+      'sectionBudgetPerformance': 'Budget Performance',
+      'sectionGoalsProgress': 'Goals Progress',
+      'sectionWinsAchievements': 'Wins & Achievements',
+      'sectionAreasAttention': 'Areas for Attention',
+      'sectionRecommendations': 'Recommendations for This Week',
+      'sectionWeeklyChallenge': 'Weekly Challenge',
+      'previewLastWeekSummary': 'Total income, total expenses, net position and number of transactions for the week, plus the key highlights worth knowing about.',
+      'previewWeekComparison': 'How this week\'s income and spending changed versus the week before, with the percentage shift and what\'s driving it.',
+      'previewSpendingAnalysis': 'Where your money went this week, broken down by category, with the biggest movers called out by name.',
+      'previewBudgetPerformance': 'How every one of your budgets tracked against its cap this week, including which ones are close to breaching.',
+      'previewGoalsProgress': 'Contributions made toward each savings goal, updated progress percentages, and whether you\'re on track or behind schedule.',
+      'previewWinsAchievements': 'The good financial habits and decisions from this week worth celebrating, called out specifically so you know what\'s working.',
+      'previewAreasAttention': 'Spending patterns, overruns or concerning trends from this week that are worth a closer look before they become a habit.',
+      'previewRecommendations': 'Specific, actionable suggestions for the week ahead based on your own numbers — not generic advice.',
+      'previewWeeklyChallenge': 'One focused, measurable goal for the week ahead, with clear steps and a reason it\'ll actually move the needle.',
     },
     'my': {
       // Home Screen
@@ -1891,6 +1919,34 @@ class AppLocalizations {
       'operationFailed': 'လုပ်ဆောင်မှု မအောင်မြင်ပါ',
       'moneyHeldNotSpendable': 'ဤရည်မှန်းချက်အတွက် ထားရှိသော ငွေကို အသုံးမပြုနိုင်ပါ',
       'heldFundsExplanation': '၎င်းသည် သင့်အသုံးပြုနိုင်သော လက်ကျန်ငွေမှ နုတ်ယူထားခြင်းဖြစ်သောကြောင့် အခြားနေရာတွင် ကတိပြုထားသော ငွေကို ဒက်ရှ်ဘုတ်က ဘယ်တော့မှ ထပ်ပြီး မပေးတော့ပါ။',
+
+      // Insights health score
+      'healthScoreTitle': 'ငွေကြေးကျန်းမာရေး',
+      'healthScoreExcellent': 'အလွန်ကောင်း',
+      'healthScoreGood': 'ကောင်း',
+      'healthScoreNeedsAttention': 'အာရုံစိုက်ရန် လိုအပ်',
+      'healthScoreAtRisk': 'အန္တရာယ်ရှိ',
+
+      // Locked insights preview
+      'whatYoullGetTitle': 'ဒီအပတ် သင်ရရှိမည့်အရာများ',
+      'sectionLastWeekSummary': 'ပြီးခဲ့သည့်အပတ် အနှစ်ချုပ်',
+      'sectionWeekComparison': 'အပတ်စဉ် နှိုင်းယှဉ်မှု',
+      'sectionSpendingAnalysis': 'အသုံးစရိတ် ခွဲခြမ်းစိတ်ဖြာမှု',
+      'sectionBudgetPerformance': 'ဘတ်ဂျက် စွမ်းဆောင်ရည်',
+      'sectionGoalsProgress': 'ရည်မှန်းချက် တိုးတက်မှု',
+      'sectionWinsAchievements': 'အောင်မြင်မှုများ',
+      'sectionAreasAttention': 'အာရုံစိုက်ရန် နေရာများ',
+      'sectionRecommendations': 'ဒီအပတ်အတွက် အကြံပြုချက်များ',
+      'sectionWeeklyChallenge': 'အပတ်စဉ် စိန်ခေါ်မှု',
+      'previewLastWeekSummary': 'ဒီအပတ်အတွက် စုစုပေါင်းဝင်ငွေ၊ စုစုပေါင်းအသုံးစရိတ်၊ အသားတင်အခြေအနေနှင့် ငွေစာရင်းအရေအတွက်၊ ထို့ပြင် သိထားသင့်သော အဓိကအချက်များ။',
+      'previewWeekComparison': 'ဒီအပတ်၏ ဝင်ငွေနှင့် အသုံးစရိတ်သည် ပြီးခဲ့သည့်အပတ်နှင့် နှိုင်းယှဉ်လျှင် မည်သို့ပြောင်းလဲခဲ့သည်၊ ရာခိုင်နှုန်းအပြောင်းအလဲနှင့် အကြောင်းရင်းများ။',
+      'previewSpendingAnalysis': 'ဒီအပတ် သင့်ငွေကြေး မည်သည့်နေရာသို့ရောက်ခဲ့သည်၊ အမျိုးအစားအလိုက် ခွဲခြမ်းစိတ်ဖြာပြီး အများဆုံးသုံးစွဲမှုများကို အမည်တပ်ဖော်ပြချက်။',
+      'previewBudgetPerformance': 'သင့်ဘတ်ဂျက်တစ်ခုစီသည် ဒီအပတ်တွင် ကန့်သတ်ပမာဏနှင့် မည်သို့ တိုက်ဆိုင်ခဲ့သည်၊ မည်သည်များ ကန့်သတ်ချိုးဖောက်ရန် နီးကပ်နေသည်ဆိုသည်ပါ ပါဝင်သည်။',
+      'previewGoalsProgress': 'ရည်မှန်းချက်တစ်ခုစီသို့ ပေးသွင်းထားသည့်ငွေများ၊ တိုးတက်မှုရာခိုင်နှုန်းများနှင့် သတ်မှတ်ကာလအတိုင်း ရှိနေသလား နောက်ကျနေသလား။',
+      'previewWinsAchievements': 'ဒီအပတ်မှ ဂုဏ်ယူဖွယ် ကောင်းမွန်သော ငွေကြေးဆိုင်ရာ အလေ့အကျင့်များနှင့် ဆုံးဖြတ်ချက်များကို တိကျစွာ ဖော်ပြပေးသည်။',
+      'previewAreasAttention': 'ဒီအပတ်မှ အလေ့အကျင့်တစ်ခု မဖြစ်မီ အနီးကပ် ဂရုစိုက်သင့်သော အသုံးစရိတ်ပုံစံများ၊ ကန့်သတ်ကျော်လွန်မှုများနှင့် စိုးရိမ်ဖွယ် ခြေရာများ။',
+      'previewRecommendations': 'သင့်ကိုယ်ပိုင် ကိန်းဂဏန်းများအပေါ် အခြေခံသည့် လာမည့်အပတ်အတွက် တိကျသည့် လုပ်ဆောင်နိုင်သော အကြံပြုချက်များ — အထွေထွေအကြံပြုချက် မဟုတ်ပါ။',
+      'previewWeeklyChallenge': 'လာမည့်အပတ်အတွက် အာရုံစိုက်ရမည့် ပန်းတိုင်တစ်ခု၊ ရှင်းလင်းသောအဆင့်များနှင့် အဘယ်ကြောင့် အထောက်အကူဖြစ်မည်ဆိုသည့် အကြောင်းရင်း။',
     }
   };
 
@@ -2866,6 +2922,34 @@ class AppLocalizations {
   String get operationFailed => translate('operationFailed');
   String get moneyHeldNotSpendable => translate('moneyHeldNotSpendable');
   String get heldFundsExplanation => translate('heldFundsExplanation');
+
+  // Insights health score
+  String get healthScoreTitle => translate('healthScoreTitle');
+  String get healthScoreExcellent => translate('healthScoreExcellent');
+  String get healthScoreGood => translate('healthScoreGood');
+  String get healthScoreNeedsAttention => translate('healthScoreNeedsAttention');
+  String get healthScoreAtRisk => translate('healthScoreAtRisk');
+
+  // Locked insights preview
+  String get whatYoullGetTitle => translate('whatYoullGetTitle');
+  String get sectionLastWeekSummary => translate('sectionLastWeekSummary');
+  String get sectionWeekComparison => translate('sectionWeekComparison');
+  String get sectionSpendingAnalysis => translate('sectionSpendingAnalysis');
+  String get sectionBudgetPerformance => translate('sectionBudgetPerformance');
+  String get sectionGoalsProgress => translate('sectionGoalsProgress');
+  String get sectionWinsAchievements => translate('sectionWinsAchievements');
+  String get sectionAreasAttention => translate('sectionAreasAttention');
+  String get sectionRecommendations => translate('sectionRecommendations');
+  String get sectionWeeklyChallenge => translate('sectionWeeklyChallenge');
+  String get previewLastWeekSummary => translate('previewLastWeekSummary');
+  String get previewWeekComparison => translate('previewWeekComparison');
+  String get previewSpendingAnalysis => translate('previewSpendingAnalysis');
+  String get previewBudgetPerformance => translate('previewBudgetPerformance');
+  String get previewGoalsProgress => translate('previewGoalsProgress');
+  String get previewWinsAchievements => translate('previewWinsAchievements');
+  String get previewAreasAttention => translate('previewAreasAttention');
+  String get previewRecommendations => translate('previewRecommendations');
+  String get previewWeeklyChallenge => translate('previewWeeklyChallenge');
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

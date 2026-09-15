@@ -6,7 +6,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/providers/transaction_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import '../../models/insight.dart';
 import '../../providers/insight_provider.dart';
@@ -25,7 +27,19 @@ class _InsightsScreenState extends State<InsightsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchInsights();
+      _fetchHealthScoreInputs();
     });
+  }
+
+  // Cheap GETs (budgets + balance) that feed the health score card — not
+  // AI calls, so safe to always refresh, unlike insights generation itself.
+  void _fetchHealthScoreInputs() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    Provider.of<BudgetProvider>(context, listen: false).fetchBudgets(activeOnly: true);
+    Provider.of<TransactionProvider>(
+      context,
+      listen: false,
+    ).fetchBalance(currency: authProvider.defaultCurrency);
   }
 
   Future<void> _fetchInsights() async {
@@ -162,6 +176,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Widget _buildPremiumBody(InsightProvider insightProvider) {
     final localizations = AppLocalizations.of(context);
+    final budgetProvider = Provider.of<BudgetProvider>(context);
+    final transactionProvider = Provider.of<TransactionProvider>(context);
 
     if (insightProvider.isLoading ||
         (insightProvider.insight == null && insightProvider.error == null)) {
@@ -181,6 +197,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final periodLabel = insightProvider.insightType == 'monthly'
         ? localizations.monthly
         : localizations.weekly;
+    final healthScore = _computeHealthScore(budgetProvider, transactionProvider);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
@@ -189,6 +206,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
         const SizedBox(height: 12),
         _headerCard(insightProvider, periodLabel, scheme),
         const SizedBox(height: 12),
+        if (healthScore != null) ...[
+          _healthScoreCard(healthScore, scheme),
+          const SizedBox(height: 12),
+        ],
         ..._fullReportSectionCards(insightProvider, insight, scheme),
         const SizedBox(height: 14),
         Align(
@@ -228,6 +249,105 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ),
             const SizedBox(width: 8),
             _translateChip(insightProvider, scheme),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Computed locally from real budget/transaction data rather than asked
+  // of the AI — a "score" implies something stable and comparable, and an
+  // AI-generated number would vary between regenerations of the same
+  // underlying data. Blends budget adherence (how far active budgets are
+  // under their caps) with savings rate (inflow kept rather than spent,
+  // scored against a 20%-of-income benchmark). Returns null when there's
+  // no budget or balance data yet to score against.
+  int? _computeHealthScore(
+    BudgetProvider budgetProvider,
+    TransactionProvider transactionProvider,
+  ) {
+    double? budgetScore;
+    final activeBudgets = budgetProvider.activeBudgets;
+    if (activeBudgets.isNotEmpty) {
+      final total = activeBudgets.fold<double>(
+        0,
+        (sum, b) => sum + (100 - (b.percentageUsed - 100).clamp(0, 100)).clamp(0, 100),
+      );
+      budgetScore = total / activeBudgets.length;
+    }
+
+    double? savingsScore;
+    final balance = transactionProvider.balance;
+    if (balance != null && balance.totalInflow > 0) {
+      final savingsRate = (balance.totalInflow - balance.totalOutflow) / balance.totalInflow;
+      savingsScore = (savingsRate / 0.20 * 100).clamp(0, 100);
+    }
+
+    final scores = [if (budgetScore != null) budgetScore, if (savingsScore != null) savingsScore];
+    if (scores.isEmpty) return null;
+    return (scores.reduce((a, b) => a + b) / scores.length).round();
+  }
+
+  Widget _healthScoreCard(int score, ColorScheme scheme) {
+    final localizations = AppLocalizations.of(context);
+
+    final Color accent;
+    final String label;
+    if (score >= 80) {
+      accent = scheme.primary;
+      label = localizations.healthScoreExcellent;
+    } else if (score >= 60) {
+      accent = scheme.primary;
+      label = localizations.healthScoreGood;
+    } else if (score >= 40) {
+      accent = scheme.tertiary;
+      label = localizations.healthScoreNeedsAttention;
+    } else {
+      accent = scheme.error;
+      label = localizations.healthScoreAtRisk;
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    value: score / 100,
+                    strokeWidth: 5,
+                    backgroundColor: scheme.surfaceContainerHighest,
+                    valueColor: AlwaysStoppedAnimation<Color>(accent),
+                  ),
+                  Text(
+                    '$score',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: accent),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    localizations.healthScoreTitle,
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    label,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: accent),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -509,82 +629,77 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   // ── Locked (free) ────────────────────────────────────────────────
 
+  // The health score is computed locally from the user's own budget and
+  // transaction data (see _computeHealthScore) — it isn't an AI feature,
+  // so it's shown for real even to non-premium users rather than faked or
+  // blurred. Only the AI-generated report sections below it are locked,
+  // shown as a plain list of what's included rather than a wall of raw
+  // report text run through a blur filter (which used to leak markdown
+  // syntax like `##`/`---` as literal characters since it wasn't rendered
+  // through MarkdownBody).
   Widget _buildLockedBody(InsightProvider insightProvider) {
     final scheme = Theme.of(context).colorScheme;
     final localizations = AppLocalizations.of(context);
-    final realContent = insightProvider.getContentForLanguage() ?? insightProvider.insight?.content;
-    final hasReal = realContent != null && realContent.trim().isNotEmpty;
+    final budgetProvider = Provider.of<BudgetProvider>(context);
+    final transactionProvider = Provider.of<TransactionProvider>(context);
+    final healthScore = _computeHealthScore(budgetProvider, transactionProvider);
 
-    const fallbackTitle = 'Your Thursdays cost 2.4× a normal day.';
-    const fallbackBody =
-        'Four of the last five Thursdays paired a delivery with a late ride home — about K61,000 a month. '
-        'Moving one of the two to a home-cooked night saves roughly K30,000 and puts Food & Daily Living back under its cap.';
-    const healthTitle = 'Health score: 78 out of 100';
-    const healthBody =
-        'Saving 72% of inflow is well above your six-month average, while one breached cap costs you six points this month.';
+    final lockedSections = <(String, String, String)>[
+      ('📊', localizations.sectionLastWeekSummary, localizations.previewLastWeekSummary),
+      ('📈', localizations.sectionWeekComparison, localizations.previewWeekComparison),
+      ('💰', localizations.sectionSpendingAnalysis, localizations.previewSpendingAnalysis),
+      ('📊', localizations.sectionBudgetPerformance, localizations.previewBudgetPerformance),
+      ('🎯', localizations.sectionGoalsProgress, localizations.previewGoalsProgress),
+      ('✨', localizations.sectionWinsAchievements, localizations.previewWinsAchievements),
+      ('⚠️', localizations.sectionAreasAttention, localizations.previewAreasAttention),
+      ('💡', localizations.sectionRecommendations, localizations.previewRecommendations),
+      ('🎯', localizations.sectionWeeklyChallenge, localizations.previewWeeklyChallenge),
+    ];
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
       children: [
+        if (healthScore != null) ...[
+          _healthScoreCard(healthScore, scheme),
+          const SizedBox(height: 12),
+        ],
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                child: Row(
                   children: [
-                    Icon(Icons.lightbulb_rounded, size: 20, color: scheme.tertiary),
+                    Icon(Icons.auto_awesome_rounded, size: 18, color: scheme.tertiary),
                     const SizedBox(width: 8),
-                    Flexible(
+                    Expanded(
                       child: Text(
-                        hasReal ? 'This week' : 'Ready for you',
+                        localizations.whatYoullGetTitle,
                         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.tertiary),
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  hasReal ? _firstLine(realContent) : fallbackTitle,
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, height: 1.35),
-                ),
-                const SizedBox(height: 8),
-                ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 3.5, sigmaY: 3.5),
-                  child: Text(
-                    hasReal ? _restOfContent(realContent) : fallbackBody,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: scheme.onSurfaceVariant,
-                      height: 1.55,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  healthTitle,
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, height: 1.35),
-                ),
-                const SizedBox(height: 8),
-                ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 3.5, sigmaY: 3.5),
-                  child: Text(
-                    healthBody,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: scheme.onSurfaceVariant,
-                      height: 1.55,
-                    ),
-                  ),
-                ),
-                const Divider(height: 33),
+              ),
+              for (var i = 0; i < lockedSections.length; i++) ...[
+                if (i > 0) Divider(height: 1, indent: 18, endIndent: 18, color: scheme.outlineVariant),
+                _lockedSectionRow(lockedSections[i].$1, lockedSections[i].$2, lockedSections[i].$3, scheme),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
                 Text(
                   localizations.threeInsightsWaiting,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.5),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.5),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
@@ -593,17 +708,58 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   label: Text(localizations.tryOneMonthFree),
                 ),
                 const SizedBox(height: 10),
-                Center(
-                  child: Text(
-                    localizations.noCardRequiredCancelAnyTime,
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
-                  ),
+                Text(
+                  localizations.noCardRequiredCancelAnyTime,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                 ),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _lockedSectionRow(String emoji, String title, String subtitle, ColorScheme scheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                ),
+                const SizedBox(height: 6),
+                // Not real data — a longer generic description of what the
+                // section contains, blurred and wrapped over a few lines so
+                // it reads as "there's real substance here", not just a
+                // one-line label with a lock next to it.
+                ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 3.2, sigmaY: 3.2),
+                  child: Text(
+                    subtitle,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(Icons.lock_rounded, size: 16, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
     );
   }
 
@@ -633,24 +789,4 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return remainder.trim();
   }
 
-  String _stripHeadings(String content) =>
-      content.replaceAll(RegExp(r'^#+\s*', multiLine: true), '').trim();
-
-  String _firstLine(String content) {
-    final clean = _stripHeadings(content);
-    final idx = clean.indexOf('\n');
-    final firstBlock = idx == -1 ? clean : clean.substring(0, idx);
-    final sentenceEnd = firstBlock.indexOf('. ');
-    if (sentenceEnd != -1 && sentenceEnd < 140) {
-      return firstBlock.substring(0, sentenceEnd + 1);
-    }
-    return firstBlock.length > 140 ? '${firstBlock.substring(0, 140)}…' : firstBlock;
-  }
-
-  String _restOfContent(String content) {
-    final clean = _stripHeadings(content);
-    final first = _firstLine(content);
-    final rest = clean.startsWith(first) ? clean.substring(first.length).trim() : clean;
-    return rest.isEmpty ? content : rest;
-  }
 }
