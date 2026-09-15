@@ -295,6 +295,13 @@ class AppDrawer extends StatelessWidget {
   void _showLogoutDialog(BuildContext context) {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
+    // Resolved up front: the drawer closes itself right before this sheet
+    // opens, so by the time the user taps "Log out" the drawer's own
+    // context is already unmounted. Grabbing the navigator and provider now
+    // (still valid, since the drawer is only mid-close-animation) lets the
+    // button act on them later without redoing a lookup on a dead context.
+    final navigator = Navigator.of(context);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     showAppBottomSheet<void>(
       context: context,
@@ -328,9 +335,8 @@ class AppDrawer extends StatelessWidget {
               style: FilledButton.styleFrom(backgroundColor: scheme.error),
               onPressed: () {
                 Navigator.pop(sheetContext);
-                Provider.of<AuthProvider>(context, listen: false).logout();
-                Navigator.pushReplacement(
-                  context,
+                authProvider.logout();
+                navigator.pushReplacement(
                   MaterialPageRoute(builder: (_) => LoginScreen()),
                 );
               },
