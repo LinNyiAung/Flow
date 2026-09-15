@@ -133,9 +133,10 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
     if (success) {
       Navigator.pop(context, true);
     } else {
+      final localizations = AppLocalizations.of(context);
       setState(() {
         _isSaving = false;
-        _error = transactionProvider.error ?? 'Failed to save transaction';
+        _error = transactionProvider.error ?? localizations.failedToSaveTransactionFallback;
       });
     }
   }
@@ -152,7 +153,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Add a receipt', style: Theme.of(context).textTheme.titleLarge),
+            Text(localizations.addAReceiptTitle, style: Theme.of(context).textTheme.titleLarge),
             SizedBox(height: 16),
             Container(
               decoration: BoxDecoration(
@@ -320,10 +321,10 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('WHAT WE READ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
+              Text(localizations.whatWeReadLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
               SizedBox(height: 6),
               Text(
-                'Merchant, date, amount and category — nothing is saved until you confirm.',
+                localizations.whatWeReadDescription,
                 style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.5),
               ),
             ],
@@ -453,7 +454,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           SizedBox(height: 8),
           TextButton(
             onPressed: _isSaving ? null : _showImageSourceDialog,
-            child: Text('Use a different photo'),
+            child: Text(localizations.useDifferentPhotoButton),
           ),
         ],
       ),

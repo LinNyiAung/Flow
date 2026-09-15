@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:frontend/services/localization_service.dart';
 
 class AiChatFab extends StatelessWidget {
   final VoidCallback? onPressed;
@@ -10,6 +11,7 @@ class AiChatFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     return FloatingActionButton.extended(
       onPressed: onPressed ?? () => Navigator.pushNamed(context, '/ai-chat'),
       backgroundColor: Color(0xFF667eea),
@@ -29,14 +31,14 @@ class AiChatFab extends StatelessWidget {
         ),
       ),
       label: Text(
-        'Ask AI',
+        localizations.askAi,
         style: GoogleFonts.poppins(
           color: Colors.white,
           fontWeight: FontWeight.w600,
         ),
       ),
       elevation: 8,
-      tooltip: 'Chat with AI Assistant',
+      tooltip: localizations.chatWithAiAssistant,
     );
   }
 }

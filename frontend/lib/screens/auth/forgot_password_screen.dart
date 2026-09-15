@@ -2,6 +2,7 @@ import 'dart:async'; // Required for Timer
 import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
 import '../../services/api_service.dart';
+import '../../services/localization_service.dart';
 import 'login_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -53,6 +54,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     return Scaffold(
       body: _AuthShell(
         child: Form(
@@ -62,10 +64,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _BackArrow(onTap: () => Navigator.pop(context)),
-              const _StepHeader(
+              _StepHeader(
                 icon: Icons.lock_reset_rounded,
-                title: 'Reset your password',
-                subtitle: "We'll email a six-digit code to the address on the account.",
+                title: localizations.resetPasswordTitle,
+                subtitle: localizations.resetPasswordSubtitle,
               ),
               const SizedBox(height: 24),
 
@@ -73,14 +75,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Email address',
-                  prefixIcon: Icon(Icons.mail_outline_rounded),
+                decoration: InputDecoration(
+                  labelText: localizations.emailAddressLabel,
+                  prefixIcon: const Icon(Icons.mail_outline_rounded),
                 ),
                 validator: (v) {
-                  if (v == null || v.isEmpty) return 'Please enter your email';
+                  if (v == null || v.isEmpty) return localizations.enterEmailError;
                   if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v)) {
-                    return 'Please enter a valid email';
+                    return localizations.enterValidEmailError;
                   }
                   return null;
                 },
@@ -92,7 +94,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               const SizedBox(height: 4),
 
               _PrimaryButton(
-                label: 'Send the code',
+                label: localizations.sendCodeButton,
                 isLoading: _isLoading,
                 onPressed: _requestOtp,
               ),
@@ -158,7 +160,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   Future<void> _verify() async {
     if (_otp.length < 6) {
-      setState(() => _error = 'Please enter all 6 digits');
+      setState(() => _error = AppLocalizations.of(context).enterAllSixDigitsError);
       return;
     }
 
@@ -205,7 +207,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('A new code has been sent to your email.')),
+        SnackBar(content: Text(AppLocalizations.of(context).newCodeSentMessage)),
       );
 
       _startTimer(); // Restart the timer only on success
@@ -226,6 +228,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final defaultPinTheme = PinTheme(
       width: 48,
@@ -264,8 +267,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             _BackArrow(onTap: () => Navigator.pop(context)),
             _StepHeader(
               icon: Icons.mark_email_read_rounded,
-              title: 'Enter the code',
-              subtitle: 'Sent to ${widget.email}. It expires in ten minutes.',
+              title: localizations.enterTheCodeTitle,
+              subtitle: '${localizations.sentCodeToPrefix} ${widget.email}. ${localizations.expiresInTenMinutes}',
             ),
             const SizedBox(height: 24),
 
@@ -294,7 +297,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             const SizedBox(height: 4),
 
             _PrimaryButton(
-              label: 'Verify code',
+              label: localizations.verifyCodeButton,
               isLoading: _isLoading,
               onPressed: _verify,
             ),
@@ -306,12 +309,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  "Didn't get it? ",
+                  localizations.didntGetItPrefix,
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                 ),
                 _secondsLeft > 0
                     ? Text(
-                        'Resend in ${_secondsLeft}s',
+                        '${localizations.resendInPrefix} ${_secondsLeft}s',
                         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                       )
                     : _isResending
@@ -323,7 +326,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         : GestureDetector(
                             onTap: _resend,
                             child: Text(
-                              'Send a new code',
+                              localizations.sendNewCodeButton,
                               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary),
                             ),
                           ),
@@ -383,6 +386,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       if (!mounted) return;
 
       final scheme = Theme.of(context).colorScheme;
+      final localizations = AppLocalizations.of(context);
 
       // Show success dialog then go to login
       await showDialog(
@@ -400,12 +404,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Password reset!',
+                localizations.passwordResetTitle,
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: scheme.onSurface),
               ),
               const SizedBox(height: 8),
               Text(
-                'Your password has been updated successfully. You can now log in with your new password.',
+                localizations.passwordResetSuccessMessage,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: scheme.onSurfaceVariant),
               ),
@@ -420,7 +424,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                       (route) => false,
                     );
                   },
-                  child: const Text('Back to login'),
+                  child: Text(localizations.backToLogin),
                 ),
               ),
             ],
@@ -443,6 +447,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     return Scaffold(
       body: _AuthShell(
         child: Form(
@@ -451,10 +456,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _StepHeader(
+              _StepHeader(
                 icon: Icons.lock_outline_rounded,
-                title: 'Choose a new password',
-                subtitle: 'Code accepted. At least six characters.',
+                title: localizations.chooseNewPasswordTitle,
+                subtitle: localizations.codeAcceptedSubtitle,
               ),
               const SizedBox(height: 22),
 
@@ -465,7 +470,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 enableSuggestions: false,
                 autocorrect: false,
                 decoration: InputDecoration(
-                  labelText: 'New password',
+                  labelText: localizations.newPasswordLabel,
                   prefixIcon: const Icon(Icons.lock_outline_rounded),
                   suffixIcon: IconButton(
                     icon: Icon(_obscureNew ? Icons.visibility_rounded : Icons.visibility_off_rounded),
@@ -473,8 +478,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   ),
                 ),
                 validator: (v) {
-                  if (v == null || v.isEmpty) return 'Please enter a password';
-                  if (v.length < 6) return 'Minimum 6 characters';
+                  if (v == null || v.isEmpty) return localizations.pleaseEnterAPasswordError;
+                  if (v.length < 6) return localizations.minimumSixCharactersError;
                   return null;
                 },
               ),
@@ -487,7 +492,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 enableSuggestions: false,
                 autocorrect: false,
                 decoration: InputDecoration(
-                  labelText: 'Confirm it',
+                  labelText: localizations.confirmItLabel,
                   prefixIcon: const Icon(Icons.lock_outline_rounded),
                   suffixIcon: IconButton(
                     icon: Icon(_obscureConfirm ? Icons.visibility_rounded : Icons.visibility_off_rounded),
@@ -495,8 +500,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   ),
                 ),
                 validator: (v) {
-                  if (v == null || v.isEmpty) return 'Please confirm your password';
-                  if (v != _newPasswordController.text) return 'Passwords do not match';
+                  if (v == null || v.isEmpty) return localizations.confirmPasswordError;
+                  if (v != _newPasswordController.text) return localizations.passwordsNotMatch;
                   return null;
                 },
               ),
@@ -507,7 +512,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               const SizedBox(height: 4),
 
               _PrimaryButton(
-                label: 'Save and sign in',
+                label: localizations.saveAndSignInButton,
                 isLoading: _isLoading,
                 onPressed: _resetPassword,
               ),
@@ -660,6 +665,7 @@ class _BackToLoginButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     return Center(
       child: TextButton.icon(
         onPressed: () {
@@ -669,7 +675,7 @@ class _BackToLoginButton extends StatelessWidget {
           );
         },
         icon: const Icon(Icons.arrow_back_rounded, size: 16),
-        label: const Text('Back to login'),
+        label: Text(localizations.backToLogin),
       ),
     );
   }

@@ -119,7 +119,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
           if (authProvider.isPremium)
             IconButton(
               icon: const Icon(Icons.refresh_rounded),
-              tooltip: 'Regenerate',
+              tooltip: localizations.regenerate,
               onPressed: insightProvider.isLoading ? null : _regenerateInsights,
             ),
           Padding(
@@ -511,6 +511,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Widget _buildLockedBody(InsightProvider insightProvider) {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     final realContent = insightProvider.getContentForLanguage() ?? insightProvider.insight?.content;
     final hasReal = realContent != null && realContent.trim().isNotEmpty;
 
@@ -581,20 +582,20 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   ),
                 ),
                 const Divider(height: 33),
-                const Text(
-                  'Three insights are waiting. Premium reads your own transactions weekly — no manual work.',
+                Text(
+                  localizations.threeInsightsWaiting,
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.5),
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/subscription'),
                   icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                  label: const Text('Try one month free'),
+                  label: Text(localizations.tryOneMonthFree),
                 ),
                 const SizedBox(height: 10),
                 Center(
                   child: Text(
-                    'No card required · cancel any time',
+                    localizations.noCardRequiredCancelAnyTime,
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                   ),
                 ),

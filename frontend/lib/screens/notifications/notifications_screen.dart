@@ -236,7 +236,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       const SizedBox(height: 14),
                       Center(
                         child: Text(
-                          'Swipe a notification to delete it',
+                          localizations.swipeNotificationToDelete,
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                         ),
                       ),
@@ -326,17 +326,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   String _formatTimestamp(DateTime timestamp) {
+    final localizations = AppLocalizations.of(context);
     final now = DateTime.now();
     final difference = now.difference(timestamp);
 
     if (difference.inMinutes < 1) {
-      return 'Just now';
+      return localizations.justNow;
     } else if (difference.inHours < 1) {
-      return '${difference.inMinutes}m ago';
+      return '${difference.inMinutes}${localizations.minutesAgoSuffix}';
     } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
+      return '${difference.inHours}${localizations.hoursAgoSuffix}';
     } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
+      return '${difference.inDays}${localizations.daysAgoSuffix}';
     } else {
       return DateFormat('MMM dd, yyyy').format(timestamp);
     }

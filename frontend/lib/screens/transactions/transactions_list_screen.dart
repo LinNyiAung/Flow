@@ -600,7 +600,9 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
 
   Widget _buildCountRow(TransactionProvider provider, AppLocalizations localizations, ColorScheme scheme) {
     final count = provider.transactions.length;
-    final countLabel = count == 1 ? '1 transaction' : '$count transactions';
+    final countLabel = count == 1
+        ? localizations.oneTransactionLabel
+        : '$count ${localizations.transactionsCountSuffix}';
 
     // A total is only meaningful in a single currency. If the user hasn't
     // filtered to one but every visible entry happens to share one anyway
@@ -619,7 +621,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       final sign = net >= 0 ? '+' : '-';
       totalLabel = '$sign${totalCurrency.symbol}${formatter.format(net.abs())}';
     } else {
-      totalLabel = count == 0 ? '' : 'Mixed currencies';
+      totalLabel = count == 0 ? '' : localizations.mixedCurrenciesLabel;
     }
 
     return Padding(

@@ -124,9 +124,10 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
       setState(() => _isLoading = false);
 
       if (mounted) {
+        final localizations = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error loading transactions: ${e.toString()}'),
+            content: Text('${localizations.errorLoadingTransactions} ${e.toString()}'),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -206,6 +207,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
 
   Map<String, double> _sortTimeSeriesData(Map<String, double> data) {
     List<MapEntry<String, double>> entries = data.entries.toList();
+    final localizations = AppLocalizations.of(context);
 
     switch (_selectedPeriod) {
       case TimePeriod.daily:
@@ -227,8 +229,12 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
         });
         break;
       case TimePeriod.monthly:
-        final monthOrder = ['January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December'];
+        final monthOrder = [
+          localizations.monthJanuary, localizations.monthFebruary, localizations.monthMarch,
+          localizations.monthApril, localizations.monthMay, localizations.monthJune,
+          localizations.monthJuly, localizations.monthAugust, localizations.monthSeptember,
+          localizations.monthOctober, localizations.monthNovember, localizations.monthDecember,
+        ];
         entries.sort((a, b) => monthOrder.indexOf(a.key).compareTo(monthOrder.indexOf(b.key)));
         break;
       case TimePeriod.yearly:
@@ -326,7 +332,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                 )
               else ...[
                 HeroCard(
-                  label: 'Money out · ${_getPeriodLabel()}',
+                  label: '${localizations.moneyOutLabel} ${_getPeriodLabel()}',
                   value: '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalSpending)}',
                   stats: [
                     StatTile(
@@ -336,7 +342,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                     ),
                     StatTile(
                       icon: Icons.calculate_rounded,
-                      label: 'Avg / entry',
+                      label: localizations.avgPerEntry,
                       value:
                           '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(_filteredTransactions.isEmpty ? 0 : totalSpending / _filteredTransactions.length)}',
                     ),
@@ -419,7 +425,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                           style: AppTheme.money(15, weight: FontWeight.w800, color: scheme.onSurface),
                                         ),
                                         Text(
-                                          'spent',
+                                          localizations.spentLabel,
                                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
                                         ),
                                       ],
@@ -576,6 +582,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
 
   Widget _buildCompositionInsight(Map<String, double> data, double total) {
     if (data.isEmpty || total <= 0) return const SizedBox.shrink();
+    final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final sorted = data.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final top = sorted.first;
@@ -591,7 +598,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '${top.key} is your biggest outflow category — ${pct.toStringAsFixed(0)}% of spending this period.',
+                '${top.key} ${localizations.biggestOutflowCategoryMiddle} ${pct.toStringAsFixed(0)}% ${localizations.biggestOutflowCategorySuffix}',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onTertiaryContainer, height: 1.5),
               ),
             ),

@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/localization_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   @override
@@ -36,6 +37,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildFormStep(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final headingStyle = theme.textTheme.titleLarge?.copyWith(
@@ -58,10 +60,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             icon: const Icon(Icons.arrow_back_rounded),
           ),
           const SizedBox(height: 20),
-          Text('Create an account', style: headingStyle),
+          Text(localizations.createAnAccount, style: headingStyle),
           const SizedBox(height: 6),
           Text(
-            'Two minutes now, and the app starts learning what your money does.',
+            localizations.registerTagline,
             style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant, height: 1.4),
           ),
           const SizedBox(height: 26),
@@ -69,13 +71,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
           // Name field
           TextFormField(
             controller: _nameController,
-            decoration: const InputDecoration(
-              labelText: 'Full name',
-              prefixIcon: Icon(Icons.person_outline_rounded),
+            decoration: InputDecoration(
+              labelText: localizations.fullNameLabel,
+              prefixIcon: const Icon(Icons.person_outline_rounded),
             ),
             validator: (value) {
               if (value == null || value.isEmpty) {
-                return 'Please enter your name';
+                return localizations.pleaseEnterName;
               }
               return null;
             },
@@ -86,16 +88,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
           TextFormField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
-              labelText: 'Email',
-              prefixIcon: Icon(Icons.mail_outline_rounded),
+            decoration: InputDecoration(
+              labelText: localizations.emailLabel,
+              prefixIcon: const Icon(Icons.mail_outline_rounded),
             ),
             validator: (value) {
               if (value == null || value.isEmpty) {
-                return 'Please enter your email';
+                return localizations.enterEmailError;
               }
               if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                return 'Please enter a valid email';
+                return localizations.enterValidEmailError;
               }
               return null;
             },
@@ -107,7 +109,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             controller: _passwordController,
             obscureText: _obscurePassword,
             decoration: InputDecoration(
-              labelText: 'Password',
+              labelText: localizations.passwordLabel,
               prefixIcon: const Icon(Icons.lock_outline_rounded),
               suffixIcon: IconButton(
                 icon: Icon(
@@ -122,10 +124,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             validator: (value) {
               if (value == null || value.isEmpty) {
-                return 'Please enter your password';
+                return localizations.enterPasswordError;
               }
               if (value.length < 6) {
-                return 'Password must be at least 6 characters';
+                return localizations.passwordMinLengthError;
               }
               return null;
             },
@@ -137,7 +139,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             controller: _confirmPasswordController,
             obscureText: _obscureConfirmPassword,
             decoration: InputDecoration(
-              labelText: 'Confirm password',
+              labelText: localizations.confirmPasswordLabel,
               prefixIcon: const Icon(Icons.lock_outline_rounded),
               suffixIcon: IconButton(
                 icon: Icon(
@@ -152,10 +154,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             validator: (value) {
               if (value == null || value.isEmpty) {
-                return 'Please confirm your password';
+                return localizations.confirmPasswordError;
               }
               if (value != _passwordController.text) {
-                return 'Passwords do not match';
+                return localizations.passwordsNotMatch;
               }
               return null;
             },
@@ -182,19 +184,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       text: TextSpan(
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.55),
                         children: [
-                          const TextSpan(text: 'By continuing you accept the '),
+                          TextSpan(text: localizations.byContinuingAcceptPrefix),
                           TextSpan(
-                            text: 'terms',
+                            text: localizations.termsLinkText,
                             style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary),
                             recognizer: _tapGesture(_showTermsAndConditions),
                           ),
-                          const TextSpan(text: ' and '),
+                          TextSpan(text: localizations.andConnector),
                           TextSpan(
-                            text: 'privacy policy',
+                            text: localizations.privacyPolicyLinkText,
                             style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary),
                             recognizer: _tapGesture(_showPrivacyPolicy),
                           ),
-                          const TextSpan(text: '. We never sell your data.'),
+                          TextSpan(text: localizations.neverSellDataSuffix),
                         ],
                       ),
                     ),
@@ -246,7 +248,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           height: 22,
                           child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
                         )
-                      : const Text('Create account'),
+                      : Text(localizations.createAccountButton),
                 ),
               );
             },
@@ -260,8 +262,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 text: TextSpan(
                   style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
                   children: [
-                    const TextSpan(text: 'Already have one? '),
-                    TextSpan(text: 'Sign in', style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary)),
+                    TextSpan(text: localizations.alreadyHaveAccountPrefix),
+                    TextSpan(text: localizations.signIn, style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary)),
                   ],
                 ),
               ),
@@ -273,6 +275,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildVerifyStep(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
@@ -298,7 +301,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                'One tap left',
+                localizations.oneTapLeft,
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
@@ -312,7 +315,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 text: TextSpan(
                   style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant, height: 1.6),
                   children: [
-                    const TextSpan(text: 'We sent a verification link to\n'),
+                    TextSpan(text: localizations.verificationLinkSentPrefix),
                     TextSpan(
                       text: _registeredEmail,
                       style: TextStyle(fontWeight: FontWeight.w700, color: scheme.onSurface),
@@ -335,11 +338,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Why the extra step', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+              Text(localizations.whyExtraStepTitle, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurface)),
               const SizedBox(height: 6),
               Text(
-                'Your email is the only way back into the account if you forget the password — so it has to be an address you really hold. '
-                'Nothing is charged and no other email follows.',
+                localizations.emailVerificationExplanation,
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.6),
               ),
             ],
@@ -350,7 +352,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           width: double.infinity,
           child: FilledButton(
             onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
-            child: const Text("I've verified — sign in"),
+            child: Text(localizations.verifiedSignInButton),
           ),
         ),
         const SizedBox(height: 18),
@@ -359,9 +361,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             TextSpan(
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.6),
               children: [
-                const TextSpan(text: "Nothing arrived? Check spam, or "),
+                TextSpan(text: localizations.nothingArrivedPrefix),
                 TextSpan(
-                  text: 'use a different address',
+                  text: localizations.useDifferentAddressLink,
                   style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary),
                   recognizer: _tapGesture(() => setState(() => _showVerify = false)),
                 ),
@@ -403,6 +405,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     showDialog(
       context: context,
       builder: (context) {
+        final localizations = AppLocalizations.of(context);
         final dialogScheme = Theme.of(context).colorScheme;
         return AlertDialog(
           title: Row(
@@ -411,7 +414,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Terms and Conditions',
+                  localizations.termsAndConditionsTitle,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -423,19 +426,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Welcome to Toe Pwar - Personal Finance AI',
+                  localizations.welcomeToToePwarTagline,
                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: dialogScheme.onSurface),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'By using Toe Pwar, you agree to:\n\n'
-                  '1. Use the app for personal financial management only\n\n'
-                  '2. Provide accurate information when creating transactions\n\n'
-                  '3. Keep your account credentials secure\n\n'
-                  '4. Not misuse AI features or attempt to manipulate the system\n\n'
-                  '5. Understand that financial insights are suggestions, not professional advice\n\n'
-                  '6. Accept that premium features require an active subscription\n\n'
-                  '7. Allow us to process your financial data to provide personalized insights',
+                  localizations.termsAndConditionsBody,
                   style: TextStyle(fontSize: 13, color: dialogScheme.onSurfaceVariant, height: 1.5),
                 ),
               ],
@@ -444,7 +440,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
+              child: Text(localizations.close),
             ),
           ],
         );
@@ -456,6 +452,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     showDialog(
       context: context,
       builder: (context) {
+        final localizations = AppLocalizations.of(context);
         final dialogScheme = Theme.of(context).colorScheme;
         return AlertDialog(
           title: Row(
@@ -464,7 +461,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Privacy Policy',
+                  localizations.privacyPolicyTitle,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -476,22 +473,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Your Privacy Matters',
+                  localizations.yourPrivacyMattersTitle,
                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: dialogScheme.onSurface),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'We collect and use your data to:\n\n'
-                  '• Provide personalized financial insights\n'
-                  '• Improve our AI recommendations\n'
-                  '• Secure your account and transactions\n'
-                  '• Send important notifications about your finances\n\n'
-                  'We protect your data by:\n\n'
-                  '• Encrypting all sensitive information\n'
-                  '• Never sharing your data with third parties without consent\n'
-                  '• Allowing you to delete your data at any time\n'
-                  '• Following industry-standard security practices\n\n'
-                  'Your financial data is stored securely and used only to enhance your experience with Toe Pwar.',
+                  localizations.privacyPolicyBody,
                   style: TextStyle(fontSize: 13, color: dialogScheme.onSurfaceVariant, height: 1.5),
                 ),
               ],
@@ -500,7 +487,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
+              child: Text(localizations.close),
             ),
           ],
         );

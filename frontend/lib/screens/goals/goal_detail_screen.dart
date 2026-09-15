@@ -116,7 +116,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       Navigator.pop(context); // Close sheet
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(goalProvider.error ?? 'Operation failed'),
+          content: Text(goalProvider.error ?? localizations.operationFailed),
           backgroundColor: scheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -682,7 +682,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     const SizedBox(height: 2),
                     Text(
                       _currentGoal.targetDate != null
-                          ? '${_currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase()} · Due ${DateFormat('MMM dd, yyyy').format(_currentGoal.targetDate!)}'
+                          ? '${_currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(_currentGoal.targetDate!)}'
                           : _currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase(),
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onHeroMuted),
                     ),
@@ -810,6 +810,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
   Widget _buildHeldFundsBanner() {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(16)),
@@ -817,12 +818,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "Money held for this goal isn't spendable",
+            localizations.moneyHeldNotSpendable,
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onTertiaryContainer),
           ),
           const SizedBox(height: 4),
           Text(
-            "It comes out of your available balance, so the dashboard never offers you money you've promised elsewhere.",
+            localizations.heldFundsExplanation,
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onTertiaryContainer, height: 1.4),
           ),
         ],

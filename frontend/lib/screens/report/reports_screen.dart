@@ -133,7 +133,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       setState(() => _isDownloading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to download report: ${e.toString()}'),
+          content: Text('${localizations.errorDownloadReport} ${e.toString()}'),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -277,6 +277,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<void> _showExportSheet() async {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     final accent = _accentColor(context);
     final report = _report;
 
@@ -287,7 +288,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Export this report', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            Text(localizations.exportThisReport, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             if (report != null)
               Text(
@@ -324,7 +325,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 const Text('PDF', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Charts, category tables and daily averages',
+                                  localizations.chartsCategoryTablesDailyAverages,
                                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -358,10 +359,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Send it on', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                Text(localizations.sendItOn, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Same PDF, straight to Viber or email',
+                                  localizations.samePdfToViberOrEmail,
                                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -748,6 +749,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _categoryRow(CategoryBreakdown cat, Color color, Currency currency) {
+    final localizations = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(
@@ -775,7 +777,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ProgressMeter(value: cat.percentage / 100, overrideColor: color),
           const SizedBox(height: 5),
           Text(
-            '${cat.percentage.toStringAsFixed(1)}% of total',
+            '${cat.percentage.toStringAsFixed(1)}% ${localizations.ofTotal}',
             style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ],
@@ -851,7 +853,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '${currencyReport.totalTransactions} txns',
+                    '${currencyReport.totalTransactions} ${localizations.txnsAbbrev}',
                     style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                   ),
                 ],
@@ -945,6 +947,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _miniStat(String label, double amount, int count, Color color, Currency currency) {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -954,7 +957,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           '${currency.symbol}${formatter.format(amount)}',
           style: AppTheme.money(16, weight: FontWeight.w700, color: color),
         ),
-        Text('$count transactions', style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+        Text('$count ${localizations.transactions}', style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
       ],
     );
   }

@@ -16,6 +16,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Future<void> _claimFreeTrial(BuildContext context) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final localizations = AppLocalizations.of(context);
 
     setState(() => _isClaiming = true);
 
@@ -45,13 +46,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                '🎉 Welcome to Premium!',
+                localizations.welcomeToPremiumCelebration,
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: scheme.onSurface),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
-                'You now have 1 month of free premium access. Enjoy all features!',
+                localizations.oneMonthFreePremiumAccess,
                 style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
@@ -61,7 +62,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 child: FilledButton(
                   onPressed: () => Navigator.pop(context),
                   style: FilledButton.styleFrom(backgroundColor: scheme.tertiary),
-                  child: const Text("Let's go!"),
+                  child: Text(localizations.letsGo),
                 ),
               ),
             ],
@@ -70,7 +71,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(authProvider.error ?? 'Could not claim free trial.')),
+        SnackBar(content: Text(authProvider.error ?? localizations.couldNotClaimFreeTrial)),
       );
     }
   }
@@ -186,6 +187,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   // ── "One month free" tonal hero ────────────────────────────────────────────
   Widget _buildOfferHero(BuildContext context, ColorScheme scheme) {
+    final localizations = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
@@ -197,17 +199,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'ONE MONTH FREE',
+            localizations.oneMonthFreeCaps,
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.4, color: scheme.onPrimaryContainer),
           ),
           const SizedBox(height: 8),
           Text(
-            'Let the app read your money for you.',
+            localizations.letAppReadYourMoney,
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: scheme.onPrimaryContainer, height: 1.25),
           ),
           const SizedBox(height: 8),
           Text(
-            'Weekly insights, receipt scanning, voice entry and AI budgets — on your own transactions.',
+            localizations.weeklyInsightsReceiptScanningVoiceAiBudgets,
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onPrimaryContainer, height: 1.4),
           ),
           const SizedBox(height: 18),
@@ -222,13 +224,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
                     )
                   : const Icon(Icons.card_giftcard_rounded, size: 20),
-              label: Text(_isClaiming ? 'Claiming…' : 'Claim 1 month free'),
+              label: Text(_isClaiming ? localizations.claiming : localizations.claimOneMonthFree),
             ),
           ),
           const SizedBox(height: 10),
           Center(
             child: Text(
-              'No card required · then contact us to continue',
+              localizations.noCardRequiredThenContactUs,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onPrimaryContainer),
             ),

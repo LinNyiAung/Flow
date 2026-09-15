@@ -90,7 +90,7 @@ class AppDrawer extends StatelessWidget {
         icon: Icons.forum_rounded,
         label: localizations.aiAssistant,
         isActive: currentRoute == '/ai-chat',
-        badgeText: !isPremium ? 'TRY FREE' : null,
+        badgeText: !isPremium ? localizations.badgeTryFree : null,
         onTap: () => go('/ai-chat'),
       ),
       _DrawerNavItem(
@@ -115,14 +115,14 @@ class AppDrawer extends StatelessWidget {
         icon: Icons.lightbulb_rounded,
         label: localizations.aiInsights,
         isActive: currentRoute == '/insights',
-        badgeText: !isPremium ? '3 NEW' : null,
+        badgeText: !isPremium ? localizations.badgeThreeNew : null,
         onTap: () => go('/insights'),
       ),
       _DrawerNavItem(
         icon: Icons.workspace_premium_rounded,
         label: localizations.subscription,
         isActive: currentRoute == '/subscription',
-        badgeText: !isPremium ? 'FREE MONTH' : null,
+        badgeText: !isPremium ? localizations.badgeFreeMonth : null,
         onTap: () => go('/subscription'),
       ),
     ];

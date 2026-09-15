@@ -224,6 +224,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   void _openCategorySheet({String? initialMain}) {
+    final localizations = AppLocalizations.of(context);
     String? viewingMain = initialMain;
     showAppBottomSheet<void>(
       context: context,
@@ -239,10 +240,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (viewingMain == null) ...[
-                    Text('Pick a category', style: Theme.of(context).textTheme.titleLarge),
+                    Text(localizations.pickCategoryTitle, style: Theme.of(context).textTheme.titleLarge),
                     SizedBox(height: 4),
                     Text(
-                      'Then choose a sub-category inside it',
+                      localizations.thenChooseSubCategoryHint,
                       style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
                     ),
                   ] else ...[
@@ -270,7 +271,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                'Choose a sub-category',
+                                localizations.chooseSubCategoryTitle,
                                 style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                               ),
                             ],
@@ -292,7 +293,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                               ? Center(
                                   child: _isLoadingCategories
                                       ? CircularProgressIndicator()
-                                      : Text('No categories', style: TextStyle(color: scheme.onSurfaceVariant)),
+                                      : Text(localizations.noCategoriesLabel, style: TextStyle(color: scheme.onSurfaceVariant)),
                                 )
                               : ListView.separated(
                                   itemCount: _categories.length,
@@ -316,7 +317,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       subtitle: Text(
-                                        '${cat.subCategories.length} sub-categories',
+                                        '${cat.subCategories.length} ${localizations.subCategoriesCountLabel}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -361,6 +362,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   void _openRepeatSheet() {
+    final localizations = AppLocalizations.of(context);
     showAppBottomSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -369,7 +371,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Repeat', style: Theme.of(context).textTheme.titleLarge),
+              Text(localizations.repeatLabel, style: Theme.of(context).textTheme.titleLarge),
               SizedBox(height: 12),
               RecurrenceSettings(
                 initialRecurrence: _recurrence,
@@ -384,7 +386,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: Text('Done')),
+                child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: Text(localizations.doneLabel)),
               ),
             ],
           ),
@@ -406,9 +408,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         leading: IconButton(icon: Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
         title: Text(localizations.addTransactionTitle, style: TextStyle(fontSize: 18)),
         actions: [
-          _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: 'Speak it', onTap: _goVoice),
+          _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: localizations.speakItTooltip, onTap: _goVoice),
           const SizedBox(width: 6),
-          _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: 'Scan receipt', onTap: _goScan),
+          _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: localizations.scanReceipt, onTap: _goScan),
           Padding(
             padding: const EdgeInsets.only(left: 8, right: 12),
             child: Center(
@@ -537,14 +539,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                               _selectedSubCategory ??
                                   (_selectedMainCategory != null
                                       ? localizations.selectSubCategoryHint
-                                      : 'Choose a category'),
+                                      : localizations.chooseCategoryFallback),
                               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             SizedBox(height: 2),
                             Text(
-                              _selectedMainCategory ?? 'Category and sub-category',
+                              _selectedMainCategory ?? localizations.categoryAndSubCategoryFallback,
                               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -657,12 +659,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Repeat', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                  Text(localizations.repeatLabel, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                                   SizedBox(height: 2),
                                   Text(
                                     _recurrence?.enabled == true
                                         ? _recurrence!.config!.getDisplayText()
-                                        : 'Off',
+                                        : localizations.offLabel,
                                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -879,7 +881,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       controller: rateController,
                       keyboardType: TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
-                        hintText: 'e.g., 3000',
+                        hintText: localizations.egExchangeRateHint,
                         prefixText: '1 ${_selectedCurrency.symbol} = ',
                         suffixText: targetCurrency?.symbol ?? '',
                       ),
@@ -951,7 +953,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Currency converted! Amount updated to ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}')),
+      SnackBar(content: Text('${localizations.currencyConvertedMessage} ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}')),
     );
   }
 

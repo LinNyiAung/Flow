@@ -28,7 +28,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final localizations = AppLocalizations.of(context);
-    final languageCode = Localizations.localeOf(context).languageCode;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -124,7 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(user?.name ?? 'User', style: textTheme.titleMedium, overflow: TextOverflow.ellipsis),
+                        Text(user?.name ?? localizations.defaultUserName, style: textTheme.titleMedium, overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 2),
                         Text(
                           user?.email ?? '',
@@ -148,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               const SizedBox(width: 5),
                               Text(
-                                authProvider.isPremium ? 'Premium Member' : 'Free Plan',
+                                authProvider.isPremium ? localizations.premiumMemberLabel : localizations.freePlanLabel,
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
@@ -161,7 +160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null) ...[
                           const SizedBox(height: 6),
                           Text(
-                            'Expires: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
+                            '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
                             style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                           ),
                         ],
@@ -220,7 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 AppListRow(
                   icon: Icons.language_rounded,
                   title: localizations.language,
-                  subtitle: languageCode == 'my' ? 'မြန်မာ' : 'English',
+                  subtitle: localizations.currentLanguageName,
                   onTap: () {
                     Navigator.pushNamed(context, '/language-settings');
                   },
@@ -302,14 +301,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 AppListRow(
                   icon: Icons.info_rounded,
                   title: localizations.aboutToePwar,
-                  subtitle: 'Version 1.0.0',
+                  subtitle: localizations.appVersion,
                   onTap: () => _showAboutDialog(context),
                 ),
                 const Divider(),
                 AppListRow(
                   icon: Icons.privacy_tip_rounded,
-                  title: 'Privacy Policy',
-                  subtitle: 'View our privacy policy',
+                  title: localizations.privacyPolicyTitle,
+                  subtitle: localizations.viewOurPrivacyPolicy,
                   onTap: () {
                     Navigator.pushNamed(context, '/privacy-policy');
                   },
@@ -318,8 +317,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(),
                 AppListRow(
                   icon: Icons.description_rounded,
-                  title: 'Terms and Conditions',
-                  subtitle: 'View terms and conditions',
+                  title: localizations.termsAndConditionsTitle,
+                  subtitle: localizations.viewTermsAndConditions,
                   onTap: () {
                     Navigator.pushNamed(context, '/terms-conditions');
                   },
@@ -405,22 +404,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Icon(Icons.savings_rounded, color: scheme.onPrimaryContainer, size: 24),
             ),
             const SizedBox(width: 12),
-            const Text('Toe Pwar'),
+            Text(localizations.toePwar),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Version 1.0.0', style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant)),
+            Text(localizations.appVersion, style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant)),
             const SizedBox(height: 16),
-            const Text(
-              'Toe Pwar is your personal finance management app with AI-powered insights and budget tracking.',
-              style: TextStyle(fontSize: 14),
+            Text(
+              localizations.appDescription,
+              style: const TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 16),
             Text(
-              '© 2025 Toe Pwar. All rights reserved.',
+              localizations.copyrightNotice,
               style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
           ],

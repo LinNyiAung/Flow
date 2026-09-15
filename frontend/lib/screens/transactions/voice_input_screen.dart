@@ -161,8 +161,9 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
       await transactionProvider.fetchBalance();
 
       // Show success message
+      final localizations = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Successfully saved ${selected.length} transaction(s)')),
+        SnackBar(content: Text('${localizations.successfullySavedPrefix} ${selected.length} ${localizations.transactionsSuffix}')),
       );
 
       Navigator.pop(context, true);
@@ -383,7 +384,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                   children: [
                     Icon(Icons.graphic_eq_rounded, color: scheme.primary, size: 16),
                     SizedBox(width: 8),
-                    Text('WHAT YOU SAID', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
+                    Text(localizations.whatYouSaidLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
                   ],
                 ),
                 SizedBox(height: 6),
@@ -398,14 +399,14 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           children: [
             Flexible(
               child: Text(
-                'Found ${data.totalCount} Transaction${data.totalCount > 1 ? 's' : ''}',
+                '${localizations.foundLabel} ${data.totalCount} ${data.totalCount > 1 ? localizations.transactions : localizations.transactionSingularLabel}',
                 style: Theme.of(context).textTheme.titleMedium,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             SizedBox(width: 8),
-            Text('from one recording', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
+            Text(localizations.fromOneRecordingLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
           ],
         ),
         SizedBox(height: 6),
@@ -426,7 +427,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(color: scheme.tertiaryContainer, borderRadius: BorderRadius.circular(14)),
             child: Text(
-              'Your sentence held multiple separate spends, so they are logged separately — untick anything you did not mean.',
+              localizations.multipleSpendsWarning,
               style: TextStyle(fontSize: 12, color: scheme.onTertiaryContainer, height: 1.5),
             ),
           ),
@@ -537,7 +538,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
             children: [
               Flexible(
                 child: Text(
-                  'Selected total',
+                  localizations.selectedTotalLabel,
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.jadeLabel2For(context)),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -565,7 +566,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
         SizedBox(height: 8),
         TextButton(
           onPressed: _isSaving ? null : _resetVoice,
-          child: Text('Record again'),
+          child: Text(localizations.recordAgainButton),
         ),
       ],
     );

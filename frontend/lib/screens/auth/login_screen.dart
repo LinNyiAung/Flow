@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/localization_service.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import '../home/home_screen.dart';
@@ -18,6 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final headingStyle = theme.textTheme.titleLarge?.copyWith(
@@ -48,10 +50,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Icon(Icons.trending_up_rounded, size: 44, color: scheme.primary),
                   ),
                   const SizedBox(height: 18),
-                  Text('Toe Pwar', style: headingStyle),
+                  Text(localizations.toePwar, style: headingStyle),
                   const SizedBox(height: 4),
                   Text(
-                    'Money that grows because you watch it',
+                    localizations.loginTagline,
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -61,16 +63,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'Email',
-                      prefixIcon: Icon(Icons.mail_outline_rounded),
+                    decoration: InputDecoration(
+                      labelText: localizations.emailLabel,
+                      prefixIcon: const Icon(Icons.mail_outline_rounded),
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Please enter your email';
+                        return localizations.enterEmailError;
                       }
                       if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                        return 'Please enter a valid email';
+                        return localizations.enterValidEmailError;
                       }
                       return null;
                     },
@@ -82,7 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: _passwordController,
                     obscureText: _obscurePassword,
                     decoration: InputDecoration(
-                      labelText: 'Password',
+                      labelText: localizations.passwordLabel,
                       prefixIcon: const Icon(Icons.lock_outline_rounded),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -97,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Please enter your password';
+                        return localizations.enterPasswordError;
                       }
                       return null;
                     },
@@ -118,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         minimumSize: const Size(0, 36),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      child: const Text('Forgot password?'),
+                      child: Text(localizations.forgotPasswordQuestion),
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -171,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text('Sign in'),
+                              : Text(localizations.signIn),
                         ),
                       );
                     },
@@ -190,9 +192,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       text: TextSpan(
                         style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
                         children: [
-                          const TextSpan(text: 'New here? '),
+                          TextSpan(text: localizations.newHerePrefix),
                           TextSpan(
-                            text: 'Create an account',
+                            text: localizations.createAnAccount,
                             style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary),
                           ),
                         ],

@@ -28,20 +28,20 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     super.dispose();
   }
 
-  String _ratingHelper() {
+  String _ratingHelper(AppLocalizations localizations) {
     switch (_rating) {
       case 1:
-        return 'Sorry to hear that — tell us what went wrong below.';
+        return localizations.ratingHelper1;
       case 2:
-        return 'Thanks — what could be better?';
+        return localizations.ratingHelper2;
       case 3:
-        return 'Good to know. What would make it great?';
+        return localizations.ratingHelper3;
       case 4:
-        return 'Glad you like it — anything to polish?';
+        return localizations.ratingHelper4;
       case 5:
-        return 'Wonderful! Thanks for the love.';
+        return localizations.ratingHelper5;
       default:
-        return 'Tap a star to rate your experience';
+        return localizations.ratingHelperDefault;
     }
   }
 
@@ -188,7 +188,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _ratingHelper(),
+                        _ratingHelper(localizations),
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
                         textAlign: TextAlign.center,
                       ),
@@ -223,7 +223,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               Padding(
                 padding: const EdgeInsets.only(left: 4),
                 child: Text(
-                  '$messageLength/10 minimum',
+                  '$messageLength${localizations.charCountMinimumSuffix}',
                   style: TextStyle(
                     fontSize: 11,
                     color: messageLength >= 10 ? scheme.primary : AppTheme.hintFor(context),

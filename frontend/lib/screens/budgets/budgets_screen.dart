@@ -476,7 +476,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                   Icon(Icons.calendar_today_rounded, size: 16, color: AppTheme.infoFor(context)),
                   const SizedBox(width: 6),
                   Text(
-                    'Starts ${DateFormat('MMM dd, yyyy').format(budget.startDate)}',
+                    '${localizations.startsOnPrefix} ${DateFormat('MMM dd, yyyy').format(budget.startDate)}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

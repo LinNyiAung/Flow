@@ -277,7 +277,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       Icon(Icons.lock_rounded, size: 18, color: scheme.onSurfaceVariant),
                       const SizedBox(width: 8),
                       Text(
-                        'FIXED FOR THIS BUDGET',
+                        localizations.fixedForThisBudget,
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
                       ),
                     ],
@@ -307,7 +307,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    "Period and currency can't change once a budget has spending against it — create a new budget instead.",
+                    localizations.periodCurrencyLockedNotice,
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),
                   ),
                 ],
@@ -435,12 +435,12 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'This cap is already spent',
+                            localizations.capAlreadySpentTitle,
                             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onErrorContainer),
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            '${belowSpent.map((c) => c.mainCategory).join(', ')} ${belowSpent.length > 1 ? 'already have' : 'already has'} more spent than the new cap allows.',
+                            '${belowSpent.map((c) => c.mainCategory).join(', ')} ${belowSpent.length > 1 ? localizations.alreadyHaveMoreSpent : localizations.alreadyHasMoreSpent}',
                             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onErrorContainer, height: 1.5),
                           ),
                         ],
@@ -463,7 +463,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'TOTAL CAP',
+                      localizations.totalCapLabel,
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer.withValues(alpha: 0.8)),
                     ),
                     const SizedBox(height: 10),

@@ -139,7 +139,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () => _scaffoldKey.currentState
               ?.openDrawer(), // Use the key to open the drawer
         ),
-        title: Text('Toe Pwar'),
+        title: Text(localizations.toePwar),
         actions: [
           Consumer<NotificationProvider>(
             builder: (context, notificationProvider, child) {
@@ -523,6 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
     TransactionProvider transactionProvider,
     ResponsiveHelper responsive,
   ) {
+    final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final now = DateTime.now();
     final days = List.generate(7, (i) => DateTime(now.year, now.month, now.day)
@@ -544,7 +545,7 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Spending pace',
+            localizations.spendingPace,
             style: TextStyle(
               fontSize: responsive.fs16,
               fontWeight: FontWeight.w700,
@@ -1057,7 +1058,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 SizedBox(width: responsive.sp8),
                 Flexible(
                   child: Text(
-                    'Insight',
+                    localizations.insight,
                     style: TextStyle(
                       fontSize: responsive.fs13,
                       fontWeight: FontWeight.w700,
@@ -1392,7 +1393,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               SizedBox(height: responsive.sp4),
               Text(
-                'Each keeps its own balance — nothing is converted behind your back.',
+                localizations.eachCurrencyOwnBalanceNote,
                 style: TextStyle(
                   fontSize: responsive.fs13,
                   fontWeight: FontWeight.w500,
@@ -1610,7 +1611,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Failed to load currency balances: ${e.toString().replaceAll('Exception: ', '')}',
+            '${localizations.errorLoadCurrencyBalances} ${e.toString().replaceAll('Exception: ', '')}',
             style: TextStyle(color: scheme.onErrorContainer),
           ),
           backgroundColor: scheme.errorContainer,

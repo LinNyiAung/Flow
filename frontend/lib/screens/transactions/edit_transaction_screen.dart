@@ -218,6 +218,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   }
 
   void _openCategorySheet({String? initialMain}) {
+    final localizations = AppLocalizations.of(context);
     String? viewingMain = initialMain;
     showAppBottomSheet<void>(
       context: context,
@@ -233,10 +234,10 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (viewingMain == null) ...[
-                    Text('Pick a category', style: Theme.of(context).textTheme.titleLarge),
+                    Text(localizations.pickCategoryTitle, style: Theme.of(context).textTheme.titleLarge),
                     SizedBox(height: 4),
                     Text(
-                      'Then choose a sub-category inside it',
+                      localizations.thenChooseSubCategoryHint,
                       style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
                     ),
                   ] else ...[
@@ -264,7 +265,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                'Choose a sub-category',
+                                localizations.chooseSubCategoryTitle,
                                 style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                               ),
                             ],
@@ -286,7 +287,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                               ? Center(
                                   child: _isLoadingCategories
                                       ? CircularProgressIndicator()
-                                      : Text('No categories', style: TextStyle(color: scheme.onSurfaceVariant)),
+                                      : Text(localizations.noCategoriesLabel, style: TextStyle(color: scheme.onSurfaceVariant)),
                                 )
                               : ListView.separated(
                                   itemCount: _categories.length,
@@ -310,7 +311,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       subtitle: Text(
-                                        '${cat.subCategories.length} sub-categories',
+                                        '${cat.subCategories.length} ${localizations.subCategoriesCountLabel}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -355,6 +356,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   }
 
   void _openRepeatSheet() {
+    final localizations = AppLocalizations.of(context);
     showAppBottomSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -363,7 +365,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Repeat', style: Theme.of(context).textTheme.titleLarge),
+              Text(localizations.repeatLabel, style: Theme.of(context).textTheme.titleLarge),
               SizedBox(height: 12),
               RecurrenceSettings(
                 initialRecurrence: _recurrence,
@@ -378,7 +380,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
               SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: Text('Done')),
+                child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: Text(localizations.doneLabel)),
               ),
             ],
           ),
@@ -479,14 +481,14 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                                     _selectedSubCategory ??
                                         (_selectedMainCategory != null
                                             ? localizations.selectSubCategoryHint
-                                            : 'Choose a category'),
+                                            : localizations.chooseCategoryFallback),
                                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   SizedBox(height: 2),
                                   Text(
-                                    _selectedMainCategory ?? 'Category and sub-category',
+                                    _selectedMainCategory ?? localizations.categoryAndSubCategoryFallback,
                                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -602,10 +604,10 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Repeat', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                Text(localizations.repeatLabel, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                                 SizedBox(height: 2),
                                 Text(
-                                  _recurrence?.enabled == true ? _recurrence!.config!.getDisplayText() : 'Off',
+                                  _recurrence?.enabled == true ? _recurrence!.config!.getDisplayText() : localizations.offLabel,
                                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -942,7 +944,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                       controller: rateController,
                       keyboardType: TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
-                        hintText: 'e.g., 3000',
+                        hintText: localizations.egExchangeRateHint,
                         prefixText: '1 ${_selectedCurrency.symbol} = ',
                         suffixText: targetCurrency?.symbol ?? '',
                       ),
@@ -1011,7 +1013,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Currency converted! Amount updated to ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}')),
+      SnackBar(content: Text('${localizations.currencyConvertedMessage} ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}')),
     );
   }
 
@@ -1185,7 +1187,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                 Center(
                   child: TextButton(
                     onPressed: _isDeleting ? null : () => Navigator.pop(sheetContext),
-                    child: Text('Keep it'),
+                    child: Text(localizations.keepItButton),
                   ),
                 ),
               ],

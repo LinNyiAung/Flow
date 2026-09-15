@@ -43,10 +43,13 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
     widget.onLanguageChanged(Locale(languageCode));
 
     final changedToBurmese = languageCode == 'my';
+    // Show the confirmation in the language just switched to, not whatever
+    // locale `context` still resolves to before the app-wide rebuild lands.
+    final targetLocalizations = AppLocalizations(Locale(languageCode));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          changedToBurmese ? 'ဘာသာစကားကို မြန်မာသို့ပြောင်းလဲပြီးပါပြီ' : 'Language changed to English',
+          changedToBurmese ? targetLocalizations.languageChangedToBurmese : targetLocalizations.languageChangedToEnglish,
           style: changedToBurmese ? GoogleFonts.padauk(fontSize: 14, fontWeight: FontWeight.w400, height: 1.75) : null,
         ),
       ),
@@ -55,6 +58,7 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final isBurmese = _selectedLanguage == 'my';
     // Manrope has no Myanmar glyphs and Padauk ships weight 400/700 only, so
@@ -64,7 +68,7 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          isBurmese ? 'ဘာသာစကားဆက်တင်များ' : 'Language Settings',
+          localizations.languageSettingsTitle,
           style: isBurmese ? GoogleFonts.padauk(fontSize: 20, fontWeight: FontWeight.w700, height: 1.5) : null,
         ),
       ),
@@ -74,7 +78,7 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 10),
             child: Text(
-              isBurmese ? 'ဘာသာစကားရွေးချယ်ပါ' : 'Select Language',
+              localizations.selectLanguageLabel,
               style: isBurmese
                   ? GoogleFonts.padauk(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary, height: 1.6)
                   : TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary),
@@ -108,9 +112,7 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: Text(
-              isBurmese
-                  ? 'ဘာသာစကားအသစ်ကိုအသုံးပြုရန် အက်ပ်ကိုပြန်လည်စတင်ပါမည်'
-                  : 'The app will restart to apply the new language',
+              localizations.languageRestartNotice,
               style: isBurmese
                   ? GoogleFonts.padauk(fontSize: 12, fontWeight: FontWeight.w400, color: scheme.onSurfaceVariant, height: 1.75)
                   : TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),

@@ -14,6 +14,7 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
   bool _isLoading = false;
 
   Future<void> _updateCurrency(Currency currency) async {
+    final localizations = AppLocalizations.of(context);
     setState(() {
       _isLoading = true;
     });
@@ -27,11 +28,11 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Default currency updated to ${currency.displayName}')),
+        SnackBar(content: Text('${localizations.defaultCurrencyUpdatedTo} ${currency.displayName}')),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(authProvider.error ?? 'Failed to update currency')),
+        SnackBar(content: Text(authProvider.error ?? localizations.failedToUpdateCurrency)),
       );
     }
   }
@@ -82,7 +83,7 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'HOW CURRENCIES WORK HERE',
+                  localizations.howCurrenciesWorkHere,
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant),
                 ),
                 const SizedBox(height: 6),

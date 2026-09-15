@@ -207,6 +207,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
 
   Widget _buildLoadingState() {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -222,7 +223,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              'Analyzing your ${widget.currency.displayName} spending patterns...',
+              '${localizations.analyzingYourPrefix} ${widget.currency.displayName} ${localizations.spendingPatternsSuffix}',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
               textAlign: TextAlign.center,
             ),
@@ -258,7 +259,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              _error ?? 'An error occurred',
+              _error ?? localizations.genericErrorOccurred,
               style: TextStyle(color: scheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),

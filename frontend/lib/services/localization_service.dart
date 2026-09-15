@@ -658,6 +658,314 @@ class AppLocalizations {
       'feedbackCategoryUsability': 'Usability Issue',
       'feedbackCategoryOther': 'Other',
       'feedbackDesc': 'Report bugs or request features',
+
+      // Localization sweep — widgets/providers batch
+      'badgeTryFree': 'TRY FREE',
+      'badgeThreeNew': '3 NEW',
+      'badgeFreeMonth': 'FREE MONTH',
+      'askAi': 'Ask AI',
+      'chatWithAiAssistant': 'Chat with AI Assistant',
+      'noUpcomingOccurrences': 'No upcoming occurrences',
+      'repeatOn': 'Repeat On',
+      'dayLabel': 'Day',
+      'weekdayMon': 'Mon',
+      'weekdayTue': 'Tue',
+      'weekdayWed': 'Wed',
+      'weekdayThu': 'Thu',
+      'weekdayFri': 'Fri',
+      'weekdaySat': 'Sat',
+      'weekdaySun': 'Sun',
+      'monthJanuary': 'January',
+      'monthFebruary': 'February',
+      'monthMarch': 'March',
+      'monthApril': 'April',
+      'monthMay': 'May',
+      'monthJune': 'June',
+      'monthJuly': 'July',
+      'monthAugust': 'August',
+      'monthSeptember': 'September',
+      'monthOctober': 'October',
+      'monthNovember': 'November',
+      'monthDecember': 'December',
+      'premiumFeatureDialogContent': 'This feature requires a premium subscription. Upgrade now to unlock all features!',
+
+      // Localization sweep — transactions batch
+      'pickCategoryTitle': 'Pick a category',
+      'thenChooseSubCategoryHint': 'Then choose a sub-category inside it',
+      'chooseSubCategoryTitle': 'Choose a sub-category',
+      'noCategoriesLabel': 'No categories',
+      'subCategoriesCountLabel': 'sub-categories',
+      'chooseCategoryFallback': 'Choose a category',
+      'categoryAndSubCategoryFallback': 'Category and sub-category',
+      'repeatLabel': 'Repeat',
+      'doneLabel': 'Done',
+      'offLabel': 'Off',
+      'egExchangeRateHint': 'e.g., 3000',
+      'speakItTooltip': 'Speak it',
+      'keepItButton': 'Keep it',
+      'currencyConvertedMessage': 'Currency converted! Amount updated to',
+      'addAReceiptTitle': 'Add a receipt',
+      'whatWeReadLabel': 'WHAT WE READ',
+      'whatWeReadDescription': 'Merchant, date, amount and category — nothing is saved until you confirm.',
+      'useDifferentPhotoButton': 'Use a different photo',
+      'failedToSaveTransactionFallback': 'Failed to save transaction',
+      'successfullySavedPrefix': 'Successfully saved',
+      'transactionsSuffix': 'transaction(s)',
+      'whatYouSaidLabel': 'WHAT YOU SAID',
+      'fromOneRecordingLabel': 'from one recording',
+      'foundLabel': 'Found',
+      'transactionSingularLabel': 'Transaction',
+      'multipleSpendsWarning': 'Your sentence held multiple separate spends, so they are logged separately — untick anything you did not mean.',
+      'selectedTotalLabel': 'Selected total',
+      'recordAgainButton': 'Record again',
+      'mixedCurrenciesLabel': 'Mixed currencies',
+      'oneTransactionLabel': '1 transaction',
+      'transactionsCountSuffix': 'transactions',
+
+      // Localization sweep — auth screens batch
+      'loginTagline': 'Money that grows because you watch it',
+      'emailLabel': 'Email',
+      'enterEmailError': 'Please enter your email',
+      'enterValidEmailError': 'Please enter a valid email',
+      'passwordLabel': 'Password',
+      'enterPasswordError': 'Please enter your password',
+      'forgotPasswordQuestion': 'Forgot password?',
+      'signIn': 'Sign in',
+      'newHerePrefix': 'New here? ',
+      'createAnAccount': 'Create an account',
+      'registerTagline': 'Two minutes now, and the app starts learning what your money does.',
+      'fullNameLabel': 'Full name',
+      'passwordMinLengthError': 'Password must be at least 6 characters',
+      'confirmPasswordLabel': 'Confirm password',
+      'confirmPasswordError': 'Please confirm your password',
+      'byContinuingAcceptPrefix': 'By continuing you accept the ',
+      'termsLinkText': 'terms',
+      'andConnector': ' and ',
+      'privacyPolicyLinkText': 'privacy policy',
+      'neverSellDataSuffix': '. We never sell your data.',
+      'createAccountButton': 'Create account',
+      'alreadyHaveAccountPrefix': 'Already have one? ',
+      'oneTapLeft': 'One tap left',
+      'verificationLinkSentPrefix': 'We sent a verification link to\n',
+      'whyExtraStepTitle': 'Why the extra step',
+      'emailVerificationExplanation': 'Your email is the only way back into the account if you forget the password — so it has to be an address you really hold. Nothing is charged and no other email follows.',
+      'verifiedSignInButton': 'I\'ve verified — sign in',
+      'nothingArrivedPrefix': 'Nothing arrived? Check spam, or ',
+      'useDifferentAddressLink': 'use a different address',
+      'termsAndConditionsTitle': 'Terms and Conditions',
+      'welcomeToToePwarTagline': 'Welcome to Toe Pwar - Personal Finance AI',
+      'termsAndConditionsBody': 'By using Toe Pwar, you agree to:\n\n1. Use the app for personal financial management only\n\n2. Provide accurate information when creating transactions\n\n3. Keep your account credentials secure\n\n4. Not misuse AI features or attempt to manipulate the system\n\n5. Understand that financial insights are suggestions, not professional advice\n\n6. Accept that premium features require an active subscription\n\n7. Allow us to process your financial data to provide personalized insights',
+      'privacyPolicyTitle': 'Privacy Policy',
+      'yourPrivacyMattersTitle': 'Your Privacy Matters',
+      'privacyPolicyBody': 'We collect and use your data to:\n\n• Provide personalized financial insights\n• Improve our AI recommendations\n• Secure your account and transactions\n• Send important notifications about your finances\n\nWe protect your data by:\n\n• Encrypting all sensitive information\n• Never sharing your data with third parties without consent\n• Allowing you to delete your data at any time\n• Following industry-standard security practices\n\nYour financial data is stored securely and used only to enhance your experience with Toe Pwar.',
+      'resetPasswordTitle': 'Reset your password',
+      'resetPasswordSubtitle': 'We\'ll email a six-digit code to the address on the account.',
+      'emailAddressLabel': 'Email address',
+      'sendCodeButton': 'Send the code',
+      'enterAllSixDigitsError': 'Please enter all 6 digits',
+      'newCodeSentMessage': 'A new code has been sent to your email.',
+      'enterTheCodeTitle': 'Enter the code',
+      'sentCodeToPrefix': 'Sent to',
+      'expiresInTenMinutes': 'It expires in ten minutes.',
+      'verifyCodeButton': 'Verify code',
+      'didntGetItPrefix': 'Didn\'t get it? ',
+      'resendInPrefix': 'Resend in',
+      'sendNewCodeButton': 'Send a new code',
+      'passwordResetTitle': 'Password reset!',
+      'passwordResetSuccessMessage': 'Your password has been updated successfully. You can now log in with your new password.',
+      'backToLogin': 'Back to login',
+      'chooseNewPasswordTitle': 'Choose a new password',
+      'codeAcceptedSubtitle': 'Code accepted. At least six characters.',
+      'newPasswordLabel': 'New password',
+      'pleaseEnterAPasswordError': 'Please enter a password',
+      'minimumSixCharactersError': 'Minimum 6 characters',
+      'confirmItLabel': 'Confirm it',
+      'saveAndSignInButton': 'Save and sign in',
+
+      // Localization sweep — legal text + force update batch
+      'privacyPolicySubtitle': 'Your privacy matters to us · Last updated Jan 2025',
+      'privacyIntroTitle': '1. Introduction',
+      'privacyIntroBody': 'Toe Pwar ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application.',
+      'privacyInfoCollectTitle': '2. Information We Collect',
+      'privacyInfoCollectBody': 'We collect several types of information:\n\nPersonal Information:\n• Name and email address\n• Account credentials\n• Profile information\n\nFinancial Data:\n• Transaction details (amount, category, date)\n• Budget information\n• Financial goals\n• Account balances\n\nUsage Information:\n• App usage patterns\n• Feature interactions\n• Device information',
+      'privacyUseInfoTitle': '3. How We Use Your Information',
+      'privacyUseInfoBody': 'We use your information to:\n\n• Provide and maintain our services\n• Generate personalized financial insights using AI\n• Create budget recommendations\n• Send notifications about your finances\n• Improve our app and AI algorithms\n• Ensure security and prevent fraud\n• Communicate with you about updates and features',
+      'privacyDataSecurityTitle': '4. Data Security',
+      'privacyDataSecurityBody': 'We implement industry-standard security measures:\n\n• Encryption of sensitive data in transit and at rest\n• Secure authentication mechanisms\n• Regular security audits\n• Access controls and monitoring\n• Secure data storage practices\n\nHowever, no method of transmission over the internet is 100% secure. We cannot guarantee absolute security.',
+      'privacyDataSharingTitle': '5. Data Sharing',
+      'privacyDataSharingBody': 'We do not sell your personal information. We may share data only in these limited circumstances:\n\n• With your explicit consent\n• To comply with legal obligations\n• To protect our rights and prevent fraud\n• With service providers who assist our operations (under strict confidentiality agreements)\n\nThird-party service providers are contractually obligated to protect your data.',
+      'privacyAiProcessingTitle': '6. AI and Data Processing',
+      'privacyAiProcessingBody': 'Our AI features process your financial data to:\n\n• Analyze spending patterns\n• Generate personalized insights\n• Provide budget recommendations\n• Predict future trends\n\nWhen you ask the assistant a question or generate a budget, the relevant records are sent for that request. All AI processing is done with your data privacy in mind — we use aggregated and anonymized data to improve our AI models, and your records are not used to train anything beyond that request.',
+      'privacyYourRightsTitle': '7. Your Rights',
+      'privacyYourRightsBody': 'You have the right to:\n\n• Access your personal information\n• Correct inaccurate data\n• Delete your account and data\n• Export your data\n• Opt-out of certain data processing\n• Withdraw consent at any time\n\nTo exercise these rights, contact us or use the app settings.',
+      'privacyDataRetentionTitle': '8. Data Retention',
+      'privacyDataRetentionBody': 'We retain your information for as long as:\n\n• Your account is active\n• Necessary to provide services\n• Required by law\n\nWhen you delete your account, we will permanently delete your data within 30 days, except where required by law to retain it.',
+      'privacyChildrensTitle': '9. Children\'s Privacy',
+      'privacyChildrensBody': 'Toe Pwar is not intended for users under 18 years of age. We do not knowingly collect information from children. If you believe we have collected information from a child, please contact us immediately.',
+      'privacyIntlTransfersTitle': '10. International Data Transfers',
+      'privacyIntlTransfersBody': 'Your information may be transferred to and processed in countries other than your own. We ensure appropriate safeguards are in place to protect your data in accordance with this Privacy Policy.',
+      'privacyChangesTitle': '11. Changes to Privacy Policy',
+      'privacyChangesBody': 'We may update this Privacy Policy periodically. We will notify you of significant changes through the app or email. Your continued use after changes indicates acceptance of the updated policy.',
+      'privacyContactTitle': '12. Contact Us',
+      'privacyContactBody': 'If you have questions about this Privacy Policy or our data practices:\n\nEmail: toepwarai@gmail.com\nWebsite: www.toepwar.com\n\nWe will respond to your inquiry within 30 days.',
+      'privacySecurityNotice': 'Your data is encrypted and protected with industry-standard security measures',
+      'termsTitle': 'Terms and Conditions',
+      'termsSubtitle': 'Last updated: January 2025',
+      'termsAcceptanceTitle': '1. Acceptance of Terms',
+      'termsAcceptanceBody': 'By accessing and using Toe Pwar ("the App"), you accept and agree to be bound by these Terms and Conditions. If you do not agree to these terms, please do not use the App.',
+      'termsUseOfServiceTitle': '2. Use of Service',
+      'termsUseOfServiceBody': 'Toe Pwar provides personal finance management tools, including:\n\n• Transaction tracking and categorization\n• AI-powered financial insights and recommendations\n• Budget management and goal tracking\n• Financial reports and analytics\n\nYou agree to use the App for personal financial management purposes only.',
+      'termsAccountRegTitle': '3. Account Registration',
+      'termsAccountRegBody': 'You must provide accurate and complete information when creating an account. You are responsible for:\n\n• Maintaining the confidentiality of your account credentials\n• All activities that occur under your account\n• Notifying us immediately of any unauthorized use',
+      'termsUserResponsibilitiesTitle': '4. User Responsibilities',
+      'termsUserResponsibilitiesBody': 'You agree to:\n\n• Provide accurate financial information\n• Not misuse AI features or attempt to manipulate the system\n• Not use the App for any illegal purposes\n• Not share your account with others\n• Comply with all applicable laws and regulations',
+      'termsAiFeaturesTitle': '5. AI-Powered Features',
+      'termsAiFeaturesBody': 'Our AI features provide suggestions and insights based on your financial data. Please note:\n\n• AI insights are suggestions, not professional financial advice\n• You should verify all recommendations before taking action\n• We are not liable for decisions made based on AI suggestions\n• Results may vary based on your financial situation',
+      'termsPremiumSubTitle': '6. Premium Subscription',
+      'termsPremiumSubBody': 'Premium features require an active subscription:\n\n• Subscriptions are billed according to your chosen plan\n• You can cancel at any time before the next billing cycle\n• Refunds are provided according to our refund policy\n• Access to premium features ends when subscription expires',
+      'termsDataProcessingTitle': '7. Data Processing',
+      'termsDataProcessingBody': 'We process your financial data to:\n\n• Provide personalized insights and recommendations\n• Improve our services and AI algorithms\n• Generate reports and analytics\n• Ensure security and prevent fraud\n\nAll data processing complies with our Privacy Policy.',
+      'termsIntellectualPropertyTitle': '8. Intellectual Property',
+      'termsIntellectualPropertyBody': 'All content, features, and functionality of the App are owned by Toe Pwar and protected by copyright, trademark, and other laws. You may not:\n\n• Copy, modify, or distribute our content\n• Reverse engineer or attempt to extract source code\n• Use our trademarks without permission',
+      'termsLimitationLiabilityTitle': '9. Limitation of Liability',
+      'termsLimitationLiabilityBody': 'Toe Pwar is provided "as is" without warranties. We are not liable for:\n\n• Financial decisions made using the App\n• Loss of data or service interruptions\n• Indirect or consequential damages\n• Third-party actions or content',
+      'termsTerminationTitle': '10. Termination',
+      'termsTerminationBody': 'We reserve the right to:\n\n• Suspend or terminate your account for violations\n• Modify or discontinue services at any time\n• Remove content that violates these terms\n\nYou may delete your account at any time from the app settings.',
+      'termsChangesTitle': '11. Changes to Terms',
+      'termsChangesBody': 'We may update these Terms and Conditions periodically. Continued use of the App after changes constitutes acceptance of the new terms. We will notify users of significant changes.',
+      'termsContactInfoTitle': '12. Contact Information',
+      'termsContactInfoBody': 'For questions about these Terms and Conditions, please contact us at:\n\nEmail: toepwarai@gmail.com\nWebsite: www.toepwar.com',
+      'termsAcceptanceNotice': 'By using Toe Pwar, you agree to these Terms and Conditions',
+      'noBrowserFoundMessage': 'No browser found. Please visit manually:',
+      'copyLabel': 'Copy',
+      'forceUpdateTitle': 'Time for an update',
+      'forceUpdateDefaultMessage': 'A new version is available. Please update to continue using the app.',
+      'whatsNewInVersion': 'WHAT\'S NEW IN',
+      'whatsNewLabel': 'WHAT\'S NEW',
+      'youHaveVersion': 'You have',
+      'updateNowButton': 'Update now',
+      'updateSafetyNotice': 'Your records stay on the device — nothing is lost by updating.',
+
+      // Localization sweep — settings screens batch
+      'passwordStrengthWeak': 'Weak',
+      'passwordStrengthFair': 'Fair',
+      'passwordStrengthGood': 'Good',
+      'passwordStrengthStrong': 'Strong',
+      'failedToChangePassword': 'Failed to change password',
+      'errorOccurred': 'An error occurred:',
+      'passwordChangeSignOutNotice': 'Changing your password signs out other devices. Your transactions and budgets are untouched.',
+      'defaultCurrencyUpdatedTo': 'Default currency updated to',
+      'failedToUpdateCurrency': 'Failed to update currency',
+      'howCurrenciesWorkHere': 'HOW CURRENCIES WORK HERE',
+      'accountDeletedSuccessfully': 'Account deleted successfully',
+      'failedToDeleteAccount': 'Failed to delete account',
+      'ratingHelper1': 'Sorry to hear that — tell us what went wrong below.',
+      'ratingHelper2': 'Thanks — what could be better?',
+      'ratingHelper3': 'Good to know. What would make it great?',
+      'ratingHelper4': 'Glad you like it — anything to polish?',
+      'ratingHelper5': 'Wonderful! Thanks for the love.',
+      'ratingHelperDefault': 'Tap a star to rate your experience',
+      'charCountMinimumSuffix': '/10 minimum',
+      'languageChangedToEnglish': 'Language changed to English',
+      'languageChangedToBurmese': 'Language changed to Myanmar',
+      'languageSettingsTitle': 'Language Settings',
+      'selectLanguageLabel': 'Select Language',
+      'languageRestartNotice': 'The app will restart to apply the new language',
+      'failedToUpdatePreference': 'Failed to update preference',
+      'monthlyInsightsTitle': 'Monthly Insights',
+      'monthlyInsightsDesc': 'When your monthly insights are ready',
+      'defaultUserName': 'User',
+      'premiumMemberLabel': 'Premium Member',
+      'freePlanLabel': 'Free Plan',
+      'currentLanguageName': 'English',
+      'appVersion': 'Version 1.0.0',
+      'viewOurPrivacyPolicy': 'View our privacy policy',
+      'viewTermsAndConditions': 'View terms and conditions',
+      'appDescription': 'Toe Pwar is your personal finance management app with AI-powered insights and budget tracking.',
+      'copyrightNotice': '© 2025 Toe Pwar. All rights reserved.',
+
+      // Localization sweep — home/ai/insights/reports/charts/notifications/subscription batch
+      'spendingPace': 'Spending pace',
+      'insight': 'Insight',
+      'eachCurrencyOwnBalanceNote': 'Each keeps its own balance — nothing is converted behind your back.',
+      'errorLoadCurrencyBalances': 'Failed to load currency balances:',
+      'suggestionCurrentBalance': 'What\'s my current balance?',
+      'suggestionSpendThisMonth': 'How much did I spend this month?',
+      'suggestionTopSpendingCategories': 'What are my top spending categories?',
+      'suggestionMoneySavingTips': 'Give me money-saving tips',
+      'suggestionIncomeVsExpenses': 'Show me my income vs expenses',
+      'suggestionSpendOnFood': 'How much did I spend on food?',
+      'answers': 'Answers:',
+      'clearThisConversation': 'Clear this conversation?',
+      'chatMessageSingular': 'message',
+      'chatMessagePlural': 'messages',
+      'clearChatConsequence': 'and the answers go for good. Your transactions, budgets and goals are untouched — the assistant reads them fresh next time.',
+      'keepIt': 'Keep it',
+      'fallbackQuestionTighterMonth': 'Why is this month tighter?',
+      'assistantAnswersFromRecords': 'The assistant answers from your own records.',
+      'spendingPaceCategoryComparisons': 'Spending pace, category comparisons, whether a purchase fits, what repeats — with your numbers, not general advice.',
+      'tryOneMonthFree': 'Try one month free',
+      'noCardRequiredCancelAnyTime': 'No card required · cancel any time',
+      'errorLoadingTransactions': 'Error loading transactions:',
+      'moneyInLabel': 'Money in ·',
+      'moneyOutLabel': 'Money out ·',
+      'avgPerEntry': 'Avg / entry',
+      'spentLabel': 'spent',
+      'biggestOutflowCategoryMiddle': 'is your biggest outflow category —',
+      'biggestOutflowCategorySuffix': 'of spending this period.',
+      'biggestIncomeSourceMiddle': 'is your biggest income source —',
+      'biggestIncomeSourceSuffix': 'of what came in this period.',
+      'regenerate': 'Regenerate',
+      'threeInsightsWaiting': 'Three insights are waiting. Premium reads your own transactions weekly — no manual work.',
+      'swipeNotificationToDelete': 'Swipe a notification to delete it',
+      'justNow': 'Just now',
+      'minutesAgoSuffix': 'm ago',
+      'hoursAgoSuffix': 'h ago',
+      'daysAgoSuffix': 'd ago',
+      'errorDownloadReport': 'Failed to download report:',
+      'exportThisReport': 'Export this report',
+      'chartsCategoryTablesDailyAverages': 'Charts, category tables and daily averages',
+      'sendItOn': 'Send it on',
+      'samePdfToViberOrEmail': 'Same PDF, straight to Viber or email',
+      'ofTotal': 'of total',
+      'txnsAbbrev': 'txns',
+      'welcomeToPremiumCelebration': '🎉 Welcome to Premium!',
+      'oneMonthFreePremiumAccess': 'You now have 1 month of free premium access. Enjoy all features!',
+      'letsGo': 'Let\'s go!',
+      'couldNotClaimFreeTrial': 'Could not claim free trial.',
+      'oneMonthFreeCaps': 'ONE MONTH FREE',
+      'letAppReadYourMoney': 'Let the app read your money for you.',
+      'weeklyInsightsReceiptScanningVoiceAiBudgets': 'Weekly insights, receipt scanning, voice entry and AI budgets — on your own transactions.',
+      'claiming': 'Claiming…',
+      'claimOneMonthFree': 'Claim 1 month free',
+      'noCardRequiredThenContactUs': 'No card required · then contact us to continue',
+
+      // Localization sweep — budgets/goals batch
+      'startsOnPrefix': 'Starts',
+      'startsInDaysPrefix': 'Starts in',
+      'daysSuffix': 'days',
+      'endedDaysAgoPrefix': 'Ended',
+      'daysRemainingSuffix': 'days remaining',
+      'budgetWillStartOnPrefix': 'This budget will start on',
+      'noSpendingTrackedYetSuffix': '. No spending is tracked yet.',
+      'budgetEndedOnPrefix': 'This budget ended on',
+      'onlyTransactionsInPrefix': 'Only transactions in',
+      'willAffectThisBudgetSuffix': 'will affect this budget',
+      'fixedForThisBudget': 'FIXED FOR THIS BUDGET',
+      'periodCurrencyLockedNotice': 'Period and currency can\'t change once a budget has spending against it — create a new budget instead.',
+      'capAlreadySpentTitle': 'This cap is already spent',
+      'alreadyHaveMoreSpent': 'already have more spent than the new cap allows.',
+      'alreadyHasMoreSpent': 'already has more spent than the new cap allows.',
+      'totalCapLabel': 'TOTAL CAP',
+      'analyzingYourPrefix': 'Analyzing your',
+      'spendingPatternsSuffix': 'spending patterns...',
+      'genericErrorOccurred': 'An error occurred',
+      'savedTowardsGoals': 'Saved towards goals',
+      'failedToLoadBalances': 'Failed to load balances:',
+      'dueDatePrefix': 'Due',
+      'operationFailed': 'Operation failed',
+      'moneyHeldNotSpendable': 'Money held for this goal isn\'t spendable',
+      'heldFundsExplanation': 'It comes out of your available balance, so the dashboard never offers you money you\'ve promised elsewhere.',
     },
     'my': {
       // Home Screen
@@ -1275,6 +1583,314 @@ class AppLocalizations {
       'feedbackCategoryUsability': 'အသုံးပြုမှုဆိုင်ရာ ပြဿနာ',
       'feedbackCategoryOther': 'အခြား',
       'feedbackDesc': 'ချို့ယွင်းချက်များတင်ပြရန် သို့မဟုတ် လုပ်ဆောင်ချက်အသစ်များတောင်းဆိုရန်',
+
+      // Localization sweep — widgets/providers batch
+      'badgeTryFree': 'အခမဲ့ စမ်းသုံးပါ',
+      'badgeThreeNew': 'အသစ် ၃ ခု',
+      'badgeFreeMonth': 'အခမဲ့ တစ်လ',
+      'askAi': 'AI ကို မေးပါ',
+      'chatWithAiAssistant': 'AI အကူအညီပေးသူနှင့် စကားပြောပါ',
+      'noUpcomingOccurrences': 'လာမည့် အကြိမ်များ မရှိပါ',
+      'repeatOn': 'ထပ်တလဲလဲ ပြုလုပ်မည့်နေ့',
+      'dayLabel': 'ရက်',
+      'weekdayMon': 'တနင်္လာ',
+      'weekdayTue': 'အင်္ဂါ',
+      'weekdayWed': 'ဗုဒ္ဓဟူး',
+      'weekdayThu': 'ကြာသပတေး',
+      'weekdayFri': 'သောကြာ',
+      'weekdaySat': 'စနေ',
+      'weekdaySun': 'တနင်္ဂနွေ',
+      'monthJanuary': 'ဇန်နဝါရီ',
+      'monthFebruary': 'ဖေဖော်ဝါရီ',
+      'monthMarch': 'မတ်',
+      'monthApril': 'ဧပြီ',
+      'monthMay': 'မေ',
+      'monthJune': 'ဇွန်',
+      'monthJuly': 'ဇူလိုင်',
+      'monthAugust': 'သြဂုတ်',
+      'monthSeptember': 'စက်တင်ဘာ',
+      'monthOctober': 'အောက်တိုဘာ',
+      'monthNovember': 'နိုဝင်ဘာ',
+      'monthDecember': 'ဒီဇင်ဘာ',
+      'premiumFeatureDialogContent': 'ဤအင်္ဂါရပ်ကို အသုံးပြုရန် ပရီမီယံ စာရင်းသွင်းမှု လိုအပ်ပါသည်။ အင်္ဂါရပ်အားလုံးကို ဖွင့်ရန် ယခုပင် အဆင့်မြှင့်ပါ!',
+
+      // Localization sweep — transactions batch
+      'pickCategoryTitle': 'အမျိုးအစား ရွေးချယ်ပါ',
+      'thenChooseSubCategoryHint': 'ထို့နောက် ၎င်း၏ အမျိုးအစားခွဲကို ရွေးချယ်ပါ',
+      'chooseSubCategoryTitle': 'အမျိုးအစားခွဲ ရွေးချယ်ပါ',
+      'noCategoriesLabel': 'အမျိုးအစားများ မရှိပါ',
+      'subCategoriesCountLabel': 'အမျိုးအစားခွဲများ',
+      'chooseCategoryFallback': 'အမျိုးအစားတစ်ခု ရွေးပါ',
+      'categoryAndSubCategoryFallback': 'အမျိုးအစားနှင့် အမျိုးအစားခွဲ',
+      'repeatLabel': 'ထပ်တလဲလဲ',
+      'doneLabel': 'ပြီးပါပြီ',
+      'offLabel': 'ပိတ်ထားသည်',
+      'egExchangeRateHint': 'ဥပမာ၊ ၃၀၀၀',
+      'speakItTooltip': 'အသံဖြင့် ပြောပါ',
+      'keepItButton': 'ဆက်ထားမည်',
+      'currencyConvertedMessage': 'ငွေကြေး ပြောင်းလဲပြီးပါပြီ! ပမာဏကို ပြောင်းလဲထားသည်',
+      'addAReceiptTitle': 'ဘောက်ချာ ထည့်ရန်',
+      'whatWeReadLabel': 'ကျွန်ုပ်တို့ ဖတ်ရှုရရှိသည်များ',
+      'whatWeReadDescription': 'ဆိုင်အမည်၊ ရက်စွဲ၊ ပမာဏနှင့် အမျိုးအစား — သင်အတည်ပြုမှသာ မှတ်တမ်းတင်ပါမည်။',
+      'useDifferentPhotoButton': 'အခြားဓာတ်ပုံကို သုံးရန်',
+      'failedToSaveTransactionFallback': 'ငွေစာရင်းသွင်းမှု သိမ်းဆည်းရန် မအောင်မြင်ပါ',
+      'successfullySavedPrefix': 'အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ',
+      'transactionsSuffix': 'ငွေစာရင်း(များ)',
+      'whatYouSaidLabel': 'သင်ပြောခဲ့သည်များ',
+      'fromOneRecordingLabel': 'အသံဖမ်းယူမှု တစ်ခုမှ',
+      'foundLabel': 'တွေ့ရှိသည်',
+      'transactionSingularLabel': 'ငွေစာရင်းသွင်းမှု',
+      'multipleSpendsWarning': 'သင့်ဝါကျတွင် သီးခြားသုံးစွဲမှုများစွာ ပါဝင်နေသဖြင့် သီးခြားစီ မှတ်တမ်းတင်ထားပါသည် — သင်ရည်ရွယ်မထားသည်များကို အမှန်ခြစ် ဖြုတ်ပါ။',
+      'selectedTotalLabel': 'ရွေးချယ်ထားသော စုစုပေါင်း',
+      'recordAgainButton': 'ထပ်မံ အသံဖမ်းယူရန်',
+      'mixedCurrenciesLabel': 'ရောနှောငွေကြေးအမျိုးအစားများ',
+      'oneTransactionLabel': '၁ ငွေစာရင်းသွင်းမှု',
+      'transactionsCountSuffix': 'ငွေစာရင်းသွင်းမှုများ',
+
+      // Localization sweep — auth screens batch
+      'loginTagline': 'စောင့်ကြည့်လေ တိုးပွားလေ ဖြစ်သော ငွေကြေး',
+      'emailLabel': 'အီးမေးလ်',
+      'enterEmailError': 'ကျေးဇူးပြု၍ သင့်အီးမေးလ်ကို ထည့်ပါ',
+      'enterValidEmailError': 'ကျေးဇူးပြု၍ မှန်ကန်သော အီးမေးလ်ကို ထည့်ပါ',
+      'passwordLabel': 'စကားဝှက်',
+      'enterPasswordError': 'ကျေးဇူးပြု၍ သင့်စကားဝှက်ကို ထည့်ပါ',
+      'forgotPasswordQuestion': 'စကားဝှက် မေ့နေပါသလား?',
+      'signIn': 'အကောင့်ဝင်ရန်',
+      'newHerePrefix': 'ဒီနေရာမှာ အသစ်လား? ',
+      'createAnAccount': 'အကောင့်တစ်ခု ဖန်တီးရန်',
+      'registerTagline': 'အခုမိနစ်နှစ်မိနစ်လောက်ပဲ ကြာမယ်၊ အက်ပ်က သင့်ငွေကြေးရဲ့ လှုပ်ရှားမှုတွေကို စသင်ယူပါလိမ့်မယ်။',
+      'fullNameLabel': 'အမည်အပြည့်အစုံ',
+      'passwordMinLengthError': 'စကားဝှက်သည် အနည်းဆုံး စာလုံး ၆ လုံး ရှိရမည်',
+      'confirmPasswordLabel': 'စကားဝှက်ကို အတည်ပြုပါ',
+      'confirmPasswordError': 'ကျေးဇူးပြု၍ သင့်စကားဝှက်ကို အတည်ပြုပါ',
+      'byContinuingAcceptPrefix': 'ဆက်လက်လုပ်ဆောင်ခြင်းဖြင့် သင်သည် ',
+      'termsLinkText': 'စည်းမျဉ်းစည်းကမ်းများ',
+      'andConnector': ' နှင့် ',
+      'privacyPolicyLinkText': 'ကိုယ်ရေးအချက်အလက်မူဝါဒ',
+      'neverSellDataSuffix': ' ကို လက်ခံပါသည်။ သင့်ဒေတာကို ကျွန်ုပ်တို့ ဘယ်သောအခါမျှ ရောင်းချမည် မဟုတ်ပါ။',
+      'createAccountButton': 'အကောင့်ဖန်တီးရန်',
+      'alreadyHaveAccountPrefix': 'အကောင့်ရှိပြီးသားလား? ',
+      'oneTapLeft': 'နောက်တစ်ချက်ပဲ လိုပါတော့သည်',
+      'verificationLinkSentPrefix': 'အတည်ပြုလင့်ခ်ကို ဤသို့ ပေးပို့လိုက်ပါပြီ\n',
+      'whyExtraStepTitle': 'ဘာကြောင့် ဒီအဆင့်ထပ်လိုအပ်တာလဲ',
+      'emailVerificationExplanation': 'သင့်အီးမေးလ်သည် စကားဝှက်မေ့သွားပါက အကောင့်ထဲသို့ ပြန်ဝင်ရန် တစ်ခုတည်းသောနည်းလမ်းဖြစ်သောကြောင့် သင်တကယ်ပိုင်ဆိုင်သည့်လိပ်စာဖြစ်ရပါမည်။ ငွေကြေးမည်သည့်အရာမျှ ကောက်ခံမည်မဟုတ်ပြီး အခြားအီးမေးလ်များလည်း ဆက်လက်ပေးပို့မည် မဟုတ်ပါ။',
+      'verifiedSignInButton': 'အတည်ပြုပြီးပါပြီ — အကောင့်ဝင်ရန်',
+      'nothingArrivedPrefix': 'ဘာမှမရောက်သေးဘူးလား? Spam ဖိုင်တွဲကို စစ်ဆေးပါ၊ သို့မဟုတ် ',
+      'useDifferentAddressLink': 'အခြားလိပ်စာတစ်ခု သုံးပါ',
+      'termsAndConditionsTitle': 'စည်းမျဉ်းများနှင့် သတ်မှတ်ချက်များ',
+      'welcomeToToePwarTagline': 'တိုးပွား - ကိုယ်ပိုင်ငွေကြေး AI မှ ကြိုဆိုပါသည်',
+      'termsAndConditionsBody': 'တိုးပွားကို အသုံးပြုခြင်းဖြင့် သင်သည် အောက်ပါတို့ကို သဘောတူပါသည်−\n\n၁။ အက်ပ်ကို ကိုယ်ပိုင်ငွေကြေးစီမံခန့်ခွဲမှုအတွက်သာ အသုံးပြုမည်\n\n၂။ ငွေစာရင်းသွင်းမှုများပြုလုပ်ရာတွင် မှန်ကန်သောအချက်အလက်များကို ပေးမည်\n\n၃။ သင့်အကောင့်အထောက်အထားများကို လုံခြုံစွာထိန်းသိမ်းမည်\n\n၄။ AI ဝန်ဆောင်မှုများကို အလွဲသုံးစားမပြုလုပ်ခြင်း သို့မဟုတ် စနစ်ကို လှည့်ဖြားရန် မကြိုးစားခြင်း\n\n၅။ ငွေကြေးဆိုင်ရာ သုံးသပ်ချက်များသည် အကြံပြုချက်များသာဖြစ်ပြီး ကျွမ်းကျင်သူအကြံဉာဏ်မဟုတ်ကြောင်း နားလည်ခြင်း\n\n၆။ ပရီမီယံအင်္ဂါရပ်များအတွက် စာရင်းသွင်းမှု တက်ကြွစွာရှိရန် လိုအပ်ကြောင်း လက်ခံခြင်း\n\n၇။ ကိုယ်ပိုင်ဆိုင်ရာသုံးသပ်ချက်များ ပေးရန် သင့်ငွေကြေးဒေတာကို ကျွန်ုပ်တို့ လုပ်ဆောင်ခွင့်ပြုခြင်း',
+      'privacyPolicyTitle': 'ကိုယ်ရေးအချက်အလက်မူဝါဒ',
+      'yourPrivacyMattersTitle': 'သင့်ကိုယ်ရေးကိုယ်တာ အရေးကြီးပါသည်',
+      'privacyPolicyBody': 'ကျွန်ုပ်တို့သည် သင့်ဒေတာကို အောက်ပါရည်ရွယ်ချက်များအတွက် စုဆောင်းအသုံးပြုပါသည်−\n\n• ကိုယ်ပိုင်ငွေကြေးအသိအမြင်များ ပေးရန်\n• ကျွန်ုပ်တို့၏ AI အကြံပြုချက်များ တိုးတက်စေရန်\n• သင့်အကောင့်နှင့် ငွေစာရင်းများကို လုံခြုံစေရန်\n• သင့်ငွေကြေးဆိုင်ရာ အရေးကြီးသတိပေးချက်များ ပေးပို့ရန်\n\nကျွန်ုပ်တို့သည် သင့်ဒေတာကို အောက်ပါအတိုင်း ကာကွယ်ပါသည်−\n\n• အထိန်းအသိမ်းလိုအပ်သော အချက်အလက်အားလုံးကို ကုဒ်ဖြင့်ကာကွယ်ခြင်း\n• သဘောတူညီချက်မရှိဘဲ သင့်ဒေတာကို တတိယပါတီများနှင့် ဘယ်တော့မှ မမျှဝေခြင်း\n• သင့်ဒေတာကို အချိန်မရွေး ဖျက်ခွင့်ပြုခြင်း\n• စက်မှုလုပ်ငန်းစံနှုန်းနှင့်ညီသော လုံခြုံရေးအလေ့အကျင့်များကို လိုက်နာခြင်း\n\nသင့်ငွေကြေးဒေတာကို လုံခြုံစွာသိမ်းဆည်းထားပြီး တိုးပွားနှင့် သင့်အတွေ့အကြုံကို မြှင့်တင်ရန်အတွက်သာ အသုံးပြုပါသည်။',
+      'resetPasswordTitle': 'သင့်စကားဝှက်ကို ပြန်လည်သတ်မှတ်ရန်',
+      'resetPasswordSubtitle': 'အကောင့်ပေါ်ရှိ လိပ်စာသို့ ဂဏန်း ၆ လုံးပါ ကုဒ်ကို အီးမေးလ်ဖြင့် ပေးပို့ပါမည်။',
+      'emailAddressLabel': 'အီးမေးလ်လိပ်စာ',
+      'sendCodeButton': 'ကုဒ်ပို့ရန်',
+      'enterAllSixDigitsError': 'ဂဏန်း ၆ လုံးလုံးကို ထည့်ပါ',
+      'newCodeSentMessage': 'ကုဒ်အသစ်ကို သင့်အီးမေးလ်သို့ ပေးပို့ပြီးပါပြီ။',
+      'enterTheCodeTitle': 'ကုဒ်ကို ထည့်ပါ',
+      'sentCodeToPrefix': 'ပေးပို့ထားသည့်လိပ်စာ',
+      'expiresInTenMinutes': '၎င်းသည် ဆယ်မိနစ်အတွင်း သက်တမ်းကုန်ဆုံးပါမည်။',
+      'verifyCodeButton': 'ကုဒ်ကို အတည်ပြုရန်',
+      'didntGetItPrefix': 'မရောက်သေးဘူးလား? ',
+      'resendInPrefix': 'ပြန်ပို့ရန်',
+      'sendNewCodeButton': 'ကုဒ်အသစ် ပေးပို့ရန်',
+      'passwordResetTitle': 'စကားဝှက် ပြန်လည်သတ်မှတ်ပြီးပါပြီ!',
+      'passwordResetSuccessMessage': 'သင့်စကားဝှက်ကို အောင်မြင်စွာ ပြောင်းလဲပြီးပါပြီ။ သင့်စကားဝှက်အသစ်ဖြင့် ယခု အကောင့်ဝင်နိုင်ပါပြီ။',
+      'backToLogin': 'အကောင့်ဝင်ရန် ပြန်သွားမည်',
+      'chooseNewPasswordTitle': 'စကားဝှက်အသစ်ကို ရွေးချယ်ပါ',
+      'codeAcceptedSubtitle': 'ကုဒ်ကို လက်ခံပြီးပါပြီ။ အနည်းဆုံး စာလုံး ၆ လုံး ရှိရပါမည်။',
+      'newPasswordLabel': 'စကားဝှက်အသစ်',
+      'pleaseEnterAPasswordError': 'ကျေးဇူးပြု၍ စကားဝှက်တစ်ခု ထည့်ပါ',
+      'minimumSixCharactersError': 'အနည်းဆုံး စာလုံး ၆ လုံး',
+      'confirmItLabel': 'ထပ်မံအတည်ပြုပါ',
+      'saveAndSignInButton': 'သိမ်းဆည်းပြီး အကောင့်ဝင်ရန်',
+
+      // Localization sweep — legal text + force update batch
+      'privacyPolicySubtitle': 'သင့်ကိုယ်ရေးအချက်အလက်များကို ကျွန်ုပ်တို့ တန်ဖိုးထားပါသည် · နောက်ဆုံးမွမ်းမံသည့်ရက် ဇန်နဝါရီ ၂၀၂၅',
+      'privacyIntroTitle': '၁။ နိဒါန်း',
+      'privacyIntroBody': 'Toe Pwar ("ကျွန်ုပ်တို့" သို့မဟုတ် "ကျွန်ုပ်တို့၏") သည် သင့်ကိုယ်ရေးအချက်အလက်များကို ကာကွယ်ရန် အလေးထား ဆောင်ရွက်ပါသည်။ ဤကိုယ်ရေးအချက်အလက်မူဝါဒတွင် ကျွန်ုပ်တို့၏ မိုဘိုင်းအက်ပလီကေးရှင်းကို အသုံးပြုစဉ် သင့်အချက်အလက်များကို ကျွန်ုပ်တို့ မည်သို့ စုဆောင်းသည်၊ အသုံးပြုသည်၊ ထုတ်ဖော်သည်၊ ကာကွယ်စောင့်ရှောက်သည် ဆိုသည်ကို ရှင်းလင်းဖော်ပြထားပါသည်။',
+      'privacyInfoCollectTitle': '၂။ ကျွန်ုပ်တို့ စုဆောင်းသော အချက်အလက်များ',
+      'privacyInfoCollectBody': 'ကျွန်ုပ်တို့သည် အချက်အလက်အမျိုးအစားများစွာကို စုဆောင်းပါသည်−\n\nကိုယ်ရေးကိုယ်တာ အချက်အလက်များ−\n• အမည်နှင့် အီးမေးလ်လိပ်စာ\n• အကောင့်ဝင်ရောက်ရန် အချက်အလက်များ\n• ပရိုဖိုင်းအချက်အလက်များ\n\nငွေကြေးဆိုင်ရာ အချက်အလက်များ−\n• ငွေလွှဲငွေပေးမှု အသေးစိတ် (ပမာဏ၊ အမျိုးအစား၊ ရက်စွဲ)\n• ဘတ်ဂျက်အချက်အလက်များ\n• ငွေကြေးဆိုင်ရာ ပန်းတိုင်များ\n• အကောင့်လက်ကျန်ငွေများ\n\nအသုံးပြုမှုဆိုင်ရာ အချက်အလက်များ−\n• အက်ပ်အသုံးပြုပုံစံများ\n• ဝန်ဆောင်မှုများ အသုံးပြုမှု\n• စက်ပစ္စည်းဆိုင်ရာ အချက်အလက်များ',
+      'privacyUseInfoTitle': '၃။ သင့်အချက်အလက်များကို ကျွန်ုပ်တို့ မည်သို့အသုံးပြုသည်',
+      'privacyUseInfoBody': 'ကျွန်ုပ်တို့သည် သင့်အချက်အလက်များကို အောက်ပါရည်ရွယ်ချက်များအတွက် အသုံးပြုပါသည်−\n\n• ကျွန်ုပ်တို့၏ ဝန်ဆောင်မှုများကို ပံ့ပိုးပေးရန်နှင့် ထိန်းသိမ်းရန်\n• AI ကို အသုံးပြု၍ သင့်အတွက် အထူးပြင်ဆင်ထားသော ငွေကြေးဆိုင်ရာ ထိုးထွင်းသိမြင်မှုများ ထုတ်ပေးရန်\n• ဘတ်ဂျက် အကြံပြုချက်များ ဖန်တီးရန်\n• သင့်ငွေကြေးအခြေအနေနှင့် ပတ်သက်၍ အကြောင်းကြားချက်များ ပေးပို့ရန်\n• ကျွန်ုပ်တို့၏ အက်ပ်နှင့် AI algorithm များကို ပိုမိုကောင်းမွန်အောင် ပြုလုပ်ရန်\n• လုံခြုံရေးကို သေချာစေပြီး လိမ်လည်မှုများကို ကာကွယ်ရန်\n• အပ်ဒိတ်များနှင့် ဝန်ဆောင်မှုအသစ်များအကြောင်း သင့်ထံ ဆက်သွယ်အသိပေးရန်',
+      'privacyDataSecurityTitle': '၄။ ဒေတာလုံခြုံရေး',
+      'privacyDataSecurityBody': 'ကျွန်ုပ်တို့သည် စက်မှုလုပ်ငန်း စံနှုန်းများနှင့်အညီ လုံခြုံရေးအစီအမံများကို အကောင်အထည်ဖော်ဆောင်ရွက်ပါသည်−\n\n• ပေးပို့နေစဉ်နှင့် သိမ်းဆည်းထားစဉ် အရေးကြီးသော ဒေတာများကို ကုဒ်ဝှက်ခြင်း\n• လုံခြုံသော အထောက်အထားစိစစ်မှု စနစ်များ\n• ပုံမှန်လုံခြုံရေး စစ်ဆေးမှုများ\n• ဝင်ရောက်ခွင့် ထိန်းချုပ်မှုနှင့် စောင့်ကြည့်မှု\n• လုံခြုံသော ဒေတာသိမ်းဆည်းမှု နည်းလမ်းများ\n\nသို့ရာတွင် အင်တာနက်မှတစ်ဆင့် ပေးပို့မှု မည်သည့်နည်းလမ်းမျှ ၁၀၀ ရာခိုင်နှုန်း လုံခြုံခြင်း မရှိပါ။ ကျွန်ုပ်တို့သည် လုံခြုံရေးကို အပြည့်အဝ အာမမခံနိုင်ပါ။',
+      'privacyDataSharingTitle': '၅။ ဒေတာမျှဝေခြင်း',
+      'privacyDataSharingBody': 'ကျွန်ုပ်တို့သည် သင့်ကိုယ်ရေးအချက်အလက်များကို ရောင်းချခြင်း မပြုပါ။ အောက်ပါ ကန့်သတ်အခြေအနေများတွင်သာ ဒေတာများကို မျှဝေနိုင်ပါသည်−\n\n• သင့်ထံမှ တိကျသော သဘောတူညီချက် ရရှိပါက\n• ဥပဒေရေးရာ တာဝန်များကို လိုက်နာရန်\n• ကျွန်ုပ်တို့၏ အခွင့်အရေးများကို ကာကွယ်ရန်နှင့် လိမ်လည်မှုများကို တားဆီးရန်\n• ကျွန်ုပ်တို့၏ လုပ်ငန်းဆောင်ရွက်မှုများကို ကူညီပံ့ပိုးသော ဝန်ဆောင်မှုပေးသူများနှင့် (တင်းကျပ်သော လျှို့ဝှက်ချက် စာချုပ်များအောက်တွင်)\n\nတတိယပါတီ ဝန်ဆောင်မှုပေးသူများသည် သင့်ဒေတာကို ကာကွယ်ရန် စာချုပ်အရ တာဝန်ရှိပါသည်။',
+      'privacyAiProcessingTitle': '၆။ AI နှင့် ဒေတာလုပ်ဆောင်မှု',
+      'privacyAiProcessingBody': 'ကျွန်ုပ်တို့၏ AI ဝန်ဆောင်မှုများသည် သင့်ငွေကြေးဆိုင်ရာ ဒေတာများကို အောက်ပါ ရည်ရွယ်ချက်များအတွက် အသုံးပြုပါသည်−\n\n• အသုံးစရိတ် ပုံစံများကို ခွဲခြမ်းစိတ်ဖြာရန်\n• သင့်အတွက် အထူးပြင်ဆင်ထားသော ထိုးထွင်းသိမြင်မှုများ ထုတ်ပေးရန်\n• ဘတ်ဂျက် အကြံပြုချက်များ ပေးရန်\n• အနာဂတ် လမ်းကြောင်းများကို ခန့်မှန်းရန်\n\nသင်က အကူအညီပေးစနစ်ကို မေးခွန်းမေးသောအခါ သို့မဟုတ် ဘတ်ဂျက်တစ်ခု ဖန်တီးသောအခါ၊ ထိုတောင်းဆိုမှုအတွက် သက်ဆိုင်သည့် မှတ်တမ်းများကိုသာ ပေးပို့ပါသည်။ AI လုပ်ဆောင်မှုအားလုံးကို သင့်ဒေတာ ကိုယ်ရေးအချက်အလက်ကို ဂရုစိုက်၍ ဆောင်ရွက်ပါသည် — ကျွန်ုပ်တို့၏ AI မော်ဒယ်များကို ပိုမိုကောင်းမွန်အောင် ပြုလုပ်ရန်အတွက် စုစည်းထားပြီး အမည်ဝှက်ထားသော ဒေတာများကိုသာ အသုံးပြုပြီး၊ သင့်မှတ်တမ်းများကို ထိုတောင်းဆိုမှုမှလွဲ၍ အခြားမည်သည့်နေရာတွင်မျှ လေ့ကျင့်ရန် အသုံးမပြုပါ။',
+      'privacyYourRightsTitle': '၇။ သင့်အခွင့်အရေးများ',
+      'privacyYourRightsBody': 'သင့်တွင် အောက်ပါအခွင့်အရေးများ ရှိပါသည်−\n\n• သင့်ကိုယ်ရေးအချက်အလက်များကို ကြည့်ရှုခွင့်\n• မမှန်ကန်သော ဒေတာများကို ပြင်ဆင်ခွင့်\n• သင့်အကောင့်နှင့် ဒေတာများကို ဖျက်ခွင့်\n• သင့်ဒေတာများကို ထုတ်ယူခွင့်\n• အချို့သောဒေတာ လုပ်ဆောင်မှုများမှ ပယ်ချခွင့်\n• သဘောတူညီချက်ကို အချိန်မရွေး ရုပ်သိမ်းခွင့်\n\nဤအခွင့်အရေးများကို အသုံးပြုရန် ကျွန်ုပ်တို့ထံ ဆက်သွယ်ပါ သို့မဟုတ် အက်ပ်ဆက်တင်များကို အသုံးပြုပါ။',
+      'privacyDataRetentionTitle': '၈။ ဒေတာသိမ်းဆည်းမှု ကာလ',
+      'privacyDataRetentionBody': 'ကျွန်ုပ်တို့သည် အောက်ပါကာလများအတွင်း သင့်အချက်အလက်များကို သိမ်းဆည်းထားပါသည်−\n\n• သင့်အကောင့် အသုံးပြုနေသေးသရွေ့\n• ဝန်ဆောင်မှုများ ပေးဆောင်ရန် လိုအပ်သရွေ့\n• ဥပဒေအရ လိုအပ်သရွေ့\n\nသင့်အကောင့်ကို ဖျက်လိုက်သောအခါ၊ ဥပဒေအရ ဆက်လက်သိမ်းဆည်းထားရန် လိုအပ်သည့်အခြေအနေများမှလွဲ၍ သင့်ဒေတာများကို ရက် ၃၀ အတွင်း အပြီးအပိုင် ဖျက်သိမ်းပေးမည် ဖြစ်ပါသည်။',
+      'privacyChildrensTitle': '၉။ ကလေးများ၏ ကိုယ်ရေးအချက်အလက်',
+      'privacyChildrensBody': 'Toe Pwar သည် အသက် ၁၈ နှစ်အောက် အသုံးပြုသူများအတွက် ရည်ရွယ်ထားခြင်း မဟုတ်ပါ။ ကျွန်ုပ်တို့သည် ကလေးများထံမှ အချက်အလက်များကို သိလျက်နှင့် စုဆောင်းခြင်း မပြုပါ။ ကလေးတစ်ဦးထံမှ အချက်အလက်များ စုဆောင်းမိသည်ဟု သင်ယုံကြည်ပါက ကျွန်ုပ်တို့ထံ ချက်ချင်း ဆက်သွယ်ပါ။',
+      'privacyIntlTransfersTitle': '၁၀။ နိုင်ငံတကာ ဒေတာလွှဲပြောင်းမှု',
+      'privacyIntlTransfersBody': 'သင့်အချက်အလက်များကို သင့်နိုင်ငံမှလွဲ၍ အခြားနိုင်ငံများသို့ လွှဲပြောင်းပြီး လုပ်ဆောင်နိုင်ပါသည်။ ဤကိုယ်ရေးအချက်အလက်မူဝါဒနှင့်အညီ သင့်ဒေတာကို ကာကွယ်ရန် သင့်လျော်သော ကာကွယ်မှုအစီအမံများ ထားရှိထားကြောင်း ကျွန်ုပ်တို့ သေချာစေပါသည်။',
+      'privacyChangesTitle': '၁၁။ ကိုယ်ရေးအချက်အလက်မူဝါဒ ပြောင်းလဲမှုများ',
+      'privacyChangesBody': 'ကျွန်ုပ်တို့သည် ဤကိုယ်ရေးအချက်အလက်မူဝါဒကို အချိန်အခါအလိုက် မွမ်းမံနိုင်ပါသည်။ သိသာထင်ရှားသော ပြောင်းလဲမှုများကို အက်ပ် သို့မဟုတ် အီးမေးလ်မှတစ်ဆင့် အသိပေးပါမည်။ ပြောင်းလဲမှုများပြီးနောက် ဆက်လက်အသုံးပြုခြင်းသည် မွမ်းမံထားသော မူဝါဒကို လက်ခံကြောင်း ဆိုလိုပါသည်။',
+      'privacyContactTitle': '၁၂။ ဆက်သွယ်ရန်',
+      'privacyContactBody': 'ဤကိုယ်ရေးအချက်အလက်မူဝါဒ သို့မဟုတ် ကျွန်ုပ်တို့၏ ဒေတာကိုင်တွယ်မှုများနှင့်ပတ်သက်၍ မေးခွန်းများရှိပါက−\n\nအီးမေးလ်− toepwarai@gmail.com\nဝက်ဘ်ဆိုက်− www.toepwar.com\n\nသင့်စုံစမ်းမေးမြန်းမှုကို ရက် ၃၀ အတွင်း ပြန်လည်ဖြေကြားပါမည်။',
+      'privacySecurityNotice': 'သင့်ဒေတာကို ကုဒ်ဝှက်ထားပြီး စက်မှုလုပ်ငန်းစံနှုန်းနှင့်ညီသော လုံခြုံရေးအစီအမံများဖြင့် ကာကွယ်ထားပါသည်',
+      'termsTitle': 'စည်းမျဉ်းစည်းကမ်းများနှင့် သတ်မှတ်ချက်များ',
+      'termsSubtitle': 'နောက်ဆုံးမွမ်းမံသည့်ရက်− ဇန်နဝါရီ ၂၀၂၅',
+      'termsAcceptanceTitle': '၁။ စည်းကမ်းချက်များကို လက်ခံခြင်း',
+      'termsAcceptanceBody': 'Toe Pwar ("အက်ပ်") ကို ဝင်ရောက်အသုံးပြုခြင်းဖြင့် သင်သည် ဤစည်းမျဉ်းစည်းကမ်းများကို လက်ခံပြီး လိုက်နာရန် သဘောတူပါသည်။ ဤစည်းကမ်းများကို သင် သဘောမတူပါက ကျေးဇူးပြု၍ ဤအက်ပ်ကို အသုံးမပြုပါနှင့်။',
+      'termsUseOfServiceTitle': '၂။ ဝန်ဆောင်မှု အသုံးပြုခြင်း',
+      'termsUseOfServiceBody': 'Toe Pwar သည် အောက်ပါ ကိုယ်ရေးငွေကြေးစီမံခန့်ခွဲမှု ကိရိယာများကို ပံ့ပိုးပေးပါသည်−\n\n• ငွေလွှဲငွေပေးမှုများကို ခြေရာခံခြင်းနှင့် အမျိုးအစားခွဲခြင်း\n• AI ပါဝါဖြင့် ငွေကြေးဆိုင်ရာ ထိုးထွင်းသိမြင်မှုများနှင့် အကြံပြုချက်များ\n• ဘတ်ဂျက်စီမံခန့်ခွဲမှုနှင့် ပန်းတိုင်ခြေရာခံခြင်း\n• ငွေကြေးအစီရင်ခံစာများနှင့် ခွဲခြမ်းစိတ်ဖြာမှုများ\n\nသင်သည် ဤအက်ပ်ကို ကိုယ်ရေးငွေကြေးစီမံခန့်ခွဲမှု ရည်ရွယ်ချက်အတွက်သာ အသုံးပြုရန် သဘောတူပါသည်။',
+      'termsAccountRegTitle': '၃။ အကောင့်ဖွင့်လှစ်ခြင်း',
+      'termsAccountRegBody': 'အကောင့်တစ်ခု ဖွင့်လှစ်ရာတွင် တိကျပြီး ပြည့်စုံသော အချက်အလက်များကို ပေးဆောင်ရပါမည်။ သင်သည် အောက်ပါအရာများအတွက် တာဝန်ရှိပါသည်−\n\n• သင့်အကောင့် ဝင်ရောက်ရန်အချက်အလက်များကို လျှို့ဝှက်ထိန်းသိမ်းခြင်း\n• သင့်အကောင့်အောက်တွင် ဖြစ်ပေါ်သော လုပ်ဆောင်ချက်အားလုံး\n• ခွင့်ပြုချက်မရှိသော အသုံးပြုမှုများကို ကျွန်ုပ်တို့ထံ ချက်ချင်း အကြောင်းကြားခြင်း',
+      'termsUserResponsibilitiesTitle': '၄။ အသုံးပြုသူ တာဝန်ဝတ္တရားများ',
+      'termsUserResponsibilitiesBody': 'သင်သည် အောက်ပါအချက်များကို သဘောတူပါသည်−\n\n• တိကျသော ငွေကြေးအချက်အလက်များ ပေးဆောင်ရန်\n• AI ဝန်ဆောင်မှုများကို အလွဲသုံးစားမပြုရန် သို့မဟုတ် စနစ်ကို လှည့်စားရန် မကြိုးစားရန်\n• ဤအက်ပ်ကို တရားမဝင်ရည်ရွယ်ချက်များအတွက် အသုံးမပြုရန်\n• သင့်အကောင့်ကို အခြားသူများနှင့် မမျှဝေရန်\n• သက်ဆိုင်ရာ ဥပဒေများနှင့် စည်းမျဉ်းစည်းကမ်းများအားလုံးကို လိုက်နာရန်',
+      'termsAiFeaturesTitle': '၅။ AI ပါဝါဝန်ဆောင်မှုများ',
+      'termsAiFeaturesBody': 'ကျွန်ုပ်တို့၏ AI ဝန်ဆောင်မှုများသည် သင့်ငွေကြေးဒေတာအပေါ် အခြေခံ၍ အကြံပြုချက်များနှင့် ထိုးထွင်းသိမြင်မှုများ ပေးပါသည်။ ကျေးဇူးပြု၍ သတိပြုပါ−\n\n• AI ၏ ထိုးထွင်းသိမြင်မှုများသည် အကြံပြုချက်များသာဖြစ်ပြီး၊ ပညာရှင်ဆန်သော ငွေကြေးအကြံဉာဏ် မဟုတ်ပါ\n• မည်သည့်လုပ်ဆောင်ချက်မဆို မလုပ်ဆောင်မီ အကြံပြုချက်များအားလုံးကို စစ်ဆေးသင့်ပါသည်\n• AI ၏ အကြံပြုချက်များအပေါ် အခြေခံ၍ ချမှတ်သော ဆုံးဖြတ်ချက်များအတွက် ကျွန်ုပ်တို့ တာဝန်မယူပါ\n• ရလဒ်များသည် သင့်ငွေကြေးအခြေအနေပေါ် မူတည်၍ ကွဲပြားနိုင်ပါသည်',
+      'termsPremiumSubTitle': '၆။ Premium စာရင်းသွင်းမှု',
+      'termsPremiumSubBody': 'Premium ဝန်ဆောင်မှုများကို အသုံးပြုရန် တက်ကြွစွာ စာရင်းသွင်းမှု လိုအပ်ပါသည်−\n\n• စာရင်းသွင်းမှုများကို သင်ရွေးချယ်သော အစီအစဉ်အလိုက် ကျသင့်ငွေတောင်းခံပါမည်\n• နောက်ငွေတောင်းခံမည့် သံသရာမတိုင်မီ အချိန်မရွေး ပယ်ဖျက်နိုင်ပါသည်\n• ငွေပြန်အမ်းမှုများကို ကျွန်ုပ်တို့၏ ငွေပြန်အမ်းမူဝါဒအတိုင်း ဆောင်ရွက်ပေးပါမည်\n• Premium ဝန်ဆောင်မှုများ အသုံးပြုခွင့်သည် စာရင်းသွင်းမှု သက်တမ်းကုန်ဆုံးသောအခါ ပြီးဆုံးသွားပါမည်',
+      'termsDataProcessingTitle': '၇။ ဒေတာလုပ်ဆောင်မှု',
+      'termsDataProcessingBody': 'ကျွန်ုပ်တို့သည် သင့်ငွေကြေးဒေတာများကို အောက်ပါ ရည်ရွယ်ချက်များအတွက် လုပ်ဆောင်ပါသည်−\n\n• သင့်အတွက် အထူးပြင်ဆင်ထားသော ထိုးထွင်းသိမြင်မှုများနှင့် အကြံပြုချက်များ ပေးရန်\n• ကျွန်ုပ်တို့၏ ဝန်ဆောင်မှုများနှင့် AI algorithm များကို ပိုမိုကောင်းမွန်အောင် ပြုလုပ်ရန်\n• အစီရင်ခံစာများနှင့် ခွဲခြမ်းစိတ်ဖြာမှုများ ထုတ်ပေးရန်\n• လုံခြုံရေးကို သေချာစေပြီး လိမ်လည်မှုများကို ကာကွယ်ရန်\n\nဒေတာလုပ်ဆောင်မှုအားလုံးသည် ကျွန်ုပ်တို့၏ ကိုယ်ရေးအချက်အလက်မူဝါဒနှင့် ကိုက်ညီပါသည်။',
+      'termsIntellectualPropertyTitle': '၈။ ဉာဏပစ္စည်းပိုင်ဆိုင်မှု',
+      'termsIntellectualPropertyBody': 'အက်ပ်၏ အကြောင်းအရာ၊ ဝန်ဆောင်မှုများနှင့် လုပ်ဆောင်နိုင်စွမ်းအားလုံးသည် Toe Pwar ပိုင်ဆိုင်ပြီး မူပိုင်ခွင့်၊ ကုန်အမှတ်တံဆိပ်နှင့် အခြားဥပဒေများဖြင့် ကာကွယ်ထားပါသည်။ သင်သည် အောက်ပါအရာများကို မပြုလုပ်ရပါ−\n\n• ကျွန်ုပ်တို့၏ အကြောင်းအရာများကို ကူးယူခြင်း၊ ပြင်ဆင်ခြင်း သို့မဟုတ် ဖြန့်ဝေခြင်း\n• Reverse engineer ပြုလုပ်ခြင်း သို့မဟုတ် source code ကို ထုတ်ယူရန် ကြိုးစားခြင်း\n• ကျွန်ုပ်တို့၏ ကုန်အမှတ်တံဆိပ်များကို ခွင့်ပြုချက်မရှိဘဲ အသုံးပြုခြင်း',
+      'termsLimitationLiabilityTitle': '၉။ တာဝန်ခံမှု ကန့်သတ်ချက်',
+      'termsLimitationLiabilityBody': 'Toe Pwar ကို အာမခံချက်မရှိဘဲ "ရှိသည့်အတိုင်း" ပေးအပ်ထားပါသည်။ ကျွန်ုပ်တို့သည် အောက်ပါအရာများအတွက် တာဝန်မယူပါ−\n\n• ဤအက်ပ်ကို အသုံးပြု၍ ချမှတ်သော ငွေကြေးဆိုင်ရာ ဆုံးဖြတ်ချက်များ\n• ဒေတာဆုံးရှုံးမှု သို့မဟုတ် ဝန်ဆောင်မှု အနှောင့်အယှက်များ\n• သွယ်ဝိုက်သော သို့မဟုတ် ဆက်စပ်ဆုံးရှုံးမှုများ\n• တတိယပါတီ၏ လုပ်ဆောင်ချက်များ သို့မဟုတ် အကြောင်းအရာများ',
+      'termsTerminationTitle': '၁၀။ ရပ်ဆိုင်းခြင်း',
+      'termsTerminationBody': 'ကျွန်ုပ်တို့တွင် အောက်ပါအခွင့်အရေးများ ရှိပါသည်−\n\n• စည်းကမ်းချိုးဖောက်မှုများအတွက် သင့်အကောင့်ကို ခေတ္တရပ်ဆိုင်း သို့မဟုတ် ရပ်ဆိုင်းရန်\n• ဝန်ဆောင်မှုများကို အချိန်မရွေး ပြင်ဆင်ရန် သို့မဟုတ် ရပ်ဆိုင်းရန်\n• ဤစည်းကမ်းချက်များကို ချိုးဖောက်သော အကြောင်းအရာများကို ဖယ်ရှားရန်\n\nသင်သည် အက်ပ်ဆက်တင်များမှတစ်ဆင့် သင့်အကောင့်ကို အချိန်မရွေး ဖျက်နိုင်ပါသည်။',
+      'termsChangesTitle': '၁၁။ စည်းကမ်းချက်များ ပြောင်းလဲမှု',
+      'termsChangesBody': 'ကျွန်ုပ်တို့သည် ဤစည်းမျဉ်းစည်းကမ်းများကို အချိန်အခါအလိုက် မွမ်းမံနိုင်ပါသည်။ ပြောင်းလဲမှုများပြီးနောက် ဤအက်ပ်ကို ဆက်လက်အသုံးပြုခြင်းသည် စည်းကမ်းချက်အသစ်များကို လက်ခံကြောင်း ဆိုလိုပါသည်။ သိသာထင်ရှားသော ပြောင်းလဲမှုများကို အသုံးပြုသူများအား အသိပေးပါမည်။',
+      'termsContactInfoTitle': '၁၂။ ဆက်သွယ်ရန် အချက်အလက်',
+      'termsContactInfoBody': 'ဤစည်းမျဉ်းစည်းကမ်းများနှင့်ပတ်သက်၍ မေးခွန်းများရှိပါက ကျေးဇူးပြု၍ အောက်ပါလိပ်စာများမှတစ်ဆင့် ကျွန်ုပ်တို့ထံ ဆက်သွယ်ပါ−\n\nအီးမေးလ်− toepwarai@gmail.com\nဝက်ဘ်ဆိုက်− www.toepwar.com',
+      'termsAcceptanceNotice': 'Toe Pwar ကို အသုံးပြုခြင်းဖြင့် သင်သည် ဤစည်းမျဉ်းစည်းကမ်းများကို လက်ခံသဘောတူပါသည်',
+      'noBrowserFoundMessage': 'ဘရောင်ဇာ မတွေ့ပါ။ ကျေးဇူးပြု၍ ဤလိပ်စာကို ကိုယ်တိုင်သွားရောက်ကြည့်ရှုပါ−',
+      'copyLabel': 'ကူးယူရန်',
+      'forceUpdateTitle': 'အပ်ဒိတ်လုပ်ချိန် ရောက်ပါပြီ',
+      'forceUpdateDefaultMessage': 'ဗားရှင်းအသစ် ရရှိနိုင်ပါပြီ။ ဤအက်ပ်ကို ဆက်လက်အသုံးပြုရန် ကျေးဇူးပြု၍ အပ်ဒိတ်လုပ်ပါ။',
+      'whatsNewInVersion': 'အသစ်ပါဝင်လာသည်များ − ဗားရှင်း',
+      'whatsNewLabel': 'အသစ်ပါဝင်လာသည်များ',
+      'youHaveVersion': 'သင့်တွင်ရှိသည်',
+      'updateNowButton': 'ယခုပင် အပ်ဒိတ်လုပ်ပါ',
+      'updateSafetyNotice': 'သင့်မှတ်တမ်းများသည် စက်ပေါ်တွင်သာ ရှိနေပါမည် — အပ်ဒိတ်လုပ်ခြင်းကြောင့် မည်သည့်အရာမျှ မပျောက်ဆုံးပါ။',
+
+      // Localization sweep — settings screens batch
+      'passwordStrengthWeak': 'အားနည်း',
+      'passwordStrengthFair': 'ပျမ်းမျှ',
+      'passwordStrengthGood': 'ကောင်း',
+      'passwordStrengthStrong': 'အားကောင်း',
+      'failedToChangePassword': 'စကားဝှက် ပြောင်းလဲခြင်း မအောင်မြင်ပါ',
+      'errorOccurred': 'အမှားအယွင်း ဖြစ်ပွားခဲ့သည်:',
+      'passwordChangeSignOutNotice': 'သင့်စကားဝှက်ကို ပြောင်းလဲခြင်းသည် အခြားစက်ပစ္စည်းများမှ အကောင့်ထွက်စေပါမည်။ သင့်ငွေစာရင်းများနှင့် ဘတ်ဂျက်များကို မထိခိုက်ပါ။',
+      'defaultCurrencyUpdatedTo': 'မူရင်းငွေကြေးအမျိုးအစားကို ပြောင်းလဲပြီးပါပြီ -',
+      'failedToUpdateCurrency': 'ငွေကြေးအမျိုးအစား ပြောင်းလဲခြင်း မအောင်မြင်ပါ',
+      'howCurrenciesWorkHere': 'ဤနေရာတွင် ငွေကြေးအမျိုးအစားများ အလုပ်လုပ်ပုံ',
+      'accountDeletedSuccessfully': 'အကောင့်ကို အောင်မြင်စွာ ဖျက်ပြီးပါပြီ',
+      'failedToDeleteAccount': 'အကောင့် ဖျက်ခြင်း မအောင်မြင်ပါ',
+      'ratingHelper1': 'စိတ်မကောင်းပါဘူး — အောက်တွင် ဘာမှားယွင်းခဲ့လဲ ပြောပြပါ။',
+      'ratingHelper2': 'ကျေးဇူးတင်ပါတယ် — ဘာတွေပိုကောင်းအောင် လုပ်နိုင်မလဲ?',
+      'ratingHelper3': 'သိရတာ ဝမ်းသာပါတယ်။ ဘာတွေဖြည့်စွက်ရင် အကောင်းဆုံးဖြစ်မလဲ?',
+      'ratingHelper4': 'နှစ်သက်တာ ဝမ်းသာပါတယ် — ပြင်ဆင်စရာ တစ်ခုခုရှိသေးလား?',
+      'ratingHelper5': 'အံ့ဖွယ်ပါပဲ! နှစ်သက်မှုအတွက် ကျေးဇူးတင်ပါတယ်။',
+      'ratingHelperDefault': 'သင့်အတွေ့အကြုံကို အဆင့်သတ်မှတ်ရန် ကြယ်ကို နှိပ်ပါ',
+      'charCountMinimumSuffix': '/၁၀ အနည်းဆုံး',
+      'languageChangedToEnglish': 'ဘာသာစကားကို အင်္ဂလိပ်သို့ ပြောင်းလဲပြီးပါပြီ',
+      'languageChangedToBurmese': 'ဘာသာစကားကို မြန်မာသို့ပြောင်းလဲပြီးပါပြီ',
+      'languageSettingsTitle': 'ဘာသာစကားဆက်တင်များ',
+      'selectLanguageLabel': 'ဘာသာစကားရွေးချယ်ပါ',
+      'languageRestartNotice': 'ဘာသာစကားအသစ်ကိုအသုံးပြုရန် အက်ပ်ကိုပြန်လည်စတင်ပါမည်',
+      'failedToUpdatePreference': 'ဆက်တင် ပြောင်းလဲခြင်း မအောင်မြင်ပါ',
+      'monthlyInsightsTitle': 'လစဉ် သုံးသပ်ချက်များ',
+      'monthlyInsightsDesc': 'သင့်လစဉ်သုံးသပ်ချက်များ အသင့်ဖြစ်သောအခါ',
+      'defaultUserName': 'အသုံးပြုသူ',
+      'premiumMemberLabel': 'ပရီမီယံ အသင်းဝင်',
+      'freePlanLabel': 'အခမဲ့ အစီအစဉ်',
+      'currentLanguageName': 'မြန်မာ',
+      'appVersion': 'ဗားရှင်း ၁.၀.၀',
+      'viewOurPrivacyPolicy': 'ကျွန်ုပ်တို့၏ ကိုယ်ရေးအချက်အလက်မူဝါဒကို ကြည့်ရန်',
+      'viewTermsAndConditions': 'စည်းကမ်းသတ်မှတ်ချက်များကို ကြည့်ရန်',
+      'appDescription': 'တိုးပွားသည် AI နည်းပညာဖြင့် သုံးသပ်ချက်များနှင့် ဘတ်ဂျက်ခြေရာခံနိုင်သော သင့်ကိုယ်ပိုင် ငွေကြေးစီမံခန့်ခွဲမှု အက်ပ်လီကေးရှင်း ဖြစ်ပါသည်။',
+      'copyrightNotice': '© ၂၀၂၅ တိုးပွား။ မူပိုင်ခွင့်အားလုံး ရယူထားသည်။',
+
+      // Localization sweep — home/ai/insights/reports/charts/notifications/subscription batch
+      'spendingPace': 'အသုံးစရိတ် အရှိန်',
+      'insight': 'သုံးသပ်ချက်',
+      'eachCurrencyOwnBalanceNote': 'တစ်ခုစီက သီးခြားလက်ကျန်ရှိပြီး၊ သင်မသိဘဲ ငွေကြေးပြောင်းလဲမှု မရှိပါ။',
+      'errorLoadCurrencyBalances': 'ငွေကြေးလက်ကျန်များ ဖော်ပြရန် မအောင်မြင်ပါ:',
+      'suggestionCurrentBalance': 'ကျွန်ုပ်၏ လက်ရှိလက်ကျန်ငွေ မည်မျှရှိပါသလဲ?',
+      'suggestionSpendThisMonth': 'ဒီလ ကျွန်ုပ် မည်မျှ အသုံးစရိတ်သုံးခဲ့ပါသလဲ?',
+      'suggestionTopSpendingCategories': 'ကျွန်ုပ်၏ အများဆုံးအသုံးစရိတ်သုံးသည့် အမျိုးအစားများက ဘာတွေလဲ?',
+      'suggestionMoneySavingTips': 'ငွေကြေးချွေတာနည်းများ ပြောပြပါ',
+      'suggestionIncomeVsExpenses': 'ကျွန်ုပ်၏ ဝင်ငွေနှင့် အသုံးစရိတ်ကို နှိုင်းယှဉ်ပြပါ',
+      'suggestionSpendOnFood': 'အစားအသောက်အတွက် မည်မျှ အသုံးစရိတ်သုံးခဲ့ပါသလဲ?',
+      'answers': 'အဖြေများ:',
+      'clearThisConversation': 'ဤစကားဝိုင်းကို ရှင်းလင်းမလား?',
+      'chatMessageSingular': 'စာတို',
+      'chatMessagePlural': 'စာတိုများ',
+      'clearChatConsequence': 'နှင့် အဖြေများ အပြီးတိုင် ပျောက်သွားပါမည်။ သင့်ငွေစာရင်းများ၊ ဘတ်ဂျက်များနှင့် ရည်မှန်းချက်များကို ထိခိုက်မှာ မဟုတ်ပါ — အကူအညီပေးသူက နောက်တစ်ကြိမ် အသစ်ပြန်ဖတ်ပါလိမ့်မည်။',
+      'keepIt': 'ဆက်ထားမည်',
+      'fallbackQuestionTighterMonth': 'ဘာကြောင့် ဒီလက ပိုတင်းကျပ်နေတာလဲ?',
+      'assistantAnswersFromRecords': 'အကူအညီပေးသူသည် သင့်ကိုယ်ပိုင်မှတ်တမ်းများမှ အဖြေပေးပါသည်။',
+      'spendingPaceCategoryComparisons': 'အသုံးစရိတ်အရှိန်၊ အမျိုးအစားနှိုင်းယှဉ်မှု၊ ဝယ်ယူမှုတစ်ခု သင့်တော်မသင့်တော်၊ ထပ်ခါထပ်ခါဖြစ်နေသည်များ — သင့်ကိုယ်ပိုင်ကိန်းဂဏန်းများနှင့်သာ၊ အထွေထွေအကြံပြုချက်မဟုတ်ပါ။',
+      'tryOneMonthFree': 'တစ်လအခမဲ့ စမ်းသုံးကြည့်ပါ',
+      'noCardRequiredCancelAnyTime': 'ကတ်မလိုအပ်ပါ · အချိန်မရွေး ပယ်ဖျက်နိုင်ပါသည်',
+      'errorLoadingTransactions': 'ငွေစာရင်းများ ဖော်ပြရန် အမှားရှိပါသည်:',
+      'moneyInLabel': 'ဝင်ငွေ ·',
+      'moneyOutLabel': 'ထွက်ငွေ ·',
+      'avgPerEntry': 'ပျမ်းမျှ / ခု',
+      'spentLabel': 'သုံးစွဲပြီး',
+      'biggestOutflowCategoryMiddle': 'သည် သင်၏ အကြီးဆုံး ထွက်ငွေအမျိုးအစား ဖြစ်ပါသည် —',
+      'biggestOutflowCategorySuffix': 'ဤကာလအတွင်း အသုံးစရိတ်၏။',
+      'biggestIncomeSourceMiddle': 'သည် သင်၏ အကြီးဆုံး ဝင်ငွေအရင်းအမြစ် ဖြစ်ပါသည် —',
+      'biggestIncomeSourceSuffix': 'ဤကာလအတွင်း ဝင်ငွေ၏။',
+      'regenerate': 'ပြန်လည်ထုတ်လုပ်ရန်',
+      'threeInsightsWaiting': 'သုံးသပ်ချက် သုံးခု စောင့်နေပါသည်။ ပရီမီယံသည် သင့်ငွေစာရင်းများကို အပတ်စဉ် ဖတ်ပေးပါသည် — ကိုယ်တိုင်လုပ်ဆောင်စရာ မလိုပါ။',
+      'swipeNotificationToDelete': 'အကြောင်းကြားစာကို ဖျက်ရန် ဘေးသို့ ပွတ်ဆွဲပါ',
+      'justNow': 'အခုလေးတင်',
+      'minutesAgoSuffix': ' မိနစ်က',
+      'hoursAgoSuffix': ' နာရီက',
+      'daysAgoSuffix': ' ရက်က',
+      'errorDownloadReport': 'အစီရင်ခံစာ ဒေါင်းလုဒ်လုပ်ရန် မအောင်မြင်ပါ:',
+      'exportThisReport': 'ဤအစီရင်ခံစာကို ထုတ်ယူရန်',
+      'chartsCategoryTablesDailyAverages': 'ဇယားကားချပ်များ၊ အမျိုးအစား ဇယားများနှင့် နေ့စဉ်ပျမ်းမျှများ',
+      'sendItOn': 'ပို့ဆက်ရန်',
+      'samePdfToViberOrEmail': 'PDF အတူတူပါပဲ၊ Viber သို့မဟုတ် အီးမေးလ်သို့ တိုက်ရိုက်ပို့ရန်',
+      'ofTotal': 'စုစုပေါင်း၏',
+      'txnsAbbrev': 'စာရင်း',
+      'welcomeToPremiumCelebration': '🎉 ပရီမီယံသို့ ကြိုဆိုပါတယ်!',
+      'oneMonthFreePremiumAccess': 'သင့်တွင် ယခု ၁ လ အခမဲ့ ပရီမီယံအသုံးပြုခွင့် ရရှိပါပြီ။ လုပ်ဆောင်ချက်အားလုံးကို ခံစားလိုက်ပါ!',
+      'letsGo': 'စလိုက်ကြရအောင်!',
+      'couldNotClaimFreeTrial': 'အခမဲ့စမ်းသပ်ကာလကို ရယူ၍ မရပါ။',
+      'oneMonthFreeCaps': 'တစ်လ အခမဲ့',
+      'letAppReadYourMoney': 'အက်ပ်ကို သင့်ငွေကြေးအတွက် ဖတ်ခိုင်းလိုက်ပါ။',
+      'weeklyInsightsReceiptScanningVoiceAiBudgets': 'အပတ်စဉ်သုံးသပ်ချက်များ၊ ဘောက်ချာစကင်ဖတ်ခြင်း၊ အသံဖြင့်ထည့်သွင်းခြင်းနှင့် AI ဘတ်ဂျက်များ — သင့်ကိုယ်ပိုင် ငွေစာရင်းများအပေါ်တွင်။',
+      'claiming': 'ရယူနေသည်…',
+      'claimOneMonthFree': '၁ လ အခမဲ့ ရယူရန်',
+      'noCardRequiredThenContactUs': 'ကတ်မလိုအပ်ပါ · ဆက်လက်လုပ်ဆောင်ရန် ကျွန်ုပ်တို့ကို ဆက်သွယ်ပါ',
+
+      // Localization sweep — budgets/goals batch
+      'startsOnPrefix': 'စတင်မည်',
+      'startsInDaysPrefix': 'စတင်ရန် ကျန်',
+      'daysSuffix': 'ရက်',
+      'endedDaysAgoPrefix': 'ပြီးဆုံးခဲ့သည်',
+      'daysRemainingSuffix': 'ရက် ကျန်ရှိသည်',
+      'budgetWillStartOnPrefix': 'ဤဘတ်ဂျက်သည်',
+      'noSpendingTrackedYetSuffix': ' တွင် စတင်မည်ဖြစ်ပြီး ယခုအထိ သုံးစွဲမှု ခြေရာခံမထားသေးပါ။',
+      'budgetEndedOnPrefix': 'ဤဘတ်ဂျက်သည် ပြီးဆုံးခဲ့သည်',
+      'onlyTransactionsInPrefix': 'ငွေကြေး',
+      'willAffectThisBudgetSuffix': 'ဖြင့်ပြုလုပ်သော ငွေစာရင်းသွင်းမှုများသာ ဤဘတ်ဂျက်ကို သက်ရောက်ပါမည်',
+      'fixedForThisBudget': 'ဤဘတ်ဂျက်အတွက် သော့ခတ်ထားသည်',
+      'periodCurrencyLockedNotice': 'ဘတ်ဂျက်တွင် သုံးစွဲမှု စတင်ရှိလာပြီးနောက် ကာလနှင့် ငွေကြေးအမျိုးအစားကို ပြောင်းလဲ၍ မရတော့ပါ — ဘတ်ဂျက်အသစ် ဖန်တီးပါ။',
+      'capAlreadySpentTitle': 'ဤကန့်သတ်ပမာဏကို သုံးပြီးဖြစ်သည်',
+      'alreadyHaveMoreSpent': 'ကန့်သတ်ပမာဏအသစ်ထက် ပိုသုံးထားပြီးဖြစ်သည်။',
+      'alreadyHasMoreSpent': 'ကန့်သတ်ပမာဏအသစ်ထက် ပိုသုံးထားပြီးဖြစ်သည်။',
+      'totalCapLabel': 'စုစုပေါင်း ကန့်သတ်ပမာဏ',
+      'analyzingYourPrefix': 'သင့်',
+      'spendingPatternsSuffix': 'သုံးစွဲမှု ပုံစံများကို ခွဲခြမ်းစိတ်ဖြာနေသည်...',
+      'genericErrorOccurred': 'အမှားတစ်ခု ဖြစ်ပွားခဲ့သည်',
+      'savedTowardsGoals': 'ရည်မှန်းချက်များအတွက် စုဆောင်းထားသည်',
+      'failedToLoadBalances': 'လက်ကျန်ငွေများ ဖော်ပြရန် မအောင်မြင်ပါ:',
+      'dueDatePrefix': 'သတ်မှတ်ရက်',
+      'operationFailed': 'လုပ်ဆောင်မှု မအောင်မြင်ပါ',
+      'moneyHeldNotSpendable': 'ဤရည်မှန်းချက်အတွက် ထားရှိသော ငွေကို အသုံးမပြုနိုင်ပါ',
+      'heldFundsExplanation': '၎င်းသည် သင့်အသုံးပြုနိုင်သော လက်ကျန်ငွေမှ နုတ်ယူထားခြင်းဖြစ်သောကြောင့် အခြားနေရာတွင် ကတိပြုထားသော ငွေကို ဒက်ရှ်ဘုတ်က ဘယ်တော့မှ ထပ်ပြီး မပေးတော့ပါ။',
     }
   };
 
@@ -1942,6 +2558,314 @@ class AppLocalizations {
   String get feedbackCategoryUsability => translate('feedbackCategoryUsability');
   String get feedbackCategoryOther => translate('feedbackCategoryOther');
   String get feedbackDesc => translate('feedbackDesc');
+
+  // Localization sweep — widgets/providers batch
+  String get badgeTryFree => translate('badgeTryFree');
+  String get badgeThreeNew => translate('badgeThreeNew');
+  String get badgeFreeMonth => translate('badgeFreeMonth');
+  String get askAi => translate('askAi');
+  String get chatWithAiAssistant => translate('chatWithAiAssistant');
+  String get noUpcomingOccurrences => translate('noUpcomingOccurrences');
+  String get repeatOn => translate('repeatOn');
+  String get dayLabel => translate('dayLabel');
+  String get weekdayMon => translate('weekdayMon');
+  String get weekdayTue => translate('weekdayTue');
+  String get weekdayWed => translate('weekdayWed');
+  String get weekdayThu => translate('weekdayThu');
+  String get weekdayFri => translate('weekdayFri');
+  String get weekdaySat => translate('weekdaySat');
+  String get weekdaySun => translate('weekdaySun');
+  String get monthJanuary => translate('monthJanuary');
+  String get monthFebruary => translate('monthFebruary');
+  String get monthMarch => translate('monthMarch');
+  String get monthApril => translate('monthApril');
+  String get monthMay => translate('monthMay');
+  String get monthJune => translate('monthJune');
+  String get monthJuly => translate('monthJuly');
+  String get monthAugust => translate('monthAugust');
+  String get monthSeptember => translate('monthSeptember');
+  String get monthOctober => translate('monthOctober');
+  String get monthNovember => translate('monthNovember');
+  String get monthDecember => translate('monthDecember');
+  String get premiumFeatureDialogContent => translate('premiumFeatureDialogContent');
+
+  // Localization sweep — transactions batch
+  String get pickCategoryTitle => translate('pickCategoryTitle');
+  String get thenChooseSubCategoryHint => translate('thenChooseSubCategoryHint');
+  String get chooseSubCategoryTitle => translate('chooseSubCategoryTitle');
+  String get noCategoriesLabel => translate('noCategoriesLabel');
+  String get subCategoriesCountLabel => translate('subCategoriesCountLabel');
+  String get chooseCategoryFallback => translate('chooseCategoryFallback');
+  String get categoryAndSubCategoryFallback => translate('categoryAndSubCategoryFallback');
+  String get repeatLabel => translate('repeatLabel');
+  String get doneLabel => translate('doneLabel');
+  String get offLabel => translate('offLabel');
+  String get egExchangeRateHint => translate('egExchangeRateHint');
+  String get speakItTooltip => translate('speakItTooltip');
+  String get keepItButton => translate('keepItButton');
+  String get currencyConvertedMessage => translate('currencyConvertedMessage');
+  String get addAReceiptTitle => translate('addAReceiptTitle');
+  String get whatWeReadLabel => translate('whatWeReadLabel');
+  String get whatWeReadDescription => translate('whatWeReadDescription');
+  String get useDifferentPhotoButton => translate('useDifferentPhotoButton');
+  String get failedToSaveTransactionFallback => translate('failedToSaveTransactionFallback');
+  String get successfullySavedPrefix => translate('successfullySavedPrefix');
+  String get transactionsSuffix => translate('transactionsSuffix');
+  String get whatYouSaidLabel => translate('whatYouSaidLabel');
+  String get fromOneRecordingLabel => translate('fromOneRecordingLabel');
+  String get foundLabel => translate('foundLabel');
+  String get transactionSingularLabel => translate('transactionSingularLabel');
+  String get multipleSpendsWarning => translate('multipleSpendsWarning');
+  String get selectedTotalLabel => translate('selectedTotalLabel');
+  String get recordAgainButton => translate('recordAgainButton');
+  String get mixedCurrenciesLabel => translate('mixedCurrenciesLabel');
+  String get oneTransactionLabel => translate('oneTransactionLabel');
+  String get transactionsCountSuffix => translate('transactionsCountSuffix');
+
+  // Localization sweep — auth screens batch
+  String get loginTagline => translate('loginTagline');
+  String get emailLabel => translate('emailLabel');
+  String get enterEmailError => translate('enterEmailError');
+  String get enterValidEmailError => translate('enterValidEmailError');
+  String get passwordLabel => translate('passwordLabel');
+  String get enterPasswordError => translate('enterPasswordError');
+  String get forgotPasswordQuestion => translate('forgotPasswordQuestion');
+  String get signIn => translate('signIn');
+  String get newHerePrefix => translate('newHerePrefix');
+  String get createAnAccount => translate('createAnAccount');
+  String get registerTagline => translate('registerTagline');
+  String get fullNameLabel => translate('fullNameLabel');
+  String get passwordMinLengthError => translate('passwordMinLengthError');
+  String get confirmPasswordLabel => translate('confirmPasswordLabel');
+  String get confirmPasswordError => translate('confirmPasswordError');
+  String get byContinuingAcceptPrefix => translate('byContinuingAcceptPrefix');
+  String get termsLinkText => translate('termsLinkText');
+  String get andConnector => translate('andConnector');
+  String get privacyPolicyLinkText => translate('privacyPolicyLinkText');
+  String get neverSellDataSuffix => translate('neverSellDataSuffix');
+  String get createAccountButton => translate('createAccountButton');
+  String get alreadyHaveAccountPrefix => translate('alreadyHaveAccountPrefix');
+  String get oneTapLeft => translate('oneTapLeft');
+  String get verificationLinkSentPrefix => translate('verificationLinkSentPrefix');
+  String get whyExtraStepTitle => translate('whyExtraStepTitle');
+  String get emailVerificationExplanation => translate('emailVerificationExplanation');
+  String get verifiedSignInButton => translate('verifiedSignInButton');
+  String get nothingArrivedPrefix => translate('nothingArrivedPrefix');
+  String get useDifferentAddressLink => translate('useDifferentAddressLink');
+  String get termsAndConditionsTitle => translate('termsAndConditionsTitle');
+  String get welcomeToToePwarTagline => translate('welcomeToToePwarTagline');
+  String get termsAndConditionsBody => translate('termsAndConditionsBody');
+  String get privacyPolicyTitle => translate('privacyPolicyTitle');
+  String get yourPrivacyMattersTitle => translate('yourPrivacyMattersTitle');
+  String get privacyPolicyBody => translate('privacyPolicyBody');
+  String get resetPasswordTitle => translate('resetPasswordTitle');
+  String get resetPasswordSubtitle => translate('resetPasswordSubtitle');
+  String get emailAddressLabel => translate('emailAddressLabel');
+  String get sendCodeButton => translate('sendCodeButton');
+  String get enterAllSixDigitsError => translate('enterAllSixDigitsError');
+  String get newCodeSentMessage => translate('newCodeSentMessage');
+  String get enterTheCodeTitle => translate('enterTheCodeTitle');
+  String get sentCodeToPrefix => translate('sentCodeToPrefix');
+  String get expiresInTenMinutes => translate('expiresInTenMinutes');
+  String get verifyCodeButton => translate('verifyCodeButton');
+  String get didntGetItPrefix => translate('didntGetItPrefix');
+  String get resendInPrefix => translate('resendInPrefix');
+  String get sendNewCodeButton => translate('sendNewCodeButton');
+  String get passwordResetTitle => translate('passwordResetTitle');
+  String get passwordResetSuccessMessage => translate('passwordResetSuccessMessage');
+  String get backToLogin => translate('backToLogin');
+  String get chooseNewPasswordTitle => translate('chooseNewPasswordTitle');
+  String get codeAcceptedSubtitle => translate('codeAcceptedSubtitle');
+  String get newPasswordLabel => translate('newPasswordLabel');
+  String get pleaseEnterAPasswordError => translate('pleaseEnterAPasswordError');
+  String get minimumSixCharactersError => translate('minimumSixCharactersError');
+  String get confirmItLabel => translate('confirmItLabel');
+  String get saveAndSignInButton => translate('saveAndSignInButton');
+
+  // Localization sweep — legal text + force update batch
+  String get privacyPolicySubtitle => translate('privacyPolicySubtitle');
+  String get privacyIntroTitle => translate('privacyIntroTitle');
+  String get privacyIntroBody => translate('privacyIntroBody');
+  String get privacyInfoCollectTitle => translate('privacyInfoCollectTitle');
+  String get privacyInfoCollectBody => translate('privacyInfoCollectBody');
+  String get privacyUseInfoTitle => translate('privacyUseInfoTitle');
+  String get privacyUseInfoBody => translate('privacyUseInfoBody');
+  String get privacyDataSecurityTitle => translate('privacyDataSecurityTitle');
+  String get privacyDataSecurityBody => translate('privacyDataSecurityBody');
+  String get privacyDataSharingTitle => translate('privacyDataSharingTitle');
+  String get privacyDataSharingBody => translate('privacyDataSharingBody');
+  String get privacyAiProcessingTitle => translate('privacyAiProcessingTitle');
+  String get privacyAiProcessingBody => translate('privacyAiProcessingBody');
+  String get privacyYourRightsTitle => translate('privacyYourRightsTitle');
+  String get privacyYourRightsBody => translate('privacyYourRightsBody');
+  String get privacyDataRetentionTitle => translate('privacyDataRetentionTitle');
+  String get privacyDataRetentionBody => translate('privacyDataRetentionBody');
+  String get privacyChildrensTitle => translate('privacyChildrensTitle');
+  String get privacyChildrensBody => translate('privacyChildrensBody');
+  String get privacyIntlTransfersTitle => translate('privacyIntlTransfersTitle');
+  String get privacyIntlTransfersBody => translate('privacyIntlTransfersBody');
+  String get privacyChangesTitle => translate('privacyChangesTitle');
+  String get privacyChangesBody => translate('privacyChangesBody');
+  String get privacyContactTitle => translate('privacyContactTitle');
+  String get privacyContactBody => translate('privacyContactBody');
+  String get privacySecurityNotice => translate('privacySecurityNotice');
+  String get termsTitle => translate('termsTitle');
+  String get termsSubtitle => translate('termsSubtitle');
+  String get termsAcceptanceTitle => translate('termsAcceptanceTitle');
+  String get termsAcceptanceBody => translate('termsAcceptanceBody');
+  String get termsUseOfServiceTitle => translate('termsUseOfServiceTitle');
+  String get termsUseOfServiceBody => translate('termsUseOfServiceBody');
+  String get termsAccountRegTitle => translate('termsAccountRegTitle');
+  String get termsAccountRegBody => translate('termsAccountRegBody');
+  String get termsUserResponsibilitiesTitle => translate('termsUserResponsibilitiesTitle');
+  String get termsUserResponsibilitiesBody => translate('termsUserResponsibilitiesBody');
+  String get termsAiFeaturesTitle => translate('termsAiFeaturesTitle');
+  String get termsAiFeaturesBody => translate('termsAiFeaturesBody');
+  String get termsPremiumSubTitle => translate('termsPremiumSubTitle');
+  String get termsPremiumSubBody => translate('termsPremiumSubBody');
+  String get termsDataProcessingTitle => translate('termsDataProcessingTitle');
+  String get termsDataProcessingBody => translate('termsDataProcessingBody');
+  String get termsIntellectualPropertyTitle => translate('termsIntellectualPropertyTitle');
+  String get termsIntellectualPropertyBody => translate('termsIntellectualPropertyBody');
+  String get termsLimitationLiabilityTitle => translate('termsLimitationLiabilityTitle');
+  String get termsLimitationLiabilityBody => translate('termsLimitationLiabilityBody');
+  String get termsTerminationTitle => translate('termsTerminationTitle');
+  String get termsTerminationBody => translate('termsTerminationBody');
+  String get termsChangesTitle => translate('termsChangesTitle');
+  String get termsChangesBody => translate('termsChangesBody');
+  String get termsContactInfoTitle => translate('termsContactInfoTitle');
+  String get termsContactInfoBody => translate('termsContactInfoBody');
+  String get termsAcceptanceNotice => translate('termsAcceptanceNotice');
+  String get noBrowserFoundMessage => translate('noBrowserFoundMessage');
+  String get copyLabel => translate('copyLabel');
+  String get forceUpdateTitle => translate('forceUpdateTitle');
+  String get forceUpdateDefaultMessage => translate('forceUpdateDefaultMessage');
+  String get whatsNewInVersion => translate('whatsNewInVersion');
+  String get whatsNewLabel => translate('whatsNewLabel');
+  String get youHaveVersion => translate('youHaveVersion');
+  String get updateNowButton => translate('updateNowButton');
+  String get updateSafetyNotice => translate('updateSafetyNotice');
+
+  // Localization sweep — settings screens batch
+  String get passwordStrengthWeak => translate('passwordStrengthWeak');
+  String get passwordStrengthFair => translate('passwordStrengthFair');
+  String get passwordStrengthGood => translate('passwordStrengthGood');
+  String get passwordStrengthStrong => translate('passwordStrengthStrong');
+  String get failedToChangePassword => translate('failedToChangePassword');
+  String get errorOccurred => translate('errorOccurred');
+  String get passwordChangeSignOutNotice => translate('passwordChangeSignOutNotice');
+  String get defaultCurrencyUpdatedTo => translate('defaultCurrencyUpdatedTo');
+  String get failedToUpdateCurrency => translate('failedToUpdateCurrency');
+  String get howCurrenciesWorkHere => translate('howCurrenciesWorkHere');
+  String get accountDeletedSuccessfully => translate('accountDeletedSuccessfully');
+  String get failedToDeleteAccount => translate('failedToDeleteAccount');
+  String get ratingHelper1 => translate('ratingHelper1');
+  String get ratingHelper2 => translate('ratingHelper2');
+  String get ratingHelper3 => translate('ratingHelper3');
+  String get ratingHelper4 => translate('ratingHelper4');
+  String get ratingHelper5 => translate('ratingHelper5');
+  String get ratingHelperDefault => translate('ratingHelperDefault');
+  String get charCountMinimumSuffix => translate('charCountMinimumSuffix');
+  String get languageChangedToEnglish => translate('languageChangedToEnglish');
+  String get languageChangedToBurmese => translate('languageChangedToBurmese');
+  String get languageSettingsTitle => translate('languageSettingsTitle');
+  String get selectLanguageLabel => translate('selectLanguageLabel');
+  String get languageRestartNotice => translate('languageRestartNotice');
+  String get failedToUpdatePreference => translate('failedToUpdatePreference');
+  String get monthlyInsightsTitle => translate('monthlyInsightsTitle');
+  String get monthlyInsightsDesc => translate('monthlyInsightsDesc');
+  String get defaultUserName => translate('defaultUserName');
+  String get premiumMemberLabel => translate('premiumMemberLabel');
+  String get freePlanLabel => translate('freePlanLabel');
+  String get currentLanguageName => translate('currentLanguageName');
+  String get appVersion => translate('appVersion');
+  String get viewOurPrivacyPolicy => translate('viewOurPrivacyPolicy');
+  String get viewTermsAndConditions => translate('viewTermsAndConditions');
+  String get appDescription => translate('appDescription');
+  String get copyrightNotice => translate('copyrightNotice');
+
+  // Localization sweep — home/ai/insights/reports/charts/notifications/subscription batch
+  String get spendingPace => translate('spendingPace');
+  String get insight => translate('insight');
+  String get eachCurrencyOwnBalanceNote => translate('eachCurrencyOwnBalanceNote');
+  String get errorLoadCurrencyBalances => translate('errorLoadCurrencyBalances');
+  String get suggestionCurrentBalance => translate('suggestionCurrentBalance');
+  String get suggestionSpendThisMonth => translate('suggestionSpendThisMonth');
+  String get suggestionTopSpendingCategories => translate('suggestionTopSpendingCategories');
+  String get suggestionMoneySavingTips => translate('suggestionMoneySavingTips');
+  String get suggestionIncomeVsExpenses => translate('suggestionIncomeVsExpenses');
+  String get suggestionSpendOnFood => translate('suggestionSpendOnFood');
+  String get answers => translate('answers');
+  String get clearThisConversation => translate('clearThisConversation');
+  String get chatMessageSingular => translate('chatMessageSingular');
+  String get chatMessagePlural => translate('chatMessagePlural');
+  String get clearChatConsequence => translate('clearChatConsequence');
+  String get keepIt => translate('keepIt');
+  String get fallbackQuestionTighterMonth => translate('fallbackQuestionTighterMonth');
+  String get assistantAnswersFromRecords => translate('assistantAnswersFromRecords');
+  String get spendingPaceCategoryComparisons => translate('spendingPaceCategoryComparisons');
+  String get tryOneMonthFree => translate('tryOneMonthFree');
+  String get noCardRequiredCancelAnyTime => translate('noCardRequiredCancelAnyTime');
+  String get errorLoadingTransactions => translate('errorLoadingTransactions');
+  String get moneyInLabel => translate('moneyInLabel');
+  String get moneyOutLabel => translate('moneyOutLabel');
+  String get avgPerEntry => translate('avgPerEntry');
+  String get spentLabel => translate('spentLabel');
+  String get biggestOutflowCategoryMiddle => translate('biggestOutflowCategoryMiddle');
+  String get biggestOutflowCategorySuffix => translate('biggestOutflowCategorySuffix');
+  String get biggestIncomeSourceMiddle => translate('biggestIncomeSourceMiddle');
+  String get biggestIncomeSourceSuffix => translate('biggestIncomeSourceSuffix');
+  String get regenerate => translate('regenerate');
+  String get threeInsightsWaiting => translate('threeInsightsWaiting');
+  String get swipeNotificationToDelete => translate('swipeNotificationToDelete');
+  String get justNow => translate('justNow');
+  String get minutesAgoSuffix => translate('minutesAgoSuffix');
+  String get hoursAgoSuffix => translate('hoursAgoSuffix');
+  String get daysAgoSuffix => translate('daysAgoSuffix');
+  String get errorDownloadReport => translate('errorDownloadReport');
+  String get exportThisReport => translate('exportThisReport');
+  String get chartsCategoryTablesDailyAverages => translate('chartsCategoryTablesDailyAverages');
+  String get sendItOn => translate('sendItOn');
+  String get samePdfToViberOrEmail => translate('samePdfToViberOrEmail');
+  String get ofTotal => translate('ofTotal');
+  String get txnsAbbrev => translate('txnsAbbrev');
+  String get welcomeToPremiumCelebration => translate('welcomeToPremiumCelebration');
+  String get oneMonthFreePremiumAccess => translate('oneMonthFreePremiumAccess');
+  String get letsGo => translate('letsGo');
+  String get couldNotClaimFreeTrial => translate('couldNotClaimFreeTrial');
+  String get oneMonthFreeCaps => translate('oneMonthFreeCaps');
+  String get letAppReadYourMoney => translate('letAppReadYourMoney');
+  String get weeklyInsightsReceiptScanningVoiceAiBudgets => translate('weeklyInsightsReceiptScanningVoiceAiBudgets');
+  String get claiming => translate('claiming');
+  String get claimOneMonthFree => translate('claimOneMonthFree');
+  String get noCardRequiredThenContactUs => translate('noCardRequiredThenContactUs');
+
+  // Localization sweep — budgets/goals batch
+  String get startsOnPrefix => translate('startsOnPrefix');
+  String get startsInDaysPrefix => translate('startsInDaysPrefix');
+  String get daysSuffix => translate('daysSuffix');
+  String get endedDaysAgoPrefix => translate('endedDaysAgoPrefix');
+  String get daysRemainingSuffix => translate('daysRemainingSuffix');
+  String get budgetWillStartOnPrefix => translate('budgetWillStartOnPrefix');
+  String get noSpendingTrackedYetSuffix => translate('noSpendingTrackedYetSuffix');
+  String get budgetEndedOnPrefix => translate('budgetEndedOnPrefix');
+  String get onlyTransactionsInPrefix => translate('onlyTransactionsInPrefix');
+  String get willAffectThisBudgetSuffix => translate('willAffectThisBudgetSuffix');
+  String get fixedForThisBudget => translate('fixedForThisBudget');
+  String get periodCurrencyLockedNotice => translate('periodCurrencyLockedNotice');
+  String get capAlreadySpentTitle => translate('capAlreadySpentTitle');
+  String get alreadyHaveMoreSpent => translate('alreadyHaveMoreSpent');
+  String get alreadyHasMoreSpent => translate('alreadyHasMoreSpent');
+  String get totalCapLabel => translate('totalCapLabel');
+  String get analyzingYourPrefix => translate('analyzingYourPrefix');
+  String get spendingPatternsSuffix => translate('spendingPatternsSuffix');
+  String get genericErrorOccurred => translate('genericErrorOccurred');
+  String get savedTowardsGoals => translate('savedTowardsGoals');
+  String get failedToLoadBalances => translate('failedToLoadBalances');
+  String get dueDatePrefix => translate('dueDatePrefix');
+  String get operationFailed => translate('operationFailed');
+  String get moneyHeldNotSpendable => translate('moneyHeldNotSpendable');
+  String get heldFundsExplanation => translate('heldFundsExplanation');
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

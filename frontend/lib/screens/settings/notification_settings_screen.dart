@@ -54,6 +54,7 @@ class _NotificationSettingsScreenState
 
   Future<void> _updatePreference(String key, bool value) async {
     if (_preferences == null) return;
+    final localizations = AppLocalizations.of(context);
 
     try {
       // Update locally first for immediate feedback
@@ -73,7 +74,7 @@ class _NotificationSettingsScreenState
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to update preference')),
+        SnackBar(content: Text(localizations.failedToUpdatePreference)),
       );
     }
   }
@@ -442,8 +443,8 @@ class _NotificationSettingsScreenState
                         key: 'monthly_insights_generated',
                         icon: Icons.calendar_month_rounded,
                         color: AppTheme.infoFor(context),
-                        title: 'Monthly Insights',
-                        description: 'When your monthly insights are ready',
+                        title: localizations.monthlyInsightsTitle,
+                        description: localizations.monthlyInsightsDesc,
                         value: _preferences!.monthlyInsightsGenerated,
                       ),
                     ],

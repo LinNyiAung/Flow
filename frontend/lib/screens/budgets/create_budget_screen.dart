@@ -595,7 +595,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Only transactions in ${_selectedCurrency.displayName} will affect this budget',
+              '${localizations.onlyTransactionsInPrefix} ${_selectedCurrency.displayName} ${localizations.willAffectThisBudgetSuffix}',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
             ),
 

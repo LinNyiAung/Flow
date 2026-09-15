@@ -47,13 +47,13 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     return (score / 5).clamp(0.0, 1.0);
   }
 
-  String get _strengthLabel {
+  String _strengthLabel(AppLocalizations localizations) {
     final s = _strength;
     if (_newPasswordController.text.isEmpty) return '';
-    if (s < 0.4) return 'Weak';
-    if (s < 0.7) return 'Fair';
-    if (s < 0.9) return 'Good';
-    return 'Strong';
+    if (s < 0.4) return localizations.passwordStrengthWeak;
+    if (s < 0.7) return localizations.passwordStrengthFair;
+    if (s < 0.9) return localizations.passwordStrengthGood;
+    return localizations.passwordStrengthStrong;
   }
 
   Color get _strengthColor {
@@ -65,6 +65,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   Future<void> _changePassword() async {
+    final localizations = AppLocalizations.of(context);
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
@@ -83,13 +84,13 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         Navigator.pop(context, true);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(authProvider.error ?? 'Failed to change password')),
+          SnackBar(content: Text(authProvider.error ?? localizations.failedToChangePassword)),
         );
       }
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('An error occurred: ${e.toString()}')),
+        SnackBar(content: Text('${localizations.errorOccurred} ${e.toString()}')),
       );
     }
   }
@@ -202,7 +203,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   Expanded(child: ProgressMeter(value: _strength, overrideColor: _strengthColor)),
                   const SizedBox(width: 10),
                   Text(
-                    _strengthLabel,
+                    _strengthLabel(localizations),
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _strengthColor),
                   ),
                 ],
@@ -253,7 +254,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Text(
-                'Changing your password signs out other devices. Your transactions and budgets are untouched.',
+                localizations.passwordChangeSignOutNotice,
                 style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.4),
               ),
             ),

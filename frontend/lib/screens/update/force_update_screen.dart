@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/app_version_provider.dart';
+import 'package:frontend/services/localization_service.dart';
 
 /// Shown as a full-screen block when `force_update = true`.
 /// The user cannot dismiss this screen — they must tap the download button.
@@ -57,15 +58,16 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
 
     // All modes failed — show snackbar
     if (context.mounted) {
+      final localizations = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'No browser found. Please visit manually:\n$url',
+            '${localizations.noBrowserFoundMessage}\n$url',
             style: const TextStyle(fontSize: 13),
           ),
           duration: const Duration(seconds: 6),
           action: SnackBarAction(
-            label: 'Copy',
+            label: localizations.copyLabel,
             onPressed: () {
               Clipboard.setData(ClipboardData(text: url));
             },
@@ -80,6 +82,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
     final versionCheck = context.watch<AppVersionProvider>().versionCheck;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final localizations = AppLocalizations.of(context);
 
     final downloadUrl = versionCheck?.downloadUrl ?? '';
     final latestVersion = versionCheck?.latestVersion ?? '';
@@ -111,7 +114,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
 
                   // Title
                   Text(
-                    'Time for an update',
+                    localizations.forceUpdateTitle,
                     textAlign: TextAlign.center,
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontSize: 26,
@@ -127,7 +130,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                   Text(
                     (message != null && message.isNotEmpty)
                         ? message
-                        : 'A new version is available. Please update to continue using the app.',
+                        : localizations.forceUpdateDefaultMessage,
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
                   ),
@@ -153,7 +156,9 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            latestVersion.isNotEmpty ? "WHAT'S NEW IN $latestVersion" : "WHAT'S NEW",
+                            latestVersion.isNotEmpty
+                              ? '${localizations.whatsNewInVersion} $latestVersion'
+                              : localizations.whatsNewLabel,
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
@@ -179,7 +184,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'You have $_installedVersion',
+                          '${localizations.youHaveVersion} $_installedVersion',
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
                         ),
                         const SizedBox(width: 8),
@@ -201,7 +206,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                     child: FilledButton.icon(
                       onPressed: downloadUrl.isNotEmpty ? () => _launchDownloadUrl(context, downloadUrl) : null,
                       icon: const Icon(Icons.download_rounded, size: 22),
-                      label: const Text('Update now'),
+                      label: Text(localizations.updateNowButton),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -209,7 +214,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                   // Small helper text — reassures about data safety, per the
                   // handoff copy ("nothing is lost by updating").
                   Text(
-                    'Your records stay on the device — nothing is lost by updating.',
+                    localizations.updateSafetyNotice,
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.5),
                   ),

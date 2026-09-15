@@ -172,19 +172,20 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final now = DateTime.now().toUtc();
     final startDate = _budget.startDate.toUtc();
     final endDate = _budget.endDate.toUtc();
+    final localizations = AppLocalizations.of(context);
 
     if (now.isBefore(startDate)) {
       final daysUntilStart = startDate.difference(now).inDays;
-      return 'Starts in $daysUntilStart days';
+      return '${localizations.startsInDaysPrefix} $daysUntilStart ${localizations.daysSuffix}';
     }
 
     if (now.isAfter(endDate)) {
       final daysEnded = now.difference(endDate).inDays;
-      return 'Ended $daysEnded days ago';
+      return '${localizations.endedDaysAgoPrefix} $daysEnded${localizations.daysAgoSuffix}';
     }
 
     final daysRemaining = endDate.difference(now).inDays;
-    return '$daysRemaining days remaining';
+    return '$daysRemaining ${localizations.daysRemainingSuffix}';
   }
 
   // Same three states as _calculateDaysRemaining(), but without repeating the
@@ -497,7 +498,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 background: AppTheme.infoContainerFor(context),
                 titleColor: AppTheme.infoFor(context),
                 title:
-                    'This budget will start on ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}. No spending is tracked yet.',
+                    '${localizations.budgetWillStartOnPrefix} ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}${localizations.noSpendingTrackedYetSuffix}',
                 body: null,
               ),
             ] else if (!_budget.isActive &&
@@ -508,7 +509,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 iconColor: scheme.onSurfaceVariant,
                 background: scheme.secondaryContainer,
                 titleColor: scheme.onSurface,
-                title: 'This budget ended on ${DateFormat('MMMM dd, yyyy').format(_budget.endDate)}',
+                title: '${localizations.budgetEndedOnPrefix} ${DateFormat('MMMM dd, yyyy').format(_budget.endDate)}',
                 body: null,
               ),
             ],

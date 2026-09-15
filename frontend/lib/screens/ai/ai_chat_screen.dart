@@ -26,13 +26,13 @@ class _AiChatScreenState extends State<AiChatScreen>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late AnimationController _typingAnimationController;
 
-  final List<String> quickSuggestions = [
-    "What's my current balance?",
-    "How much did I spend this month?",
-    "What are my top spending categories?",
-    "Give me money-saving tips",
-    "Show me my income vs expenses",
-    "How much did I spend on food?",
+  List<String> _quickSuggestions(AppLocalizations localizations) => [
+    localizations.suggestionCurrentBalance,
+    localizations.suggestionSpendThisMonth,
+    localizations.suggestionTopSpendingCategories,
+    localizations.suggestionMoneySavingTips,
+    localizations.suggestionIncomeVsExpenses,
+    localizations.suggestionSpendOnFood,
   ];
 
   @override
@@ -246,6 +246,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Widget _responseStyleRow(ChatProvider chatProvider) {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
 
     Widget chip(ResponseStyle style) {
       final selected = chatProvider.responseStyle == style;
@@ -280,7 +281,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         child: Row(
           children: [
             Text(
-              'Answers:',
+              localizations.answers,
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
             ),
             const SizedBox(width: 8),
@@ -355,7 +356,7 @@ class _AiChatScreenState extends State<AiChatScreen>
             ),
           ),
           const SizedBox(height: 8),
-          ...quickSuggestions.map((s) => _suggestionRow(s, chatProvider)),
+          ..._quickSuggestions(localizations).map((s) => _suggestionRow(s, chatProvider)),
         ],
       ),
     );
@@ -554,6 +555,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Future<void> _showClearChatSheet() async {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final count = chatProvider.messages.length;
 
@@ -571,11 +573,10 @@ class _AiChatScreenState extends State<AiChatScreen>
               child: Icon(Icons.delete_sweep_rounded, color: scheme.error, size: 26),
             ),
             const SizedBox(height: 14),
-            const Text('Clear this conversation?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            Text(localizations.clearThisConversation, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             Text(
-              '$count ${count == 1 ? 'message' : 'messages'} and the answers go for good. '
-              'Your transactions, budgets and goals are untouched — the assistant reads them fresh next time.',
+              '$count ${count == 1 ? localizations.chatMessageSingular : localizations.chatMessagePlural} ${localizations.clearChatConsequence}',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.6),
             ),
             const SizedBox(height: 18),
@@ -585,13 +586,13 @@ class _AiChatScreenState extends State<AiChatScreen>
                 Navigator.pop(sheetContext);
                 chatProvider.clearChatHistory();
               },
-              child: const Text('Clear history'),
+              child: Text(localizations.clearHistory),
             ),
             const SizedBox(height: 6),
             Center(
               child: TextButton(
                 onPressed: () => Navigator.pop(sheetContext),
-                child: const Text('Keep it'),
+                child: Text(localizations.keepIt),
               ),
             ),
           ],
@@ -604,6 +605,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Widget _buildLockedBody(ChatProvider chatProvider) {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     final messages = chatProvider.messages;
 
     ChatMessage? lastUser;
@@ -617,7 +619,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
       if (lastAssistant != null && lastUser != null) break;
     }
-    const fallbackQuestion = 'Why is this month tighter?';
+    final fallbackQuestion = localizations.fallbackQuestionTighterMonth;
     const fallbackAnswerHead = 'Restaurants. K134,000 this month against K92,000 last month.';
     const fallbackAnswerRest =
         'Nine late-evening orders account for K42,000 of it, and two of them fall on Thursdays after 9pm — the same pattern as August.';
@@ -647,25 +649,25 @@ class _AiChatScreenState extends State<AiChatScreen>
                   ),
                 ),
                 const Divider(height: 34),
-                const Text(
-                  'The assistant answers from your own records.',
+                Text(
+                  localizations.assistantAnswersFromRecords,
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, height: 1.4),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Spending pace, category comparisons, whether a purchase fits, what repeats — with your numbers, not general advice.',
+                  localizations.spendingPaceCategoryComparisons,
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.55),
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/subscription'),
                   icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                  label: const Text('Try one month free'),
+                  label: Text(localizations.tryOneMonthFree),
                 ),
                 const SizedBox(height: 10),
                 Center(
                   child: Text(
-                    'No card required · cancel any time',
+                    localizations.noCardRequiredCancelAnyTime,
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                   ),
                 ),

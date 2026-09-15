@@ -359,7 +359,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                     Center(child: CircularProgressIndicator(color: scheme.primary))
                   else if (_previewDates.isEmpty)
                     Text(
-                      'No upcoming occurrences',
+                      localizations.noUpcomingOccurrences,
                       style: TextStyle(
                         fontSize: responsive.fs12,
                         color: scheme.onPrimaryContainer.withValues(alpha: 0.82),
@@ -391,14 +391,23 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
   }
 
   Widget _buildWeeklySettings() {
-    final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final days = [
+      localizations.weekdayMon,
+      localizations.weekdayTue,
+      localizations.weekdayWed,
+      localizations.weekdayThu,
+      localizations.weekdayFri,
+      localizations.weekdaySat,
+      localizations.weekdaySun,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Repeat On',
+          localizations.repeatOn,
           style: TextStyle(fontSize: responsive.fs14, fontWeight: FontWeight.w600, color: scheme.onSurface),
         ),
         SizedBox(height: responsive.sp12),
@@ -471,7 +480,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
               final day = index + 1;
               return DropdownMenuItem(
                 value: day,
-                child: Text('Day $day'),
+                child: Text('${localizations.dayLabel} $day'),
               );
             }),
             onChanged: (value) {
@@ -488,18 +497,29 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
   }
 
   Widget _buildAnnuallySettings() {
-    final months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
     final responsive = ResponsiveHelper(context);
+    final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final months = [
+      localizations.monthJanuary,
+      localizations.monthFebruary,
+      localizations.monthMarch,
+      localizations.monthApril,
+      localizations.monthMay,
+      localizations.monthJune,
+      localizations.monthJuly,
+      localizations.monthAugust,
+      localizations.monthSeptember,
+      localizations.monthOctober,
+      localizations.monthNovember,
+      localizations.monthDecember,
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Month',
+          localizations.month,
           style: TextStyle(fontSize: responsive.fs14, fontWeight: FontWeight.w600, color: scheme.onSurface),
         ),
         SizedBox(height: responsive.sp12),
@@ -534,7 +554,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
         ),
         SizedBox(height: responsive.sp16),
         Text(
-          'Day',
+          localizations.dayLabel,
           style: TextStyle(fontSize: responsive.fs14, fontWeight: FontWeight.w600, color: scheme.onSurface),
         ),
         SizedBox(height: responsive.sp12),
@@ -555,7 +575,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
               final day = index + 1;
               return DropdownMenuItem(
                 value: day,
-                child: Text('Day $day'),
+                child: Text('${localizations.dayLabel} $day'),
               );
             }),
             onChanged: (value) {

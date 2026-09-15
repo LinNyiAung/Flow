@@ -67,7 +67,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('An error occurred: ${e.toString()}')),
+        SnackBar(content: Text('${localizations.errorOccurred} ${e.toString()}')),
       );
     }
   }
@@ -402,6 +402,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _deleteAccount(BuildContext context) async {
+    final localizations = AppLocalizations.of(context);
     setState(() => _isLoading = true);
 
     try {
@@ -418,17 +419,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Account deleted successfully')),
+          SnackBar(content: Text(localizations.accountDeletedSuccessfully)),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(authProvider.error ?? 'Failed to delete account')),
+          SnackBar(content: Text(authProvider.error ?? localizations.failedToDeleteAccount)),
         );
       }
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('An error occurred: ${e.toString()}')),
+        SnackBar(content: Text('${localizations.errorOccurred} ${e.toString()}')),
       );
     }
   }

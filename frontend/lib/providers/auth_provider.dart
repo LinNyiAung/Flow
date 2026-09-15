@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:frontend/services/fcm_service.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
@@ -280,25 +281,26 @@ class AuthProvider with ChangeNotifier {
   Future<void> _showUpgradeDialog(BuildContext context) async {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Premium Feature'),
-        content: Text(
-          'This feature requires a premium subscription. Upgrade now to unlock all features!',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pushNamed(context, '/subscription');
-            },
-            child: Text('Upgrade'),
-          ),
-        ],
-      ),
+      builder: (context) {
+        final localizations = AppLocalizations.of(context);
+        return AlertDialog(
+          title: Text(localizations.premiumFeatureTitle),
+          content: Text(localizations.premiumFeatureDialogContent),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(localizations.dialogCancel),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/subscription');
+              },
+              child: Text(localizations.upgrade),
+            ),
+          ],
+        );
+      },
     );
   }
 }

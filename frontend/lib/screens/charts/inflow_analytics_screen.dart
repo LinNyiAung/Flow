@@ -127,9 +127,10 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
       setState(() => _isLoading = false);
 
       if (mounted) {
+        final localizations = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error loading transactions: ${e.toString()}'),
+            content: Text('${localizations.errorLoadingTransactions} ${e.toString()}'),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -210,6 +211,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
 
   Map<String, double> _sortTimeSeriesData(Map<String, double> data) {
     List<MapEntry<String, double>> entries = data.entries.toList();
+    final localizations = AppLocalizations.of(context);
 
     switch (_selectedPeriod) {
       case TimePeriod.daily:
@@ -231,8 +233,12 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
         });
         break;
       case TimePeriod.monthly:
-        final monthOrder = ['January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December'];
+        final monthOrder = [
+          localizations.monthJanuary, localizations.monthFebruary, localizations.monthMarch,
+          localizations.monthApril, localizations.monthMay, localizations.monthJune,
+          localizations.monthJuly, localizations.monthAugust, localizations.monthSeptember,
+          localizations.monthOctober, localizations.monthNovember, localizations.monthDecember,
+        ];
         entries.sort((a, b) => monthOrder.indexOf(a.key).compareTo(monthOrder.indexOf(b.key)));
         break;
       case TimePeriod.yearly:
@@ -335,7 +341,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                 )
               else ...[
                 HeroCard(
-                  label: 'Money in · ${_getPeriodLabel()}',
+                  label: '${localizations.moneyInLabel} ${_getPeriodLabel()}',
                   value: '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalIncome)}',
                   stats: [
                     StatTile(
@@ -345,7 +351,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                     ),
                     StatTile(
                       icon: Icons.calculate_rounded,
-                      label: 'Avg / entry',
+                      label: localizations.avgPerEntry,
                       value:
                           '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(_filteredTransactions.isEmpty ? 0 : totalIncome / _filteredTransactions.length)}',
                     ),
@@ -585,6 +591,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
 
   Widget _buildCompositionInsight(Map<String, double> data, double total) {
     if (data.isEmpty || total <= 0) return const SizedBox.shrink();
+    final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final sorted = data.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final top = sorted.first;
@@ -600,7 +607,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '${top.key} is your biggest income source — ${pct.toStringAsFixed(0)}% of what came in this period.',
+                '${top.key} ${localizations.biggestIncomeSourceMiddle} ${pct.toStringAsFixed(0)}% ${localizations.biggestIncomeSourceSuffix}',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onTertiaryContainer, height: 1.5),
               ),
             ),

@@ -187,7 +187,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'Saved towards goals',
+                                localizations.savedTowardsGoals,
                                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
                               ),
                               InkWell(
@@ -437,7 +437,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to load balances: ${e.toString().replaceAll('Exception: ', '')}'),
+          content: Text('${localizations.failedToLoadBalances} ${e.toString().replaceAll('Exception: ', '')}'),
           backgroundColor: Theme.of(context).colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -493,7 +493,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // (see _refreshData), so a per-card currency tag is no longer needed
     // either. Fall back to the goal type when there's no target date.
     final subtitle = goal.targetDate != null
-        ? 'Due ${DateFormat('MMM dd, yyyy').format(goal.targetDate!)}'
+        ? '${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(goal.targetDate!)}'
         : goal.goalType.name.replaceAll('_', ' ').toUpperCase();
 
     return Card(
