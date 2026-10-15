@@ -34,7 +34,7 @@ ALL = {"users", "transactions", "goals", "budgets", "notifications", "notificati
 
 # Collections the backend code already stores in PostgreSQL. Updated with each migration
 # step so the suites follow the code; E2E_PG_COLLECTIONS (comma list or "all") overrides.
-MIGRATED = {"categories"}
+MIGRATED = {"categories", "admins", "admin_action_logs"}
 
 
 def migrated() -> set:

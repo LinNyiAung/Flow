@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: ebb361f1f953
+Revision ID: 370e86741054
 Revises: 
-Create Date: 2026-10-15 15:00:50.026524
+Create Date: 2026-10-15 15:31:48.183839
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = 'ebb361f1f953'
+revision: str = '370e86741054'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -36,7 +36,7 @@ def upgrade() -> None:
     sa.Column('email', sa.Text(), nullable=False),
     sa.Column('password', sa.Text(), nullable=False),
     sa.Column('role', sa.Text(), nullable=False),
-    sa.Column('password_version', sa.Integer(), nullable=False),
+    sa.Column('password_version', sa.Integer(), server_default='0', nullable=False),
     sa.Column('password_changed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('last_login', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),

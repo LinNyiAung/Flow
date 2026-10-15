@@ -87,6 +87,16 @@ async def execute(stmt, conn: Optional[AsyncConnection] = None) -> int:
         return (await c.execute(stmt)).rowcount
 
 
+async def write_returning(stmt, conn: Optional[AsyncConnection] = None) -> Optional[Dict[str, Any]]:
+    """Run an INSERT/UPDATE/DELETE ... RETURNING and return the first row (or None)."""
+    if conn is not None:
+        row = (await conn.execute(stmt)).first()
+        return _as_dict(row) if row is not None else None
+    async with get_engine().begin() as c:
+        row = (await c.execute(stmt)).first()
+        return _as_dict(row) if row is not None else None
+
+
 @asynccontextmanager
 async def transaction() -> AsyncIterator[AsyncConnection]:
     """All-or-nothing unit of work: commits on success, rolls back on any exception."""

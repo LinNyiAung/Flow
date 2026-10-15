@@ -24,8 +24,6 @@ ai_usage_collection = database.ai_usage
 feedback_collection = database.feedback
 
 # Admin collections
-admins_collection = database.admins
-admin_action_logs_collection = database.admin_action_logs
 
 # App version collection
 app_versions_collection = database.app_versions  # NEW
@@ -259,7 +257,9 @@ async def initialize_admin():
     import asyncio
     from admin_utils import get_password_hash, initial_admin_password_version, verify_password
 
-    if await admins_collection.count_documents({}) == 0:
+    from sql import admins as admins_db
+
+    if await admins_db.count_admins() == 0:
         bootstrap_email = (settings.ADMIN_BOOTSTRAP_EMAIL or "").strip().lower()
         bootstrap_password = settings.ADMIN_BOOTSTRAP_PASSWORD or ""
 
@@ -285,13 +285,13 @@ async def initialize_admin():
             "last_login": None
         }
 
-        await admins_collection.insert_one(bootstrap_admin)
+        await admins_db.insert_admin(bootstrap_admin)
         print(f"✅ Bootstrap super admin created for {bootstrap_email}. "
               "Remove ADMIN_BOOTSTRAP_PASSWORD from the environment now.")
         return
 
     # Warn loudly if the legacy hard-coded default admin still exists with its default password.
-    legacy = await admins_collection.find_one({"email": "admin@toepwar.com"})
+    legacy = await admins_db.get_admin_by_email("admin@toepwar.com")
     if legacy and legacy.get("password"):
         try:
             if await asyncio.to_thread(verify_password, "admin123", legacy["password"]):

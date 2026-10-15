@@ -47,9 +47,9 @@ from firebase_service import send_fcm_data_message, send_fcm_to_multiple
 from notification_service import should_send_notification
 from subscription_service import active_premium_filter, effectively_free_filter
 from models import Currency, SubscriptionType
+from sqlalchemy.exc import IntegrityError
+from sql import admins as admins_db
 from database import (
-    admins_collection,
-    admin_action_logs_collection,
     users_collection,
     transactions_collection,
     goals_collection,
@@ -79,16 +79,8 @@ def _to_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 async def _find_admin_by_email(email: str) -> Optional[dict]:
-    """Case-insensitive admin lookup (exact match first, then anchored escaped regex)."""
-    normalized = (email or "").strip().lower()
-    if not normalized:
-        return None
-    admin = await admins_collection.find_one({"email": normalized})
-    if admin:
-        return admin
-    return await admins_collection.find_one(
-        {"email": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}}
-    )
+    """Case-insensitive admin lookup (e-mails are unique on lower(email))."""
+    return await admins_db.get_admin_by_email(email)
 
 
 # In-memory admin login lockout (single uvicorn worker assumed):
@@ -295,10 +287,7 @@ async def admin_login(credentials: AdminLogin, request: Request):
     _admin_clear_failures(lock_key)
 
     login_time = datetime.now(UTC)
-    await admins_collection.update_one(
-        {"_id": admin["_id"]},
-        {"$set": {"last_login": login_time}}
-    )
+    await admins_db.set_last_login(admin["_id"], login_time)
 
     access_token = create_admin_access_token(
         data=admin_token_claims(admin),
@@ -359,14 +348,7 @@ async def admin_change_password(
     hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
     # Bumping password_version revokes every token issued before the change (tokens
     # carry it as "pwv"; get_current_admin rejects mismatches).
-    updated_admin = await admins_collection.find_one_and_update(
-        {"_id": current_admin["_id"]},
-        {
-            "$set": {"password": hashed_password, "password_changed_at": datetime.now(UTC)},
-            "$inc": {"password_version": 1},
-        },
-        return_document=ReturnDocument.AFTER,
-    )
+    updated_admin = await admins_db.change_password(current_admin["_id"], hashed_password)
     if not updated_admin:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin not found")
 
@@ -420,16 +402,9 @@ async def update_admin_profile(
             last_login=current_admin.get("last_login")
         )
 
-    update_doc = {"$set": update_fields}
-    if "email" in update_fields:
-        # Changing the sign-in e-mail revokes every existing token of this admin
-        # (including the current session: the admin signs in again with the new e-mail).
-        update_doc["$inc"] = {"password_version": 1}
-
-    await admins_collection.update_one(
-        {"_id": current_admin["_id"]},
-        update_doc
-    )
+    # Changing the sign-in e-mail revokes every existing token of this admin
+    # (including the current session: the admin signs in again with the new e-mail).
+    await admins_db.update_profile(current_admin["_id"], update_fields, bump_version="email" in update_fields)
 
     await log_admin_action(
         admin_id=current_admin["_id"],
@@ -438,7 +413,7 @@ async def update_admin_profile(
         details=f"Updated profile fields: {', '.join(update_fields.keys())}"
     )
     
-    updated_admin = await admins_collection.find_one({"_id": current_admin["_id"]})
+    updated_admin = await admins_db.get_admin_by_id(current_admin["_id"])
     
     return AdminResponse(
         id=updated_admin["_id"],
@@ -479,7 +454,11 @@ async def create_admin(
         "last_login": None
     }
     
-    await admins_collection.insert_one(new_admin)
+    try:
+        await admins_db.insert_admin(new_admin)
+    except IntegrityError:
+        # Unique lower(email): a concurrent request created the same admin first.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     
     await log_admin_action(
         admin_id=current_admin["_id"],
@@ -501,8 +480,7 @@ async def create_admin(
 @router.get("/admins", response_model=List[AdminResponse])
 async def get_all_admins(current_admin: dict = Depends(require_super_admin)):
     """Get all admins (super admin only)"""
-    cursor = admins_collection.find()
-    admins = await cursor.to_list(length=None)
+    admins = await admins_db.list_admins()
     
     return [
         AdminResponse(
@@ -529,16 +507,14 @@ async def delete_admin(
             detail="Cannot delete yourself"
         )
     
-    admin_to_delete = await admins_collection.find_one({"_id": admin_id})
+    admin_to_delete = await admins_db.get_admin_by_id(admin_id)
     if not admin_to_delete:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Admin not found"
         )
     
-    result = await admins_collection.delete_one({"_id": admin_id})
-    
-    if result.deleted_count == 0:
+    if await admins_db.delete_admin(admin_id) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Admin not found"
@@ -1409,8 +1385,7 @@ async def get_admin_logs(
     limit: int = Query(50, ge=1, le=100)
 ):
     """Get admin action logs (super admin only)"""
-    cursor = admin_action_logs_collection.find().sort("timestamp", -1).skip(skip).limit(limit)
-    logs = await cursor.to_list(length=limit)
+    logs = await admins_db.list_logs(skip, limit)
     
     return [
         AdminActionLog(

@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import DBAPIError
 
 from finite_utils import SafeJSONResponse, json_safe
 
@@ -133,6 +134,35 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
     except Exception:
         detail = json_safe(errors)
     return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": detail})
+
+
+def _pg_sqlstate(exc: BaseException) -> Optional[str]:
+    """SQLSTATE of a PostgreSQL error, looking through SQLAlchemy's wrapper and causes."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        for attr in ("sqlstate", "pgcode"):
+            code = getattr(exc, attr, None)
+            if isinstance(code, str) and len(code) == 5:
+                return code
+        exc = getattr(exc, "orig", None) or exc.__cause__ or exc.__context__
+    return None
+
+
+@app.exception_handler(DBAPIError)
+async def database_input_error_handler(request: Request, exc: DBAPIError):
+    """
+    A value the database refuses to store is a bad request, not a server error:
+    SQLSTATE class 22 (data exception, e.g. a NUL character in a path or text field, a
+    number too large for its column) and 23514 (a CHECK constraint, e.g. a non-positive
+    amount that slipped past validation) -> 400. Everything else stays a 500.
+    """
+    code = _pg_sqlstate(exc)
+    if code and (code.startswith("22") or code == "23514"):
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST,
+                            content={"detail": "The request contains a value that isn't allowed."})
+    print(f"❌ Database error on {request.method} {request.url.path}: {type(exc).__name__} (SQLSTATE {code})")
+    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"detail": "Internal Server Error"})
 
 
 # ==================== CATEGORIES & DASHBOARD ====================

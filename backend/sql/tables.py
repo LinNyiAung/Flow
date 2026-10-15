@@ -284,7 +284,9 @@ admins = Table(
     Column("email", Text, nullable=False),
     Column("password", Text, nullable=False),  # bcrypt hash
     Column("role", Text, nullable=False),
-    Column("password_version", Integer, nullable=False),
+    # New admins get a random version (admin_utils.initial_admin_password_version); 0 is
+    # what the code assumes for legacy admins without one.
+    Column("password_version", Integer, nullable=False, server_default="0"),
     Column("password_changed_at", TS),
     Column("last_login", TS),
     Column("created_at", TS, nullable=False, server_default=func.now()),
