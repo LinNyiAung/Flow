@@ -1,3 +1,0 @@
-PASS	edit description of a legacy-category transaction (app always sends type+categories)	200 {"id":"legacy-aee47f","user_id":"e981c12c-1506-4b06-9160-a8624768f2da","type":"outflow","main_category":"Food & Drinks","sub_category":"Lunc
-PASS	6 simultaneous registrations for one email	status codes=[200, 400, 400, 400, 400, 400]; accounts=1
-PASS	resend within 60s of register says sent but sends nothing	200 'If that email is registered and not yet verified, a new verification link has been sent.'; token changed=True
