@@ -19,7 +19,8 @@ from app_version_models import (
     VersionCheckRequest,
     VersionCheckResponse,
 )
-from database import app_versions_collection
+from sqlalchemy.exc import IntegrityError
+from sql import app_versions as versions_db
 from utils import get_current_user
 
 router = APIRouter(tags=["app-versions"])
@@ -85,10 +86,7 @@ async def create_app_version(
         _parse_version(data.min_supported_version)
 
     # Check for duplicate version + platform
-    existing = await app_versions_collection.find_one({
-        "version": data.version,
-        "platform": data.platform.value,
-    })
+    existing = await versions_db.find_by_version(data.version, data.platform.value)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -110,7 +108,14 @@ async def create_app_version(
         "updated_at": None,
     }
 
-    await app_versions_collection.insert_one(doc)
+    try:
+        await versions_db.insert_version(doc)
+    except IntegrityError:
+        # unique (version, platform): a concurrent request published it first
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Version {data.version} for platform '{data.platform.value}' already exists.",
+        )
 
     await log_admin_action(
         admin_id=current_admin["_id"],
@@ -131,14 +136,7 @@ async def list_app_versions(
     limit: int = Query(50, ge=1, le=100),
 ):
     """List all app versions. Optionally filter by platform or active status."""
-    query: dict = {}
-    if platform:
-        query["platform"] = platform.value
-    if active_only:
-        query["is_active"] = True
-
-    cursor = app_versions_collection.find(query).sort("created_at", -1).skip(skip).limit(limit)
-    docs = await cursor.to_list(length=limit)
+    docs = await versions_db.list_versions(platform.value if platform else None, active_only, skip, limit)
     return [_doc_to_response(d) for d in docs]
 
 
@@ -148,7 +146,7 @@ async def get_app_version(
     current_admin: dict = Depends(require_moderator_or_above),
 ):
     """Get a specific app version by ID."""
-    doc = await app_versions_collection.find_one({"_id": version_id})
+    doc = await versions_db.get(version_id)
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="App version not found")
     return _doc_to_response(doc)
@@ -161,7 +159,7 @@ async def update_app_version(
     current_admin: dict = Depends(require_admin_or_super),
 ):
     """Update an existing app version (download URL, release notes, force-update flag, etc.)."""
-    doc = await app_versions_collection.find_one({"_id": version_id})
+    doc = await versions_db.get(version_id)
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="App version not found")
 
@@ -184,7 +182,7 @@ async def update_app_version(
             _parse_version(data.min_supported_version)
         update_fields["min_supported_version"] = data.min_supported_version
 
-    await app_versions_collection.update_one({"_id": version_id}, {"$set": update_fields})
+    await versions_db.update_version(version_id, update_fields)
 
     await log_admin_action(
         admin_id=current_admin["_id"],
@@ -193,7 +191,7 @@ async def update_app_version(
         details=f"Updated version ID {version_id}: {list(update_fields.keys())}",
     )
 
-    updated = await app_versions_collection.find_one({"_id": version_id})
+    updated = await versions_db.get(version_id)
     return _doc_to_response(updated)
 
 
@@ -203,8 +201,7 @@ async def delete_app_version(
     current_admin: dict = Depends(require_super_admin),
 ):
     """Delete an app version record (Super Admin only)."""
-    result = await app_versions_collection.delete_one({"_id": version_id})
-    if result.deleted_count == 0:
+    if await versions_db.delete_version(version_id) == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="App version not found")
 
     await log_admin_action(
@@ -244,12 +241,7 @@ async def check_app_version(
     current_v = _parse_version(payload.current_version)
 
     # Query: active versions matching the device platform OR "all"
-    cursor = app_versions_collection.find({
-        "platform": {"$in": [payload.platform.value, Platform.ALL.value]},
-        "is_active": True,
-    }).sort("created_at", -1)
-
-    docs = await cursor.to_list(length=500)
+    docs = await versions_db.active_for_platforms([payload.platform.value, Platform.ALL.value], limit=500)
 
     # Ignore any malformed records already in the DB instead of 500-ing
     parsed = [(v, d) for d in docs if (v := _safe_version(d.get("version"))) is not None]

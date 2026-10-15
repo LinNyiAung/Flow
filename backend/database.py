@@ -25,9 +25,6 @@ feedback_collection = database.feedback
 
 # Admin collections
 
-# App version collection
-app_versions_collection = database.app_versions  # NEW
-
 
 # ==================== INITIALIZATION FUNCTIONS ====================
 
@@ -202,12 +199,6 @@ async def create_db_indexes():
             )
         except Exception as e:
             print(f"⚠️ Could not create budget rollover indexes: {e}")
-
-        # NEW: Index for fast version lookups
-        await app_versions_collection.create_index(
-            [("platform", ASCENDING), ("is_active", ASCENDING), ("created_at", ASCENDING)],
-            background=True,
-        )
 
         # transactions_collection had no indexes at all — every query
         # (transaction list, dashboard "recent", budget spent-amount
