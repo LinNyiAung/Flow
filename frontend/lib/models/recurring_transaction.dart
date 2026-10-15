@@ -1,3 +1,4 @@
+import 'package:frontend/utils/date_parsing.dart';
 import 'package:flutter/material.dart';
 
 import '../services/localization_service.dart';
@@ -66,7 +67,7 @@ class RecurrenceConfig {
       dayOfMonth: json['day_of_month'],
       month: json['month'],
       dayOfYear: json['day_of_year'],
-      endDate: json['end_date'] != null ? DateTime.parse(json['end_date']) : null,
+      endDate: parseWallClockOrNull(json['end_date']),
     );
   }
 
@@ -131,7 +132,7 @@ class TransactionRecurrence {
       enabled: json['enabled'] ?? false,
       config: json['config'] != null ? RecurrenceConfig.fromJson(json['config']) : null,
       lastCreatedDate: json['last_created_date'] != null
-          ? DateTime.parse(json['last_created_date'])
+          ? parseWallClock(json['last_created_date'])
           : null,
       parentTransactionId: json['parent_transaction_id'],
     );

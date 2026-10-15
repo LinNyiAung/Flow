@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/screens/auth/login_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import '../screens/home/home_screen.dart';
 import '../screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -56,10 +54,9 @@ class AppDrawer extends StatelessWidget {
         onTap: () {
           Navigator.pop(context);
           if (!isHome) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => HomeScreen()),
-            );
+            // Home lives in the root AuthWrapper route — go back to it
+            // instead of building a second HomeScreen.
+            Navigator.popUntil(context, (route) => route.isFirst);
           }
         },
       ),
@@ -333,12 +330,12 @@ class AppDrawer extends StatelessWidget {
             width: double.infinity,
             child: FilledButton(
               style: FilledButton.styleFrom(backgroundColor: scheme.error),
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(sheetContext);
-                authProvider.logout();
-                navigator.pushReplacement(
-                  MaterialPageRoute(builder: (_) => LoginScreen()),
-                );
+                await authProvider.logout();
+                // Reset the whole stack to a single fresh AuthWrapper (login),
+                // so no stale HomeScreen survives into the next session.
+                navigator.pushNamedAndRemoveUntil('/', (route) => false);
               },
               child: Text(localizations.drawerLogout),
             ),

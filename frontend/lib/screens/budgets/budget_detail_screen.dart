@@ -44,14 +44,13 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     // refresh — there is no user-facing "refresh" button.
     await budgetProvider.refreshBudget(_budget.id);
     final updatedBudget = await budgetProvider.getBudget(_budget.id);
+    // The user may have left the screen while the refresh was in flight.
+    if (!mounted) return;
 
-    if (updatedBudget != null) {
-      setState(() {
-        _budget = updatedBudget;
-      });
-    }
-
-    setState(() => _isRefreshing = false);
+    setState(() {
+      if (updatedBudget != null) _budget = updatedBudget;
+      _isRefreshing = false;
+    });
   }
 
   void _showDeleteConfirmation() {
@@ -155,23 +154,25 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   Future<void> _deleteBudget(BuildContext sheetContext) async {
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
     final success = await budgetProvider.deleteBudget(_budget.id);
+    if (sheetContext.mounted) Navigator.pop(sheetContext);
+    if (!mounted) return;
     final localizations = AppLocalizations.of(context);
 
     if (success) {
-      Navigator.pop(sheetContext);
       Navigator.pop(context, _deletedResultValue);
     } else {
-      Navigator.pop(sheetContext);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(budgetProvider.error ?? localizations.failedToDeleteBudget)),
       );
     }
   }
 
+  // Budget start/end are wall-clock dates parsed as LOCAL DateTimes
+  // (parseWallClock), so they are compared with the local DateTime.now().
   String _calculateDaysRemaining() {
-    final now = DateTime.now().toUtc();
-    final startDate = _budget.startDate.toUtc();
-    final endDate = _budget.endDate.toUtc();
+    final now = DateTime.now();
+    final startDate = _budget.startDate;
+    final endDate = _budget.endDate;
     final localizations = AppLocalizations.of(context);
 
     if (now.isBefore(startDate)) {
@@ -193,9 +194,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   // already says — used only there, to avoid rows reading like "Days
   // Remaining: 20 days remaining".
   String _daysRemainingValueOnly() {
-    final now = DateTime.now().toUtc();
-    final startDate = _budget.startDate.toUtc();
-    final endDate = _budget.endDate.toUtc();
+    final now = DateTime.now();
+    final startDate = _budget.startDate;
+    final endDate = _budget.endDate;
 
     if (now.isBefore(startDate)) {
       return '${startDate.difference(now).inDays} days';
@@ -207,9 +208,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   }
 
   String _getBudgetStatusLabel() {
-    final now = DateTime.now().toUtc();
-    final startDate = _budget.startDate.toUtc();
-    final endDate = _budget.endDate.toUtc();
+    final now = DateTime.now();
+    final startDate = _budget.startDate;
+    final endDate = _budget.endDate;
     final localizations = AppLocalizations.of(context);
 
     if (now.isBefore(startDate)) {
@@ -502,7 +503,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 body: null,
               ),
             ] else if (!_budget.isActive &&
-                DateTime.now().toUtc().isAfter(_budget.endDate.toUtc())) ...[
+                DateTime.now().isAfter(_budget.endDate)) ...[
               const SizedBox(height: 16),
               _buildBanner(
                 icon: Icons.check_circle_rounded,

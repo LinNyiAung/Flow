@@ -3,7 +3,9 @@ import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
@@ -50,6 +52,16 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
 
   bool _isDeleting = false;
 
+  // This screen's own save state. TransactionProvider.isLoading / error are
+  // shared with background fetches (e.g. Home refreshing), which must not
+  // disable Update or show their errors here.
+  bool _isSaving = false;
+  String? _saveError;
+
+  // Bumped on every category load so a slow response for a previous
+  // transaction type can't overwrite the list for the current one.
+  int _categoryRequestId = 0;
+
   @override
   void initState() {
     super.initState();
@@ -69,12 +81,14 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
 
   // Load categories from the API based on the selected transaction type
   Future<void> _loadCategories() async {
+    final requestId = ++_categoryRequestId;
     setState(() {
       _isLoadingCategories = true; // Show loading indicator
     });
 
     try {
       final categories = await ApiService.getCategories(_selectedType);
+      if (!mounted || requestId != _categoryRequestId) return;
 
       // Validate and re-select categories if they exist in the new list
       String? validatedMainCategory;
@@ -103,6 +117,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
         _isLoadingCategories = false;
       });
     } catch (e) {
+      if (!mounted || requestId != _categoryRequestId) return;
       setState(() {
         _isLoadingCategories = false;
         print("Error loading categories: $e"); // Log error for debugging
@@ -112,19 +127,34 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
 
   // Function to show the date picker dialog
   Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
+    // An existing (e.g. scheduled) transaction can be dated beyond the usual
+    // one-year window: extend it so the current date stays selectable.
+    final bounds = DatePickerBounds.clamped(
       initialDate: _selectedDate, // Pre-fill with the current selected date
       firstDate: DateTime(2000), // Set the earliest possible date
-      lastDate: DateTime.now().add(Duration(days: 365)), // Allow future dates for a year
+      lastDate: laterDate(DateTime.now().add(Duration(days: 365)), _selectedDate),
+    );
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: bounds.initialDate,
+      firstDate: bounds.firstDate,
+      lastDate: bounds.lastDate,
       builder: (BuildContext context, Widget? child) {
         return child!;
       },
     );
     // If a date was picked and it's different from the current selection, update the state
-    if (picked != null && picked != _selectedDate) {
+    // The picker returns midnight; keep the transaction's original time of day.
+    if (picked != null && mounted) {
       setState(() {
-        _selectedDate = picked;
+        _selectedDate = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          _selectedDate.hour,
+          _selectedDate.minute,
+          _selectedDate.second,
+        );
       });
     }
   }
@@ -391,7 +421,6 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final isInflow = _selectedType == TransactionType.inflow;
@@ -433,21 +462,33 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                   children: [
                     Text(
                       '${localizations.amountLabel} · ${_selectedCurrency.name.toUpperCase()}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
                     ),
                     SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          _selectedCurrency.symbol,
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
-                        ),
-                        SizedBox(width: 4),
-                        Text(_displayAmount, style: AppTheme.money(40, weight: FontWeight.w800, color: typeInk)),
-                      ],
+                    // Long amounts / large text shrink instead of overflowing.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            _selectedCurrency.symbol,
+                            maxLines: 1,
+                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            _displayAmount,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: AppTheme.money(40, weight: FontWeight.w800, color: typeInk),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -736,7 +777,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                   ),
                 ),
 
-              if (transactionProvider.error != null)
+              if (_saveError != null)
                 Container(
                   margin: const EdgeInsets.only(top: 16),
                   padding: const EdgeInsets.all(12),
@@ -745,7 +786,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                     children: [
                       Icon(Icons.error_outline_rounded, color: scheme.error),
                       SizedBox(width: 8),
-                      Expanded(child: Text(transactionProvider.error!, style: TextStyle(color: scheme.onErrorContainer))),
+                      Expanded(child: Text(_saveError!, style: TextStyle(color: scheme.onErrorContainer))),
                     ],
                   ),
                 ),
@@ -753,18 +794,26 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
               SizedBox(height: 18),
 
               // Keypad
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map((k) {
-                  return _keypadKey(k);
-                }).toList(),
+              // Key width from the width actually available (SafeArea +
+              // padding), not the screen width, so landscape / notches /
+              // side nav bars can't overflow the 3-per-row layout.
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final keyWidth = ((constraints.maxWidth - 16) / 3).floorToDouble();
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map((k) {
+                      return _keypadKey(k, keyWidth);
+                    }).toList(),
+                  );
+                },
               ),
 
               SizedBox(height: 20),
               FilledButton(
-                onPressed: transactionProvider.isLoading ? null : _updateTransaction,
-                child: transactionProvider.isLoading
+                onPressed: _isSaving ? null : _updateTransaction,
+                child: _isSaving
                     ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : Text(localizations.updateTransactionButton),
               ),
@@ -814,8 +863,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
     );
   }
 
-  Widget _keypadKey(String label) {
-    final width = (MediaQuery.of(context).size.width - 32 - 16) / 3;
+  Widget _keypadKey(String label, double width) {
     return InkWell(
       onTap: () => _pressKey(label),
       borderRadius: BorderRadius.circular(16),
@@ -1020,16 +1068,11 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   void _disableParentRecurrence() async {
     final localizations = AppLocalizations.of(context);
 
+    final closeProgress = showBlockingProgress(context);
     try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)),
-      );
-
       await ApiService.disableParentTransactionRecurrence(widget.transaction.id);
 
-      if (mounted) Navigator.pop(context);
+      closeProgress();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1042,7 +1085,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
         transactionProvider.fetchTransactions();
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
+      closeProgress();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1056,27 +1099,24 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
     final localizations = AppLocalizations.of(context);
     if (widget.transaction.parentTransactionId == null) return;
 
+    final closeProgress = showBlockingProgress(context);
     try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)),
-      );
-
       final parentTransaction = await ApiService.getTransaction(widget.transaction.parentTransactionId!);
-
-      Navigator.pop(context);
+      closeProgress();
+      if (!mounted) return;
 
       final result = await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => EditTransactionScreen(transaction: parentTransaction)),
       );
 
+      if (!mounted) return;
       if (result == true || result == 'deleted') {
         Navigator.pop(context, result);
       }
     } catch (e) {
-      Navigator.pop(context);
+      closeProgress();
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${localizations.errorLoadParentFailed} ${e.toString().replaceAll('Exception: ', '')}')),
@@ -1113,32 +1153,49 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
     TransactionRecurrence? recurrenceToSend;
-    if (_recurrence != null && _recurrence!.enabled) {
+    if (widget.transaction.parentTransactionId != null) {
+      // Auto-created child of a recurring transaction: its recurrence can't
+      // be edited here (the Repeat row is hidden), so omit `recurrence`
+      // entirely — sending a fresh {enabled:false, parent_transaction_id:null}
+      // object would detach it from its parent.
+      recurrenceToSend = null;
+    } else if (_recurrence != null && _recurrence!.enabled) {
       recurrenceToSend = _recurrence;
     } else {
       recurrenceToSend = TransactionRecurrence(
         enabled: false,
         config: null,
         lastCreatedDate: null,
-        parentTransactionId: null,
+        parentTransactionId: _recurrence?.parentTransactionId,
       );
     }
 
+    setState(() {
+      _isSaving = true;
+      _saveError = null;
+    });
     final success = await transactionProvider.updateTransaction(
       transactionId: widget.transaction.id,
       type: _selectedType,
       mainCategory: _selectedMainCategory!,
       subCategory: _selectedSubCategory!,
       date: _selectedDate,
-      description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
+      // Always sent: an empty string tells the server to clear the note.
+      description: _descriptionController.text.trim(),
       amount: amount,
       currency: _selectedCurrency,
       context: context,
       recurrence: recurrenceToSend,
     );
+    if (!mounted) return;
 
     if (success) {
       Navigator.pop(context, true);
+    } else {
+      setState(() {
+        _isSaving = false;
+        _saveError = transactionProvider.writeError;
+      });
     }
   }
 
@@ -1175,8 +1232,11 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                         : () async {
                             setSheetState(() => _isDeleting = true);
                             setState(() => _isDeleting = true);
-                            await _deleteTransaction();
-                            if (mounted) Navigator.pop(sheetContext);
+                            final deleted = await _deleteTransaction();
+                            // Close the sheet first, then leave the screen with
+                            // 'deleted' so the caller refreshes its list.
+                            if (sheetContext.mounted) Navigator.pop(sheetContext);
+                            if (deleted && mounted) Navigator.pop(this.context, 'deleted');
                           },
                     child: _isDeleting
                         ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
@@ -1199,7 +1259,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   }
 
   // Function to handle the actual deletion of the transaction
-  Future<void> _deleteTransaction() async {
+  Future<bool> _deleteTransaction() async {
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
     final success = await transactionProvider.deleteTransaction(
@@ -1212,14 +1272,16 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
         setState(() {
           _isDeleting = false;
         });
-        Navigator.pop(context, 'deleted');
       }
+      return true;
     } else {
       if (mounted) {
         setState(() {
           _isDeleting = false;
+          _saveError = transactionProvider.writeError;
         });
       }
+      return false;
     }
   }
 

@@ -354,7 +354,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(localizations.categoryBudgets, style: _sectionLabelStyle(context)),
+                // Flexible: long (e.g. Myanmar) labels wrap at large font sizes.
+                Flexible(child: Text(localizations.categoryBudgets, style: _sectionLabelStyle(context))),
                 TextButton.icon(
                   onPressed: _addCategoryBudget,
                   icon: const Icon(Icons.add_circle_rounded, size: 18),

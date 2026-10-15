@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:frontend/services/api_service.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../../services/localization_service.dart';
 
 class LanguageSettingsScreen extends StatefulWidget {
@@ -23,20 +26,22 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
 
   Future<void> _loadCurrentLanguage() async {
     final languageCode = await LocalizationService.getSelectedLanguage();
+    if (!mounted) return;
     setState(() {
       _selectedLanguage = languageCode;
     });
   }
 
   Future<void> _changeLanguage(String languageCode) async {
-    // NEW: Update language on backend
-    try {
-      await ApiService.updateLanguage(languageCode);
-    } catch (e) {
-      print('Failed to update language on backend: $e');
-    }
-
+    // Saves locally right away and syncs to the backend in the background.
+    // If the PUT fails (offline / cold start), the choice is marked "sync
+    // pending" so the next login keeps it and retries, instead of the
+    // server's old value overwriting it.
+    final sync = Provider.of<AuthProvider>(context, listen: false)
+        .updateLanguagePreference(languageCode);
     await LocalizationService.setSelectedLanguage(languageCode);
+    unawaited(sync);
+    if (!mounted) return;
     setState(() {
       _selectedLanguage = languageCode;
     });

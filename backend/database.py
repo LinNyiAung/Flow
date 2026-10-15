@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, UTC
 
 # Initialize Async Client
-client = AsyncIOMotorClient(settings.MONGODB_URL)
+client = AsyncIOMotorClient(settings.MONGODB_URL, tz_aware=True)
 database = client[settings.DATABASE_NAME]
 
 def get_database():
@@ -186,6 +186,26 @@ async def create_db_indexes():
             }
         )
 
+        # Child lookups ("does budget X already have a next-period budget?") for the nightly
+        # rollover job and auto-create. Deliberately NOT partial: the planner can't prove
+        # that {"parent_budget_id": "<id>"} satisfies a {"$type": "string"} partial filter,
+        # so the partial unique index above is never used for these queries.
+        try:
+            await budgets_collection.create_index(
+                [("parent_budget_id", ASCENDING)],
+                name="parent_budget_id_lookup",
+                background=True,
+            )
+            # Nightly rollover candidates: auto-create budgets whose period ended.
+            await budgets_collection.create_index(
+                [("auto_create_enabled", ASCENDING), ("end_date", ASCENDING)],
+                name="rollover_candidates",
+                background=True,
+                partialFilterExpression={"auto_create_enabled": True},
+            )
+        except Exception as e:
+            print(f"⚠️ Could not create budget rollover indexes: {e}")
+
         # NEW: Index for fast version lookups
         await app_versions_collection.create_index(
             [("platform", ASCENDING), ("is_active", ASCENDING), ("created_at", ASCENDING)],
@@ -204,6 +224,18 @@ async def create_db_indexes():
             [("user_id", ASCENDING), ("date", ASCENDING)],
             background=True,
         )
+
+        # Case-insensitive unique emails, so two simultaneous registrations
+        # (or Foo@x.com vs foo@x.com) can't both create an account.
+        try:
+            await users_collection.create_index(
+                [("email", ASCENDING)],
+                unique=True,
+                collation={"locale": "en", "strength": 2},
+                name="email_unique_ci",
+            )
+        except Exception as e:
+            print(f"⚠️ Could not create unique email index (existing duplicate emails?): {e}")
         await transactions_collection.create_index(
             [("user_id", ASCENDING), ("type", ASCENDING), ("date", ASCENDING)],
             background=True,
@@ -220,19 +252,51 @@ async def initialize_notification_preferences():
 
 
 async def initialize_admin():
-    """Initialize default super admin if none exists"""
+    """
+    Bootstrap a super admin ONLY when the admins collection is empty AND both
+    ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_PASSWORD are set in the environment.
+    No hard-coded default credentials are ever created.
+    """
+    import asyncio
+    from admin_utils import get_password_hash, initial_admin_password_version, verify_password
+
     if await admins_collection.count_documents({}) == 0:
-        from admin_utils import get_password_hash
-        
-        default_admin = {
+        bootstrap_email = (settings.ADMIN_BOOTSTRAP_EMAIL or "").strip().lower()
+        bootstrap_password = settings.ADMIN_BOOTSTRAP_PASSWORD or ""
+
+        if not bootstrap_email or not bootstrap_password:
+            print(
+                "⚠️  No admin accounts exist. Set ADMIN_BOOTSTRAP_EMAIL and "
+                "ADMIN_BOOTSTRAP_PASSWORD and restart to bootstrap a super admin."
+            )
+            return
+
+        if len(bootstrap_password) < 8:
+            print("⚠️  ADMIN_BOOTSTRAP_PASSWORD must be at least 8 characters; super admin NOT created.")
+            return
+
+        bootstrap_admin = {
             "_id": str(uuid.uuid4()),
-            "name": "Super Admin",
-            "email": "admin@toepwar.com",
-            "password": get_password_hash("admin123"),  # Change this in production!
+            "name": settings.ADMIN_BOOTSTRAP_NAME or "Super Admin",
+            "email": bootstrap_email,
+            "password": await asyncio.to_thread(get_password_hash, bootstrap_password),
             "role": "super_admin",
+            "password_version": initial_admin_password_version(),
             "created_at": datetime.now(UTC),
             "last_login": None
         }
-        
-        await admins_collection.insert_one(default_admin)
-        print("✅ Default super admin created (email: admin@toepwar.com, password: admin123)")
+
+        await admins_collection.insert_one(bootstrap_admin)
+        print(f"✅ Bootstrap super admin created for {bootstrap_email}. "
+              "Remove ADMIN_BOOTSTRAP_PASSWORD from the environment now.")
+        return
+
+    # Warn loudly if the legacy hard-coded default admin still exists with its default password.
+    legacy = await admins_collection.find_one({"email": "admin@toepwar.com"})
+    if legacy and legacy.get("password"):
+        try:
+            if await asyncio.to_thread(verify_password, "admin123", legacy["password"]):
+                print("🚨 SECURITY WARNING: admin@toepwar.com still uses the default password. "
+                      "Change it or delete this admin immediately.")
+        except Exception:
+            pass

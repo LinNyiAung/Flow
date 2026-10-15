@@ -165,6 +165,8 @@ Color _getNotificationColor(NotificationType type) {
       return Color(0xFF667eea);
     case NotificationType.admin_announcement:  // NEW
       return Color(0xFFFF9800);
+    case NotificationType.subscription_expired:
+      return Color(0xFFFF9800);
   }
 }
 }

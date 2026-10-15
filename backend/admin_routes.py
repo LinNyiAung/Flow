@@ -1,15 +1,26 @@
+import ipaddress
+import re
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta, UTC
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
+from fastapi import APIRouter, HTTPException, Request, status, Depends, Query, Path
+from starlette.concurrency import run_in_threadpool
+
+from pymongo import ReturnDocument
 
 from admin_utils import (
+    ADMIN_TOKEN_TTL,
+    admin_token_claims,
     create_admin_access_token,
+    initial_admin_password_version,
     get_current_admin,
     get_password_hash,
     log_admin_action,
     require_admin_or_super,
+    require_moderator_or_above,
     require_super_admin,
     verify_password
 )
@@ -17,6 +28,7 @@ from admin_models import (
     AdminActionLog,
     AdminCreate,
     AdminFeedbackListResponse,
+    FeedbackStatsResponse,
     AdminLogin,
     AdminPasswordChange,
     AdminResponse,
@@ -31,8 +43,9 @@ from admin_models import (
     UserListResponse,
     UserStatsResponse
 )
-from firebase_service import send_fcm_notification, send_fcm_to_multiple
+from firebase_service import send_fcm_data_message, send_fcm_to_multiple
 from notification_service import should_send_notification
+from subscription_service import active_premium_filter, effectively_free_filter
 from models import Currency, SubscriptionType
 from database import (
     admins_collection,
@@ -44,7 +57,9 @@ from database import (
     chat_sessions_collection,
     notifications_collection,
     ai_usage_collection,
-    feedback_collection
+    feedback_collection,
+    insights_collection,
+    notification_preferences_collection,
 )
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
 from config import settings
@@ -52,29 +67,244 @@ from config import settings
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+# ==================== HELPERS ====================
+
+def _to_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Normalise a datetime to timezone-aware UTC (naive values are assumed UTC)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+async def _find_admin_by_email(email: str) -> Optional[dict]:
+    """Case-insensitive admin lookup (exact match first, then anchored escaped regex)."""
+    normalized = (email or "").strip().lower()
+    if not normalized:
+        return None
+    admin = await admins_collection.find_one({"email": normalized})
+    if admin:
+        return admin
+    return await admins_collection.find_one(
+        {"email": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}}
+    )
+
+
+# In-memory admin login lockout (single uvicorn worker assumed):
+# 5 failed attempts within 15 minutes from one client IP for one email -> that
+# (email, IP) pair is locked for 15 minutes. Keying by the pair means an attacker can't
+# lock a real admin out from their own IP. Entries are purged opportunistically and the
+# maps are capped so they can't grow without bound.
+ADMIN_MAX_FAILED_LOGINS = 5
+ADMIN_LOCKOUT_SECONDS = 15 * 60
+ADMIN_LOCKOUT_MAX_ENTRIES = 10_000
+_LockKey = Tuple[str, str]  # (normalized email, client ip)
+_admin_failed_logins: Dict[_LockKey, List[float]] = {}
+_admin_locked_until: Dict[_LockKey, float] = {}
+_admin_lockout_lock = threading.Lock()
+
+
+_IPV4_MAPPED_NET = ipaddress.ip_network("::ffff:0:0/96")
+
+
+def _unmap_ip(ip):
+    """IPv4-mapped IPv6 (::ffff:a.b.c.d) -> the IPv4 address; anything else unchanged."""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
+
+
+def _parse_ip(value: Optional[str]):
+    """
+    Parse one address as found in X-Forwarded-For / request.client.host; None if unusable.
+
+    Accepts surrounding whitespace/quotes, "1.2.3.4", "1.2.3.4:5678", "2001:db8::1",
+    "[2001:db8::1]" and "[2001:db8::1]:443"; IPv4-mapped IPv6 is normalised to IPv4.
+    """
+    if not isinstance(value, str):
+        return None
+    s = value.strip().strip('"').strip()
+    if not s or len(s) > 100:
+        return None
+    if s.startswith("["):
+        end = s.find("]")
+        if end == -1:
+            return None
+        host, rest = s[1:end], s[end + 1:]
+        if rest and not (rest.startswith(":") and rest[1:].isdigit()):
+            return None
+    elif s.count(":") == 1:
+        # IPv4 with a port (a bare IPv6 address always has 2+ colons)
+        host, port = s.split(":")
+        if not port.isdigit():
+            return None
+    else:
+        host = s
+    try:
+        return _unmap_ip(ipaddress.ip_address(host))
+    except ValueError:
+        return None
+
+
+def _parse_trusted_network(entry: str):
+    """One TRUSTED_PROXY_IPS entry (IP or CIDR) as a network; IPv4-mapped ranges become IPv4."""
+    net = ipaddress.ip_network(entry.strip(), strict=False)
+    if (
+        isinstance(net, ipaddress.IPv6Network)
+        and net.prefixlen >= 96
+        and net.network_address in _IPV4_MAPPED_NET
+    ):
+        net = ipaddress.ip_network(f"{net.network_address.ipv4_mapped}/{net.prefixlen - 96}", strict=False)
+    return net
+
+
+def _trusted_proxy_networks():
+    networks = []
+    for entry in settings.TRUSTED_PROXY_IPS:
+        try:
+            networks.append(_parse_trusted_network(entry))
+        except ValueError:
+            pass  # ignore malformed entries
+    return networks
+
+
+def _is_trusted_proxy(ip, networks) -> bool:
+    return ip is not None and any(ip.version == net.version and ip in net for net in networks)
+
+
+def client_ip_from_request(request: Optional[Request]) -> str:
+    """
+    Client IP for rate limiting / lockout (see TRUSTED_PROXY_IPS / TRUST_FORWARDED_FOR in config.py).
+
+    - Default: the TCP peer; X-Forwarded-For is ignored (it is client-controlled).
+    - TRUST_FORWARDED_FOR=true: the RIGHT-most X-Forwarded-For entry, i.e. the address
+      appended by the immediate proxy (e.g. Render); the entries left of it are
+      client-controlled. Falls back to the peer when that entry is unparseable.
+    - Peer in TRUSTED_PROXY_IPS: X-Forwarded-For walked right-to-left, skipping trusted
+      proxies; the first untrusted hop is the client.
+    Addresses are normalised (IPv4-mapped IPv6 -> IPv4, ports stripped).
+    """
+    if request is None:
+        return "unknown"
+    raw_peer = request.client.host if request.client else None
+    peer_ip = _parse_ip(raw_peer)
+    peer = str(peer_ip) if peer_ip is not None else (raw_peer or "unknown")
+    forwarded = ",".join(request.headers.getlist("x-forwarded-for")) if hasattr(request.headers, "getlist") \
+        else (request.headers.get("x-forwarded-for") or "")
+    hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+    if hops:
+        if settings.TRUST_FORWARDED_FOR:
+            last = _parse_ip(hops[-1])
+            if last is not None:
+                return str(last)
+        else:
+            networks = _trusted_proxy_networks()
+            if networks and _is_trusted_proxy(peer_ip, networks):
+                for hop in reversed(hops):
+                    ip = _parse_ip(hop)
+                    if ip is None:
+                        return peer  # garbage in the chain: don't trust anything left of it
+                    if not _is_trusted_proxy(ip, networks):
+                        return str(ip)
+                # every hop is a trusted proxy: the left-most one is the origin
+                return str(_parse_ip(hops[0]))
+    return peer
+
+
+def _admin_lock_key(email: Optional[str], request: Optional[Request]) -> _LockKey:
+    return ((email or "").strip().lower(), client_ip_from_request(request))
+
+
+def _admin_purge_locked(now: float) -> None:
+    """Drop expired entries and enforce the size cap. Caller holds _admin_lockout_lock."""
+    for key in [k for k, until in _admin_locked_until.items() if until <= now]:
+        del _admin_locked_until[key]
+    for key in [k for k, ts in _admin_failed_logins.items() if not ts or now - ts[-1] >= ADMIN_LOCKOUT_SECONDS]:
+        del _admin_failed_logins[key]
+    # Still too big: evict the oldest (dicts keep insertion order; refreshed keys move last).
+    for mapping in (_admin_failed_logins, _admin_locked_until):
+        overflow = len(mapping) - ADMIN_LOCKOUT_MAX_ENTRIES
+        if overflow > 0:
+            for key in list(mapping)[:overflow]:
+                del mapping[key]
+
+
+def _admin_is_locked(key: _LockKey) -> bool:
+    now = time.monotonic()
+    with _admin_lockout_lock:
+        until = _admin_locked_until.get(key)
+        if until is None:
+            return False
+        if until > now:
+            return True
+        _admin_locked_until.pop(key, None)
+        return False
+
+
+def _admin_record_failure(key: _LockKey) -> None:
+    now = time.monotonic()
+    with _admin_lockout_lock:
+        attempts = [t for t in _admin_failed_logins.pop(key, []) if now - t < ADMIN_LOCKOUT_SECONDS]
+        attempts.append(now)
+        if len(attempts) >= ADMIN_MAX_FAILED_LOGINS:
+            _admin_locked_until.pop(key, None)
+            _admin_locked_until[key] = now + ADMIN_LOCKOUT_SECONDS
+        else:
+            _admin_failed_logins[key] = attempts  # re-inserted -> newest
+        if (
+            len(_admin_failed_logins) > ADMIN_LOCKOUT_MAX_ENTRIES
+            or len(_admin_locked_until) > ADMIN_LOCKOUT_MAX_ENTRIES
+            or len(_admin_failed_logins) % 256 == 0
+        ):
+            _admin_purge_locked(now)
+
+
+def _admin_clear_failures(key: _LockKey) -> None:
+    with _admin_lockout_lock:
+        _admin_failed_logins.pop(key, None)
+        _admin_locked_until.pop(key, None)
+
+
 # ==================== ADMIN AUTHENTICATION ====================
 
 @router.post("/login", response_model=AdminToken)
-async def admin_login(credentials: AdminLogin):
-    """Admin login"""
-    admin = await admins_collection.find_one({"email": credentials.email})
-    
-    if not admin or not verify_password(credentials.password, admin["password"]):
+async def admin_login(credentials: AdminLogin, request: Request):
+    """Admin login (locked for 15 minutes after 5 failed attempts per email + client IP)"""
+    lock_key = _admin_lock_key(credentials.email, request)
+
+    if _admin_is_locked(lock_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please try again in 15 minutes."
+        )
+
+    admin = await _find_admin_by_email(lock_key[0])
+
+    if (
+        not admin
+        or not admin.get("password")
+        or not await run_in_threadpool(verify_password, credentials.password, admin["password"])
+    ):
+        _admin_record_failure(lock_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
-    
+
+    _admin_clear_failures(lock_key)
+
+    login_time = datetime.now(UTC)
     await admins_collection.update_one(
         {"_id": admin["_id"]},
-        {"$set": {"last_login": datetime.now(UTC)}}
+        {"$set": {"last_login": login_time}}
     )
-    
+
     access_token = create_admin_access_token(
-        data={"sub": admin["email"]},
-        expires_delta=timedelta(hours=8)
+        data=admin_token_claims(admin),
+        expires_delta=ADMIN_TOKEN_TTL
     )
-    
+
     return AdminToken(
         access_token=access_token,
         token_type="bearer",
@@ -84,7 +314,7 @@ async def admin_login(credentials: AdminLogin):
             email=admin["email"],
             role=AdminRole(admin["role"]),
             created_at=admin["created_at"],
-            last_login=admin.get("last_login")
+            last_login=login_time
         )
     )
 
@@ -108,7 +338,7 @@ async def admin_change_password(
     current_admin: dict = Depends(get_current_admin)
 ):
     """Change admin password"""
-    if not verify_password(password_data.current_password, current_admin["password"]):
+    if not await run_in_threadpool(verify_password, password_data.current_password, current_admin["password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect"
@@ -126,19 +356,36 @@ async def admin_change_password(
             detail="New passwords do not match"
         )
     
-    hashed_password = get_password_hash(password_data.new_password)
-    await admins_collection.update_one(
+    hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
+    # Bumping password_version revokes every token issued before the change (tokens
+    # carry it as "pwv"; get_current_admin rejects mismatches).
+    updated_admin = await admins_collection.find_one_and_update(
         {"_id": current_admin["_id"]},
-        {"$set": {"password": hashed_password}}
+        {
+            "$set": {"password": hashed_password, "password_changed_at": datetime.now(UTC)},
+            "$inc": {"password_version": 1},
+        },
+        return_document=ReturnDocument.AFTER,
     )
-    
+    if not updated_admin:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin not found")
+
     await log_admin_action(
         admin_id=current_admin["_id"],
         admin_email=current_admin["email"],
         action="changed_password"
     )
-    
-    return {"message": "Password changed successfully"}
+
+    # Fresh token for the session that made the change (all older tokens are now invalid).
+    access_token = create_admin_access_token(
+        data=admin_token_claims(updated_admin),
+        expires_delta=ADMIN_TOKEN_TTL,
+    )
+    return {
+        "message": "Password changed successfully",
+        "access_token": access_token,
+        "token_type": "bearer",
+    }
 
 
 @router.put("/me", response_model=AdminResponse)
@@ -152,13 +399,16 @@ async def update_admin_profile(
     if update_data.name and update_data.name != current_admin["name"]:
         update_fields["name"] = update_data.name
         
-    if update_data.email and update_data.email != current_admin["email"]:
-        if await admins_collection.find_one({"email": update_data.email}):
+    new_email = (update_data.email or "").strip().lower()
+    if new_email and new_email != (current_admin.get("email") or "").strip().lower():
+        # Same normalisation + case-insensitive duplicate check as create-admin.
+        existing = await _find_admin_by_email(new_email)
+        if existing and existing["_id"] != current_admin["_id"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already in use"
             )
-        update_fields["email"] = update_data.email
+        update_fields["email"] = new_email
         
     if not update_fields:
         return AdminResponse(
@@ -170,14 +420,20 @@ async def update_admin_profile(
             last_login=current_admin.get("last_login")
         )
 
+    update_doc = {"$set": update_fields}
+    if "email" in update_fields:
+        # Changing the sign-in e-mail revokes every existing token of this admin
+        # (including the current session: the admin signs in again with the new e-mail).
+        update_doc["$inc"] = {"password_version": 1}
+
     await admins_collection.update_one(
         {"_id": current_admin["_id"]},
-        {"$set": update_fields}
+        update_doc
     )
-    
+
     await log_admin_action(
         admin_id=current_admin["_id"],
-        admin_email=current_admin["email"], 
+        admin_email=current_admin["email"],
         action="updated_profile",
         details=f"Updated profile fields: {', '.join(update_fields.keys())}"
     )
@@ -202,19 +458,23 @@ async def create_admin(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Create new admin (super admin only)"""
-    if await admins_collection.find_one({"email": admin_data.email}):
+    new_email = admin_data.email.strip().lower()
+    if await _find_admin_by_email(new_email):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     admin_id = str(uuid.uuid4())
     new_admin = {
         "_id": admin_id,
         "name": admin_data.name,
-        "email": admin_data.email,
-        "password": get_password_hash(admin_data.password),
+        "email": new_email,
+        "password": await run_in_threadpool(get_password_hash, admin_data.password),
         "role": admin_data.role.value,
+        # Random starting version: stale tokens of a deleted admin with the same e-mail
+        # (pwv 0 / missing) can never match (tokens are also bound to the _id via "aid").
+        "password_version": initial_admin_password_version(),
         "created_at": datetime.now(UTC),
         "last_login": None
     }
@@ -298,7 +558,7 @@ async def delete_admin(
 
 @router.get("/users", response_model=List[UserListResponse])
 async def get_all_users(
-    current_admin: dict = Depends(require_admin_or_super),
+    current_admin: dict = Depends(require_moderator_or_above),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     search: Optional[str] = Query(None),
@@ -306,11 +566,12 @@ async def get_all_users(
 ):
     """Get all users with pagination and filters"""
     query = {}
-    
-    if search:
+
+    if search and search.strip():
+        pattern = re.escape(search.strip())
         query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}}
+            {"name": {"$regex": pattern, "$options": "i"}},
+            {"email": {"$regex": pattern, "$options": "i"}}
         ]
     
     if subscription_type:
@@ -363,7 +624,7 @@ async def get_all_users(
 @router.get("/users/{user_id}", response_model=UserDetailResponse)
 async def get_user_detail(
     user_id: str = Path(...),
-    current_admin: dict = Depends(require_admin_or_super)
+    current_admin: dict = Depends(require_moderator_or_above)
 ):
     """Get detailed user information"""
     user = await users_collection.find_one({"_id": user_id})
@@ -433,27 +694,27 @@ async def update_user_subscription(
     
     update_data = {
         "subscription_type": subscription_data.subscription_type.value,
-        "subscription_expires_at": subscription_data.subscription_expires_at
+        # Always store timezone-aware UTC
+        "subscription_expires_at": _to_aware_utc(subscription_data.subscription_expires_at)
     }
-    
+
     await users_collection.update_one(
         {"_id": user_id},
         {"$set": update_data}
     )
-    
-    # ── NEW: Send a silent FCM data-only message so the app refreshes instantly ──
-    # This avoids the user needing to sign out and back in.
+
+    # Send a silent FCM data-only message so the app refreshes instantly.
+    # Blocking firebase call runs in a threadpool so the event loop isn't blocked.
     fcm_token = user.get("fcm_token")
     fcm_sent = False
     if fcm_token:
-        fcm_sent = send_fcm_notification(
-            fcm_token=fcm_token,
-            title="",   # empty — this is a silent data message
-            body="",    # empty — no visible notification shown
-            data={
+        fcm_sent = await run_in_threadpool(
+            send_fcm_data_message,
+            fcm_token,
+            {
                 "type": "subscription_updated",
                 "subscription_type": subscription_data.subscription_type.value,
-            }
+            },
         )
         if fcm_sent:
             print(f"✅ Subscription refresh FCM sent to user {user_id}")
@@ -495,7 +756,11 @@ async def delete_user(
     await budgets_collection.delete_many({"user_id": user_id})
     await chat_sessions_collection.delete_many({"user_id": user_id})
     await notifications_collection.delete_many({"user_id": user_id})
-    
+    await insights_collection.delete_many({"user_id": user_id})
+    await notification_preferences_collection.delete_many({"user_id": user_id})
+    await ai_usage_collection.delete_many({"user_id": user_id})
+    await feedback_collection.delete_many({"user_id": user_id})
+
     result = await users_collection.delete_one({"_id": user_id})
     
     if result.deleted_count == 0:
@@ -519,12 +784,13 @@ async def delete_user(
 # ==================== STATISTICS ====================
 
 @router.get("/stats/users", response_model=UserStatsResponse)
-async def get_user_stats(current_admin: dict = Depends(require_admin_or_super)):
+async def get_user_stats(current_admin: dict = Depends(require_moderator_or_above)):
     """Get user statistics"""
     total_users = await users_collection.count_documents({})
-    free_users = await users_collection.count_documents({"subscription_type": "free"})
-    premium_users = await users_collection.count_documents({"subscription_type": "premium"})
-    
+    # Expired premium counts as free (subscription_service has the one definition).
+    free_users = await users_collection.count_documents(effectively_free_filter())
+    premium_users = await users_collection.count_documents(active_premium_filter())
+
     thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
     new_users_last_30_days = await users_collection.count_documents({
         "created_at": {"$gte": thirty_days_ago}
@@ -562,7 +828,7 @@ async def get_user_stats(current_admin: dict = Depends(require_admin_or_super)):
 
 
 @router.get("/stats/system", response_model=SystemStatsResponse)
-async def get_system_stats(current_admin: dict = Depends(require_admin_or_super)):
+async def get_system_stats(current_admin: dict = Depends(require_moderator_or_above)):
     """Get comprehensive system statistics"""
     now = datetime.now(UTC)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -570,9 +836,9 @@ async def get_system_stats(current_admin: dict = Depends(require_admin_or_super)
     month_start = now - timedelta(days=30)
     
     total_users = await users_collection.count_documents({})
-    free_users = await users_collection.count_documents({"subscription_type": "free"})
-    premium_users = await users_collection.count_documents({"subscription_type": "premium"})
-    
+    free_users = await users_collection.count_documents(effectively_free_filter(now))
+    premium_users = await users_collection.count_documents(active_premium_filter(now))
+
     new_users_today = await users_collection.count_documents({"created_at": {"$gte": today_start}})
     new_users_this_week = await users_collection.count_documents({"created_at": {"$gte": week_start}})
     new_users_this_month = await users_collection.count_documents({"created_at": {"$gte": month_start}})
@@ -625,59 +891,71 @@ async def broadcast_notification(
 ):
     """Broadcast notification to users based on criteria"""
     try:
+        notification_type = broadcast_data.notification_type.value
+
         query = {}
+        # Expired premium users are effectively free: target them with the free group.
         if broadcast_data.target_users == "free":
-            query["subscription_type"] = "free"
+            query = effectively_free_filter()
         elif broadcast_data.target_users == "premium":
-            query["subscription_type"] = "premium"
-        
-        cursor = users_collection.find(query)
+            query = active_premium_filter()
+
+        cursor = users_collection.find(query, {"_id": 1, "fcm_token": 1})
         users = await cursor.to_list(length=None)
         total_users = len(users)
-        
+
         if total_users == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No users found matching the criteria"
             )
-        
+
         notifications_sent = 0
         fcm_tokens = []
-        
+        pending_docs = []
+        now = datetime.now(UTC)
+
         for user in users:
             user_id = user["_id"]
-            
-            if not await should_send_notification(user_id, broadcast_data.notification_type):
+
+            if not await should_send_notification(user_id, notification_type):
                 continue
-            
-            notification_id = str(uuid.uuid4())
-            notification = {
-                "_id": notification_id,
+
+            pending_docs.append({
+                "_id": str(uuid.uuid4()),
                 "user_id": user_id,
-                "type": broadcast_data.notification_type,
+                "type": notification_type,
                 "title": broadcast_data.title,
                 "message": broadcast_data.message,
                 "goal_id": None,
                 "goal_name": None,
                 "currency": None,
-                "created_at": datetime.now(UTC),
+                "created_at": now,
                 "is_read": False
-            }
-            
-            await notifications_collection.insert_one(notification)
-            notifications_sent += 1
-            
+            })
+
             if user.get("fcm_token"):
                 fcm_tokens.append(user["fcm_token"])
-        
+
+            if len(pending_docs) >= 500:
+                await notifications_collection.insert_many(pending_docs, ordered=False)
+                notifications_sent += len(pending_docs)
+                pending_docs = []
+
+        if pending_docs:
+            await notifications_collection.insert_many(pending_docs, ordered=False)
+            notifications_sent += len(pending_docs)
+
         fcm_result = {"success": 0, "failure": 0}
         if fcm_tokens:
             fcm_data = {
-                "type": broadcast_data.notification_type,
+                "type": notification_type,
                 "is_broadcast": "true"
             }
-            fcm_result = send_fcm_to_multiple(
-                fcm_tokens=fcm_tokens,
+            # Blocking firebase calls (chunked by 500 inside) run in a threadpool
+            fcm_result = await run_in_threadpool(
+                send_fcm_to_multiple,
+                fcm_tokens=list(dict.fromkeys(fcm_tokens)),
                 title=broadcast_data.title,
                 body=broadcast_data.message,
                 data=fcm_data
@@ -706,29 +984,25 @@ async def broadcast_notification(
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to broadcast notification: {str(e)}"
+            detail="Failed to broadcast notification"
         )
 
 
 @router.get("/broadcast-stats")
 async def get_broadcast_stats(
-    current_admin: dict = Depends(require_admin_or_super)
+    current_admin: dict = Depends(require_moderator_or_above)
 ):
     """Get statistics for potential broadcast reach"""
     try:
+        now = datetime.now(UTC)
+        has_fcm = {"fcm_token": {"$exists": True, "$ne": None}}
         total_users = await users_collection.count_documents({})
-        free_users = await users_collection.count_documents({"subscription_type": "free"})
-        premium_users = await users_collection.count_documents({"subscription_type": "premium"})
-        
-        users_with_fcm = await users_collection.count_documents({"fcm_token": {"$exists": True, "$ne": None}})
-        free_with_fcm = await users_collection.count_documents({
-            "subscription_type": "free",
-            "fcm_token": {"$exists": True, "$ne": None}
-        })
-        premium_with_fcm = await users_collection.count_documents({
-            "subscription_type": "premium",
-            "fcm_token": {"$exists": True, "$ne": None}
-        })
+        free_users = await users_collection.count_documents(effectively_free_filter(now))
+        premium_users = await users_collection.count_documents(active_premium_filter(now))
+
+        users_with_fcm = await users_collection.count_documents(has_fcm)
+        free_with_fcm = await users_collection.count_documents({**effectively_free_filter(now), **has_fcm})
+        premium_with_fcm = await users_collection.count_documents({**active_premium_filter(now), **has_fcm})
         
         return {
             "total_users": total_users,
@@ -752,7 +1026,7 @@ async def get_broadcast_stats(
 
 @router.get("/ai-usage/stats", response_model=AIUsageStatsResponse)
 async def get_ai_usage_stats(
-    current_admin: dict = Depends(require_admin_or_super),
+    current_admin: dict = Depends(require_moderator_or_above),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
@@ -853,14 +1127,25 @@ async def get_ai_usage_stats(
 
 @router.get("/ai-usage/users", response_model=List[UserAIUsageStats])
 async def get_users_ai_usage(
-    current_admin: dict = Depends(require_admin_or_super),
+    current_admin: dict = Depends(require_moderator_or_above),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    sort_by: str = Query("total_cost", regex="^(total_cost|total_tokens|total_requests)$")
+    sort_by: str = Query("total_cost", pattern="^(total_cost|total_tokens|total_requests)$"),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None)
 ):
-    """Get AI usage statistics per user"""
+    """Get AI usage statistics per user (optionally within [start_date, end_date])"""
     try:
+        match: dict = {}
+        if start_date or end_date:
+            match["created_at"] = {}
+            if start_date:
+                match["created_at"]["$gte"] = start_date
+            if end_date:
+                match["created_at"]["$lte"] = end_date
+
         pipeline = [
+            {"$match": match},
             {
                 "$group": {
                     "_id": "$user_id",
@@ -889,7 +1174,7 @@ async def get_users_ai_usage(
                     }
                 }
             },
-            {"$sort": {sort_by.replace("total_cost", "total_cost"): -1}},
+            {"$sort": {sort_by: -1, "_id": 1}},
             {"$skip": skip},
             {"$limit": limit}
         ]
@@ -933,7 +1218,7 @@ async def get_users_ai_usage(
 @router.get("/ai-usage/user/{user_id}", response_model=List[AIUsageResponse])
 async def get_user_ai_usage_detail(
     user_id: str = Path(...),
-    current_admin: dict = Depends(require_admin_or_super),
+    current_admin: dict = Depends(require_moderator_or_above),
     limit: int = Query(100, ge=1, le=500),
     feature_type: Optional[AIFeatureType] = Query(None)
 ):
@@ -973,7 +1258,7 @@ async def get_user_ai_usage_detail(
 
 @router.get("/ai-usage/stats/budgets", response_model=Dict)
 async def get_budget_ai_usage_stats(
-    current_admin: dict = Depends(require_admin_or_super),
+    current_admin: dict = Depends(require_moderator_or_above),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
@@ -1042,7 +1327,7 @@ async def get_budget_ai_usage_stats(
 
 @router.get("/ai-usage/stats/transactions", response_model=Dict)
 async def get_transaction_extraction_ai_usage_stats(
-    current_admin: dict = Depends(require_admin_or_super),
+    current_admin: dict = Depends(require_moderator_or_above),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
@@ -1144,17 +1429,58 @@ async def get_admin_logs(
     
 # ==================== FEEDBACK MANAGEMENT ====================
 
+@router.get("/feedback/stats", response_model=FeedbackStatsResponse)
+async def get_feedback_stats(
+    current_admin: dict = Depends(require_moderator_or_above),
+):
+    """Aggregate statistics over ALL feedback (not just the current page)"""
+    def _count_status(value: str) -> dict:
+        return {"$sum": {"$cond": [{"$eq": [{"$ifNull": ["$status", "pending"]}, value]}, 1, 0]}}
+
+    pipeline = [
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "pending": _count_status("pending"),
+                "reviewed": _count_status("reviewed"),
+                "resolved": _count_status("resolved"),
+                # $avg ignores null / missing / non-numeric ratings
+                "average_rating": {"$avg": "$rating"},
+            }
+        }
+    ]
+    result = await feedback_collection.aggregate(pipeline).to_list(length=1)
+
+    if not result:
+        return FeedbackStatsResponse(total=0, pending=0, reviewed=0, resolved=0, average_rating=None)
+
+    stats = result[0]
+    avg = stats.get("average_rating")
+    return FeedbackStatsResponse(
+        total=stats["total"],
+        pending=stats["pending"],
+        reviewed=stats["reviewed"],
+        resolved=stats["resolved"],
+        average_rating=round(float(avg), 2) if avg is not None else None,
+    )
+
+
 @router.get("/feedback", response_model=List[AdminFeedbackListResponse])
 async def get_all_feedback(
-    current_admin: dict = Depends(require_admin_or_super),
+    current_admin: dict = Depends(require_moderator_or_above),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    category: Optional[str] = None
+    category: Optional[str] = None,
+    status: Optional[str] = Query(None, pattern="^(pending|reviewed|resolved)$"),
 ):
     """Get all user feedback"""
     query = {}
     if category:
         query["category"] = category
+    if status:
+        # Older feedback documents may have no status field; treat them as pending.
+        query["status"] = {"$in": ["pending", None]} if status == "pending" else status
         
     cursor = feedback_collection.find(query).sort("created_at", -1).skip(skip).limit(limit)
     feedbacks = await cursor.to_list(length=limit)
@@ -1177,7 +1503,7 @@ async def get_all_feedback(
 @router.put("/feedback/{feedback_id}/status")
 async def update_feedback_status(
     feedback_id: str = Path(...),
-    status_update: str = Query(..., regex="^(pending|reviewed|resolved)$"),
+    status_update: str = Query(..., pattern="^(pending|reviewed|resolved)$"),
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update feedback status"""
@@ -1185,8 +1511,9 @@ async def update_feedback_status(
         {"_id": feedback_id},
         {"$set": {"status": status_update}}
     )
-    
-    if result.modified_count == 0:
+
+    # matched_count: setting the same status again is a no-op, not a 404
+    if result.matched_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found"

@@ -68,6 +68,7 @@ class _NotificationSettingsScreenState
       );
     } catch (e) {
       print('Error updating preference: $e');
+      if (!mounted) return;
       // Revert on error
       setState(() {
         _preferences = _updatePreferenceValue(key, !value);
@@ -106,9 +107,11 @@ class _NotificationSettingsScreenState
     final localizations = AppLocalizations.of(context);
     if (value) {
       final granted = await _notificationService.requestPermissions();
+      if (!mounted) return;
       if (granted) {
         setState(() => _notificationsEnabled = true);
         await _loadPreferences();
+        if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(localizations.notificationsEnabled)),
@@ -165,6 +168,7 @@ class _NotificationSettingsScreenState
       body: localizations.testNotificationDes,
       type: NotificationType.goal_progress,
     );
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(localizations.testNotificationMsg)),
@@ -175,25 +179,29 @@ class _NotificationSettingsScreenState
     final localizations = AppLocalizations.of(context);
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text(localizations.resetToDefaults),
         content: Text(localizations.enableAllNotificationTypes),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: Text(localizations.dialogCancel),
           ),
           FilledButton(
             onPressed: () async {
-              Navigator.pop(context);
+              // After this pop the dialog's context is deactivated, so the
+              // rest uses the screen's context.
+              Navigator.pop(dialogContext);
               try {
                 await ApiService.resetNotificationPreferences();
                 await _loadPreferences();
+                if (!mounted) return;
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text(localizations.notificationPreferencesReset)),
                 );
               } catch (e) {
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text(localizations.failedToResetPreferences)),
                 );

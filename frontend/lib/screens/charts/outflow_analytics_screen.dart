@@ -3,14 +3,15 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/stat_tile.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../../providers/transaction_provider.dart';
 import '../../models/transaction.dart';
+import '../../services/api_service.dart';
 import '../../services/localization_service.dart';
 import '../../widgets/app_drawer.dart';
 
@@ -55,6 +56,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
         _selectedCurrency = authProvider.defaultCurrency;
@@ -65,8 +67,6 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
 
   Future<void> _loadTransactions() async {
     setState(() => _isLoading = true);
-
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
     DateTime startDate;
     DateTime endDate = DateTime.now();
@@ -95,16 +95,19 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     endDate = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
 
     try {
-      await transactionProvider.fetchTransactions(
+      // Fetched locally (not via TransactionProvider) so this 10k-row,
+      // outflow-only list never replaces the shared list Home renders.
+      final transactions = await ApiService.getTransactions(
         type: TransactionType.outflow,
         startDate: startDate,
         endDate: endDate,
         currency: _selectedCurrency,
         limit: 10000,
       );
+      if (!mounted) return;
 
       setState(() {
-        _filteredTransactions = transactionProvider.transactions.where((t) {
+        _filteredTransactions = transactions.where((t) {
           if (_selectedPeriod == TimePeriod.custom &&
               _customStartDate != null &&
               _customEndDate != null) {
@@ -121,9 +124,10 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
 
-      if (mounted) {
+      {
         final localizations = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -772,11 +776,17 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
+        // A preset range can end after today (e.g. end of this month).
+        final bounds = DatePickerBounds.clamped(
           initialDate: date ?? DateTime.now(),
           firstDate: DateTime(2020),
           lastDate: DateTime.now(),
+        );
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: bounds.initialDate,
+          firstDate: bounds.firstDate,
+          lastDate: bounds.lastDate,
         );
         if (picked != null) onDateSelected(picked);
       },

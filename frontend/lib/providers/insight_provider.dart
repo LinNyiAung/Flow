@@ -7,47 +7,78 @@ class InsightProvider with ChangeNotifier {
   Insight? _insight;
   bool _isLoading = false;
   String? _error;
-  String _currentLanguage = 'en'; // NEW: Track current language
-  AIProvider _aiProvider = AIProvider.gemini; // NEW
+  int? _errorStatusCode;
+  String? _actionError;
+  int? _actionErrorStatusCode;
+  String _currentLanguage = 'en';
+  AIProvider _aiProvider = AIProvider.gemini;
   String _insightType = 'weekly';
+
+  /// Bumped on [reset] and on every new load; responses that arrive for an
+  /// older generation (previous user / previous type) are discarded.
+  int _generation = 0;
 
   Insight? get insight => _insight;
   bool get isLoading => _isLoading;
+
+  /// Error of the last load that left no insight to show (fetch, or a
+  /// regenerate when nothing was loaded yet). When set, [insight] is null.
   String? get error => _error;
-  String get currentLanguage => _currentLanguage; // NEW
-  AIProvider get aiProvider => _aiProvider; // NEW
+
+  /// HTTP status of [error] (null for timeouts / network errors).
+  int? get errorStatusCode => _errorStatusCode;
+
+  /// Error of the last secondary action (regenerate, translation, clear)
+  /// that did not invalidate the currently shown insight.
+  String? get actionError => _actionError;
+
+  /// HTTP status of [actionError] (null for timeouts / network errors).
+  int? get actionErrorStatusCode => _actionErrorStatusCode;
+
+  static int? _statusOf(Object e) => e is ApiException ? e.statusCode : null;
+
+  void _clearErrors() {
+    _error = null;
+    _errorStatusCode = null;
+    _actionError = null;
+    _actionErrorStatusCode = null;
+  }
+  String get currentLanguage => _currentLanguage;
+  AIProvider get aiProvider => _aiProvider;
   String get insightType => _insightType;
 
+  /// Clears all per-user state (called on logout / user switch).
+  void reset() {
+    _generation++;
+    _insight = null;
+    _isLoading = false;
+    _clearErrors();
+    _currentLanguage = 'en';
+    _aiProvider = AIProvider.gemini;
+    _insightType = 'weekly';
+    notifyListeners();
+  }
 
-  // NEW: Set insight type
   void setInsightType(String type) {
     if (type != _insightType) {
+      _generation++;
       _insightType = type;
-      _insight = null; // Clear current insights when switching
+      _insight = null; // never show the other period's insight
+      _clearErrors();
       notifyListeners();
     }
   }
 
-  // NEW: Set AI provider
   void setAIProvider(AIProvider provider) {
     if (provider != _aiProvider) {
+      _generation++;
       _aiProvider = provider;
-      _insight = null; // Clear current insights when switching
+      _insight = null;
+      _clearErrors();
       notifyListeners();
     }
   }
 
-  void _setLoading(bool loading) {
-    _isLoading = loading;
-    notifyListeners();
-  }
-
-  void _setError(String? error) {
-    _error = error;
-    notifyListeners();
-  }
-
-  // NEW: Set language preference
   void setLanguage(String language) {
     if (language != _currentLanguage) {
       _currentLanguage = language;
@@ -55,98 +86,138 @@ class InsightProvider with ChangeNotifier {
     }
   }
 
-  // Fetch insights with language support
-  Future<void> fetchInsights({String? language, String? insightType}) async {
-    _setLoading(true);
-    _setError(null);
+  static String _clean(Object e) => e.toString().replaceAll('Exception: ', '');
 
+  Future<void> fetchInsights({String? language, String? insightType}) async {
     final lang = language ?? _currentLanguage;
     final type = insightType ?? _insightType;
+    final gen = ++_generation;
+
+    // Start from a clean slate so a failed load can never leave a previous
+    // (possibly other type's) insight on screen.
+    _insight = null;
+    _clearErrors();
+    _insightType = type;
+    _isLoading = true;
+    notifyListeners();
 
     try {
-      _insight = await ApiService.getInsights(
+      final result = await ApiService.getInsights(
         language: lang,
         aiProvider: _aiProvider,
-        insightType: type, // NEW
+        insightType: type,
       );
+      if (gen != _generation) return;
+      _insight = result;
       _currentLanguage = lang;
-      _insightType = type; // NEW
-      _setLoading(false);
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
+      if (gen != _generation) return;
+      _insight = null;
+      _error = _clean(e);
+      _errorStatusCode = _statusOf(e);
     }
+    _isLoading = false;
+    notifyListeners();
   }
 
-  // Force regenerate insights with language support
+  /// Regenerates the insight. On failure the currently shown insight (if
+  /// any) is kept and the failure is reported via [actionError]; only when
+  /// there is nothing to show is [error] set as well (full-page error).
   Future<bool> regenerateInsights({String? language, String? insightType}) async {
-    _setLoading(true);
-    _setError(null);
-
     final lang = language ?? _currentLanguage;
     final type = insightType ?? _insightType;
+    final gen = ++_generation;
+
+    _clearErrors();
+    _isLoading = true;
+    notifyListeners();
 
     try {
-      _insight = await ApiService.regenerateInsights(
+      final result = await ApiService.regenerateInsights(
         language: lang,
         aiProvider: _aiProvider,
-        insightType: type, // NEW
+        insightType: type,
       );
+      if (gen != _generation) return false;
+      _insight = result;
       _currentLanguage = lang;
-      _insightType = type; // NEW
-      _setLoading(false);
+      _insightType = type;
+      _isLoading = false;
+      notifyListeners();
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
+      if (gen != _generation) return false;
+      _actionError = _clean(e);
+      _actionErrorStatusCode = _statusOf(e);
+      if (_insight == null) {
+        _error = _actionError;
+        _errorStatusCode = _actionErrorStatusCode;
+      }
+      _isLoading = false;
+      notifyListeners();
       return false;
     }
   }
 
-  // NEW: Translate existing insights to Myanmar
+  /// Translates the CURRENT insight type (weekly or monthly) to Myanmar and
+  /// refetches that same type.
   Future<bool> translateToMyanmar() async {
-    _setLoading(true);
-    _setError(null);
+    final type = _insightType;
+    final gen = ++_generation;
+    _actionError = null;
+    _actionErrorStatusCode = null;
+    _isLoading = true;
+    notifyListeners();
 
     try {
       await ApiService.translateInsightsToMyanmar(
-        aiProvider: _aiProvider, // NEW
+        aiProvider: _aiProvider,
+        insightType: type,
       );
-      // Fetch updated insights
-      _insight = await ApiService.getInsights(
+      final result = await ApiService.getInsights(
         language: 'mm',
-        aiProvider: _aiProvider, // NEW
+        aiProvider: _aiProvider,
+        insightType: type,
       );
+      if (gen != _generation) return false;
+      _insight = result;
       _currentLanguage = 'mm';
-      _setLoading(false);
+      _isLoading = false;
+      notifyListeners();
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
-      _setLoading(false);
+      if (gen != _generation) return false;
+      // Translation failed: keep the insight that is already shown.
+      _actionError = _clean(e);
+      _actionErrorStatusCode = _statusOf(e);
+      _isLoading = false;
+      notifyListeners();
       return false;
     }
   }
 
   Future<bool> clearInsights() async {
-    _setError(null);
-
+    _error = null;
+    _errorStatusCode = null;
     try {
-      await ApiService.deleteInsights(aiProvider: _aiProvider); // NEW
+      await ApiService.deleteInsights(aiProvider: _aiProvider);
+      _generation++;
       _insight = null;
       notifyListeners();
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _actionError = _clean(e);
+      _actionErrorStatusCode = _statusOf(e);
+      notifyListeners();
       return false;
     }
   }
 
   void clearError() {
-    _error = null;
+    _clearErrors();
     notifyListeners();
   }
 
-  // NEW: Get content based on current language
   String? getContentForLanguage() {
     if (_insight == null) return null;
 

@@ -1,4 +1,30 @@
-# React + Vite
+# Flow Finance Admin Panel
+
+## Configuration
+
+The backend URL is read from the `VITE_API_BASE_URL` environment variable at build time
+(see `src/api.js`). If it is not set, the panel defaults to `https://flowfinance.onrender.com`.
+
+```bash
+# e.g. point a local dev build at a local backend
+VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+You can also put it in `admin/.env.local` (git-ignored):
+
+```
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+## Scripts
+
+- `npm run dev` – start the Vite dev server
+- `npm run build` – production build into `dist/`
+- `npm run lint` – ESLint
+
+---
+
+## React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

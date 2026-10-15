@@ -1,6 +1,7 @@
 import os
 import smtplib
 from email.message import EmailMessage
+from urllib.parse import quote, urlencode
 
 
 def send_verification_email(receiver_email: str, verification_token: str):
@@ -13,17 +14,16 @@ def send_verification_email(receiver_email: str, verification_token: str):
     msg['From'] = sender_email
     msg['To'] = receiver_email
 
-    verification_link = (
-        f"https://flowfinance.onrender.com/api/auth/verify-email"
-        f"?email={receiver_email}&token={verification_token}"
-    )
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://flowfinance.onrender.com").rstrip("/")
+    query = urlencode({"email": receiver_email, "token": verification_token}, quote_via=quote)
+    verification_link = f"{base_url}/api/auth/verify-email?{query}"
 
     msg.set_content(f"""
     Welcome to Toe Pwar!
 
     Please verify your email address to activate your account.
 
-    Click the link below to verify instantly:
+    Click the link below to verify instantly (the link expires in 48 hours):
     {verification_link}
     """)
 

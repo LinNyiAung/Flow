@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime, UTC, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Path
 
 from models import Currency
-from utils import get_current_user, get_user_balance
+from utils import get_current_user, get_user_balance, get_user_money_lock, invalidate_user_balance_cache
 from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
@@ -17,6 +18,17 @@ from database import goals_collection, users_collection
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
+_CENT = Decimal("0.01")
+
+
+def to_cents(value) -> Decimal:
+    """Money value as a Decimal rounded to cents (avoids float artefacts like 0.30000000000000004)."""
+    return Decimal(repr(float(value or 0))).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+
+def _money(value: Decimal) -> float:
+    return float(value.quantize(_CENT, rounding=ROUND_HALF_UP))
+
 # ==================== FINANCIAL GOALS ====================
 
 @router.post("", response_model=GoalResponse)
@@ -25,70 +37,71 @@ async def create_goal(
     current_user: dict = Depends(get_current_user)
 ):
     """Create a new financial goal"""
-    # Check if user has sufficient balance for initial contribution
-    balance_data = await get_user_balance(current_user["_id"], goal_data.currency.value)
-    available_balance = balance_data["available_balance"]
-    
-    if goal_data.initial_contribution > available_balance:
+    initial = to_cents(goal_data.initial_contribution or 0)
+    target = to_cents(goal_data.target_amount)
+    if target <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target amount must be at least 0.01")
+    if initial > target:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Insufficient balance. Available for goals: {goal_data.currency.value.upper()} {available_balance:.2f}"
+            detail="Initial contribution cannot exceed the target amount"
         )
-    
-    goal_id = str(uuid.uuid4())
-    now = datetime.now(UTC)
-    
-    current_amount = goal_data.initial_contribution if goal_data.initial_contribution else 0.0
-    progress = (current_amount / goal_data.target_amount * 100) if goal_data.target_amount > 0 else 0
-    
-    # Check if goal is already achieved
-    status_value = GoalStatus.ACHIEVED if current_amount >= goal_data.target_amount else GoalStatus.ACTIVE
-    achieved_at = now if status_value == GoalStatus.ACHIEVED else None
-    
-    new_goal = {
-        "_id": goal_id,
-        "user_id": current_user["_id"],
-        "name": goal_data.name,
-        "target_amount": goal_data.target_amount,
-        "current_amount": current_amount,
-        "target_date": goal_data.target_date.replace(tzinfo=timezone.utc) if goal_data.target_date and goal_data.target_date.tzinfo is None else goal_data.target_date,
-        "goal_type": goal_data.goal_type.value,
-        "status": status_value.value,
-        "currency": goal_data.currency.value,
-        "created_at": now,
-        "updated_at": now,
-        "achieved_at": achieved_at
-    }
-    
-    # [FIX] Added await
-    result = await goals_collection.insert_one(new_goal)
-    
-    if not result.inserted_id:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create goal"
-        )
-    
-    # Mark AI data as stale
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
 
-    # === START FIX: Cache Invalidation ===
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$unset": {"balances": ""}}
-    )
-    # === END FIX ===
-    
+    goal_id = str(uuid.uuid4())
+
+    # Serialize with other balance-moving operations of this user so two concurrent
+    # requests can't both allocate the same available balance.
+    async with get_user_money_lock(current_user["_id"]):
+        if initial > 0:
+            # Check (inside the lock) that the user has enough available balance
+            balance_data = await get_user_balance(current_user["_id"], goal_data.currency.value)
+            available_balance = to_cents(balance_data["available_balance"])
+            if initial > available_balance:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient balance. Available for goals: {goal_data.currency.value.upper()} {available_balance:.2f}"
+                )
+
+        now = datetime.now(UTC)
+        current_amount = _money(initial)
+
+        # Check if goal is already achieved
+        status_value = GoalStatus.ACHIEVED if initial >= target else GoalStatus.ACTIVE
+        achieved_at = now if status_value == GoalStatus.ACHIEVED else None
+
+        new_goal = {
+            "_id": goal_id,
+            "user_id": current_user["_id"],
+            "name": goal_data.name,
+            "target_amount": _money(target),
+            "current_amount": current_amount,
+            "target_date": goal_data.target_date.replace(tzinfo=timezone.utc) if goal_data.target_date and goal_data.target_date.tzinfo is None else goal_data.target_date,
+            "goal_type": goal_data.goal_type.value,
+            "status": status_value.value,
+            "currency": goal_data.currency.value,
+            "created_at": now,
+            "updated_at": now,
+            "achieved_at": achieved_at
+        }
+
+        result = await goals_collection.insert_one(new_goal)
+
+        if not result.inserted_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create goal"
+            )
+
+        # Cache invalidation (+ AI data stale) before releasing the lock
+        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+
+    progress = (current_amount / new_goal["target_amount"] * 100) if new_goal["target_amount"] > 0 else 0
+
     return GoalResponse(
         id=goal_id,
         user_id=current_user["_id"],
         name=goal_data.name,
-        target_amount=goal_data.target_amount,
+        target_amount=new_goal["target_amount"],
         current_amount=current_amount,
         target_date=goal_data.target_date,
         goal_type=goal_data.goal_type,
@@ -105,16 +118,16 @@ async def create_goal(
 async def get_goals(
     current_user: dict = Depends(get_current_user),
     status_filter: Optional[GoalStatus] = None,
-    currency: Optional[str] = None
+    currency: Optional[Currency] = None  # enum -> unknown values are a 422, not a 500
 ):
     """Get all user goals"""
     query = {"user_id": current_user["_id"]}
-    
+
     if status_filter:
         query["status"] = status_filter.value
-    
+
     if currency:
-        query["currency"] = currency
+        query["currency"] = currency.value
     
     # [FIX] Async find with sort
     cursor = goals_collection.find(query).sort("created_at", -1)
@@ -143,12 +156,12 @@ async def get_goals(
 @router.get("/summary", response_model=GoalsSummary)
 async def get_goals_summary(
     current_user: dict = Depends(get_current_user),
-    currency: Optional[str] = None
+    currency: Optional[Currency] = None  # enum -> unknown values are a 422, not a 500
 ):
     """Get summary of all goals"""
     query = {"user_id": current_user["_id"]}
     if currency:
-        query["currency"] = currency
+        query["currency"] = currency.value
     
     # [FIX] Async find
     cursor = goals_collection.find(query)
@@ -168,7 +181,7 @@ async def get_goals_summary(
         total_allocated=total_allocated,
         total_target=total_target,
         overall_progress=overall_progress,
-        currency=Currency(currency) if currency else None
+        currency=currency
     )
 
 
@@ -231,9 +244,11 @@ async def update_goal(
     if goal_data.name is not None:
         update_data["name"] = goal_data.name
     if goal_data.target_amount is not None:
-        update_data["target_amount"] = goal_data.target_amount
-        current_amount = goal["current_amount"]
-        if current_amount >= goal_data.target_amount:
+        new_target = to_cents(goal_data.target_amount)
+        if new_target <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target amount must be at least 0.01")
+        update_data["target_amount"] = _money(new_target)
+        if to_cents(goal["current_amount"]) >= new_target:
             update_data["status"] = GoalStatus.ACHIEVED.value
             if not goal.get("achieved_at"):
                 update_data["achieved_at"] = datetime.now(UTC)
@@ -251,21 +266,10 @@ async def update_goal(
         {"$set": update_data}
     )
     
-    # [FIX] Added await
     updated_goal = await goals_collection.find_one({"_id": goal_id})
-    
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
 
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$unset": {"balances": ""}}
-    )
-    
+    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+
     return GoalResponse(
         id=updated_goal["_id"],
         user_id=updated_goal["user_id"],
@@ -289,93 +293,104 @@ async def contribute_to_goal(
     contribution: GoalContribution = ...,
     current_user: dict = Depends(get_current_user)
 ):
-    """Add or reduce amount from a goal (Thread-Safe with Optimistic Locking)"""
-    # 1. READ: Fetch the goal state
-    # [FIX] Added await
-    goal = await goals_collection.find_one({
-        "_id": goal_id,
-        "user_id": current_user["_id"]
-    })
-    
-    if not goal:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
-    
-    # 2. CAPTURE STATE
-    original_amount = goal["current_amount"]
-    
-    if goal["status"] == GoalStatus.ACHIEVED.value and contribution.amount > 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add funds to an achieved goal")
-    
-    goal_currency = goal.get("currency", "usd")
-    
-    old_progress = (original_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-    new_amount = original_amount + contribution.amount
-    
-    # --- VALIDATION LOGIC ---
-    if contribution.amount > 0:
-        if new_amount > goal["target_amount"]:
-            max_can_add = goal["target_amount"] - original_amount
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot exceed target amount. Maximum you can add: {goal_currency.upper()} {max_can_add:.2f}"
-            )
-        
-        balance_data = await get_user_balance(current_user["_id"], goal_currency)
-        available_balance = balance_data["available_balance"]
-        
-        if contribution.amount > available_balance:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Insufficient balance. Available for goals: {goal_currency.upper()} {available_balance:.2f}"
-            )
-    
-    if contribution.amount < 0:
-        if abs(contribution.amount) > original_amount:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot reduce more than current amount: {goal_currency.upper()} {original_amount:.2f}"
-            )
-    
-    # --- STATUS CALCULATION ---
-    new_status = goal["status"]
-    achieved_at = goal.get("achieved_at")
-    now = datetime.now(UTC)
-    
-    if new_amount >= goal["target_amount"] and new_status == GoalStatus.ACTIVE.value:
-        new_status = GoalStatus.ACHIEVED.value
-        achieved_at = now
-    elif new_amount < goal["target_amount"] and new_status == GoalStatus.ACHIEVED.value:
-        new_status = GoalStatus.ACTIVE.value
-        achieved_at = None
-    
-    # --- CRITICAL FIX: ATOMIC WRITE ---
-    # [FIX] Added await
-    result = await goals_collection.update_one(
-        {
+    """Add or reduce amount from a goal (serialized per user + optimistic guard)"""
+    amount = to_cents(contribution.amount)
+    if amount == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contribution amount must not be zero")
+
+    # Serialize all balance-moving operations of this user (single worker), so two
+    # concurrent contributions can't both spend the same available balance.
+    async with get_user_money_lock(current_user["_id"]):
+        # 1. READ (inside the lock): Fetch the goal state
+        goal = await goals_collection.find_one({
             "_id": goal_id,
-            "current_amount": original_amount  # <--- THE GUARD CONDITION
-        },
-        {
-            "$set": {
-                "current_amount": new_amount,
-                "status": new_status,
-                "updated_at": now,
-                "achieved_at": achieved_at
+            "user_id": current_user["_id"]
+        })
+
+        if not goal:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+
+        # 2. CAPTURE STATE
+        original_amount = goal["current_amount"]
+        original = to_cents(original_amount)
+        target = to_cents(goal["target_amount"])
+
+        if goal["status"] == GoalStatus.ACHIEVED.value and amount > 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add funds to an achieved goal")
+
+        goal_currency = goal.get("currency", "usd")
+
+        old_progress = (original_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+        new_total = original + amount
+
+        # --- VALIDATION LOGIC (cent-exact) ---
+        if amount > 0:
+            if new_total > target:
+                max_can_add = max(target - original, Decimal("0"))
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot exceed target amount. Maximum you can add: {goal_currency.upper()} {max_can_add:.2f}"
+                )
+
+            # Re-read balance inside the lock
+            balance_data = await get_user_balance(current_user["_id"], goal_currency)
+            available_balance = to_cents(balance_data["available_balance"])
+
+            if amount > available_balance:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient balance. Available for goals: {goal_currency.upper()} {available_balance:.2f}"
+                )
+
+        if amount < 0 and -amount > original:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot reduce more than current amount: {goal_currency.upper()} {original:.2f}"
+            )
+
+        new_amount = _money(new_total)
+
+        # --- STATUS CALCULATION ---
+        new_status = goal["status"]
+        achieved_at = goal.get("achieved_at")
+        now = datetime.now(UTC)
+
+        if new_total >= target and new_status == GoalStatus.ACTIVE.value:
+            new_status = GoalStatus.ACHIEVED.value
+            achieved_at = now
+        elif new_total < target and new_status == GoalStatus.ACHIEVED.value:
+            new_status = GoalStatus.ACTIVE.value
+            achieved_at = None
+
+        # --- ATOMIC WRITE (guard kept for multi-worker deployments) ---
+        result = await goals_collection.update_one(
+            {
+                "_id": goal_id,
+                "current_amount": original_amount  # <--- THE GUARD CONDITION
+            },
+            {
+                "$set": {
+                    "current_amount": new_amount,
+                    "status": new_status,
+                    "updated_at": now,
+                    "achieved_at": achieved_at
+                }
             }
-        }
-    )
-    
-    if result.modified_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Transaction failed due to concurrent modification. Please try again."
         )
+
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Transaction failed due to concurrent modification. Please try again."
+            )
+
+        # Invalidate cached balances before releasing the lock
+        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
 
     # --- POST-UPDATE ACTIONS ---
     new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-    
-    if contribution.amount > 0:
-        # [FIX] Add await to both of these
+
+    if amount > 0:
         await check_goal_notifications(
             user_id=current_user["_id"],
             goal_id=goal_id,
@@ -390,22 +405,9 @@ async def contribute_to_goal(
             new_amount=new_amount,
             goal_name=goal["name"]
         )
-    
-    # [FIX] Added await
-    updated_goal = await goals_collection.find_one({"_id": goal_id})
-    
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
 
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$unset": {"balances": ""}}
-    )
-    
+    updated_goal = await goals_collection.find_one({"_id": goal_id})
+
     return GoalResponse(
         id=updated_goal["_id"],
         user_id=updated_goal["user_id"],
@@ -454,18 +456,8 @@ async def delete_goal(
             detail="Failed to delete goal"
         )
     
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
+    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
 
-    # [FIX] Added await
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$unset": {"balances": ""}}
-    )
-    
     return {
         "message": "Goal deleted successfully",
         "returned_amount": returned_amount
@@ -496,6 +488,11 @@ async def get_multi_currency_goals_summary(
     # Calculate summary for each currency
     currency_summaries = []
     for currency, goals in currency_groups.items():
+        try:
+            currency_enum = Currency(currency)
+        except ValueError:
+            print(f"⚠️ Skipping goals with unknown stored currency {currency!r} for user {current_user['_id']}")
+            continue
         active = [g for g in goals if g["status"] == "active"]
         achieved = [g for g in goals if g["status"] == "achieved"]
         
@@ -504,7 +501,7 @@ async def get_multi_currency_goals_summary(
         overall_progress = (total_allocated / total_target * 100) if total_target > 0 else 0
         
         currency_summaries.append(CurrencySummary(
-            currency=Currency(currency),
+            currency=currency_enum,
             active_goals=len(active),
             achieved_goals=len(achieved),
             total_allocated=total_allocated,

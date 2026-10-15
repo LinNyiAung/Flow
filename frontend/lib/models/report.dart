@@ -1,3 +1,4 @@
+import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/user.dart';
 
 enum ReportPeriod { week, month, year, custom }
@@ -74,8 +75,8 @@ class FinancialReport {
   factory FinancialReport.fromJson(Map<String, dynamic> json) {
     return FinancialReport(
       period: ReportPeriod.values.firstWhere((e) => e.name == json['period']),
-      startDate: DateTime.parse(json['start_date']),
-      endDate: DateTime.parse(json['end_date']),
+      startDate: parseWallClock(json['start_date']),
+      endDate: parseWallClock(json['end_date']),
       totalInflow: json['total_inflow'].toDouble(),
       totalOutflow: json['total_outflow'].toDouble(),
       netBalance: json['net_balance'].toDouble(),
@@ -96,7 +97,7 @@ class FinancialReport {
       topExpenseCategory: json['top_expense_category'],
       averageDailyInflow: json['average_daily_inflow'].toDouble(),
       averageDailyOutflow: json['average_daily_outflow'].toDouble(),
-      generatedAt: DateTime.parse(json['generated_at']),
+      generatedAt: parseInstant(json['generated_at']),
       currency: Currency.fromString(json['currency'] ?? 'usd'), // NEW
     );
   }
@@ -209,8 +210,8 @@ class MultiCurrencyFinancialReport {
   factory MultiCurrencyFinancialReport.fromJson(Map<String, dynamic> json) {
     return MultiCurrencyFinancialReport(
       period: ReportPeriod.values.firstWhere((e) => e.name == json['period']),
-      startDate: DateTime.parse(json['start_date']),
-      endDate: DateTime.parse(json['end_date']),
+      startDate: parseWallClock(json['start_date']),
+      endDate: parseWallClock(json['end_date']),
       currencyReports: (json['currency_reports'] as List)
           .map((e) => CurrencyReport.fromJson(e))
           .toList(),
@@ -218,7 +219,7 @@ class MultiCurrencyFinancialReport {
           .map((e) => GoalProgressReport.fromJson(e))
           .toList(),
       totalTransactions: json['total_transactions'],
-      generatedAt: DateTime.parse(json['generated_at']),
+      generatedAt: parseInstant(json['generated_at']),
     );
   }
 }

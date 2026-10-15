@@ -1,16 +1,22 @@
 import asyncio
 import os
+import threading
 import json
+from collections import OrderedDict
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+# Per-user stores are throwaway and in-process, so LangChain's in-memory store is
+# enough (replaces chromadb, whose open advisories all sit in its HTTP server).
+from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
-from budget_service import update_budget_spent_amounts
+from budget_service import get_running_budgets
 from database import transactions_collection, users_collection, goals_collection, budgets_collection
+from finite_utils import finite_amount_filter
+from tz_utils import app_today, app_wall_clock_now, days_until, stored_calendar_date
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +43,179 @@ def get_date_only(dt: datetime) -> str:
     return ensure_utc_datetime(dt).strftime("%Y-%m-%d")
 
 
+class ChatServiceError(Exception):
+    """
+    Raised by stream_chat when the AI request fails. `user_message` is safe to show to
+    the end user (no raw exception internals); the route sends it as an error frame and
+    does not save the exchange to chat history.
+    """
+
+    DEFAULT_MESSAGE = "Sorry, the AI assistant is temporarily unavailable. Please try again in a moment."
+
+    def __init__(self, user_message: str = None):
+        self.user_message = user_message or self.DEFAULT_MESSAGE
+        super().__init__(self.user_message)
+
+
+def _delete_vector_store(store) -> None:
+    try:
+        # In-memory stores just need their references dropped; persistent stores
+        # (if one is ever plugged in again) expose delete_collection().
+        if hasattr(store, "delete_collection"):
+            store.delete_collection()
+    except Exception as e:
+        print(f"⚠️ Error deleting vector store collection: {e}")
+
+
+# Strong refs to in-flight deletion tasks (the loop only keeps weak refs).
+_vector_store_delete_tasks: set = set()
+
+
+def _schedule_vector_store_delete(store) -> None:
+    """Release a vector store off the event loop (persistent stores' delete_collection blocks)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        task = loop.create_task(asyncio.to_thread(_delete_vector_store, store))
+        _vector_store_delete_tasks.add(task)
+        task.add_done_callback(_vector_store_delete_tasks.discard)
+    else:
+        threading.Thread(target=_delete_vector_store, args=(store,), daemon=True).start()
+
+
+class _StoreEntry:
+    __slots__ = ("store", "built_on", "refs", "retired")
+
+    def __init__(self, store, built_on: str):
+        self.store = store
+        self.built_on = built_on
+        self.refs = 0          # requests currently using the store
+        self.retired = False   # removed from the cache; delete once refs == 0
+
+
+class UserVectorStoreCache:
+    """
+    Bounded per-process cache of per-user in-memory vector stores.
+
+    - LRU-capped (default 200 users).
+    - Entries are only valid for the app-timezone calendar day they were built on, because the
+      documents embed relative labels ("TODAY", "N days ago", days remaining) that are
+      computed at build time. A new day forces a rebuild.
+    - Concurrent first builds for the same user are serialized with an asyncio.Lock
+      (striped by user id so the lock table stays bounded), so only one store is built.
+    - Requests lease a store via acquire()/release. A store that leaves the cache
+      (eviction, day rollover, invalidation, replacement) is only deleted once no request
+      is using it any more, and the blocking delete_collection runs in a worker thread.
+    """
+
+    def __init__(self, max_users: int = 200, lock_stripes: int = 64):
+        self._stores: "OrderedDict[str, _StoreEntry]" = OrderedDict()
+        self._max_users = max_users
+        self._locks = [asyncio.Lock() for _ in range(lock_stripes)]
+
+    @staticmethod
+    def _today_key() -> str:
+        # Calendar day in the app timezone (same "today" the documents' labels use).
+        return app_today().isoformat()
+
+    def _lock_for(self, user_id: str) -> asyncio.Lock:
+        return self._locks[hash(user_id) % len(self._locks)]
+
+    def __contains__(self, user_id) -> bool:
+        return self._get_entry(user_id) is not None
+
+    def __len__(self) -> int:
+        return len(self._stores)
+
+    @staticmethod
+    def _retire(entry: _StoreEntry) -> None:
+        if entry.retired:
+            return
+        entry.retired = True
+        if entry.refs <= 0:
+            _schedule_vector_store_delete(entry.store)
+
+    @staticmethod
+    def _release(entry: _StoreEntry) -> None:
+        entry.refs -= 1
+        if entry.retired and entry.refs <= 0:
+            _schedule_vector_store_delete(entry.store)
+
+    def _get_entry(self, user_id: str) -> Optional[_StoreEntry]:
+        entry = self._stores.get(user_id)
+        if entry is None:
+            return None
+        if entry.built_on != self._today_key():
+            self.invalidate(user_id)
+            return None
+        self._stores.move_to_end(user_id)
+        return entry
+
+    def get(self, user_id: str):
+        """Unleased lookup (the store may be retired at any time; prefer acquire())."""
+        entry = self._get_entry(user_id)
+        return entry.store if entry is not None else None
+
+    def _put_entry(self, user_id: str, store) -> _StoreEntry:
+        old = self._stores.pop(user_id, None)
+        if old is not None and old.store is store:
+            entry = old
+        else:
+            if old is not None:
+                self._retire(old)
+            entry = _StoreEntry(store, self._today_key())
+        self._stores[user_id] = entry
+        while len(self._stores) > self._max_users:
+            evicted_user, evicted = self._stores.popitem(last=False)
+            self._retire(evicted)
+            print(f"🧹 Evicted vector store for user {evicted_user} (LRU cap {self._max_users})")
+        return entry
+
+    def put(self, user_id: str, store) -> None:
+        self._put_entry(user_id, store)
+
+    def invalidate(self, user_id: str) -> bool:
+        entry = self._stores.pop(user_id, None)
+        if entry is None:
+            return False
+        self._retire(entry)
+        return True
+
+    async def acquire(self, user_id: str, builder):
+        """
+        Lease the user's store, building it once via `await builder()` if needed.
+        Returns (store_or_None, release); call release() when done using the store.
+        """
+        entry = self._get_entry(user_id)
+        if entry is None:
+            async with self._lock_for(user_id):
+                entry = self._get_entry(user_id)  # another coroutine may have built it meanwhile
+                if entry is None:
+                    store = await builder()
+                    if store is None:
+                        return None, (lambda: None)
+                    entry = self._put_entry(user_id, store)
+        # No await between lookup/insert and the increment, so it can't be retired+deleted in between.
+        entry.refs += 1
+        released = False
+
+        def release() -> None:
+            nonlocal released
+            if not released:
+                released = True
+                self._release(entry)
+
+        return entry.store, release
+
+    async def get_or_build(self, user_id: str, builder):
+        """Unleased variant of acquire() (kept for compatibility)."""
+        store, release = await self.acquire(user_id, builder)
+        release()
+        return store
+
+
 class FinancialDataProcessor:
     """Processes user's financial data for RAG"""
     
@@ -54,11 +233,12 @@ class FinancialDataProcessor:
         Get recent user transactions.
         Defaults to last 90 days or max 500 items to prevent OOM.
         """
-        query = {"user_id": self.user_id}
-        
+        # Legacy NaN/inf amounts are excluded (they'd poison every sum / average).
+        query = {"user_id": self.user_id, **finite_amount_filter()}
+
         # 1. Apply Date Filter (Default 90 days)
         if days_back:
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+            cutoff_date = app_wall_clock_now() - timedelta(days=days_back)
             query["date"] = {"$gte": cutoff_date}
         
         try:
@@ -89,34 +269,15 @@ class FinancialDataProcessor:
         
     # [FIX] Changed to async
     async def get_user_budgets(self) -> List[Dict]:
-        """Get user's active budgets"""
-        try:         
-            # [FIX] Async find
-            cursor = budgets_collection.find({
-                "user_id": self.user_id,
-                "is_active": True,
-                "status": "active"
-            }).sort("created_at", -1)
-            budgets = await cursor.to_list(length=None)
-            
-            # Update spent amounts for each budget
-            for budget in budgets:
-                try:
-                    # [FIX] Added await
-                    await update_budget_spent_amounts(self.user_id, budget["_id"])
-                except Exception as e:
-                    print(f"Error updating budget {budget['_id']}: {e}")
-            
-            # Refresh budget data after updates
-            # [FIX] Async find
-            cursor = budgets_collection.find({
-                "user_id": self.user_id,
-                "is_active": True,
-                "status": "active"
-            }).sort("created_at", -1)
-            budgets = await cursor.to_list(length=None)
-            
-            print(f"Found {len(budgets)} active budgets for user {self.user_id}")
+        """
+        Get the user's running budgets: date window contains today (app timezone) and
+        status active OR exceeded (an exceeded budget is still the current budget).
+        Candidates are selected by date and recomputed first, so stale stored statuses
+        (e.g. still "upcoming" after the start date) don't hide a running budget.
+        """
+        try:
+            budgets = await get_running_budgets(self.user_id, recompute=True)
+            print(f"Found {len(budgets)} running budgets for user {self.user_id}")
             return budgets
         except Exception as e:
             print(f"Error fetching budgets: {e}")
@@ -128,7 +289,7 @@ class FinancialDataProcessor:
         """
         try:
             pipeline = [
-                {"$match": {"user_id": self.user_id}},
+                {"$match": {"user_id": self.user_id, **finite_amount_filter()}},
                 {"$facet": {
                     # 1. General stats per currency
                     "currency_stats": [
@@ -270,7 +431,7 @@ class FinancialDataProcessor:
                         
                         if g.get("target_date"):
                             target_date = ensure_utc_datetime(g["target_date"])
-                            days_remaining = (target_date - datetime.now(timezone.utc)).days
+                            days_remaining = days_until(target_date, app_today())
                             goals_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
                             goals_text += f"Days Remaining: {days_remaining}\n"
                             
@@ -335,7 +496,7 @@ class FinancialDataProcessor:
                 for idx, b in enumerate(curr_budgets, 1):
                     start_date = ensure_utc_datetime(b["start_date"])
                     end_date = ensure_utc_datetime(b["end_date"])
-                    days_remaining = (end_date - datetime.now(timezone.utc)).days
+                    days_remaining = days_until(end_date, app_today())
                     days_total = (end_date - start_date).days + 1
                     
                     budgets_text += f"──── Budget #{idx}: {b['name']} ────\n"
@@ -391,7 +552,7 @@ class FinancialDataProcessor:
         
         for idx, t in enumerate(transactions[:25], 1):
             date_obj = ensure_utc_datetime(t["date"])
-            days_ago = (datetime.now(timezone.utc) - date_obj).days
+            days_ago = (app_today() - stored_calendar_date(date_obj)).days
             
             currency = t.get("currency", "usd")
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
@@ -493,7 +654,7 @@ class FinancialDataProcessor:
                 goal_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
                 
                 if goal["status"] == "active":
-                    days_remaining = (target_date - datetime.now(timezone.utc)).days
+                    days_remaining = days_until(target_date, app_today())
                     goal_text += f"Days Remaining: {days_remaining}\n"
                     
                     if days_remaining > 0 and remaining > 0:
@@ -537,7 +698,7 @@ class FinancialDataProcessor:
             
             start_date = ensure_utc_datetime(budget["start_date"])
             end_date = ensure_utc_datetime(budget["end_date"])
-            days_remaining = (end_date - datetime.now(timezone.utc)).days
+            days_remaining = days_until(end_date, app_today())
             days_total = (end_date - start_date).days + 1
             days_elapsed = days_total - days_remaining
             
@@ -617,7 +778,7 @@ class FinancialDataProcessor:
                 transactions_by_date[date_str] = []
             transactions_by_date[date_str].append(t)
         
-        recent_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        recent_cutoff = app_wall_clock_now() - timedelta(days=30)
         
         for date_str, daily_transactions in sorted(transactions_by_date.items(), reverse=True)[:30]:
             date_obj = ensure_utc_datetime(daily_transactions[0]["date"])
@@ -625,7 +786,7 @@ class FinancialDataProcessor:
             if date_obj < recent_cutoff:
                 continue
             
-            days_ago = (datetime.now(timezone.utc) - date_obj).days
+            days_ago = (app_today() - stored_calendar_date(date_obj)).days
             
             # Group by currency
             currency_totals = {}
@@ -744,62 +905,56 @@ class FinancialChatbot:
             chunk_overlap=200,
             separators=["\n\n", "\n", " ", ""]
         )
-        self.user_vector_stores = {}
+        # Bounded LRU cache, rebuilt daily (relative dates) and on invalidation.
+        self.user_vector_stores = UserVectorStoreCache(
+            max_users=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
+        )
         
         self.gpt_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     
-    # [FIX] Changed to async
-    async def _get_or_create_vector_store(self, user_id: str) -> Chroma:
-        """Get or create vector store for user"""
-        if user_id not in self.user_vector_stores:
-            processor = FinancialDataProcessor(user_id)
-            
-            # [FIX] Await async document creation
-            documents = await processor.create_financial_documents()
-            
-            if not documents or not self.embeddings:
-                return None
-            
-            try:
-                split_documents = []
-                for doc in documents:
-                    # Never split chronological index or goals overview
-                    if doc.metadata.get("type") in ["chronological_index", "goals_overview"]:
-                        split_documents.append(doc)
-                    else:
-                        split_documents.extend(self.text_splitter.split_documents([doc]))
-                
-                # [NOTE] Chroma.from_documents can be blocking (CPU/Disk), so wrapping in thread is okay here if needed.
-                # However, for simplicity/compatibility we often call it directly or via to_thread.
-                # Since we are in an async method, let's offload the heavy Chroma creation to a thread.
-                vector_store = await asyncio.to_thread(
-                    Chroma.from_documents,
-                    documents=split_documents,
-                    embedding=self.embeddings,
-                    collection_name=f"user_{user_id}_{int(datetime.now().timestamp())}"
-                )
-                self.user_vector_stores[user_id] = vector_store
-                print(f"✅ Created vector store with {len(split_documents)} chunks")
-            except Exception as e:
-                print(f"❌ Error creating vector store: {e}")
-                return None
-        
-        return self.user_vector_stores[user_id]
+    async def _build_vector_store(self, user_id: str) -> Optional[InMemoryVectorStore]:
+        processor = FinancialDataProcessor(user_id)
+        documents = await processor.create_financial_documents()
+
+        if not documents or not self.embeddings:
+            return None
+
+        try:
+            split_documents = []
+            for doc in documents:
+                # Never split chronological index or goals overview
+                if doc.metadata.get("type") in ["chronological_index", "goals_overview"]:
+                    split_documents.append(doc)
+                else:
+                    split_documents.extend(self.text_splitter.split_documents([doc]))
+
+            # from_documents (embedding calls + indexing) is blocking; offload to a thread.
+            vector_store = await asyncio.to_thread(
+                InMemoryVectorStore.from_documents,
+                documents=split_documents,
+                embedding=self.embeddings,
+            )
+            print(f"✅ Created vector store with {len(split_documents)} chunks")
+            return vector_store
+        except Exception as e:
+            print(f"❌ Error creating vector store: {e}")
+            return None
+
+    async def _get_or_create_vector_store(self, user_id: str):
+        """
+        Lease (building once, even under concurrent requests) the user's vector store.
+        Returns (store_or_None, release); call release() when done querying it.
+        """
+        return await self.user_vector_stores.acquire(
+            user_id, lambda: self._build_vector_store(user_id)
+        )
     
     def refresh_user_data(self, user_id: str):
         """
         Invalidate user's vector store cache. 
         The next call to stream_chat will automatically rebuild it.
         """
-        if user_id in self.user_vector_stores:
-            try:
-                # Optional: Explicitly clean up if needed, though GC handles objects usually
-                self.user_vector_stores[user_id].delete_collection()
-            except Exception as e:
-                print(f"⚠️ Error clearing vector store for {user_id}: {e}")
-            
-            # Just remove it from memory
-            del self.user_vector_stores[user_id]
+        if self.user_vector_stores.invalidate(user_id):
             print(f"🗑️ Invalidated cache for user {user_id}")
     
     def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
@@ -1051,14 +1206,13 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         """Stream chat response using GPT-4 with enhanced RAG and response style"""
         try:
             if not self.openai_api_key:
-                yield "AI service is not available. OpenAI API key not configured.", None
-                return
+                print("❌ OpenAI API key not configured")
+                raise ChatServiceError("The AI assistant is not available right now. Please try again later.")
 
             # [FIX] Direct await (no to_thread needed for DB)
             user = await users_collection.find_one({"_id": user_id})
             if not user:
-                yield "User not found. Please log in again.", None
-                return
+                raise ChatServiceError("We couldn't load your account. Please log in again.")
             
             processor = FinancialDataProcessor(user_id)
             
@@ -1131,7 +1285,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             context = ""
             
             # [FIX] Await directly (it handles threading internally now)
-            vector_store = await self._get_or_create_vector_store(user_id)
+            vector_store, release_vector_store = await self._get_or_create_vector_store(user_id)
             
             if vector_store:
                 try:
@@ -1173,6 +1327,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 except Exception as e:
                     print(f"❌ Error retrieving documents: {e}")
                     context = json.dumps(summary, indent=2)
+                finally:
+                    # Let a retired (evicted/invalidated) store be deleted now that we're done.
+                    release_vector_store()
             
             # Prepare chat history
             history_text = ""
@@ -1182,7 +1339,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     history_text += f"\n{role}: {msg.get('content', '')}"
             
             # Get today's date
-            today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
+            # "Today" for the user is the app-timezone calendar date, not the UTC one.
+            today = app_wall_clock_now().strftime("%A, %B %d, %Y")
             
             # Build prompts with response style
             system_prompt = self._build_system_prompt(today, response_style)
@@ -1191,7 +1349,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             
             # Stream response
             if not self.openai_api_key:
-                yield "AI service is not available. OpenAI API key not configured."
+                yield "AI service is not available. OpenAI API key not configured.", None
                 return
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=self.openai_api_key)
@@ -1231,9 +1389,13 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
             yield "", final_usage_data
             
+        except ChatServiceError:
+            raise
         except Exception as e:
-            print(f"❌ Streaming chat error: {str(e)}")
-            yield f"I encountered an error: {str(e)}", None
+            # Log the details server-side; the client only gets a friendly message
+            # (sent by the route as an error frame, not saved to chat history).
+            print(f"❌ Streaming chat error: {type(e).__name__}: {e}")
+            raise ChatServiceError() from e
             
 # Global chatbot instance
 try:

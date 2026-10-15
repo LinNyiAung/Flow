@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
 import '../../services/api_service.dart';
 import '../../services/localization_service.dart';
-import 'login_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({Key? key}) : super(key: key);
@@ -40,6 +39,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -188,6 +188,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
       pinController.clear();
       focusNode.requestFocus();
@@ -212,6 +213,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
       _startTimer(); // Restart the timer only on success
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _isResending = false);
@@ -286,7 +288,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               followingPinTheme: defaultPinTheme,
               errorPinTheme: errorPinTheme,
               forceErrorState: _error != null,
-              onChanged: (value) => setState(() => _error = null),
+              // Clear the error only when the user types: the code is wiped
+              // programmatically after a failed attempt, and that change must
+              // not hide the error it just showed.
+              onChanged: (value) {
+                if (value.isNotEmpty && _error != null) setState(() => _error = null);
+              },
               onCompleted: (pin) => _verify(),
             ),
 
@@ -419,10 +426,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 child: FilledButton(
                   onPressed: () {
                     Navigator.of(dialogContext).pop(); // close dialog
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => LoginScreen()),
-                      (route) => false,
-                    );
+                    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
                   },
                   child: Text(localizations.backToLogin),
                 ),
@@ -432,7 +436,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         ),
       );
     } catch (e) {
-      setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+      if (!mounted) return;
+      final message = e.toString().replaceAll('Exception: ', '');
+      // "Invalid or expired reset session. Please start over." — the reset
+      // token is unusable, so send the user back to the start of the flow.
+      if (e is ApiException &&
+          e.statusCode == 400 &&
+          message.toLowerCase().contains('reset session')) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+        Navigator.of(context).pop();
+        return;
+      }
+      setState(() => _error = message);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -669,10 +684,8 @@ class _BackToLoginButton extends StatelessWidget {
     return Center(
       child: TextButton.icon(
         onPressed: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => LoginScreen()),
-            (route) => false,
-          );
+          // Back to the root AuthWrapper (shows login) — no stray screens.
+          Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
         },
         icon: const Icon(Icons.arrow_back_rounded, size: 16),
         label: Text(localizations.backToLogin),

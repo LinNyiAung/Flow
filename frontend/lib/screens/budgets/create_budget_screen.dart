@@ -6,6 +6,7 @@ import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:provider/provider.dart';
@@ -26,7 +27,9 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   final _contextController = TextEditingController();
 
   BudgetPeriod _selectedPeriod = BudgetPeriod.monthly;
-  DateTime _startDate = DateTime.now().toUtc();
+  // Budget dates are wall-clock dates: the user's LOCAL calendar day,
+  // encoded as a UTC DateTime with the same y/m/d fields.
+  DateTime _startDate = _todayWallClock();
   DateTime? _endDate;
   List<CategoryBudget> _categoryBudgets = [];
 
@@ -58,10 +61,18 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     super.dispose();
   }
 
+  /// Today's local calendar date as a wall-clock-as-UTC value.
+  static DateTime _todayWallClock() {
+    final now = DateTime.now();
+    return DateTime.utc(now.year, now.month, now.day);
+  }
+
   /// Sets the Start and End dates to the "Current" period range based on Today.
   void _updateDatesForPeriod(BudgetPeriod period) {
-    final now = DateTime.now().toUtc();
-    // Normalize today to start of day (00:00:00)
+    // Local date (not DateTime.now().toUtc(), which is the previous/next
+    // day for users far from UTC around midnight).
+    final now = DateTime.now();
+    // Normalize today to start of day (00:00:00), wall-clock-as-UTC.
     final todayStart = DateTime.utc(now.year, now.month, now.day);
 
     DateTime newStart;
@@ -157,11 +168,16 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
   Future<void> _selectStartDate() async {
     final scheme = Theme.of(context).colorScheme;
-    final picked = await showDatePicker(
-      context: context,
+    final bounds = DatePickerBounds.clamped(
       initialDate: _startDate,
       firstDate: DateTime.now().subtract(Duration(days: 365)),
       lastDate: DateTime.now().add(Duration(days: 365)),
+    );
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: bounds.initialDate,
+      firstDate: bounds.firstDate,
+      lastDate: bounds.lastDate,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -235,11 +251,23 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
   Future<void> _selectEndDate() async {
     final scheme = Theme.of(context).colorScheme;
-    final picked = await showDatePicker(
-      context: context,
+    // A start date near the end of the start picker's range (now + 365)
+    // plus the default 30 days (or a yearly period's Dec 31) would exceed a
+    // fixed now + 365 limit and trip showDatePicker's assertion: allow up to
+    // a year after the start date as well, and clamp the initial date.
+    final bounds = DatePickerBounds.clamped(
       initialDate: _endDate ?? _startDate.add(Duration(days: 30)),
       firstDate: _startDate,
-      lastDate: DateTime.now().add(Duration(days: 365)),
+      lastDate: laterDate(
+        DateTime.now().add(Duration(days: 365)),
+        _startDate.add(Duration(days: 365)),
+      ),
+    );
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: bounds.initialDate,
+      firstDate: bounds.firstDate,
+      lastDate: bounds.lastDate,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -668,7 +696,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(localizations.categoryBudgets, style: _sectionLabelStyle(context)),
+                // Flexible: long (e.g. Myanmar) labels wrap at large font sizes.
+                Flexible(child: Text(localizations.categoryBudgets, style: _sectionLabelStyle(context))),
                 TextButton.icon(
                   onPressed: _addCategoryBudget,
                   icon: const Icon(Icons.add_circle_rounded, size: 18),

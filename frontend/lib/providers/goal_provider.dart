@@ -10,6 +10,19 @@ class GoalProvider with ChangeNotifier {
   String? _error;
   MultiCurrencyGoalsSummary? _multiCurrencySummary;
 
+  /// Bumped on [reset]; responses for an older session are discarded.
+  int _generation = 0;
+
+  /// Clears all per-user state (called on logout / user switch).
+  void reset() {
+    _generation++;
+    _goals = [];
+    _summary = null;
+    _multiCurrencySummary = null;
+    _isLoading = false;
+    _error = null;
+    notifyListeners();
+  }
 
   MultiCurrencyGoalsSummary? get multiCurrencySummary => _multiCurrencySummary;
 
@@ -32,8 +45,11 @@ class GoalProvider with ChangeNotifier {
   }
 
   Future<void> fetchMultiCurrencySummary() async {
+  final gen = _generation;
   try {
-    _multiCurrencySummary = await ApiService.getMultiCurrencyGoalsSummary();
+    final result = await ApiService.getMultiCurrencyGoalsSummary();
+    if (gen != _generation) return;
+    _multiCurrencySummary = result;
     notifyListeners();
   } catch (e) {
     print("Error fetching multi-currency goals summary: $e");
@@ -79,22 +95,29 @@ class GoalProvider with ChangeNotifier {
   }) async {
     _setLoading(true);
     _setError(null);
+    final gen = _generation;
 
     try {
-      _goals = await ApiService.getGoals(
+      final result = await ApiService.getGoals(
         statusFilter: statusFilter,
         currency: currency,  // NEW
       );
+      if (gen != _generation) return;
+      _goals = result;
       _setLoading(false);
     } catch (e) {
+      if (gen != _generation) return;
       _setError(e.toString().replaceAll('Exception: ', ''));
       _setLoading(false);
     }
   }
 
   Future<void> fetchSummary({Currency? currency}) async {  // NEW - add currency parameter
+    final gen = _generation;
     try {
-      _summary = await ApiService.getGoalsSummary(currency: currency);  // NEW
+      final result = await ApiService.getGoalsSummary(currency: currency);
+      if (gen != _generation) return;
+      _summary = result;
       notifyListeners();
     } catch (e) {
       print("Error fetching goals summary: $e");

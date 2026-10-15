@@ -4,6 +4,7 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +18,35 @@ import 'image_input_screen.dart';
 /// Display order for currency chips — MMK first, matching the product's
 /// Myanmar-first audience rather than the model's declaration order.
 const _kCurrencyOrder = [Currency.mmk, Currency.usd, Currency.thb];
+
+/// Keypad height: 4 rows of 52 dp keys + 3 gaps of 8 dp.
+const double _kKeypadHeight = 4 * 52 + 3 * 8;
+
+/// Breathing room kept below the keypad when the header is pinned.
+const double _kPinnedHeaderSlack = 36;
+
+/// Estimated height of the entry header (type toggle, currency chips,
+/// amount label and amount) at [textScaler]. Only the text parts grow with
+/// the text scale; paddings stay fixed. ≈190 dp at scale 1.0.
+@visibleForTesting
+double estimatedEntryHeaderHeight(TextScaler textScaler) {
+  // Toggle padding (4+4+10+10) + chip padding (7+7) + gaps (12 + 14 + 6 + 8)
+  // + top padding 4.
+  const fixed = 28.0 + 14.0 + 40.0 + 4.0;
+  // Line boxes ≈ 1.3 × font size: toggle 14, chip 13, label 13, amount 42.
+  final text = textScaler.scale(14) +
+      textScaler.scale(13) +
+      textScaler.scale(13) +
+      textScaler.scale(42);
+  return fixed + text * 1.3;
+}
+
+/// Minimum body height for pinning the type toggle + amount above the
+/// scrolling area: header + full keypad + breathing room (≈460 dp at text
+/// scale 1.0; larger text needs more room, else everything scrolls).
+@visibleForTesting
+double pinnedHeaderMinHeight(TextScaler textScaler) =>
+    estimatedEntryHeaderHeight(textScaler) + _kKeypadHeight + _kPinnedHeaderSlack;
 
 // Extension for safely finding an element in a list
 extension FirstWhereOrNullExtension<E> on Iterable<E> {
@@ -45,19 +75,39 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   bool _isLoadingCategories = false;
   DateTime _selectedDate = DateTime.now(); // Default date is today
 
+  // This screen's own save state. TransactionProvider.isLoading / error are
+  // shared with background fetches (e.g. Home refreshing), which must not
+  // disable Save or show their errors here.
+  bool _isSaving = false;
+  String? _saveError;
+
   TransactionRecurrence? _recurrence;
 
   Currency _selectedCurrency = Currency.usd;
 
   String _amountText = '';
 
+  final GlobalKey _keypadAnchorKey = GlobalKey();
+  final GlobalKey _keypadFirstRowKey = GlobalKey();
+
+  /// Whether the type toggle + amount are pinned above the scroll area
+  /// (decided per layout from the available height).
+  bool _headerPinned = false;
+  bool _initialCategoriesLoaded = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
         _selectedCurrency = authProvider.defaultCurrency;
+      });
+      // On small phones the keypad starts below the fold — reveal its first
+      // row once the first layout is done.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _revealFirstKeypadRow();
       });
     });
 
@@ -72,6 +122,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     try {
       final categories = await ApiService.getCategories(_selectedType);
+      if (!mounted) return;
       setState(() {
         _categories = categories;
         // Reset selected categories when type changes or categories load to ensure validity
@@ -79,11 +130,18 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         _selectedSubCategory = null;
         _isLoadingCategories = false;
       });
+      if (!_initialCategoriesLoaded) {
+        _initialCategoriesLoaded = true;
+        // The quick-pick row that just appeared pushes the keypad down.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _revealFirstKeypadRow();
+        });
+      }
     } catch (e) {
+      debugPrint("Error loading categories: $e");
+      if (!mounted) return;
       setState(() {
         _isLoadingCategories = false;
-        // Optionally display an error message to the user
-        print("Error loading categories: $e");
       });
     }
   }
@@ -105,11 +163,16 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   // Function to show the date picker dialog
   Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
+    final bounds = DatePickerBounds.clamped(
       initialDate: _selectedDate, // Pre-fill with the current selected date
       firstDate: DateTime(2000), // Set the earliest possible date
       lastDate: DateTime.now().add(Duration(days: 365)), // Set the latest possible date (1 year from now)
+    );
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: bounds.initialDate,
+      firstDate: bounds.firstDate,
+      lastDate: bounds.lastDate,
       builder: (BuildContext context, Widget? child) {
         return child!;
       },
@@ -193,9 +256,39 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String _dateRowLabel() {
     final now = DateTime.now();
     final isToday = _selectedDate.year == now.year && _selectedDate.month == now.month && _selectedDate.day == now.day;
-    final formatted = DateFormat('d MMM yyyy').format(_selectedDate);
-    return isToday ? 'Today, $formatted' : formatted;
+    final localeName = Localizations.localeOf(context).toLanguageTag();
+    String formatted;
+    try {
+      formatted = DateFormat('d MMM yyyy', localeName).format(_selectedDate);
+    } catch (_) {
+      formatted = DateFormat('d MMM yyyy').format(_selectedDate);
+    }
+    return isToday ? '${AppLocalizations.of(context).todayLabel}, $formatted' : formatted;
   }
+
+  /// Scrolls (forward only, as little as needed) until [key]'s widget is
+  /// fully visible at the bottom edge of the scroll area. No-op when it is
+  /// already visible.
+  void _revealAtBottom(GlobalKey key) {
+    final targetContext = key.currentContext;
+    if (targetContext == null) return;
+    Scrollable.ensureVisible(
+      targetContext,
+      alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
+  /// On open: on small phones the keypad starts below the fold. Reveal just
+  /// its first row so the amount (and, when pinned, the type toggle) stays
+  /// in view — never scroll the whole keypad up past the amount.
+  void _revealFirstKeypadRow() => _revealAtBottom(_keypadFirstRowKey);
+
+  /// Amount tapped: with the header pinned the amount can't scroll away, so
+  /// reveal the whole keypad; otherwise only its first row.
+  void _scrollKeypadIntoView() =>
+      _revealAtBottom(_headerPinned ? _keypadAnchorKey : _keypadFirstRowKey);
 
   Future<void> _editNote() async {
     final localizations = AppLocalizations.of(context);
@@ -397,7 +490,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final transactionProvider = Provider.of<TransactionProvider>(context);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final isInflow = _selectedType == TransactionType.inflow;
@@ -406,7 +498,23 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(icon: Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
-        title: Text(localizations.addTransactionTitle, style: TextStyle(fontSize: 18)),
+        titleSpacing: 0,
+        // Shrinks to fit rather than truncating to "ငွေ…"; dropped entirely
+        // when the actions leave no meaningful room.
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 56) return const SizedBox.shrink();
+            return FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                localizations.addTransactionTitle,
+                maxLines: 1,
+                style: const TextStyle(fontSize: 18),
+              ),
+            );
+          },
+        ),
         actions: [
           _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: localizations.speakItTooltip, onTap: _goVoice),
           const SizedBox(width: 6),
@@ -415,14 +523,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             padding: const EdgeInsets.only(left: 8, right: 12),
             child: Center(
               child: GestureDetector(
-                onTap: transactionProvider.isLoading ? null : _addTransaction,
+                onTap: _isSaving ? null : _addTransaction,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                   decoration: BoxDecoration(
-                    color: transactionProvider.isLoading ? scheme.outline : scheme.primary,
+                    color: _isSaving ? scheme.outline : scheme.primary,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: transactionProvider.isLoading
+                  child: _isSaving
                       ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                       : Text(
                           localizations.save,
@@ -434,12 +542,57 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           ),
         ],
       ),
+      // No inline text fields here (note / conversion use dialogs, which
+      // handle the keyboard themselves); not resizing keeps the pinned/
+      // scrolling layout below stable while a dialog's keyboard is open.
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final header = _buildEntryHeader(localizations, scheme, typeInk);
+            final details = _buildEntryDetails(localizations, scheme);
+            // Pin type toggle + currency + amount above the scroll area when
+            // there's room for them plus the keypad (e.g. 360×640 phones:
+            // ~512 dp body, ~190 dp header, 232 dp keypad), so the amount
+            // stays visible while typing on any keypad row. The header grows
+            // with the text scale, so the threshold does too (otherwise the
+            // scroll area could end up smaller than the keypad).
+            _headerPinned = constraints.maxHeight >=
+                pinnedHeaderMinHeight(MediaQuery.textScalerOf(context));
+            if (_headerPinned) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: header),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: details),
+                    ),
+                  ),
+                ],
+              );
+            }
+            // Very short viewports (landscape, huge text): scroll everything.
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [...header, ...details],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Type toggle, currency chips and the amount display.
+  List<Widget> _buildEntryHeader(AppLocalizations localizations, ColorScheme scheme, Color typeInk) {
+    return [
               // Type segmented control
               Container(
                 padding: const EdgeInsets.all(4),
@@ -468,9 +621,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          '${localizations.amountLabel} · ${_selectedCurrency.name.toUpperCase()}',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                        Flexible(
+                          child: Text(
+                            '${localizations.amountLabel} · ${_selectedCurrency.name.toUpperCase()}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                          ),
                         ),
                         const SizedBox(width: 6),
                         InkWell(
@@ -487,30 +644,51 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       ],
                     ),
                     SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          _selectedCurrency.symbol,
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _scrollKeypadIntoView,
+                      // Long amounts (11–12 digits) and large text scales
+                      // shrink to the available width instead of overflowing.
+                      child: FittedBox(
+                        key: const ValueKey('amount-display'),
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(
+                              _selectedCurrency.symbol,
+                              maxLines: 1,
+                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              _displayAmount,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: AppTheme.money(
+                                42,
+                                weight: FontWeight.w800,
+                                color: _amountText.isEmpty ? scheme.onSurfaceVariant : typeInk,
+                              ),
+                            ),
+                          ],
                         ),
-                        SizedBox(width: 4),
-                        Text(
-                          _displayAmount,
-                          style: AppTheme.money(
-                            42,
-                            weight: FontWeight.w800,
-                            color: _amountText.isEmpty ? scheme.onSurfaceVariant : typeInk,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
               ),
+    ];
+  }
 
+  /// Category, date / note / repeat, error and the keypad.
+  List<Widget> _buildEntryDetails(
+    AppLocalizations localizations,
+    ColorScheme scheme,
+  ) {
+    return [
               // Category picker
               InkWell(
                 onTap: () => _openCategorySheet(),
@@ -690,7 +868,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 ),
               ),
 
-              if (transactionProvider.error != null)
+              if (_saveError != null)
                 Container(
                   margin: const EdgeInsets.only(top: 16),
                   padding: const EdgeInsets.all(12),
@@ -704,7 +882,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          transactionProvider.error!,
+                          _saveError!,
                           style: TextStyle(color: scheme.onErrorContainer),
                         ),
                       ),
@@ -714,19 +892,34 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
               SizedBox(height: 18),
 
-              // Keypad
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map((k) {
-                  return _keypadKey(k);
-                }).toList(),
+              // Keypad (explicit rows so the first row can be revealed on
+              // its own).
+              Column(
+                key: _keypadAnchorKey,
+                children: [
+                  for (final (i, row) in const [
+                    ['1', '2', '3'],
+                    ['4', '5', '6'],
+                    ['7', '8', '9'],
+                    ['.', '0', '⌫'],
+                  ].indexed) ...[
+                    if (i > 0) const SizedBox(height: 8),
+                    // Keys share the width the Row actually gets (inside the
+                    // SafeArea + padding), not the screen width — landscape,
+                    // notches and side nav bars would otherwise overflow.
+                    Row(
+                      key: i == 0 ? _keypadFirstRowKey : null,
+                      children: [
+                        for (final (j, label) in row.indexed) ...[
+                          if (j > 0) const SizedBox(width: 8),
+                          Expanded(child: _keypadKey(label)),
+                        ],
+                      ],
+                    ),
+                  ],
+                ],
               ),
-            ],
-          ),
-        ),
-      ),
-    );
+    ];
   }
 
   Widget _currencyPill(Currency currency) {
@@ -805,13 +998,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
   }
 
+  /// One keypad key; its width comes from the parent Row (Expanded).
   Widget _keypadKey(String label) {
-    final width = (MediaQuery.of(context).size.width - 32 - 16) / 3;
     return InkWell(
+      key: ValueKey('keypad-$label'),
       onTap: () => _pressKey(label),
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        width: width,
         height: 52,
         alignment: Alignment.center,
         decoration: BoxDecoration(
@@ -821,7 +1014,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         ),
         child: label == '⌫'
             ? Icon(Icons.backspace_rounded, size: 20)
-            : Text(label, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(label, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+              ),
       ),
     );
   }
@@ -985,6 +1181,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
+    setState(() {
+      _isSaving = true;
+      _saveError = null;
+    });
     final success = await transactionProvider.createTransaction(
       type: _selectedType,
       mainCategory: _selectedMainCategory!,
@@ -996,9 +1196,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       context: context,
       recurrence: _recurrence,
     );
+    if (!mounted) return;
 
     if (success) {
       Navigator.pop(context, true);
+    } else {
+      setState(() {
+        _isSaving = false;
+        _saveError = transactionProvider.writeError;
+      });
     }
   }
 

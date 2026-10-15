@@ -1,3 +1,5 @@
+import 'package:frontend/utils/date_parsing.dart';
+
 enum NotificationType {
   goal_progress,
   goal_milestone,
@@ -19,6 +21,7 @@ enum NotificationType {
   monthly_insights_generated,
   system_broadcast,  // NEW
   admin_announcement,  // NEW
+  subscription_expired,
 }
 
 class AppNotification {
@@ -52,14 +55,31 @@ class AppNotification {
       userId: json['user_id'],
       type: NotificationType.values.firstWhere(
         (e) => e.name == json['type'],
+        // Newer backend types must not break the whole notifications list.
+        orElse: () => NotificationType.system_broadcast,
       ),
       title: json['title'],
       message: json['message'],
       goalId: json['goal_id'],
       goalName: json['goal_name'],
       currency: json['currency'],  // NEW
-      createdAt: DateTime.parse(json['created_at'] + 'Z').toLocal(),
+      createdAt: parseInstant(json['created_at']),
       isRead: json['is_read'],
+    );
+  }
+
+  AppNotification copyWith({bool? isRead}) {
+    return AppNotification(
+      id: id,
+      userId: userId,
+      type: type,
+      title: title,
+      message: message,
+      goalId: goalId,
+      goalName: goalName,
+      currency: currency,
+      createdAt: createdAt,
+      isRead: isRead ?? this.isRead,
     );
   }
 

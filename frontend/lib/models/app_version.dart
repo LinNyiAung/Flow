@@ -1,3 +1,5 @@
+import 'package:frontend/utils/date_parsing.dart';
+
 enum Platform {
   android,
   ios,
@@ -44,7 +46,7 @@ class AppVersion {
       isForceUpdate: json['is_force_update'] ?? false,
       minSupportedVersion: json['min_supported_version'],
       isActive: json['is_active'] ?? true,
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: parseInstant(json['created_at']),
     );
   }
 }

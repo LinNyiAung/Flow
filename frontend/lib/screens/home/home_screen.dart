@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/chat_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
@@ -15,6 +16,7 @@ import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/progress_meter.dart';
@@ -36,6 +38,8 @@ import 'package:frontend/services/responsive_helper.dart';
 final formatter = NumberFormat("#,##0.00", "en_US");
 
 class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
@@ -45,21 +49,37 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey =
       GlobalKey<ScaffoldState>(); // Key for the Scaffold to open the drawer
 
+  // Currency the hero balance was last loaded in; see didChangeDependencies.
+  Currency? _balanceCurrency;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reload the balance when the default currency changes in Settings, so
+    // Home doesn't keep showing the old currency until a pull-to-refresh.
+    final currency = Provider.of<AuthProvider>(context).defaultCurrency;
+    if (_balanceCurrency != null && currency != _balanceCurrency) {
+      Provider.of<TransactionProvider>(context, listen: false).fetchBalance(currency: currency);
+    }
+    _balanceCurrency = currency;
+  }
+
   @override
   void initState() {
     super.initState();
     // Fetch initial data when the screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _refreshData(); // Fetch transactions and balance
 
       // NEW: Listen for notification events
+      final notificationProvider = Provider.of<NotificationProvider>(
+        context,
+        listen: false,
+      );
       _notificationSubscription = NotificationEventBus().onNotificationReceived
           .listen((_) {
-            final notificationProvider = Provider.of<NotificationProvider>(
-              context,
-              listen: false,
-            );
-            notificationProvider.fetchUnreadCount();
+            if (mounted) notificationProvider.fetchUnreadCount();
           });
     });
   }
@@ -112,11 +132,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Function to navigate to the TransactionsListScreen
-  void _navigateToTransactionsList() {
-    Navigator.push(
+  Future<void> _navigateToTransactionsList() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => TransactionsListScreen()),
     );
+    if (!mounted) return;
+    // The list screen keeps its filtered results local, but edits / deletes
+    // made there can change Home's recent set and balance — reload them.
+    final transactionProvider =
+        Provider.of<TransactionProvider>(context, listen: false);
+    final currency =
+        Provider.of<AuthProvider>(context, listen: false).defaultCurrency;
+    await Future.wait([
+      transactionProvider.fetchTransactions(limit: 30),
+      transactionProvider.fetchBalance(currency: currency),
+    ]);
   }
 
   @override
@@ -462,12 +493,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final inflow = balance?.totalInflow ?? 0.0;
     final outflow = balance?.totalOutflow ?? 0.0;
 
+    final localizations = AppLocalizations.of(context);
+    final totalText = localizations.amountTotal
+        .replaceAll('{amount}', '$symbol${formatter.format(total)}');
     final supporting = allocated > 0
-        ? '$symbol${formatter.format(allocated)} set aside for goals · $symbol${formatter.format(total)} total'
-        : '$symbol${formatter.format(total)} total';
+        ? '${localizations.amountSetAsideForGoals.replaceAll('{amount}', '$symbol${formatter.format(allocated)}')} · $totalText'
+        : totalText;
 
     return HeroCard(
-      label: 'Available to spend',
+      label: localizations.availableToSpend,
       value: '$symbol${formatter.format(available)}',
       supporting: supporting,
       labelTrailing: Container(
@@ -1020,16 +1054,21 @@ class _HomeScreenState extends State<HomeScreen> {
     final String body;
     final VoidCallback onTap;
     if (cachedInsight != null) {
-      headline = 'Continue reading';
+      headline = localizations.continueReading;
       body = _firstInsightLine(cachedInsight.content);
       onTap = () => Navigator.pushNamed(context, '/insights');
     } else if (worst != null) {
       final over = (worst.percentageUsed - 100).toStringAsFixed(0);
       final daysLeft = worst.endDate.difference(DateTime.now()).inDays;
       headline = daysLeft >= 0
-          ? '${worst.name} is $over% over its cap with $daysLeft days to go.'
-          : '${worst.name} is $over% over its cap.';
-      body = 'Tap to see what to cut — and by how much.';
+          ? localizations.budgetOverCapWithDays
+              .replaceAll('{name}', worst.name)
+              .replaceAll('{percent}', over)
+              .replaceAll('{days}', '$daysLeft')
+          : localizations.budgetOverCap
+              .replaceAll('{name}', worst.name)
+              .replaceAll('{percent}', over);
+      body = localizations.tapToSeeWhatToCut;
       onTap = () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => BudgetDetailScreen(budget: worst)),
@@ -1364,15 +1403,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final responsive = ResponsiveHelper(context);
 
     // Fetch all balances
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Center(child: CircularProgressIndicator()),
-    );
+    final closeProgress = showBlockingProgress(context);
 
     try {
       final multiBalances = await ApiService.getAllBalances();
-      Navigator.pop(context); // Close loading dialog
+      closeProgress();
+      if (!mounted) return;
 
       final defaultCurrency = Provider.of<AuthProvider>(
         context,
@@ -1383,7 +1419,9 @@ class _HomeScreenState extends State<HomeScreen> {
         context: context,
         builder: (context) {
           final scheme = Theme.of(context).colorScheme;
-          return Column(
+          // Scrollable: three or more currencies are taller than a small phone.
+          return SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1515,7 +1553,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Column(
+                          // Flexible halves: labels and amounts wrap instead
+                          // of overflowing at large font sizes / in Myanmar.
+                          Flexible(
+                            child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
@@ -1530,12 +1571,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                 style: AppTheme.money(15, weight: FontWeight.w600, color: scheme.onSurface),
                               ),
                             ],
+                            ),
                           ),
-                          Column(
+                          SizedBox(width: responsive.sp12),
+                          Flexible(
+                            child: Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
                                 localizations.allocatedToGoals,
+                                textAlign: TextAlign.end,
                                 style: TextStyle(
                                   fontSize: responsive.fs12,
                                   color: scheme.onSurfaceVariant,
@@ -1550,6 +1595,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                             ],
+                            ),
                           ),
                         ],
                       ),
@@ -1602,11 +1648,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }).toList(),
             ],
+            ),
           );
         },
       );
     } catch (e) {
-      Navigator.pop(context); // Close loading dialog
+      closeProgress();
+      if (!mounted) return;
       final scheme = Theme.of(context).colorScheme;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

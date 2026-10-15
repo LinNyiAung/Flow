@@ -9,6 +9,13 @@ class FeedbackProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
+  /// Clears all per-user state (called on logout / user switch).
+  void reset() {
+    _isLoading = false;
+    _error = null;
+    notifyListeners();
+  }
+
   Future<bool> submitFeedback({
     required FeedbackCategory category,
     required String message,

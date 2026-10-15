@@ -22,15 +22,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // step instead of the form — mirrors the old confirmation dialog, but as
   // a screen state (there's no dedicated route/API for this step).
   bool _showVerify = false;
+  bool _isResending = false;
   String _registeredEmail = '';
+
+  /// AuthProvider.error is shared with the login screen: only show it once
+  /// this screen has made its own register attempt, so a login error (e.g.
+  /// "Invalid credentials") never appears here.
+  bool _showProviderError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Drop the login screen's error (after the frame: notifying listeners
+    // during build is not allowed).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Provider.of<AuthProvider>(context, listen: false).clearError();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 62, 24, 40),
-          child: _showVerify ? _buildVerifyStep(context) : _buildFormStep(context),
+    // System back from the verify step behaves like "I've verified — sign
+    // in" so the login screen still gets the registered address.
+    return PopScope<Object?>(
+      canPop: !_showVerify,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _showVerify) _backToSignIn();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 62, 24, 40),
+            child: _showVerify ? _buildVerifyStep(context) : _buildFormStep(context),
+          ),
         ),
       ),
     );
@@ -210,7 +235,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           // Error message
           Consumer<AuthProvider>(
             builder: (context, authProvider, child) {
-              if (authProvider.error == null) return const SizedBox.shrink();
+              if (!_showProviderError || authProvider.error == null) {
+                return const SizedBox.shrink();
+              }
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -351,8 +378,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+            // Back to the login screen this flow was opened from (the root
+            // AuthWrapper) instead of stacking another LoginScreen; it
+            // prefills the registered address.
+            onPressed: _backToSignIn,
             child: Text(localizations.verifiedSignInButton),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _isResending ? null : _resendVerification,
+            icon: _isResending
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.send_rounded, size: 18),
+            label: Text(localizations.resendVerificationEmail),
           ),
         ),
         const SizedBox(height: 18),
@@ -381,12 +422,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (_formKey.currentState!.validate()) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final email = _emailController.text.trim();
+      setState(() => _showProviderError = true);
       final success = await authProvider.register(
         name: _nameController.text.trim(),
         email: email,
         password: _passwordController.text,
       );
 
+      if (!mounted) return;
+      if (success && authProvider.isAuthenticated) {
+        // Already-verified account (e.g. verification disabled server-side).
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+        return;
+      }
       if (success) {
         setState(() {
           _registeredEmail = email;
@@ -394,6 +442,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
       }
     }
+  }
+
+  /// Leaves the verify step for the login screen, handing it the registered
+  /// address. Clears any stale "not verified" notice there.
+  void _backToSignIn() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.clearPendingVerification();
+    authProvider.clearError();
+    Navigator.pop(context, _registeredEmail);
+  }
+
+  Future<void> _resendVerification() async {
+    setState(() => _isResending = true);
+    final error = await Provider.of<AuthProvider>(context, listen: false)
+        .resendVerificationEmail(_registeredEmail);
+    if (!mounted) return;
+    setState(() => _isResending = false);
+    final localizations = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error == null
+              ? localizations.verificationEmailResent
+              : (error.isEmpty ? localizations.genericErrorOccurred : error),
+        ),
+        backgroundColor:
+            error == null ? null : Theme.of(context).colorScheme.error,
+      ),
+    );
   }
 
   GestureRecognizer _tapGesture(VoidCallback onTap) {

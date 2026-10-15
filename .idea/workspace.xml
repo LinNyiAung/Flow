@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="NONE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="35ef9eba-1086-4d7b-9dbb-f70ef9f59342" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/admin/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/admin/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/admin/src/AIUsageStats.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/admin/src/AIUsageStats.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/admin/src/App.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/admin/src/App.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/admin/src/FeedbackManagement.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/admin/src/FeedbackManagement.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/admin_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/admin_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/admin_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/admin_routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/admin_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/admin_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/ai_chatbot.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/ai_chatbot.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/ai_chatbot_gemini.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/ai_chatbot_gemini.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/ai_usage_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/ai_usage_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app_version_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app_version_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app_version_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app_version_routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/auth_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/auth_routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/budget_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/budget_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/budget_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/budget_routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/budget_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/budget_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/database.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/database.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/email_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/email_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/firebase_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/firebase_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/goal_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/goal_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/goal_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/goal_routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/insights_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/insights_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/notification_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/notification_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/notification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/notification_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/pdf_generator.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/pdf_generator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/recurrence_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/recurrence_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/recurring_transaction_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/recurring_transaction_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/report_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/report_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/report_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/report_routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/backend/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/transaction_routes.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/transaction_routes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/main.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/app_version.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/app_version.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/budget.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/budget.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/chat.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/chat.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/goal.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/goal.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/insight.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/insight.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/notification.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/notification.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/notification_preferences.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/notification_preferences.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/recurring_transaction.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/recurring_transaction.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/report.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/report.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/transaction.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/transaction.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/user.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/user.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/models/voice_image_models.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/models/voice_image_models.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/auth_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/auth_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/budget_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/budget_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/chat_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/chat_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/feedback_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/feedback_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/goal_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/goal_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/insight_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/insight_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/notification_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/notification_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/providers/transaction_provider.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/providers/transaction_provider.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/ai/ai_chat_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/ai/ai_chat_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/auth/forgot_password_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/auth/forgot_password_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/auth/login_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/auth/login_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/auth/register_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/auth/register_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/budgets/budget_detail_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/budgets/budget_detail_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/budgets/create_budget_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/budgets/create_budget_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/budgets/edit_budget_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/budgets/edit_budget_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/charts/inflow_analytics_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/charts/inflow_analytics_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/charts/outflow_analytics_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/charts/outflow_analytics_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/goals/add_goal_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/goals/add_goal_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/goals/goal_detail_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/goals/goal_detail_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/goals/goals_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/goals/goals_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/home/home_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/home/home_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/insights/insights_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/insights/insights_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/report/reports_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/report/reports_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/settings/edit_profile_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/settings/edit_profile_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/settings/language_settings_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/settings/language_settings_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/settings/notification_settings_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/settings/notification_settings_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/settings/settings_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/settings/settings_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/transactions/add_transaction_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/transactions/add_transaction_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/transactions/edit_transaction_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/transactions/edit_transaction_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/transactions/image_input_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/transactions/image_input_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/transactions/transactions_list_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/transactions/transactions_list_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/screens/transactions/voice_input_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/screens/transactions/voice_input_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/services/api_service.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/services/api_service.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/services/fcm_service.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/services/fcm_service.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/services/localization_service.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/services/localization_service.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/widgets/app_drawer.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/widgets/app_drawer.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/lib/widgets/recurrence_settings.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/lib/widgets/recurrence_settings.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/linux/flutter/generated_plugin_registrant.cc" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/linux/flutter/generated_plugin_registrant.cc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/linux/flutter/generated_plugin_registrant.h" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/linux/flutter/generated_plugin_registrant.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/linux/flutter/generated_plugins.cmake" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/linux/flutter/generated_plugins.cmake" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/macos/Flutter/GeneratedPluginRegistrant.swift" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/macos/Flutter/GeneratedPluginRegistrant.swift" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/pubspec.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/pubspec.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/test/widget_test.dart" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/test/widget_test.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/windows/flutter/generated_plugin_registrant.cc" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/windows/flutter/generated_plugin_registrant.cc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/windows/flutter/generated_plugin_registrant.h" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/windows/flutter/generated_plugin_registrant.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/windows/flutter/generated_plugins.cmake" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/windows/flutter/generated_plugins.cmake" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 3
+}]]></component>
+  <component name="ProjectId" id="3KifbOZG6icogZD258469eXo6DB" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "git-widget-placeholder": "main",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/projects/Flow/frontend"
+  }
+}]]></component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="35ef9eba-1086-4d7b-9dbb-f70ef9f59342" name="Changes" comment="" />
+      <created>1792045380023</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1792045380023</updated>
+    </task>
+    <servers />
+  </component>
+</project>

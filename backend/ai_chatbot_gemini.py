@@ -6,10 +6,11 @@ from datetime import datetime, timedelta, timezone
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
 from database import transactions_collection, users_collection, goals_collection
+from tz_utils import app_wall_clock_now
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,7 +38,7 @@ def get_date_only(dt: datetime) -> str:
 
 
 # Import FinancialDataProcessor from the original file
-from ai_chatbot import FinancialDataProcessor
+from ai_chatbot import FinancialDataProcessor, ChatServiceError, UserVectorStoreCache
 
 
 class GeminiFinancialChatbot:
@@ -68,7 +69,10 @@ class GeminiFinancialChatbot:
             chunk_overlap=200,
             separators=["\n\n", "\n", " ", ""]
         )
-        self.user_vector_stores = {}
+        # Bounded LRU cache, rebuilt daily (relative dates) and on invalidation.
+        self.user_vector_stores = UserVectorStoreCache(
+            max_users=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
+        )
         
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         
@@ -82,56 +86,49 @@ class GeminiFinancialChatbot:
             except Exception as e:
                 print(f"❌ Failed to initialize genai client: {e}")
     
-    # [FIX] Changed to async
-    async def _get_or_create_vector_store(self, user_id: str) -> Chroma:
-        """Get or create vector store for user"""
-        if user_id not in self.user_vector_stores:
-            processor = FinancialDataProcessor(user_id)
-            
-            # [FIX] Await async document creation
-            documents = await processor.create_financial_documents()
-            
-            if not documents or not self.embeddings:
-                return None
-            
-            try:
-                split_documents = []
-                for doc in documents:
-                    if doc.metadata.get("type") in ["chronological_index", "goals_overview"]:
-                        split_documents.append(doc)
-                    else:
-                        split_documents.extend(self.text_splitter.split_documents([doc]))
-                
-                # [FIX] Run blocking Chroma call in a thread
-                vector_store = await asyncio.to_thread(
-                    Chroma.from_documents,
-                    documents=split_documents,
-                    embedding=self.embeddings,
-                    collection_name=f"user_gemini_{user_id}_{int(datetime.now().timestamp())}"
-                )
-                self.user_vector_stores[user_id] = vector_store
-                print(f"✅ Created Gemini vector store with {len(split_documents)} chunks")
-            except Exception as e:
-                print(f"❌ Error creating Gemini vector store: {e}")
-                return None
-        
-        return self.user_vector_stores[user_id]
+    async def _build_vector_store(self, user_id: str) -> Optional[InMemoryVectorStore]:
+        processor = FinancialDataProcessor(user_id)
+        documents = await processor.create_financial_documents()
+
+        if not documents or not self.embeddings:
+            return None
+
+        try:
+            split_documents = []
+            for doc in documents:
+                if doc.metadata.get("type") in ["chronological_index", "goals_overview"]:
+                    split_documents.append(doc)
+                else:
+                    split_documents.extend(self.text_splitter.split_documents([doc]))
+
+            # Embedding calls + indexing are blocking; run in a thread
+            vector_store = await asyncio.to_thread(
+                InMemoryVectorStore.from_documents,
+                documents=split_documents,
+                embedding=self.embeddings,
+            )
+            print(f"✅ Created Gemini vector store with {len(split_documents)} chunks")
+            return vector_store
+        except Exception as e:
+            print(f"❌ Error creating Gemini vector store: {e}")
+            return None
+
+    async def _get_or_create_vector_store(self, user_id: str):
+        """
+        Lease (building once, even under concurrent requests) the user's vector store.
+        Returns (store_or_None, release); call release() when done querying it.
+        """
+        return await self.user_vector_stores.acquire(
+            user_id, lambda: self._build_vector_store(user_id)
+        )
     
     def refresh_user_data(self, user_id: str):
         """
         Invalidate user's vector store cache. 
         The next call to stream_chat will automatically rebuild it.
         """
-        if user_id in self.user_vector_stores:
-            try:
-                self.user_vector_stores[user_id].delete_collection()
-            except:
-                pass
-            del self.user_vector_stores[user_id]
-        
-        # REMOVED: self._get_or_create_vector_store(user_id)
-        
-        print(f"✅ Refreshed (Invalidated) data for user {user_id}")
+        if self.user_vector_stores.invalidate(user_id):
+            print(f"✅ Refreshed (Invalidated) data for user {user_id}")
     
     def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
         """Build enhanced system prompt for Gemini with Myanmar language support and response style"""
@@ -384,14 +381,13 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         """Stream chat response using Gemini Flash 2.5 with enhanced RAG"""
         try:
             if not self.client:
-                yield "Gemini AI service is not available. API key not configured.", None
-                return
+                print("❌ Gemini client not configured (GOOGLE_API_KEY missing?)")
+                raise ChatServiceError("The Gemini assistant is not available right now. Please try again later.")
 
             # [FIX] Direct await (Async Motor)
             user = await users_collection.find_one({"_id": user_id})
             if not user:
-                yield "User not found. Please log in again.", None
-                return
+                raise ChatServiceError("We couldn't load your account. Please log in again.")
             
             processor = FinancialDataProcessor(user_id)
             
@@ -464,7 +460,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             context = ""
             
             # [FIX] Await async vector store creation
-            vector_store = await self._get_or_create_vector_store(user_id)
+            vector_store, release_vector_store = await self._get_or_create_vector_store(user_id)
             
             if vector_store:
                 try:
@@ -497,6 +493,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 except Exception as e:
                     print(f"❌ Error retrieving documents: {e}")
                     context = json.dumps(summary, indent=2)
+                finally:
+                    # Let a retired (evicted/invalidated) store be deleted now that we're done.
+                    release_vector_store()
             
             # Prepare chat history
             history_text = ""
@@ -505,7 +504,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     role = "You" if msg.get("role") == "user" else "Assistant"
                     history_text += f"\n{role}: {msg.get('content', '')}"
             
-            today = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
+            # "Today" for the user is the app-timezone calendar date, not the UTC one.
+            today = app_wall_clock_now().strftime("%A, %B %d, %Y")
             
             system_prompt = self._build_system_prompt(today, response_style)
             user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text, message, today)
@@ -518,64 +518,64 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 "explanatory": 0.4
             }
             
-            try:
-                # Approximate token count for logging
-                estimated_input = len(system_prompt + user_prompt) // 4
-                
-                # Gemini streaming call (using sync client in a thread or async client if available)
-                # Assuming 'self.client.models.generate_content_stream' is blocking:
-                # ADD this
-                full_prompt = f"{system_prompt}\n\nUSER QUERY: {user_prompt}"
+            # Approximate token count (fallback when usage metadata is missing)
+            estimated_input = len(system_prompt + user_prompt) // 4
+            full_prompt = f"{system_prompt}\n\nUSER QUERY: {user_prompt}"
 
-                def _sync_stream():
-                    chunks = []
-                    usage = None
-                    response = self.client.models.generate_content_stream(
-                        model=self.gemini_model,
-                        contents=[full_prompt],
-                        config={
-                            "temperature": temperature_map.get(response_style, 0.3),
-                            "max_output_tokens": 3000,
-                        }
-                    )
-                    for chunk in response:
-                        if chunk.text:
-                            chunks.append(chunk.text)
-                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
-                            usage = chunk.usage_metadata
-                    return chunks, usage
+            def _sync_stream():
+                # google-genai streaming is blocking; collect in a worker thread.
+                # API errors propagate (no longer swallowed) so the route sends an error frame.
+                chunks = []
+                usage = None
+                response = self.client.models.generate_content_stream(
+                    model=self.gemini_model,
+                    contents=[full_prompt],
+                    config={
+                        "temperature": temperature_map.get(response_style, 0.3),
+                        "max_output_tokens": 3000,
+                    }
+                )
+                for chunk in response:
+                    if chunk.text:
+                        chunks.append(chunk.text)
+                    if getattr(chunk, 'usage_metadata', None):
+                        usage = chunk.usage_metadata
+                return chunks, usage
 
-                full_response_text = ""
-                chunks, usage_metadata = await asyncio.to_thread(_sync_stream)
+            chunks, usage_metadata = await asyncio.to_thread(_sync_stream)
 
-                for chunk_text in chunks:
-                    full_response_text += chunk_text
-                    yield chunk_text, None
-                    await asyncio.sleep(0.01)
+            full_response_text = ""
+            for chunk_text in chunks:
+                full_response_text += chunk_text
+                yield chunk_text, None
+                await asyncio.sleep(0.01)
 
-                # Now estimated_output can be calculated since full_response_text is populated
-                estimated_output = len(full_response_text) // 4
+            if not full_response_text.strip():
+                raise ChatServiceError("The AI assistant returned an empty response. Please try again.")
 
-                actual_input = getattr(usage_metadata, 'prompt_token_count', estimated_input) if usage_metadata else estimated_input
-                actual_output = getattr(usage_metadata, 'candidates_token_count', estimated_output) if usage_metadata else estimated_output
-                actual_total = getattr(usage_metadata, 'total_token_count', actual_input + actual_output) if usage_metadata else actual_input + actual_output
+            estimated_output = len(full_response_text) // 4
 
-                usage_data = {
-                    'input_tokens': actual_input,
-                    'output_tokens': actual_output,
-                    'total_tokens': actual_total,
-                    'model_name': self.gemini_model
-                }
+            def _usage_value(name, fallback):
+                value = getattr(usage_metadata, name, None) if usage_metadata else None
+                return value if isinstance(value, int) else fallback
 
-                yield "", usage_data
-                    
-            except Exception as usage_error:
-                print(f"⚠️ Could not capture token usage: {usage_error}")
-                yield "", None
-            
+            actual_input = _usage_value('prompt_token_count', estimated_input)
+            actual_output = _usage_value('candidates_token_count', estimated_output)
+            actual_total = _usage_value('total_token_count', actual_input + actual_output)
+
+            yield "", {
+                'input_tokens': actual_input,
+                'output_tokens': actual_output,
+                'total_tokens': actual_total,
+                'model_name': self.gemini_model
+            }
+
+        except ChatServiceError:
+            raise
         except Exception as e:
-            print(f"❌ Gemini streaming chat error: {str(e)}")
-            yield f"I encountered an error: {str(e)}", None
+            # Log details server-side; the client gets a friendly error frame instead.
+            print(f"❌ Gemini streaming chat error: {type(e).__name__}: {e}")
+            raise ChatServiceError() from e
             
 
 # Global Gemini chatbot instance

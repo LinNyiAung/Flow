@@ -4,11 +4,15 @@ import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
-import '../home/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
+  /// True when rendered by AuthWrapper as the root route's body.
+  final bool embedded;
+
+  const LoginScreen({super.key, this.embedded = false});
+
   @override
-  _LoginScreenState createState() => _LoginScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
@@ -16,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _isResending = false;
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +68,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    onChanged: (value) {
+                      // The "not verified" notice belongs to the address that
+                      // was rejected; drop it once the user edits the e-mail.
+                      final authProvider =
+                          Provider.of<AuthProvider>(context, listen: false);
+                      final pending = authProvider.pendingVerificationEmail;
+                      if (pending != null && value.trim() != pending) {
+                        authProvider.clearPendingVerification();
+                      }
+                    },
                     decoration: InputDecoration(
                       labelText: localizations.emailLabel,
                       prefixIcon: const Icon(Icons.mail_outline_rounded),
@@ -125,10 +140,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 4),
 
-                  // Error message
+                  // Error message (the unverified-account notice is shown
+                  // below the Sign in button instead, so it never pushes the
+                  // button off-screen).
                   Consumer<AuthProvider>(
                     builder: (context, authProvider, child) {
-                      if (authProvider.error == null) return const SizedBox.shrink();
+                      if (authProvider.pendingVerificationEmail != null ||
+                          authProvider.error == null) {
+                        return const SizedBox.shrink();
+                      }
                       return Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
@@ -178,16 +198,25 @@ class _LoginScreenState extends State<LoginScreen> {
                       );
                     },
                   ),
+
+                  // Unverified-account notice (only after an actual
+                  // unverified login attempt).
+                  Consumer<AuthProvider>(
+                    builder: (context, authProvider, child) {
+                      if (authProvider.pendingVerificationEmail == null) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: _buildVerifyNotice(authProvider, scheme),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 18),
 
                   // Register link
                   GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => RegisterScreen()),
-                      );
-                    },
+                    onTap: _openRegister,
                     child: RichText(
                       text: TextSpan(
                         style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
@@ -219,13 +248,100 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
 
-      if (success) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => HomeScreen()),
-        );
+      if (!success || !mounted) return;
+      // When shown by AuthWrapper (the root route), AuthWrapper itself
+      // switches to the force-update check / HomeScreen. When this login
+      // screen was pushed on top of something else, go back to a single
+      // fresh root so no duplicate HomeScreens pile up.
+      if (!widget.embedded) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       }
     }
+  }
+
+  /// Opens registration; when the user comes back from its "verify your
+  /// e-mail" step, the registered address is prefilled here.
+  Future<void> _openRegister() async {
+    // AuthProvider.error is shared between Login and Register: clear it when
+    // leaving for Register and again when coming back, so neither screen
+    // shows the other's error.
+    Provider.of<AuthProvider>(context, listen: false).clearError();
+    final registeredEmail = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => RegisterScreen()),
+    );
+    if (!mounted) return;
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    authProvider.clearError();
+    if (registeredEmail == null || registeredEmail.isEmpty) return;
+    authProvider.clearPendingVerification();
+    setState(() {
+      _emailController.text = registeredEmail;
+      _passwordController.clear();
+    });
+  }
+
+  Future<void> _resendVerification(String email) async {
+    setState(() => _isResending = true);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final error = await authProvider.resendVerificationEmail(email);
+    if (!mounted) return;
+    setState(() => _isResending = false);
+    final localizations = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? localizations.verificationEmailResent),
+        backgroundColor: error == null ? null : scheme.error,
+      ),
+    );
+  }
+
+  Widget _buildVerifyNotice(AuthProvider authProvider, ColorScheme scheme) {
+    final email = authProvider.pendingVerificationEmail;
+    if (email == null) return const SizedBox.shrink();
+    final localizations = AppLocalizations.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.mark_email_unread_rounded, color: scheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  localizations.checkEmailToVerify,
+                  style: TextStyle(
+                    color: scheme.onPrimaryContainer,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _isResending ? null : () => _resendVerification(email),
+              icon: _isResending
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: Text(localizations.resendVerificationEmail),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

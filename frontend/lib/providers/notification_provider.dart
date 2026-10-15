@@ -10,6 +10,9 @@ class NotificationProvider with ChangeNotifier {
   String? _error;
   final _notificationService = NotificationService();
 
+  /// Bumped on [reset]; responses for an older session are discarded.
+  int _generation = 0;
+
   List<AppNotification> get notifications => _notifications;
   int get unreadCount => _unreadCount;
   bool get isLoading => _isLoading;
@@ -17,6 +20,16 @@ class NotificationProvider with ChangeNotifier {
 
   List<AppNotification> get unreadNotifications =>
       _notifications.where((n) => !n.isRead).toList();
+
+  /// Clears all per-user state (called on logout / user switch).
+  void reset() {
+    _generation++;
+    _notifications = [];
+    _unreadCount = 0;
+    _isLoading = false;
+    _error = null;
+    notifyListeners();
+  }
 
   void _setLoading(bool loading) {
     _isLoading = loading;
@@ -28,45 +41,52 @@ class NotificationProvider with ChangeNotifier {
     notifyListeners();
   }
 
-    Future<void> fetchNotifications({bool unreadOnly = false}) async {
+  Future<void> fetchNotifications({bool unreadOnly = false}) async {
     _setLoading(true);
     _setError(null);
+    final gen = _generation;
 
     try {
       final oldUnreadCount = _unreadCount;
-      _notifications = await ApiService.getNotifications(unreadOnly: unreadOnly);
+      final result = await ApiService.getNotifications(unreadOnly: unreadOnly);
+      if (gen != _generation) return;
+      _notifications = result;
       await fetchUnreadCount();
-      
+      if (gen != _generation) return;
+
       // Show system notifications for new unread notifications
       if (_unreadCount > oldUnreadCount) {
         final newNotifications = _notifications
             .where((n) => !n.isRead)
             .take(_unreadCount - oldUnreadCount)
             .toList();
-        
+
         for (var notification in newNotifications) {
           await _notificationService.showGoalNotification(notification);
         }
       }
-      
+
       _setLoading(false);
     } catch (e) {
+      if (gen != _generation) return;
       _setError(e.toString().replaceAll('Exception: ', ''));
       _setLoading(false);
     }
   }
 
-
-    Future<void> showSystemNotification(AppNotification notification) async {
+  Future<void> showSystemNotification(AppNotification notification) async {
     await _notificationService.showGoalNotification(notification);
   }
 
   Future<void> fetchUnreadCount() async {
+    final gen = _generation;
     try {
-      _unreadCount = await ApiService.getUnreadNotificationCount();
+      final count = await ApiService.getUnreadNotificationCount();
+      if (gen != _generation) return;
+      _unreadCount = count;
       notifyListeners();
     } catch (e) {
-      print("Error fetching unread count: $e");
+      debugPrint("Error fetching unread count: $e");
     }
   }
 
@@ -76,17 +96,8 @@ class NotificationProvider with ChangeNotifier {
 
       final index = _notifications.indexWhere((n) => n.id == notificationId);
       if (index != -1) {
-        _notifications[index] = AppNotification(
-          id: _notifications[index].id,
-          userId: _notifications[index].userId,
-          type: _notifications[index].type,
-          title: _notifications[index].title,
-          message: _notifications[index].message,
-          goalId: _notifications[index].goalId,
-          goalName: _notifications[index].goalName,
-          createdAt: _notifications[index].createdAt,
-          isRead: true,
-        );
+        // copyWith keeps every field (currency included).
+        _notifications[index] = _notifications[index].copyWith(isRead: true);
       }
 
       await fetchUnreadCount();
@@ -100,18 +111,9 @@ class NotificationProvider with ChangeNotifier {
   Future<bool> markAllAsRead() async {
     try {
       await ApiService.markAllNotificationsRead();
-      
-      _notifications = _notifications.map((n) => AppNotification(
-        id: n.id,
-        userId: n.userId,
-        type: n.type,
-        title: n.title,
-        message: n.message,
-        goalId: n.goalId,
-        goalName: n.goalName,
-        createdAt: n.createdAt,
-        isRead: true,
-      )).toList();
+
+      _notifications =
+          _notifications.map((n) => n.copyWith(isRead: true)).toList();
 
       _unreadCount = 0;
       notifyListeners();

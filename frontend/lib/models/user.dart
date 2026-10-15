@@ -1,3 +1,5 @@
+import 'package:frontend/utils/date_parsing.dart';
+
 // NEW: Add subscription type enum
 enum SubscriptionType {
   free,
@@ -55,7 +57,10 @@ class User {
   final DateTime? subscriptionExpiresAt;
   final Currency defaultCurrency;
   final bool isVerified;
-  final bool hasClaimedFreeTrial; // <-- NEW FIELD
+  final bool hasClaimedFreeTrial;
+
+  /// Server-side UI language preference ('en' | 'my'), when provided.
+  final String? language;
 
   User({
     required this.id,
@@ -66,8 +71,35 @@ class User {
     this.subscriptionExpiresAt,
     this.defaultCurrency = Currency.usd,
     this.isVerified = false,
-    this.hasClaimedFreeTrial = false, // <-- NEW FIELD
+    this.hasClaimedFreeTrial = false,
+    this.language,
   });
+
+  User copyWith({
+    String? name,
+    SubscriptionType? subscriptionType,
+    DateTime? subscriptionExpiresAt,
+    bool clearSubscriptionExpiresAt = false,
+    Currency? defaultCurrency,
+    bool? isVerified,
+    bool? hasClaimedFreeTrial,
+    String? language,
+  }) {
+    return User(
+      id: id,
+      name: name ?? this.name,
+      email: email,
+      createdAt: createdAt,
+      subscriptionType: subscriptionType ?? this.subscriptionType,
+      subscriptionExpiresAt: clearSubscriptionExpiresAt
+          ? null
+          : (subscriptionExpiresAt ?? this.subscriptionExpiresAt),
+      defaultCurrency: defaultCurrency ?? this.defaultCurrency,
+      isVerified: isVerified ?? this.isVerified,
+      hasClaimedFreeTrial: hasClaimedFreeTrial ?? this.hasClaimedFreeTrial,
+      language: language ?? this.language,
+    );
+  }
 
   bool get isPremium {
     if (subscriptionType != SubscriptionType.premium) return false;
@@ -86,16 +118,15 @@ class User {
       id: json['id'],
       name: json['name'],
       email: json['email'],
-      createdAt: DateTime.parse(json['created_at']),
+      createdAt: parseInstant(json['created_at']),
       subscriptionType: SubscriptionType.fromString(
         json['subscription_type'] ?? 'free',
       ),
-      subscriptionExpiresAt: json['subscription_expires_at'] != null
-          ? DateTime.parse(json['subscription_expires_at'])
-          : null,
+      subscriptionExpiresAt: parseInstantOrNull(json['subscription_expires_at']),
       defaultCurrency: Currency.fromString(json['default_currency'] ?? 'usd'),
       isVerified: json['is_verified'] ?? false,
-      hasClaimedFreeTrial: json['has_claimed_free_trial'] ?? false, // <-- NEW
+      hasClaimedFreeTrial: json['has_claimed_free_trial'] == true,
+      language: json['language'] is String ? json['language'] as String : null,
     );
   }
 
@@ -109,7 +140,8 @@ class User {
       'subscription_expires_at': subscriptionExpiresAt?.toIso8601String(),
       'default_currency': defaultCurrency.name,
       'is_verified': isVerified,
-      'has_claimed_free_trial': hasClaimedFreeTrial, // <-- NEW
+      'has_claimed_free_trial': hasClaimedFreeTrial,
+      if (language != null) 'language': language,
     };
   }
 }
@@ -153,9 +185,7 @@ class SubscriptionStatus {
         json['subscription_type'] ?? 'free',
       ),
       isPremium: json['is_premium'] ?? false,
-      expiresAt: json['expires_at'] != null
-          ? DateTime.parse(json['expires_at'])
-          : null,
+      expiresAt: parseInstantOrNull(json['expires_at']),
       isExpired: json['is_expired'] ?? false,
     );
   }

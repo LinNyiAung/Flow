@@ -73,6 +73,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.campaign_rounded;
       case NotificationType.admin_announcement: // NEW
         return Icons.announcement_rounded;
+      case NotificationType.subscription_expired:
+        return Icons.workspace_premium_rounded;
     }
   }
 
@@ -122,6 +124,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.system_broadcast: // NEW
         return scheme.primary;
       case NotificationType.admin_announcement: // NEW
+        return scheme.tertiary;
+      case NotificationType.subscription_expired:
         return scheme.tertiary;
     }
   }
@@ -174,6 +178,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         notification.type == NotificationType.monthly_insights_generated) {
       // Navigate to insights screen
       Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
+    } else if (notification.type == NotificationType.subscription_expired) {
+      // Premium ended: open the subscription screen so the user can renew.
+      Navigator.pushNamed(context, '/subscription').then((_) => _refreshNotifications());
     } else if (notification.type == NotificationType.system_broadcast || // NEW
         notification.type == NotificationType.admin_announcement) {
       // NEW

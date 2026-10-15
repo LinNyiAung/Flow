@@ -5,11 +5,13 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:frontend/models/budget.dart';
+import 'package:frontend/models/transaction.dart';
 import 'package:frontend/providers/auth_provider.dart';
-import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
-import 'package:frontend/providers/transaction_provider.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/insight_errors.dart';
 import '../../models/insight.dart';
 import '../../providers/insight_provider.dart';
 import '../../widgets/app_drawer.dart';
@@ -31,15 +33,52 @@ class _InsightsScreenState extends State<InsightsScreen> {
     });
   }
 
+  // Health-score inputs, kept local to this screen so they never overwrite
+  // the shared BudgetProvider / TransactionProvider state used by Home and
+  // the Budgets screen (which may be filtered differently).
+  List<Budget> _activeBudgets = [];
+  Balance? _balance;
+
   // Cheap GETs (budgets + balance) that feed the health score card — not
   // AI calls, so safe to always refresh, unlike insights generation itself.
-  void _fetchHealthScoreInputs() {
+  Future<void> _fetchHealthScoreInputs() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    Provider.of<BudgetProvider>(context, listen: false).fetchBudgets(activeOnly: true);
-    Provider.of<TransactionProvider>(
-      context,
-      listen: false,
-    ).fetchBalance(currency: authProvider.defaultCurrency);
+    final currency = authProvider.defaultCurrency;
+    try {
+      final results = await Future.wait([
+        ApiService.getBudgets(activeOnly: true),
+        ApiService.getBalance(currency: currency),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        // Over-budget (exceeded) budgets must count — dropping them made the
+        // budget component always 100.
+        final now = DateTime.now();
+        _activeBudgets = (results[0] as List<Budget>)
+            .where((b) => b.countsTowardHealthScore(now))
+            .toList();
+        _balance = results[1] as Balance;
+      });
+    } catch (e) {
+      debugPrint('Health score inputs failed: $e');
+    }
+  }
+
+  /// Wraps a raw backend error in a localized, user-facing message chosen
+  /// from the HTTP [statusCode] carried by the provider (429 → rate limited,
+  /// 5xx → server error). Falls back to a status embedded in the message
+  /// (e.g. "Failed to get insights (502)"). Returns (message, details).
+  (String, String?) _friendlyInsightError(String raw, int? statusCode, AppLocalizations localizations) {
+    final match = RegExp(r'^Failed to [a-z ]*insights?:\s*(\d{3})?:?\s*(.*)$', caseSensitive: false, dotAll: true)
+        .firstMatch(raw.trim());
+    final status = statusCode ??
+        int.tryParse(match?.group(1) ?? '') ??
+        int.tryParse(RegExp(r'\((\d{3})\)\s*$').firstMatch(raw)?.group(1) ?? '');
+    final details = (match?.group(2) ?? raw).trim();
+    return (
+      insightErrorMessage(status, localizations, rawMessage: raw),
+      details.isEmpty ? null : details,
+    );
   }
 
   Future<void> _fetchInsights() async {
@@ -61,50 +100,66 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final language = locale.languageCode == 'my' ? 'mm' : 'en';
     final localizations = AppLocalizations.of(context);
 
-    showDialog(
+    // Keep a reference to the progress dialog's own route: it is removed by
+    // reference (only if still showing), so a late completion can never pop
+    // the Insights screen or whatever route is on top by then. PopScope
+    // blocks the Android back button (barrierDismissible only covers taps).
+    final navigator = Navigator.of(context);
+    final progressRoute = DialogRoute<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        return Center(
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                Text(
-                  localizations.generatingInsights,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
+      themes: InheritedTheme.capture(from: context, to: navigator.context),
+      builder: (dialogContext) {
+        return PopScope(
+          canPop: false,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Theme.of(dialogContext).colorScheme.surface,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(
+                    localizations.generatingInsights,
+                    style: Theme.of(dialogContext).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
             ),
           ),
         );
       },
     );
+    navigator.push(progressRoute);
 
     final success = await insightProvider.regenerateInsights(
       language: language,
     );
 
+    if (progressRoute.isActive) {
+      progressRoute.navigator?.removeRoute(progressRoute);
+    }
     if (!mounted) return;
-    Navigator.pop(context); // Close loading dialog
 
     final messenger = ScaffoldMessenger.of(context);
     if (success) {
       messenger.showSnackBar(
         SnackBar(content: Text(localizations.insightsRegeneratedSuccessfully)),
       );
-    } else {
+    } else if (insightProvider.insight != null) {
+      // The previous insight is kept on screen; report the failure here.
+      final raw = insightProvider.actionError;
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            insightProvider.error ?? localizations.failedToRegenerateInsights,
+            raw == null
+                ? localizations.failedToRegenerateInsights
+                : _friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1,
           ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
@@ -176,20 +231,19 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Widget _buildPremiumBody(InsightProvider insightProvider) {
     final localizations = AppLocalizations.of(context);
-    final budgetProvider = Provider.of<BudgetProvider>(context);
-    final transactionProvider = Provider.of<TransactionProvider>(context);
 
     if (insightProvider.isLoading ||
         (insightProvider.insight == null && insightProvider.error == null)) {
       return _buildLoading(localizations);
     }
 
-    if (insightProvider.error != null && insightProvider.insight == null) {
-      return _buildError(insightProvider, localizations);
-    }
-
+    // Full-page error only when there is no insight to show. (A failed
+    // fetch clears the insight first, so a stale one never appears; a
+    // failed regenerate keeps the current one and reports via snackbar.)
     if (insightProvider.insight == null) {
-      return _buildEmpty(localizations);
+      return insightProvider.error != null
+          ? _buildError(insightProvider, localizations)
+          : _buildEmpty(localizations);
     }
 
     final scheme = Theme.of(context).colorScheme;
@@ -197,7 +251,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final periodLabel = insightProvider.insightType == 'monthly'
         ? localizations.monthly
         : localizations.weekly;
-    final healthScore = _computeHealthScore(budgetProvider, transactionProvider);
+    final healthScore = _computeHealthScore();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
@@ -262,12 +316,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
   // under their caps) with savings rate (inflow kept rather than spent,
   // scored against a 20%-of-income benchmark). Returns null when there's
   // no budget or balance data yet to score against.
-  int? _computeHealthScore(
-    BudgetProvider budgetProvider,
-    TransactionProvider transactionProvider,
-  ) {
+  int? _computeHealthScore() {
     double? budgetScore;
-    final activeBudgets = budgetProvider.activeBudgets;
+    final activeBudgets = _activeBudgets;
     if (activeBudgets.isNotEmpty) {
       final total = activeBudgets.fold<double>(
         0,
@@ -277,7 +328,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     }
 
     double? savingsScore;
-    final balance = transactionProvider.balance;
+    final balance = _balance;
     if (balance != null && balance.totalInflow > 0) {
       final savingsRate = (balance.totalInflow - balance.totalOutflow) / balance.totalInflow;
       savingsScore = (savingsRate / 0.20 * 100).clamp(0, 100);
@@ -481,9 +532,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
       final success = await insightProvider.translateToMyanmar();
       if (!mounted || success) return;
       final localizations = AppLocalizations.of(context);
+      final raw = insightProvider.actionError;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(insightProvider.error ?? localizations.failedToRegenerateInsights),
+          content: Text(
+            raw == null
+                ? localizations.failedToRegenerateInsights
+                : _friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1,
+          ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -569,6 +625,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   Widget _buildError(InsightProvider insightProvider, AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
+    final (message, details) =
+        _friendlyInsightError(insightProvider.error!, insightProvider.errorStatusCode, localizations);
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 32),
       children: [
@@ -584,11 +642,23 @@ class _InsightsScreenState extends State<InsightsScreen> {
         const SizedBox(height: 8),
         Center(
           child: Text(
-            insightProvider.error!,
+            message,
             style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
             textAlign: TextAlign.center,
           ),
         ),
+        if (details != null) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '${localizations.errorDetailsLabel}: $details',
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant.withValues(alpha: 0.8)),
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
         Center(
           child: FilledButton.icon(
@@ -640,9 +710,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget _buildLockedBody(InsightProvider insightProvider) {
     final scheme = Theme.of(context).colorScheme;
     final localizations = AppLocalizations.of(context);
-    final budgetProvider = Provider.of<BudgetProvider>(context);
-    final transactionProvider = Provider.of<TransactionProvider>(context);
-    final healthScore = _computeHealthScore(budgetProvider, transactionProvider);
+    final healthScore = _computeHealthScore();
 
     final lockedSections = <(String, String, String)>[
       ('📊', localizations.sectionLastWeekSummary, localizations.previewLastWeekSummary),

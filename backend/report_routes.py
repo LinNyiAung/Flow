@@ -14,14 +14,29 @@ from report_models import (
 from models import Currency
 
 from database import transactions_collection, goals_collection
+from finite_utils import finite_amount_filter
 
 router = APIRouter(prefix="/api/reports", tags=["transactions"])
 
 
-def calculate_report_dates(period: ReportPeriod, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None):
-    """Calculate start and end dates based on period"""
-    now = datetime.now(UTC)
-    
+def calculate_report_dates(
+    period: ReportPeriod,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    timezone_offset: int = 0,
+):
+    """
+    Calculate start and end dates based on period.
+
+    timezone_offset: minutes EAST of UTC (Flutter's DateTime.timeZoneOffset.inMinutes).
+    Week/month/year boundaries are computed in the user's local time and expressed in the
+    stored convention (local wall-clock time tagged as UTC), i.e. "now" is shifted by the
+    offset and the resulting wall-clock boundaries are NOT converted back to real UTC.
+    Custom dates are sent by the client already in that convention (DateTime.utc(y, m, d)).
+    """
+    offset = max(-840, min(840, int(timezone_offset or 0)))
+    now = datetime.now(UTC) + timedelta(minutes=offset)  # local wall clock, tagged UTC
+
     if period == ReportPeriod.WEEK:
         start = now - timedelta(days=now.weekday())
         start = start.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -50,7 +65,13 @@ def calculate_report_dates(period: ReportPeriod, start_date: Optional[datetime] 
             end = end_date.replace(tzinfo=UTC, hour=23, minute=59, second=59, microsecond=999999)
         else:
             end = end_date.astimezone(UTC).replace(hour=23, minute=59, second=59, microsecond=999999)
-    
+
+        if end < start:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="End date must be on or after start date"
+            )
+
     return start, end
 
 
@@ -144,7 +165,8 @@ async def generate_report(
         start_date, end_date = calculate_report_dates(
             report_request.period,
             report_request.start_date,
-            report_request.end_date
+            report_request.end_date,
+            report_request.timezone_offset or 0,
         )
         
         # Determine currency - use requested or user's default
@@ -158,7 +180,9 @@ async def generate_report(
                 "$match": {
                     "user_id": current_user["_id"],
                     "currency": currency.value,
-                    "date": {"$gte": start_date, "$lte": end_date}
+                    "date": {"$gte": start_date, "$lte": end_date},
+                    # Legacy NaN/inf amounts are excluded (they'd make every total NaN).
+                    **finite_amount_filter(),
                 }
             },
             {
@@ -357,6 +381,8 @@ async def generate_report(
         
         return report
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error generating report: {str(e)}")
         import traceback
@@ -377,13 +403,15 @@ async def generate_multi_currency_report(
         start_date, end_date = calculate_report_dates(
             report_request.period,
             report_request.start_date,
-            report_request.end_date
+            report_request.end_date,
+            report_request.timezone_offset or 0,
         )
         
         # [FIX] Async fetch all transactions
         cursor = transactions_collection.find({
             "user_id": current_user["_id"],
-            "date": {"$gte": start_date, "$lte": end_date}
+            "date": {"$gte": start_date, "$lte": end_date},
+            **finite_amount_filter(),
         })
         all_transactions = await cursor.to_list(length=None)
         
@@ -398,7 +426,11 @@ async def generate_multi_currency_report(
         # Generate report for each currency
         currency_reports = []
         for currency_str, transactions in transactions_by_currency.items():
-            currency = Currency(currency_str)
+            try:
+                currency = Currency(currency_str)
+            except ValueError:
+                print(f"⚠️ Report: skipping transactions with unknown currency {currency_str!r}")
+                continue
             report = generate_currency_report(transactions, currency, start_date, end_date)
             currency_reports.append(report)
         
@@ -431,6 +463,8 @@ async def generate_multi_currency_report(
         
         return report
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error generating multi-currency report: {str(e)}")
         import traceback
@@ -457,14 +491,16 @@ async def download_report_pdf(
         start_date, end_date = calculate_report_dates(
             report_request.period,
             report_request.start_date,
-            report_request.end_date
+            report_request.end_date,
+            report_request.timezone_offset or 0,
         )
         
         # [FIX] Async fetch transactions
         cursor = transactions_collection.find({
             "user_id": current_user["_id"],
             "currency": currency.value,
-            "date": {"$gte": start_date, "$lte": end_date}
+            "date": {"$gte": start_date, "$lte": end_date},
+            **finite_amount_filter(),
         })
         transactions = await cursor.to_list(length=None)
         
@@ -518,11 +554,11 @@ async def download_report_pdf(
         )
         
         # Generate PDF with user's timezone offset
-        user_timezone_offset = report_request.timezone_offset if hasattr(report_request, 'timezone_offset') and report_request.timezone_offset is not None else 0
+        user_timezone_offset = report_request.timezone_offset or 0  # bounded to +/-840 by ReportRequest
         pdf_buffer = await asyncio.to_thread(
-            generate_financial_report_pdf, 
-            report, 
-            current_user["name"], 
+            generate_financial_report_pdf,
+            report,
+            current_user.get("name", ""),
             user_timezone_offset, 
             currency
         )
@@ -537,6 +573,8 @@ async def download_report_pdf(
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error generating PDF: {str(e)}")
         import traceback

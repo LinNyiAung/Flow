@@ -1,9 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:frontend/models/notification.dart';
 import 'package:frontend/services/api_service.dart';
-import 'dart:io' show Platform;
 
 import 'package:frontend/services/notification_event_bus.dart';
 
@@ -108,6 +106,9 @@ class FCMService {
   }
 
   Future<void> _sendTokenToBackend(String token) async {
+    // Only registered for a signed-in user (token refreshes can fire while
+    // logged out).
+    if (await ApiService.getToken() == null) return;
     try {
       await ApiService.updateFCMToken(token);
       print('✅ FCM token sent to backend');
@@ -127,6 +128,12 @@ class FCMService {
     }
     // ─────────────────────────────────────────────────────────────────
 
+    // "Premium has ended": reload the profile too (the separate silent
+    // subscription_updated push may be dropped or arrive later).
+    if (message.data['type'] == 'subscription_expired') {
+      NotificationEventBus().notifySubscriptionUpdated();
+    }
+
     _showLocalNotification(message);
     NotificationEventBus().notifyReceived();
   }
@@ -143,7 +150,6 @@ class FCMService {
   void _handleNotificationNavigation(Map<String, dynamic> data) {
     final notificationType = data['type'];
     final goalId = data['goal_id'];
-    final notificationId = data['notification_id'];
     
     print('Navigate to: type=$notificationType, goalId=$goalId');
   }
@@ -215,6 +221,7 @@ class FCMService {
       case 'system_broadcast':
         return Color(0xFF667eea);
       case 'admin_announcement':
+      case 'subscription_expired':
         return Color(0xFFFF9800);
       default:
         return Color(0xFF667eea);

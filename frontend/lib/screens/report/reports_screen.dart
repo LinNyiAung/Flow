@@ -3,6 +3,7 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/progress_meter.dart';
@@ -106,6 +107,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
       return;
     }
 
+    // PDF export is a premium feature: send free users to the paywall
+    // instead of letting the server reject the request.
+    if (!Provider.of<AuthProvider>(context, listen: false).isPremium) {
+      Navigator.pushNamed(context, '/subscription');
+      return;
+    }
+
     setState(() => _isDownloading = true);
 
     try {
@@ -131,9 +139,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isDownloading = false);
+      // Premium lapsed since the screen opened: the server says 403.
+      if (e is ApiException && e.statusCode == 403) {
+        Navigator.pushNamed(context, '/subscription');
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${localizations.errorDownloadReport} ${e.toString()}'),
+          content: Text('${localizations.errorDownloadReport} ${e.toString().replaceAll('Exception: ', '')}'),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -292,7 +305,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             const SizedBox(height: 4),
             if (report != null)
               Text(
-                '${DateFormat('MMM d').format(report.startDate.toUtc())} – ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())} · '
+                '${DateFormat('MMM d').format(report.startDate)} – ${DateFormat('MMM d, yyyy').format(report.endDate)} · '
                 '${report.currency.name.toUpperCase()} · ${report.totalTransactions} entries',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
               ),
@@ -547,11 +560,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
+        // A preset range can end after today (e.g. end of this month).
+        final bounds = DatePickerBounds.clamped(
           initialDate: date ?? DateTime.now(),
           firstDate: DateTime(2020),
           lastDate: DateTime.now(),
+        );
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: bounds.initialDate,
+          firstDate: bounds.firstDate,
+          lastDate: bounds.lastDate,
         );
         if (picked != null) onDateSelected(picked);
       },
@@ -590,7 +609,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       children: [
         HeroCard(
           label:
-              'Net · ${DateFormat('MMM d').format(report.startDate.toUtc())} – ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())}',
+              'Net · ${DateFormat('MMM d').format(report.startDate)} – ${DateFormat('MMM d, yyyy').format(report.endDate)}',
           value: '${report.netBalance >= 0 ? '+' : ''}${report.currency.symbol}${formatter.format(report.netBalance)}',
           labelTrailing: _currencyHeroChip(),
           onLabelTap: _pickCurrencyFilter,
@@ -800,7 +819,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '${DateFormat('MMM d').format(report.startDate.toUtc())} – ${DateFormat('MMM d, yyyy').format(report.endDate.toUtc())} · '
+                '${DateFormat('MMM d').format(report.startDate)} – ${DateFormat('MMM d, yyyy').format(report.endDate)} · '
                 '${report.totalTransactions} ${localizations.transactions.toLowerCase()} · '
                 '${report.currencyReports.length} ${localizations.currencies.toLowerCase()}',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),

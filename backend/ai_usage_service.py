@@ -52,6 +52,11 @@ async def track_ai_usage(
 ):
     """Track AI API usage and cost"""
     try:
+        # SDK usage fields can be None; normalize so cost math/logging never fails
+        input_tokens = int(input_tokens or 0)
+        output_tokens = int(output_tokens or 0)
+        total_tokens = int(total_tokens or 0) or (input_tokens + output_tokens)
+
         # Calculate cost
         estimated_cost = calculate_cost(
             provider.value,

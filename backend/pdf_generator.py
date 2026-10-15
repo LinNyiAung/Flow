@@ -8,19 +8,39 @@ from reportlab.platypus import Image as RLImage
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from datetime import datetime, UTC, timezone, timedelta
 from io import BytesIO
+from xml.sax.saxutils import escape as _xml_escape
 from models import Currency
 from report_models import FinancialReport
+
+# Valid UTC offsets range from -14:00 to +14:00.
+_MAX_TZ_OFFSET_MINUTES = 14 * 60
+
+
+def _p(text) -> str:
+    """Escape user-supplied text for ReportLab Paragraph mini-markup (&, <, >)."""
+    return _xml_escape("" if text is None else str(text))
+
 
 def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_timezone_offset: int = 0, currency: Currency = None) -> BytesIO:
     """
     Generate a PDF financial report with currency support
-    
+
     Args:
         report: The financial report data
         user_name: Name of the user
-        user_timezone_offset: Timezone offset in minutes from UTC
+        user_timezone_offset: Timezone offset in minutes from UTC (east positive)
         currency: Currency for formatting (from models.Currency enum)
+
+    Note: user-supplied strings are escaped before going into Paragraph markup. Table
+    cells receive plain strings (not parsed as markup). The built-in Helvetica font has
+    no Myanmar (Burmese) glyphs, so such text renders as boxes.
     """
+    try:
+        user_timezone_offset = int(user_timezone_offset or 0)
+    except (TypeError, ValueError):
+        user_timezone_offset = 0
+    user_timezone_offset = max(-_MAX_TZ_OFFSET_MINUTES, min(_MAX_TZ_OFFSET_MINUTES, user_timezone_offset))
+
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
     
@@ -97,7 +117,7 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
     }
     
     info_text = f"""
-    <b>Generated For:</b> {user_name}<br/>
+    <b>Generated For:</b> {_p(user_name)}<br/>
     <b>Report Type:</b> {period_map.get(report.period, 'Report')}<br/>
     <b>Period:</b> {report.start_date.strftime('%B %d, %Y')} - {report.end_date.strftime('%B %d, %Y')}<br/>
     <b>Generated On:</b> {local_generated_at.strftime('%B %d, %Y %I:%M %p')} ({tz_display})

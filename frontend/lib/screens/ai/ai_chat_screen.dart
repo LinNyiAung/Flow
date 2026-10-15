@@ -218,10 +218,23 @@ class _AiChatScreenState extends State<AiChatScreen>
       );
     }
 
-    return Column(
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
       children: [
-        _responseStyleRow(chatProvider),
-        if (chatProvider.error != null) _errorBanner(chatProvider),
+        // Capped and scrollable: with the keyboard open on a small phone the
+        // style chips + error banner + input box are taller than the screen.
+        ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: constraints.maxHeight * 0.4),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _responseStyleRow(chatProvider),
+                if (chatProvider.error != null) _errorBanner(chatProvider),
+              ],
+            ),
+          ),
+        ),
         Expanded(
           child: chatProvider.messages.isEmpty
               ? _buildEmptyState(chatProvider)
@@ -241,6 +254,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         ),
         _buildMessageInput(chatProvider),
       ],
+      ),
     );
   }
 

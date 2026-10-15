@@ -1,9 +1,10 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from pydantic import BaseModel, EmailStr, field_validator
+from typing import Literal, Optional, List
 from datetime import datetime
 from enum import Enum
 
 from models import SubscriptionType, Currency
+from notification_models import NotificationType
 
 
 class AdminRole(str, Enum):
@@ -124,8 +125,16 @@ class SystemStatsResponse(BaseModel):
 class BroadcastNotificationRequest(BaseModel):
     title: str
     message: str
-    target_users: str = "all"  # "all", "free", "premium"
-    notification_type: str = "system_broadcast"  # You can add this to NotificationType enum
+    target_users: Literal["all", "free", "premium"] = "all"
+    notification_type: NotificationType = NotificationType.SYSTEM_BROADCAST
+
+    @field_validator("title", "message")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v
 
 
 class BroadcastNotificationResponse(BaseModel):
@@ -146,3 +155,11 @@ class AdminFeedbackListResponse(BaseModel):
     rating: Optional[int] = None
     created_at: datetime
     status: str
+
+
+class FeedbackStatsResponse(BaseModel):
+    total: int
+    pending: int
+    reviewed: int
+    resolved: int
+    average_rating: Optional[float] = None

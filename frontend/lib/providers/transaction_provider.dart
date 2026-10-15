@@ -12,10 +12,33 @@ class TransactionProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
+  /// Bumped on [reset]; responses for an older session are discarded.
+  int _generation = 0;
+  // Latest balance request; an older response (e.g. for the previous default
+  // currency) must not overwrite a newer one.
+  int _balanceRequestId = 0;
+
+  // Error of the last create/update/delete only. [error] is shared with
+  // background fetches (e.g. Home's refresh), so a form screen reads this one
+  // to report why *its* save failed.
+  String? _writeError;
+
   List<Transaction> get transactions => _transactions;
   Balance? get balance => _balance;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  String? get writeError => _writeError;
+
+  /// Clears all per-user state (called on logout / user switch).
+  void reset() {
+    _generation++;
+    _transactions = [];
+    _balance = null;
+    _isLoading = false;
+    _error = null;
+    _writeError = null;
+    notifyListeners();
+  }
 
   // Helper to update loading state
   void _setLoading(bool loading) {
@@ -27,6 +50,13 @@ class TransactionProvider with ChangeNotifier {
   void _setError(String? error) {
     _error = error;
     notifyListeners();
+  }
+
+  // Error state for create/update/delete: sets both the shared [error] (kept
+  // for existing listeners) and [writeError].
+  void _setWriteError(String? error) {
+    _writeError = error;
+    _setError(error);
   }
 
   // Helper method to refresh AI data after transaction operations
@@ -41,35 +71,8 @@ class TransactionProvider with ChangeNotifier {
   }
 
 
-  // ADD THIS NEW METHOD to transaction_provider.dart
-Future<void> loadMoreTransactions({
-  TransactionType? type,
-  DateTime? startDate,
-  DateTime? endDate,
-  Currency? currency, // ADD THIS LINE
-  required int limit,
-  required int currentCount,
-}) async {
-  // Don't set loading state to avoid full rebuild
-  try {
-    final newTransactions = await ApiService.getTransactions(
-      type: type,
-      startDate: startDate,
-      endDate: endDate,
-      currency: currency, // ADD THIS LINE
-      limit: limit,
-      skip: 0,
-    );
-    
-    // Only update if we got more transactions than we already have
-    if (newTransactions.length > currentCount) {
-      _transactions = newTransactions;
-      notifyListeners();
-    }
-  } catch (e) {
-    _setError(e.toString().replaceAll('Exception: ', ''));
-  }
-}
+  // Note: filtered / paginated lists (Transactions screen, analytics) are
+  // kept local to their screens — this list is Home's unfiltered recent set.
 
   // Create a new transaction - UPDATED with context parameter
   Future<bool> createTransaction({
@@ -84,7 +87,7 @@ Future<void> loadMoreTransactions({
   TransactionRecurrence? recurrence,
 }) async {
   _setLoading(true);
-  _setError(null);
+  _setWriteError(null);
 
   try {
     final transaction = await ApiService.createTransaction(
@@ -106,7 +109,7 @@ Future<void> loadMoreTransactions({
     _setLoading(false);
     return true;
   } catch (e) {
-    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setWriteError(e.toString().replaceAll('Exception: ', ''));
     _setLoading(false);
     return false;
   }
@@ -126,7 +129,7 @@ Future<bool> updateTransaction({
   TransactionRecurrence? recurrence,
 }) async {
   _setLoading(true);
-  _setError(null);
+  _setWriteError(null);
 
   try {
     final updatedTransaction = await ApiService.updateTransaction(
@@ -153,7 +156,7 @@ Future<bool> updateTransaction({
     _setLoading(false);
     return true;
   } catch (e) {
-    _setError(e.toString().replaceAll('Exception: ', ''));
+    _setWriteError(e.toString().replaceAll('Exception: ', ''));
     _setLoading(false);
     return false;
   }
@@ -162,7 +165,7 @@ Future<bool> updateTransaction({
   // Delete a transaction - UPDATED with context parameter
   Future<bool> deleteTransaction(String transactionId, {BuildContext? context}) async {
     _setLoading(true);
-    _setError(null);
+    _setWriteError(null);
 
     try {
       await ApiService.deleteTransaction(transactionId);
@@ -175,7 +178,7 @@ Future<bool> updateTransaction({
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setWriteError(e.toString().replaceAll('Exception: ', ''));
       _setLoading(false);
       return false;
     }
@@ -192,12 +195,13 @@ Future<bool> updateTransaction({
 }) async {
   _setLoading(true);
   _setError(null);
+  final gen = _generation;
 
   try {
     final int nonNullableLimit = limit ?? 50;
     final int nonNullableSkip = skip ?? 0;
 
-    _transactions = await ApiService.getTransactions(
+    final result = await ApiService.getTransactions(
       type: type,
       startDate: startDate,
       endDate: endDate,
@@ -205,8 +209,11 @@ Future<bool> updateTransaction({
       limit: nonNullableLimit,
       skip: nonNullableSkip,
     );
+    if (gen != _generation) return;
+    _transactions = result;
     _setLoading(false);
   } catch (e) {
+    if (gen != _generation) return;
     _setError(e.toString().replaceAll('Exception: ', ''));
     _setLoading(false);
   }
@@ -224,11 +231,15 @@ Future<bool> updateTransaction({
 
   // Fetch the user's financial balance and totals
 Future<void> fetchBalance({Currency? currency}) async {
+  final gen = _generation;
+  final requestId = ++_balanceRequestId;
   try {
-    _balance = await ApiService.getBalance(currency: currency);
+    final result = await ApiService.getBalance(currency: currency);
+    if (gen != _generation || requestId != _balanceRequestId) return;
+    _balance = result;
     notifyListeners();
   } catch (e) {
-    print("Error fetching balance: $e");
+    debugPrint("Error fetching balance: $e");
   }
 }
 

@@ -1,3 +1,4 @@
+import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/user.dart';
 import 'package:intl/intl.dart';  // NEW: import Currency
 
@@ -88,11 +89,22 @@ class Budget {
     required this.currency,  // NEW
   });
 
-  bool get isUpcoming {
-    final now = DateTime.now().toUtc();
-    return now.isBefore(startDate.toUtc());
+  /// [startDate] is a wall-clock date parsed as a local DateTime, so it is
+  /// compared with the local now.
+  bool get isUpcoming => DateTime.now().isBefore(startDate);
+
+  /// Whether this budget feeds the insights health score at [now]: an
+  /// enabled budget that is running (active), over its cap (exceeded), or
+  /// whose window contains [now] (whatever status the server reported).
+  /// Budgets whose window already ended never count.
+  bool countsTowardHealthScore(DateTime now) {
+    if (!isActive || now.isAfter(endDate)) return false;
+    if (status == BudgetStatus.active || status == BudgetStatus.exceeded) {
+      return true;
+    }
+    return !now.isBefore(startDate);
   }
-  
+
   bool get isAutoCreated => parentBudgetId != null;
 
   // NEW: Display amount with currency symbol
@@ -114,8 +126,8 @@ class Budget {
       userId: json['user_id'],
       name: json['name'],
       period: BudgetPeriod.values.firstWhere((e) => e.name == json['period']),
-      startDate: DateTime.parse(json['start_date']),
-      endDate: DateTime.parse(json['end_date']),
+      startDate: parseWallClock(json['start_date']),
+      endDate: parseWallClock(json['end_date']),
       categoryBudgets: (json['category_budgets'] as List)
           .map((cat) => CategoryBudget.fromJson(cat))
           .toList(),
@@ -126,8 +138,8 @@ class Budget {
       status: BudgetStatus.values.firstWhere((e) => e.name == json['status']),
       description: json['description'],
       isActive: json['is_active'],
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      createdAt: parseInstant(json['created_at']),
+      updatedAt: parseInstant(json['updated_at']),
       autoCreateEnabled: json['auto_create_enabled'] ?? false,
       autoCreateWithAi: json['auto_create_with_ai'] ?? false,
       parentBudgetId: json['parent_budget_id'],
@@ -218,8 +230,8 @@ class AIBudgetSuggestion {
     return AIBudgetSuggestion(
       suggestedName: json['suggested_name'],
       period: BudgetPeriod.values.firstWhere((e) => e.name == json['period']),
-      startDate: DateTime.parse(json['start_date']),
-      endDate: DateTime.parse(json['end_date']),
+      startDate: parseWallClock(json['start_date']),
+      endDate: parseWallClock(json['end_date']),
       categoryBudgets: (json['category_budgets'] as List)
           .map((cat) => CategoryBudget.fromJson(cat))
           .toList(),

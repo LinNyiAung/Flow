@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
@@ -48,7 +49,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   Future<void> _refreshGoalData() async {
     final goalProvider = Provider.of<GoalProvider>(context, listen: false);
     final updatedGoal = await goalProvider.getGoal(_currentGoal.id);
-    if (updatedGoal != null) {
+    if (updatedGoal != null && mounted) {
       setState(() {
         _currentGoal = updatedGoal;
       });
@@ -93,6 +94,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       amount: isAdd ? amount : -amount,
     );
 
+    if (!mounted) return;
     setState(() {
       _isContributionLoading = false; // NEW: Reset contribution loading state
     });
@@ -169,7 +171,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           // available to move, Withdraw by what the goal currently holds.
           final quickBase = isAddMode ? availableBalance : _currentGoal.currentAmount;
 
-          return Column(
+          // Scrollable so the open keyboard can't push it into an overflow.
+          return SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -308,6 +312,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 ),
               ),
             ],
+            ),
           );
         },
       ),
@@ -326,8 +331,10 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     // AlertDialog, which was the one editing flow still using the old style.
     showAppBottomSheet<void>(
       context: context,
+      // The builder ignores its own context: the save handler keeps using the
+      // screen's context after the sheet has closed (and been deactivated).
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setDialogState) => SingleChildScrollView(
+        builder: (_, setDialogState) => SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -397,11 +404,19 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 InkWell(
                   borderRadius: BorderRadius.circular(12),
                   onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
+                    // An overdue goal's target date is before firstDate
+                    // (today): clamp it, or showDatePicker asserts and the
+                    // picker never opens.
+                    final bounds = DatePickerBounds.clamped(
                       initialDate: targetDate ?? DateTime.now().add(Duration(days: 30)),
                       firstDate: DateTime.now(),
                       lastDate: DateTime.now().add(Duration(days: 3650)),
+                    );
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: bounds.initialDate,
+                      firstDate: bounds.firstDate,
+                      lastDate: bounds.lastDate,
                       // The picker already inherits the app's theme (jade in
                       // light, darkPrimary in dark) — no override needed.
                       // The previous override hardcoded AppTheme.jade,
@@ -478,11 +493,10 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                         goalType: selectedGoalType,
                       );
 
+                      if (!mounted) return;
                       setState(() {
                         _isLoading = false;
                       });
-
-                      if (!mounted) return;
                       if (success) {
                         await _refreshGoalData();
                         if (!mounted) return;
@@ -528,8 +542,10 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     showDialog(
       context: context,
       barrierDismissible: false, // Prevent dismissal while deleting
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => PopScope(
+          canPop: !isDeleteLoading, // Back can't dismiss it mid-delete
+          child: AlertDialog(
           title: Text(localizations.deleteGoal),
           content: Text(localizations.deleteGoalConfirmation),
           actions: [
@@ -544,7 +560,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       setDialogState(() {
                         isDeleteLoading = true;
                       });
-                      _deleteGoal();
+                      _deleteGoal(dialogContext);
                       // Don't reset loading state here as we're navigating away
                     },
               style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
@@ -557,12 +573,13 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   : Text(localizations.delete),
             ),
           ],
+          ),
         ),
       ),
     );
   }
 
-  void _deleteGoal() async {
+  void _deleteGoal(BuildContext dialogContext) async {
     final goalProvider = Provider.of<GoalProvider>(context, listen: false);
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
     final localizations = AppLocalizations.of(context);
@@ -570,12 +587,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
     if (success) {
       await transactionProvider.fetchBalance();
+      if (dialogContext.mounted) Navigator.pop(dialogContext); // Close dialog
       if (!mounted) return;
-      Navigator.pop(context); // Close dialog
       Navigator.pop(context, 'deleted'); // Go back to goals screen
     } else {
+      if (dialogContext.mounted) Navigator.pop(dialogContext); // Close dialog
       if (!mounted) return;
-      Navigator.pop(context); // Close dialog
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(goalProvider.error ?? localizations.failedToDeleteGoal),
@@ -625,6 +642,10 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(goalIcon),
+            if (_currentGoal.isOverdue) ...[
+              const SizedBox(height: 16),
+              _buildOverdueBanner(),
+            ],
             const SizedBox(height: 20),
             _buildDetailsCard(),
             const SizedBox(height: 16),
@@ -681,16 +702,28 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _currentGoal.targetDate != null
-                          ? '${_currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(_currentGoal.targetDate!)}'
-                          : _currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase(),
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onHeroMuted),
+                      _currentGoal.isOverdue
+                          ? '${_currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase()} · ${localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!))}'
+                          : _currentGoal.targetDate != null
+                              ? '${_currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(_currentGoal.targetDate!)}'
+                              : _currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: _currentGoal.isOverdue ? FontWeight.w700 : FontWeight.w600,
+                        color: _currentGoal.isOverdue ? scheme.error : onHeroMuted,
+                      ),
                     ),
                   ],
                 ),
               ),
               if (achieved)
-                StatusPill(label: localizations.achieved.toUpperCase(), background: scheme.primary, foreground: Colors.white),
+                StatusPill(label: localizations.achieved.toUpperCase(), background: scheme.primary, foreground: Colors.white)
+              else if (_currentGoal.isOverdue)
+                StatusPill(
+                  label: localizations.goalOverdue.toUpperCase(),
+                  background: scheme.errorContainer,
+                  foreground: scheme.onErrorContainer,
+                ),
             ],
           ),
           const SizedBox(height: 18),
@@ -805,6 +838,45 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Shown for active goals whose target date has passed: explains it and
+  /// offers to extend the date (opens the edit sheet).
+  Widget _buildOverdueBanner() {
+    final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
+    return Container(
+      key: const ValueKey('goal-overdue-banner'),
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      decoration: BoxDecoration(color: scheme.errorContainer, borderRadius: BorderRadius.circular(16)),
+      child: Row(
+        children: [
+          Icon(Icons.schedule_rounded, color: scheme.onErrorContainer),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!)),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onErrorContainer),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  localizations.goalOverdueHint,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onErrorContainer, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: _isLoading ? null : _showEditDialog,
+            style: TextButton.styleFrom(foregroundColor: scheme.onErrorContainer),
+            child: Text(localizations.goalExtendDate),
+          ),
+        ],
+      ),
     );
   }
 

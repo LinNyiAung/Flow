@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/amount_entry_dialog.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/status_pill.dart';
@@ -48,7 +49,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         imageQuality: 85,
       );
 
-      if (image != null) {
+      if (image != null && mounted) {
         setState(() {
           _selectedImage = File(image.path);
           _error = null;
@@ -57,6 +58,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         await _processImage();
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = '${localizations.errorCaptureImage} ${e.toString()}';
       });
@@ -71,7 +73,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         imageQuality: 85,
       );
 
-      if (image != null) {
+      if (image != null && mounted) {
         setState(() {
           _selectedImage = File(image.path);
           _error = null;
@@ -80,14 +82,21 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         await _processImage();
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = '${localizations.errorPickImage} ${e.toString()}';
       });
     }
   }
 
+  /// Bumped per extraction; a result for an older image (or arriving after
+  /// the screen was closed) is ignored.
+  int _extractionId = 0;
+
   Future<void> _processImage() async {
-    if (_selectedImage == null) return;
+    final image = _selectedImage;
+    if (image == null) return;
+    final requestId = ++_extractionId;
 
     setState(() {
       _isProcessing = true;
@@ -95,13 +104,15 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
     });
 
     try {
-      final extractedData = await ApiService.extractTransactionFromImage(_selectedImage!);
-
+      // Can take up to 90 s.
+      final extractedData = await ApiService.extractTransactionFromImage(image);
+      if (!mounted || requestId != _extractionId) return;
       setState(() {
         _extractedData = extractedData;
         _isProcessing = false;
       });
     } catch (e) {
+      if (!mounted || requestId != _extractionId) return;
       setState(() {
         _error = e.toString().replaceAll('Exception: ', '');
         _isProcessing = false;
@@ -109,8 +120,26 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
     }
   }
 
+  /// Enter or correct the extracted amount (required when the AI couldn't
+  /// read one — the backend rejects amount <= 0).
+  Future<void> _enterAmount() async {
+    final data = _extractedData;
+    if (data == null) return;
+    final amount = await showAmountEntryDialog(
+      context,
+      currency: data.currency,
+      initialAmount: data.amount,
+    );
+    if (amount == null || !mounted || !identical(_extractedData, data)) return;
+    setState(() => _extractedData = data.copyWith(amount: amount));
+  }
+
   Future<void> _saveTransaction() async {
     if (_extractedData == null || _isSaving) return;
+    if (_extractedData!.needsAmount) {
+      setState(() => _error = AppLocalizations.of(context).amountNeededBeforeSaving);
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -130,13 +159,15 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
       context: context,
     );
 
+    if (!mounted) return;
     if (success) {
+      // Back is blocked while saving (PopScope), so this pops this screen.
       Navigator.pop(context, true);
     } else {
       final localizations = AppLocalizations.of(context);
       setState(() {
         _isSaving = false;
-        _error = transactionProvider.error ?? localizations.failedToSaveTransactionFallback;
+        _error = transactionProvider.writeError ?? localizations.failedToSaveTransactionFallback;
       });
     }
   }
@@ -144,7 +175,8 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
   void _showImageSourceDialog() {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
-    if (_isSaving) return; // Don't show dialog while saving
+    // Not while saving, nor while an extraction is running.
+    if (_isSaving || _isProcessing) return;
 
     showAppBottomSheet<void>(
       context: context,
@@ -200,7 +232,11 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
+    // System back is blocked while the transaction is being saved, like the
+    // app bar's back button.
+    return PopScope(
+      canPop: !_isSaving,
+      child: Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: Icon(Icons.arrow_back_rounded),
@@ -241,6 +277,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -284,7 +321,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
       children: [
         SizedBox(height: 16),
         GestureDetector(
-          onTap: _isSaving ? null : _showImageSourceDialog,
+          onTap: (_isSaving || _isProcessing) ? null : _showImageSourceDialog,
           child: CustomPaint(
             painter: _DashedRoundedRectPainter(color: scheme.outline, radius: 20),
             child: Container(
@@ -344,7 +381,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         ),
         SizedBox(height: 14),
         OutlinedButton.icon(
-          onPressed: _isSaving ? null : _showImageSourceDialog,
+          onPressed: (_isSaving || _isProcessing) ? null : _showImageSourceDialog,
           icon: Icon(Icons.refresh_rounded),
           label: Text(localizations.chooseDifferentImageButton),
         ),
@@ -406,9 +443,51 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
             ],
           ),
           SizedBox(height: 12),
-          Text(
-            '${data.currency.symbol}${formatter.format(data.amount)}',
-            style: AppTheme.money(28, weight: FontWeight.w800, color: amountColor),
+          // Tap to enter / correct the amount. When the AI couldn't read
+          // it (amount 0), it must be entered before saving.
+          InkWell(
+            onTap: _isSaving ? null : _enterAmount,
+            borderRadius: BorderRadius.circular(10),
+            child: data.needsAmount
+                ? Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: scheme.errorContainer, borderRadius: BorderRadius.circular(10)),
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_rounded, size: 18, color: scheme.error),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                localizations.amountNeededLabel,
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onErrorContainer),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                localizations.amountNeededHint,
+                                style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          '${data.currency.symbol}${formatter.format(data.amount)}',
+                          style: AppTheme.money(28, weight: FontWeight.w800, color: amountColor),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Icon(Icons.edit_rounded, size: 18, color: scheme.onSurfaceVariant),
+                    ],
+                  ),
           ),
           SizedBox(height: 14),
           _dataRow(localizations.dataLabelType, data.type.name.toUpperCase()),
@@ -442,10 +521,17 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
             ),
           ],
           SizedBox(height: 20),
+          if (data.needsAmount) ...[
+            Text(
+              localizations.amountNeededBeforeSaving,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.error),
+            ),
+            SizedBox(height: 8),
+          ],
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: _isSaving ? null : _saveTransaction,
+              onPressed: (_isSaving || data.needsAmount) ? null : _saveTransaction,
               child: _isSaving
                   ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : Text(localizations.saveTransactionButton),
@@ -453,7 +539,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           ),
           SizedBox(height: 8),
           TextButton(
-            onPressed: _isSaving ? null : _showImageSourceDialog,
+            onPressed: (_isSaving || _isProcessing) ? null : _showImageSourceDialog,
             child: Text(localizations.useDifferentPhotoButton),
           ),
         ],

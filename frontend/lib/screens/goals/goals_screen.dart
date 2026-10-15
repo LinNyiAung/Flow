@@ -6,6 +6,7 @@ import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
@@ -186,10 +187,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                localizations.savedTowardsGoals,
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                              Flexible(
+                                child: Text(
+                                  localizations.savedTowardsGoals,
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               InkWell(
                                 onTap: _showAllCurrencyBalancesBottomSheet,
                                 borderRadius: BorderRadius.circular(20),
@@ -257,9 +263,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
             SliverToBoxAdapter(child: const SizedBox(height: 20)),
 
-            // Filter Chips
+            // Filter Chips (scrollable: longer labels, e.g. Myanmar, don't fit)
             SliverToBoxAdapter(
-              child: Padding(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
                   children: [
@@ -313,15 +320,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   void _showAllCurrencyBalancesBottomSheet() async {
     final localizations = AppLocalizations.of(context);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
+    final closeProgress = showBlockingProgress(context);
 
     try {
       final multiBalances = await ApiService.getAllBalances();
-      Navigator.pop(context); // Close loading dialog
+      closeProgress();
       if (!mounted) return;
 
       await showAppBottomSheet(
@@ -433,7 +436,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         },
       );
     } catch (e) {
-      Navigator.pop(context);
+      closeProgress();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -488,13 +491,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
 
     final achieved = goal.status == GoalStatus.achieved;
+    final overdue = goal.isOverdue;
     // Mockup's card subtitle is just the due date ({{ g.due }}) — type is
     // already conveyed by the icon. The list is now scoped to one currency
     // (see _refreshData), so a per-card currency tag is no longer needed
     // either. Fall back to the goal type when there's no target date.
-    final subtitle = goal.targetDate != null
-        ? '${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(goal.targetDate!)}'
-        : goal.goalType.name.replaceAll('_', ' ').toUpperCase();
+    // Active goals past their target date say so ("Overdue · was due …").
+    final subtitle = overdue
+        ? localizations.goalOverdueWasDue(formatOverdueDueDate(goal.targetDate!))
+        : goal.targetDate != null
+            ? '${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(goal.targetDate!)}'
+            : goal.goalType.name.replaceAll('_', ' ').toUpperCase();
 
     return Card(
       child: InkWell(
@@ -525,11 +532,25 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            if (overdue) ...[
+                              Icon(Icons.schedule_rounded, size: 14, color: scheme.error),
+                              const SizedBox(width: 4),
+                            ],
+                            Expanded(
+                              child: Text(
+                                subtitle,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: overdue ? FontWeight.w700 : FontWeight.w500,
+                                  color: overdue ? scheme.error : scheme.onSurfaceVariant,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -583,6 +604,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   ),
                 ],
               ),
+              if (overdue) ...[
+                const SizedBox(height: 8),
+                Text(
+                  localizations.goalOverdueHint,
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                ),
+              ],
             ],
           ),
         ),

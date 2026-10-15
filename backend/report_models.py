@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict
 from datetime import datetime
 from enum import Enum
@@ -15,8 +15,14 @@ class ReportRequest(BaseModel):
     period: ReportPeriod
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    timezone_offset: Optional[int] = 0
+    # Minutes EAST of UTC (Dart's DateTime.timeZoneOffset.inMinutes), e.g. +390 for Myanmar.
+    timezone_offset: Optional[int] = Field(default=0, ge=-840, le=840)
     currency: Optional[Currency] = None  # NEW - optional currency filter
+
+    @field_validator("timezone_offset", mode="after")
+    @classmethod
+    def _none_to_zero(cls, v):
+        return 0 if v is None else v
 
 class CategoryBreakdown(BaseModel):
     category: str
@@ -38,33 +44,33 @@ class FinancialReport(BaseModel):
     period: ReportPeriod
     start_date: datetime
     end_date: datetime
-    
+
     # Overall metrics
     total_inflow: float
     total_outflow: float
     net_balance: float
-    
+
     # Category breakdowns
     inflow_by_category: List[CategoryBreakdown]
     outflow_by_category: List[CategoryBreakdown]
-    
+
     # Goals
     goals: List[GoalProgress]
     total_allocated_to_goals: float
-    
+
     # Transaction counts
     total_transactions: int
     inflow_count: int
     outflow_count: int
-    
+
     # Top categories
     top_income_category: Optional[str] = None
     top_expense_category: Optional[str] = None
-    
+
     # Daily averages
     average_daily_inflow: float
     average_daily_outflow: float
-    
+
     currency: Currency  # NEW - which currency this report is for
     generated_at: datetime
 

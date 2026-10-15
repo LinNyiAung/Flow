@@ -9,7 +9,6 @@ import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../providers/notification_provider.dart';
-import '../auth/login_screen.dart';
 import 'edit_profile_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -471,13 +470,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             width: double.infinity,
             child: FilledButton(
               style: FilledButton.styleFrom(backgroundColor: scheme.error),
-              onPressed: () {
+              onPressed: () async {
+                final navigator = Navigator.of(context);
+                final authProvider = Provider.of<AuthProvider>(context, listen: false);
                 Navigator.pop(sheetContext);
-                Provider.of<AuthProvider>(context, listen: false).logout();
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => LoginScreen()),
-                );
+                await authProvider.logout();
+                // Single fresh AuthWrapper (login) — no duplicate HomeScreens.
+                navigator.pushNamedAndRemoveUntil('/', (route) => false);
               },
               child: Text(localizations.drawerLogout),
             ),

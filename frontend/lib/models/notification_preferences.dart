@@ -1,3 +1,5 @@
+import 'package:frontend/utils/date_parsing.dart';
+
 class NotificationPreferences {
   // Goal notifications
   final bool goalProgress;
@@ -150,7 +152,7 @@ class NotificationPreferencesResponse {
     return NotificationPreferencesResponse(
       userId: json['user_id'],
       preferences: NotificationPreferences.fromJson(json['preferences']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      updatedAt: parseInstant(json['updated_at']),
     );
   }
 }

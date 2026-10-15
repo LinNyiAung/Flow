@@ -1,0 +1,5 @@
+# Secrets: environment files hold production credentials (database URL, API keys,
+# Firebase service account) and must never be committed. Example templates are allowed.
+.env
+.env.*
+!.env.example

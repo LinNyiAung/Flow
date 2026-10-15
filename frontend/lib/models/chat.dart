@@ -1,5 +1,6 @@
 // models/chat.dart
 
+import 'package:frontend/utils/date_parsing.dart';
 import 'package:flutter/material.dart';
 
 import '../services/localization_service.dart';
@@ -53,7 +54,6 @@ enum AIProvider {
   gemini;
 
   String getDisplayName(BuildContext context) {
-    final localizations = AppLocalizations.of(context);
     switch (this) {
       case AIProvider.openai:
         return 'GPT';
@@ -96,7 +96,7 @@ class ChatMessage {
     return ChatMessage(
       role: json['role'] == 'user' ? MessageRole.user : MessageRole.assistant,
       content: json['content'],
-      timestamp: DateTime.parse(json['timestamp']),
+      timestamp: parseInstant(json['timestamp']),
     );
   }
 
@@ -141,7 +141,7 @@ class ChatResponse {
   factory ChatResponse.fromJson(Map<String, dynamic> json) {
     return ChatResponse(
       response: json['response'],
-      timestamp: DateTime.parse(json['timestamp']),
+      timestamp: parseInstant(json['timestamp']),
     );
   }
 }

@@ -2,11 +2,20 @@ import asyncio
 import uuid
 import os
 from datetime import datetime, timedelta, UTC
-from notification_service import create_notification, notify_monthly_insights_generated, notify_weekly_insights_generated
-from database import users_collection, insights_collection, budgets_collection, transactions_collection
+from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
+from database import users_collection, insights_collection, budgets_collection, transactions_collection, goals_collection
+from tz_utils import (
+    app_today, app_wall_clock_now, as_utc, get_app_timezone, is_expired, previous_week_range,
+    week_before_previous_range, previous_month_range, month_before_previous_range,
+    current_week_to_date_range, current_month_to_date_range,
+)
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
 from ai_chatbot_gemini import gemini_financial_chatbot
+from budget_service import get_running_budgets
+from finite_utils import finite_amount_filter
 import logging
+import re
+from typing import Optional
 from ai_usage_service import track_ai_usage
 from ai_usage_models import AIFeatureType, AIProviderType
 
@@ -19,45 +28,263 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 def get_week_date_range():
     """
-    Get the start and end dates for the PREVIOUS week (Monday to Sunday)
-    When run on Monday, this returns last week's Monday-Sunday
+    Start/end of the most recent COMPLETE Monday-Sunday week.
+
+    "Today" is evaluated in the app/scheduler timezone (SCHEDULER_TIMEZONE, default
+    Asia/Yangon) so the Monday 05:00 job (which is still Sunday in UTC) reviews the week
+    that just ended, not the week before it. Boundaries are returned as UTC-labelled
+    calendar-day bounds, matching how transaction dates are stored.
     """
-    today = datetime.now(UTC)
-    
-    # Calculate last Monday (start of previous week)
-    days_since_monday = today.weekday()  # Monday = 0, Sunday = 6
-    
-    # If today is Monday, go back 7 days to get last Monday
-    # Otherwise, go back to last Monday
-    if days_since_monday == 0:
-        # It's Monday, so go back 7 days to last Monday
-        week_start = (today - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
-    else:
-        # Go back to the most recent Monday
-        week_start = (today - timedelta(days=days_since_monday + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    # End of that week is Sunday
-    week_end = (week_start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
-    
-    return week_start, week_end
+    return previous_week_range()
 
 
 def get_previous_week_date_range():
-    """
-    Get the start and end dates for the week BEFORE the previous week
-    (Two weeks ago: Monday to Sunday)
-    """
-    week_start, _ = get_week_date_range()
-    
-    # Go back one more week
-    prev_week_start = (week_start - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
-    prev_week_end = (prev_week_start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
-    
-    return prev_week_start, prev_week_end
+    """Start/end of the week BEFORE the most recent complete week (for comparison)."""
+    return week_before_previous_range()
 
 
-async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
-    """Generate weekly insight for a specific user"""
+def _usage_int(value) -> int:
+    """Token counts from SDK responses may be None; normalize to int."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _has_content(text) -> bool:
+    return isinstance(text, str) and bool(text.strip())
+
+
+def _tx_count(summary_data: dict) -> int:
+    return sum(item.get('count', 0) for item in (summary_data or {}).get('summary', []))
+
+
+# ==================== AI ERROR CLASSIFICATION ====================
+
+class InsightAIError(Exception):
+    """
+    An AI provider call (insight generation or translation) failed.
+
+    rate_limited=True when the provider answered 429 / quota exhausted, so the API can
+    return HTTP 429 instead of a generic 500. The message is internal (logged); routes
+    must show their own friendly text, never str(exc).
+    """
+
+    def __init__(self, message: str, rate_limited: bool = False, provider: Optional[str] = None):
+        super().__init__(message)
+        self.rate_limited = rate_limited
+        self.provider = provider
+
+
+_RATE_LIMIT_TEXT = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|rate[ _-]?limit|too many requests|quota", re.IGNORECASE)
+
+# Out of credit / billing problems. Providers report these with rate-limit-like codes
+# (Gemini: 402 RESOURCE_EXHAUSTED "prepayment credits are depleted"; OpenAI: 429
+# insufficient_quota), but waiting a few minutes won't help: someone must top up.
+_BILLING_TEXT = re.compile(
+    r"credits? (are |is )?depleted|insufficient[_ ]quota|billing|prepay|payment required|exceeded your current quota",
+    re.IGNORECASE,
+)
+
+
+def is_billing_error(exc: Optional[BaseException]) -> bool:
+    """True when the AI provider refused for lack of credit/billing, following __cause__/__context__."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        for attr in ("code", "status_code"):
+            value = getattr(exc, attr, None)
+            if value == 402 or str(value) in ("402", "insufficient_quota"):
+                return True
+        if _BILLING_TEXT.search(str(exc) or ""):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def is_rate_limit_error(exc: Optional[BaseException]) -> bool:
+    """True for openai.RateLimitError, Gemini 429 / RESOURCE_EXHAUSTED and similar, following __cause__/__context__.
+
+    Billing / out-of-credit refusals are excluded (see is_billing_error): they are not
+    transient, so telling users to retry in a few minutes would be wrong.
+    """
+    if is_billing_error(exc):
+        return False
+    try:
+        from openai import RateLimitError as _OpenAIRateLimitError
+    except Exception:  # pragma: no cover - openai always installed in prod
+        _OpenAIRateLimitError = None
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, InsightAIError) and exc.rate_limited:
+            return True
+        if _OpenAIRateLimitError is not None and isinstance(exc, _OpenAIRateLimitError):
+            return True
+        for attr in ("code", "status_code"):
+            value = getattr(exc, attr, None)
+            if value == 429 or str(value) == "429":
+                return True
+        status_value = str(getattr(exc, "status", "") or "")
+        if "RESOURCE_EXHAUSTED" in status_value.upper() or status_value == "429":
+            return True
+        if _RATE_LIMIT_TEXT.search(str(exc) or ""):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+# Insights whose content is a non-empty string. Legacy documents with content None / ""
+# are treated as missing everywhere (they can't be shown or translated).
+VALID_INSIGHT_CONTENT_FILTER = {"content": {"$type": "string", "$regex": r"\S"}}
+
+
+async def latest_valid_insight(user_id: str, ai_provider: str, insight_type: str):
+    """Latest stored insight (placeholder or real) with non-empty content, or None."""
+    return await insights_collection.find_one(
+        {"user_id": user_id, "ai_provider": ai_provider, "insight_type": insight_type,
+         **VALID_INSIGHT_CONTENT_FILTER},
+        sort=[("generated_at", -1)],
+    )
+
+
+async def _latest_real_insight(user_id: str, ai_provider: str, insight_type: str):
+    """Latest stored non-placeholder insight with content for provider/type (None if none)."""
+    return await insights_collection.find_one(
+        {"user_id": user_id, "ai_provider": ai_provider, "insight_type": insight_type,
+         "is_placeholder": {"$ne": True}, **VALID_INSIGHT_CONTENT_FILTER},
+        sort=[("generated_at", -1)],
+    )
+
+
+async def user_has_insight_data(user_id: str, insight_type: str = "weekly") -> bool:
+    """
+    Same notion of "has activity" as generate_*_insight: transactions in the last complete
+    period OR in the current period-to-date (a brand-new user's first week), any goals, or
+    running budgets (window contains today and status active/exceeded, after refreshing
+    stale stored statuses). Used to replace a stored placeholder insight once real data exists.
+    """
+    if insight_type == "monthly":
+        ranges = (get_month_date_range(), current_month_to_date_range())
+    else:
+        ranges = (get_week_date_range(), current_week_to_date_range())
+
+    for start, end in ranges:
+        if await transactions_collection.count_documents(
+            {"user_id": user_id, "date": {"$gte": start, "$lte": end}, **finite_amount_filter()}, limit=1
+        ):
+            return True
+    if await goals_collection.count_documents({"user_id": user_id}, limit=1):
+        return True
+    # Cheap pre-check (any budget whose window contains now) before the refreshing lookup.
+    wall_now = app_wall_clock_now()
+    if not await budgets_collection.count_documents(
+        {"user_id": user_id, "start_date": {"$lte": wall_now}, "end_date": {"$gte": wall_now}}, limit=1
+    ):
+        return False
+    return len(await get_running_budgets(user_id)) > 0
+
+
+async def _todays_placeholder(user_id: str, ai_provider: str, insight_type: str):
+    """The latest stored insight for provider/type if it is a placeholder generated today (app timezone)."""
+    latest = await latest_valid_insight(user_id, ai_provider, insight_type)
+    if not latest or not latest.get("is_placeholder") or not latest.get("generated_at"):
+        return None
+    generated_on = as_utc(latest["generated_at"]).astimezone(get_app_timezone()).date()
+    return latest if generated_on == app_today() else None
+
+
+async def _call_insight_model(
+    ai_provider: str,
+    chatbot,
+    system_prompt: str,
+    context: str,
+    openai_max_tokens: int,
+    feature_type: AIFeatureType,
+    user_id: str,
+    label: str,
+):
+    """Call the selected provider and track usage. Returns (content|None, in, out, total)."""
+    from openai import AsyncOpenAI
+    from google import genai
+
+    input_tokens = output_tokens = total_tokens = 0
+
+    if ai_provider == "gemini":
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        full_prompt = f"{system_prompt}\n\n{context}"
+        try:
+            client = genai.Client(api_key=GOOGLE_API_KEY)
+            # google-genai generate_content is blocking; run it off the event loop
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=full_prompt,
+                config={"temperature": 0.7, "max_output_tokens": 8192}
+            )
+        except Exception as e:
+            raise InsightAIError(
+                f"Gemini {label} request failed: {type(e).__name__}: {e}",
+                rate_limited=is_rate_limit_error(e), provider="gemini",
+            ) from e
+        content = response.text
+        usage = getattr(response, "usage_metadata", None)
+        if usage:
+            input_tokens = _usage_int(getattr(usage, "prompt_token_count", 0))
+            output_tokens = _usage_int(getattr(usage, "candidates_token_count", 0))
+            total_tokens = _usage_int(getattr(usage, "total_token_count", 0)) or (input_tokens + output_tokens)
+        provider_type = AIProviderType.GEMINI
+    else:
+        model_name = chatbot.gpt_model
+        try:
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": context}
+                ],
+                temperature=0.7,
+                max_tokens=openai_max_tokens
+            )
+        except Exception as e:
+            raise InsightAIError(
+                f"OpenAI {label} request failed: {type(e).__name__}: {e}",
+                rate_limited=is_rate_limit_error(e), provider="openai",
+            ) from e
+        content = response.choices[0].message.content if response.choices else None
+        usage = getattr(response, "usage", None)
+        if usage:
+            input_tokens = _usage_int(getattr(usage, "prompt_tokens", 0))
+            output_tokens = _usage_int(getattr(usage, "completion_tokens", 0))
+            total_tokens = _usage_int(getattr(usage, "total_tokens", 0)) or (input_tokens + output_tokens)
+        provider_type = AIProviderType.OPENAI
+
+    logger.info(
+        f"🔢 [{provider_type.value.upper()} TOKEN USAGE - {label}] User: {user_id} | "
+        f"in={input_tokens:,} out={output_tokens:,} total={total_tokens:,} | model={model_name}"
+    )
+    if input_tokens or output_tokens or total_tokens:
+        await track_ai_usage(
+            user_id=user_id,
+            feature_type=feature_type,
+            provider=provider_type,
+            model_name=model_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens
+        )
+
+    return content, input_tokens, output_tokens, total_tokens
+
+
+async def generate_weekly_insight(user_id: str, ai_provider: str = "openai", notify: bool = False):
+    """
+    Generate weekly insight for a specific user.
+
+    notify: send the "weekly insights ready" notification. Off by default; the scheduled
+    all-users job sends exactly one notification per user after both providers ran.
+    """
     try:
         # Select chatbot based on provider
         chatbot = gemini_financial_chatbot if ai_provider == "gemini" else financial_chatbot
@@ -89,15 +316,41 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai"):
         budgets = await processor.get_user_budgets()
         
         # Efficient check for activity
-        total_tx_count = sum(item['count'] for item in current_week_data.get('summary', []))
+        total_tx_count = _tx_count(current_week_data)
         has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
-        
+        period_to_date = False
+
+        if not has_activity:
+            # Nothing in the last complete week. Before falling back to the welcome
+            # placeholder: (1) a user with transactions in the CURRENT (incomplete) week gets
+            # a period-to-date insight; (2) a returning user with real insight history keeps
+            # seeing their latest real insight (no placeholder is stored over it).
+            ptd_start, ptd_end = current_week_to_date_range()
+            ptd_data = await get_financial_summary(user_id, ptd_start, ptd_end)
+            if _tx_count(ptd_data) > 0:
+                logger.info(f"ℹ️  No activity last week for user {user_id}; generating week-to-date insight")
+                period_to_date = True
+                prev_week_data = current_week_data  # last complete week = comparison baseline
+                current_week_data = ptd_data
+                week_start, week_end = ptd_start, ptd_end
+                has_activity = True
+            else:
+                latest_real = await _latest_real_insight(user_id, ai_provider, "weekly")
+                if latest_real:
+                    logger.info(f"ℹ️  Quiet week for user {user_id}; keeping latest real weekly insight")
+                    # is_reused is transient (not stored): callers must not announce it as new.
+                    return {**latest_real, "is_reused": True}
+
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
+            # Don't pile up a new placeholder on every request: reuse today's.
+            existing_placeholder = await _todays_placeholder(user_id, ai_provider, "weekly")
+            if existing_placeholder:
+                return existing_placeholder
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
             
-            placeholder_content = """## 👋 Welcome to Tow Pwar!
+            placeholder_content = """## 👋 Welcome to Toe Pwar!
 ### 🎯 Get Started with Your Financial Journey
 
 It looks like you're just getting started with Toe Pwar. To generate personalized AI insights, you'll need to add some financial activities first.
@@ -149,94 +402,37 @@ Start by adding your first transaction or creating a financial goal. The more da
             return new_insight
         
         # [FIX] Added await
-        previous_insight = await insights_collection.find_one(
-            {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "weekly"},
-            sort=[("generated_at", -1)]
-        )
+        previous_insight = await _latest_real_insight(user_id, ai_provider, "weekly")
         
         # Build context
         context = _build_weekly_context(
-            user, 
+            user,
             current_week_data,
-            prev_week_data, 
+            prev_week_data,
             goals,
             budgets,
             week_start,
             week_end,
-            previous_insight
+            previous_insight,
+            period_to_date=period_to_date,
         )
         
         system_prompt = _build_weekly_system_prompt()
         
-        from openai import AsyncOpenAI
-        from google import genai
-        
-        input_tokens = 0
-        output_tokens = 0
-        total_tokens = 0
-        
-        if ai_provider == "gemini":
-            client = genai.Client(api_key=GOOGLE_API_KEY)
-            full_prompt = f"{system_prompt}\n\n{context}"
-            # Note: Gemini generate_content is synchronous in this library version usually
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-                contents=full_prompt,
-                config={"temperature": 0.7, "max_output_tokens": 8192}
-            )
-            insights_content = response.text
-            
-            if hasattr(response, 'usage_metadata'):
-                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
-                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
-                total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
-                
-                logger.info(f"🔢 [GEMINI TOKEN USAGE - Weekly Insight] User: {user_id}")
-                logger.info(f"   📥 Input tokens: {input_tokens:,}")
-                logger.info(f"   📤 Output tokens: {output_tokens:,}")
-                logger.info(f"   📊 Total tokens: {total_tokens:,}")
-                await track_ai_usage(
-                    user_id=user_id,
-                    feature_type=AIFeatureType.WEEKLY_INSIGHT,
-                    provider=AIProviderType.GEMINI,
-                    model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
-        else:
-            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-            response = await client.chat.completions.create(
-                model=chatbot.gpt_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": context}
-                ],
-                temperature=0.7,
-                max_tokens=2500
-            )
-            insights_content = response.choices[0].message.content
+        insights_content, input_tokens, output_tokens, total_tokens = await _call_insight_model(
+            ai_provider=ai_provider,
+            chatbot=chatbot,
+            system_prompt=system_prompt,
+            context=context,
+            openai_max_tokens=2500,
+            feature_type=AIFeatureType.WEEKLY_INSIGHT,
+            user_id=user_id,
+            label="Weekly Insight",
+        )
 
-            if hasattr(response, 'usage'):
-                input_tokens = response.usage.prompt_tokens
-                output_tokens = response.usage.completion_tokens
-                total_tokens = response.usage.total_tokens
-                
-                logger.info(f"🔢 [OPENAI TOKEN USAGE - Weekly Insight] User: {user_id}")
-                logger.info(f"   📥 Input tokens: {input_tokens:,}")
-                logger.info(f"   📤 Output tokens: {output_tokens:,}")
-                logger.info(f"   📊 Total tokens: {total_tokens:,}")
-                logger.info(f"   🤖 Model: {chatbot.gpt_model}")
-                await track_ai_usage(
-                    user_id=user_id,
-                    feature_type=AIFeatureType.WEEKLY_INSIGHT,
-                    provider=AIProviderType.OPENAI,
-                    model_name=chatbot.gpt_model,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
+        if not _has_content(insights_content):
+            logger.error(f"❌ {ai_provider} returned empty weekly insight for user {user_id}; not saving")
+            return None
         
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -253,6 +449,9 @@ Start by adding your first transaction or creating a financial goal. The more da
             "ai_provider": ai_provider,
             "expires_at": None,
             "is_placeholder": False,
+            # True when the report covers the current, still-running week (Monday..today)
+            # because the last complete week had no activity.
+            "is_period_to_date": period_to_date,
             "token_usage": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
@@ -262,10 +461,16 @@ Start by adding your first transaction or creating a financial goal. The more da
         
         # [FIX] Added await
         await insights_collection.insert_one(new_insight)
-        notify_weekly_insights_generated(user_id)
+        if notify:
+            await notify_weekly_insights_generated(user_id)
         logger.info(f"✅ Weekly insight generated for user {user_id} using {ai_provider}")
         return new_insight
         
+    except InsightAIError as e:
+        # Propagate so routes can map it (429 for provider rate limits, 502/503 otherwise);
+        # the scheduled job gathers with return_exceptions=True.
+        logger.error(f"AI error generating weekly insight for user {user_id}: {e}")
+        raise
     except Exception as e:
         logger.error(f"Error generating weekly insight for user {user_id}: {str(e)}")
         import traceback
@@ -284,7 +489,9 @@ async def get_financial_summary(user_id, start_date, end_date):
         {
             "$match": {
                 "user_id": user_id,
-                "date": {"$gte": start_date, "$lte": end_date}
+                "date": {"$gte": start_date, "$lte": end_date},
+                # Legacy NaN/inf amounts would turn every total NaN.
+                **finite_amount_filter(),
             }
         },
         # 2. Split into two calculation branches
@@ -437,23 +644,44 @@ def _build_weekly_context(
     budgets,
     week_start,
     week_end,
-    previous_insight
+    previous_insight,
+    period_to_date: bool = False,
 ):
-    """Build context for weekly insights using aggregated data"""
-    
+    """Build context for weekly insights using aggregated data.
+
+    period_to_date=True: current_week_data covers the current, still-running week
+    (Monday..today) and prev_week_data the last complete week.
+    """
+
     # Extract data for easier lookup
     curr_summary = {item['_id']: item for item in current_week_data.get('summary', [])}
     curr_cats = {item['_id']: item['top_items'] for item in current_week_data.get('categories', [])}
-    
+
     prev_summary = {item['_id']: item for item in prev_week_data.get('summary', [])}
 
     # Calculate total transactions across all currencies
     total_tx = sum(item['count'] for item in curr_summary.values())
 
-    context = f"""USER: {user.get('name', 'User')}
+    if period_to_date:
+        context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')} (Monday Morning)
+TODAY: {app_today().strftime('%A, %B %d, %Y')}
+
+REPORT PERIOD: CURRENT WEEK TO DATE (WEEK STILL IN PROGRESS): {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (today)
+NOTE: The last complete week had no transactions, so this report covers the current week so far.
+Do NOT call this period "last week", and do not treat the remaining days of the week as zero spending.
+
+=== THIS WEEK'S FINANCIAL ACTIVITY SO FAR ===
+
+Total Transactions: {total_tx}
+
+"""
+    else:
+        context = f"""USER: {user.get('name', 'User')}
+DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
+
+TODAY: {app_today().strftime('%A, %B %d, %Y')} (Monday Morning)
 
 LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
 
@@ -490,7 +718,10 @@ Total Transactions: {total_tx}
     
     # Previous week comparison
     if prev_summary:
-        context += "\n\n=== WEEK BEFORE LAST COMPARISON ===\n\n"
+        context += (
+            "\n\n=== LAST COMPLETE WEEK COMPARISON (full week vs. this partial week) ===\n\n"
+            if period_to_date else "\n\n=== WEEK BEFORE LAST COMPARISON ===\n\n"
+        )
         
         # Union of all currencies found in both weeks
         all_currencies = set(list(curr_summary.keys()) + list(prev_summary.keys()))
@@ -564,10 +795,17 @@ Total Transactions: {total_tx}
     if previous_insight:
         context += "\n=== PREVIOUS WEEK'S KEY RECOMMENDATIONS ===\n"
         context += f"(Review to see if user followed through)\n\n"
-        prev_content = previous_insight.get("content", "")
+        prev_content = previous_insight.get("content") or ""
         context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
     
-    context += "\n\nGenerate a comprehensive weekly financial insight report based on the above data."
+    if period_to_date:
+        context += (
+            "\n\nGenerate a weekly financial insight report for the CURRENT WEEK SO FAR "
+            f"({week_start.strftime('%B %d')} to today, week still in progress) based on the above data. "
+            "Say clearly in the summary that it covers the week to date."
+        )
+    else:
+        context += "\n\nGenerate a comprehensive weekly financial insight report based on the above data."
     return context
 
 
@@ -603,16 +841,15 @@ async def generate_weekly_insights_for_all_users():
         async with sem:  # Wait for a free slot in the semaphore
             try:
                 # Check subscription validity
-                expires_at = user.get("subscription_expires_at")
-                if expires_at and expires_at < datetime.now(UTC):
+                if is_expired(user.get("subscription_expires_at")):
                     logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
                     return
 
                 # Run both providers concurrently for this user
                 # This cuts processing time per user in half
                 tasks = [
-                    generate_weekly_insight(user_id, "openai"),
-                    generate_weekly_insight(user_id, "gemini")
+                    generate_weekly_insight(user_id, "openai", notify=False),
+                    generate_weekly_insight(user_id, "gemini", notify=False)
                 ]
                 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -628,6 +865,18 @@ async def generate_weekly_insights_for_all_users():
                         logger.warning(f"⚠️ Failed to generate {provider} weekly insight for user {user_id} (Returned None)")
                         error_count += 1
 
+                # Exactly one "insights ready" notification per user per run, and only
+                # when at least one provider produced a real (non-placeholder) insight.
+                # (a reused older insight returned for a quiet period is not "new").
+                if any(
+                    isinstance(r, dict) and not r.get("is_placeholder") and not r.get("is_reused")
+                    for r in results
+                ):
+                    try:
+                        await notify_weekly_insights_generated(user_id)
+                    except Exception as notify_error:
+                        logger.error(f"⚠️ Failed to send weekly insights notification to {user_id}: {notify_error}")
+
             except Exception as e:
                 logger.error(f"❌ Critical error processing user {user_id}: {str(e)}")
                 error_count += 1
@@ -640,16 +889,7 @@ async def generate_weekly_insights_for_all_users():
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
 
 
-async def translate_insight_to_myanmar(english_content: str, ai_provider: str = "openai", user_id: str = None) -> str:
-    """Translate English insights to Myanmar language"""
-    try:
-                # NEW: Check if this is a placeholder insight by checking for the welcome message
-        is_placeholder = "Welcome to Toe Pwar!" in english_content and "Get Started with Your Financial Journey" in english_content
-
-        if is_placeholder:
-            # Return Myanmar placeholder without calling AI API
-            logger.info("Returning Myanmar placeholder for new user")
-            myanmar_placeholder = """## 👋 Toe Pwar မှ ကြိုဆိုပါတယ်!
+MYANMAR_PLACEHOLDER = """## 👋 Toe Pwar မှ ကြိုဆိုပါတယ်!
 
 ### 🎯 သင့်ရဲ့ ငွေကြေးခရီးစဉ်ကို စတင်ပါ
 
@@ -682,9 +922,9 @@ Toe Pwar နဲ့ စတင်အသုံးပြုနေပုံရပါ�
 
 ---
 *သင့်ငွေကြေး ခရီးစဉ် ဤနေရာမှ စတင်ပါသည်။ အောင်မြင်အောင် လုပ်ကြပါစို့!* 💪"""
-            return myanmar_placeholder
 
-        system_prompt = """You are a professional translator specializing in financial content.
+
+_TRANSLATION_SYSTEM_PROMPT = """You are a professional translator specializing in financial content.
 Translate the following financial insights from English to Myanmar (Burmese) language.
 
 CRITICAL RULES:
@@ -694,6 +934,7 @@ CRITICAL RULES:
 4. Use natural, conversational Myanmar that feels native
 5. Keep emojis exactly as they are
 6. Maintain the same structure and sections
+7. Output ONLY the translation, with no preamble or commentary
 
 For financial terms:
 - Money: ငွေ
@@ -707,135 +948,209 @@ For financial terms:
 
 Translate naturally while keeping the professional yet friendly tone."""
 
-        if ai_provider == "gemini":
-            from google import genai
-            
-            if not GOOGLE_API_KEY:
-                raise Exception("Google API key not configured")
-            
-            # NEW: Using google.genai instead of google.generativeai
-            client = genai.Client(api_key=GOOGLE_API_KEY)
-            
-            prompt = f"{system_prompt}\n\nTranslate this to Myanmar:\n\n{english_content}"
-            
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model="gemini-2.5-pro",
-                contents=prompt,
-                config={
-                    "temperature": 0.3,
-                    "max_output_tokens": 8192,
-                }
+# Myanmar output is token-heavy (several tokens per Burmese syllable), so give the
+# translation plenty of room. Gemini 2.5 "thinking" tokens also count toward the limit.
+TRANSLATION_OPENAI_MAX_TOKENS = 8000
+TRANSLATION_GEMINI_MAX_TOKENS = 32768
+TRANSLATION_GEMINI_MODEL = "gemini-2.5-pro"
+# Max English characters per chunk when a single-shot translation was truncated.
+TRANSLATION_CHUNK_CHARS = 2500
+
+
+class TranslationTruncatedError(Exception):
+    """The model hit its output limit, so the translation is incomplete (must not be cached)."""
+
+
+def _is_placeholder_text(english_content: str) -> bool:
+    """Legacy fallback for insights stored before is_placeholder was reliable (incl. the old 'Tow Pwar' typo)."""
+    text = english_content or ""
+    return "Get Started with Your Financial Journey" in text and (
+        "Welcome to Toe Pwar!" in text or "Welcome to Tow Pwar!" in text
+    )
+
+
+def _split_markdown_sections(text: str, max_chars: int = TRANSLATION_CHUNK_CHARS) -> list:
+    """Split markdown into chunks on heading boundaries, packing sections up to max_chars."""
+    sections, current = [], []
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("#") and current:
+            sections.append("".join(current))
+            current = []
+        current.append(line)
+    if current:
+        sections.append("".join(current))
+
+    chunks, buf = [], ""
+    for section in sections:
+        if buf and len(buf) + len(section) > max_chars:
+            chunks.append(buf)
+            buf = ""
+        buf += section
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
+def _finish_reason_name(value) -> str:
+    if value is None:
+        return ""
+    return str(getattr(value, "name", value)).upper()
+
+
+async def _translate_once(english_content: str, ai_provider: str, user_id: str = None):
+    """Translate one piece of text. Returns (myanmar_text, truncated: bool)."""
+    if ai_provider == "gemini":
+        from google import genai
+
+        if not GOOGLE_API_KEY:
+            raise Exception("Google API key not configured")
+
+        client = genai.Client(api_key=GOOGLE_API_KEY)
+        prompt = f"{_TRANSLATION_SYSTEM_PROMPT}\n\nTranslate this to Myanmar:\n\n{english_content}"
+
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=TRANSLATION_GEMINI_MODEL,
+            contents=prompt,
+            config={
+                "temperature": 0.3,
+                "max_output_tokens": TRANSLATION_GEMINI_MAX_TOKENS,
+            }
+        )
+
+        myanmar_content = response.text
+        candidates = getattr(response, "candidates", None) or []
+        finish = _finish_reason_name(getattr(candidates[0], "finish_reason", None)) if candidates else ""
+        truncated = "MAX_TOKENS" in finish
+
+        usage = getattr(response, "usage_metadata", None)
+        if usage:
+            input_tokens = _usage_int(getattr(usage, "prompt_token_count", 0))
+            output_tokens = _usage_int(getattr(usage, "candidates_token_count", 0))
+            total_tokens = _usage_int(getattr(usage, "total_token_count", 0)) or (input_tokens + output_tokens)
+            await track_ai_usage(
+                user_id=user_id,
+                feature_type=AIFeatureType.TRANSLATION,
+                provider=AIProviderType.GEMINI,
+                model_name=TRANSLATION_GEMINI_MODEL,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens
             )
-            
-            myanmar_content = response.text
+    else:  # OpenAI
+        from openai import AsyncOpenAI
 
+        if not OPENAI_API_KEY:
+            raise Exception("OpenAI API key not configured")
 
-            # NEW: Track translation usage
-            if hasattr(response, 'usage_metadata'):
-                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
-                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
-                total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
-                
-                # Get user_id from the insight being translated
-                # You'll need to pass user_id to this function
-                await track_ai_usage(
-                    user_id=user_id,  # Add user_id parameter to function
-                    feature_type=AIFeatureType.TRANSLATION,
-                    provider=AIProviderType.GEMINI,
-                    model_name="gemini-2.5-pro",
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
-            
-        else:  # OpenAI
-            from openai import AsyncOpenAI
-            
-            if not OPENAI_API_KEY:
-                raise Exception("OpenAI API key not configured")
-            
-            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-            
-            response = await client.chat.completions.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Translate this to Myanmar:\n\n{english_content}"}
-                ],
-                temperature=0.3,
-                max_tokens=3000
+        client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": _TRANSLATION_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Translate this to Myanmar:\n\n{english_content}"}
+            ],
+            temperature=0.3,
+            max_tokens=TRANSLATION_OPENAI_MAX_TOKENS
+        )
+
+        choice = response.choices[0] if response.choices else None
+        myanmar_content = choice.message.content if choice else None
+        truncated = _finish_reason_name(getattr(choice, "finish_reason", None)) == "LENGTH"
+
+        usage = getattr(response, "usage", None)
+        if usage:
+            input_tokens = _usage_int(getattr(usage, "prompt_tokens", 0))
+            output_tokens = _usage_int(getattr(usage, "completion_tokens", 0))
+            total_tokens = _usage_int(getattr(usage, "total_tokens", 0)) or (input_tokens + output_tokens)
+            await track_ai_usage(
+                user_id=user_id,
+                feature_type=AIFeatureType.TRANSLATION,
+                provider=AIProviderType.OPENAI,
+                model_name=model_name,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens
             )
 
-            myanmar_content = response.choices[0].message.content
+    if not _has_content(myanmar_content):
+        raise Exception("Translation model returned empty output")
+    return myanmar_content, truncated
 
 
-            # NEW: Track translation usage
-            if hasattr(response, 'usage'):
-                input_tokens = response.usage.prompt_tokens
-                output_tokens = response.usage.completion_tokens
-                total_tokens = response.usage.total_tokens
-                
-                await track_ai_usage(
-                    user_id=user_id,  # Add user_id parameter to function
-                    feature_type=AIFeatureType.TRANSLATION,
-                    provider=AIProviderType.OPENAI,
-                    model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
+async def translate_insight_to_myanmar(
+    english_content: str,
+    ai_provider: str = "openai",
+    user_id: str = None,
+    is_placeholder: bool = None,
+) -> str:
+    """
+    Translate English insights to Myanmar.
 
-        return myanmar_content
+    Pass the insight's stored is_placeholder flag: placeholders get a canned translation
+    and are never sent to the paid translation API. If the model output is truncated
+    (OpenAI finish_reason == "length" / Gemini MAX_TOKENS) the content is re-translated
+    section by section; if that is still truncated an exception is raised so callers
+    never cache an incomplete content_mm.
+    """
+    try:
+        if is_placeholder or (is_placeholder is None and _is_placeholder_text(english_content)):
+            logger.info("Returning Myanmar placeholder (no AI call)")
+            return MYANMAR_PLACEHOLDER
+
+        if not _has_content(english_content):
+            raise Exception("No content to translate")
+
+        myanmar_content, truncated = await _translate_once(english_content, ai_provider, user_id)
+        if not truncated:
+            return myanmar_content
+
+        chunks = _split_markdown_sections(english_content)
+        logger.warning(
+            f"⚠️ Myanmar translation truncated ({ai_provider}); retrying in {len(chunks)} section chunk(s)"
+        )
+        if len(chunks) <= 1:
+            raise TranslationTruncatedError("Translation output was truncated")
+
+        translated_parts = []
+        for chunk in chunks:
+            part, part_truncated = await _translate_once(chunk, ai_provider, user_id)
+            if part_truncated:
+                raise TranslationTruncatedError("Translation output was truncated")
+            translated_parts.append(part.strip())
+        return "\n\n".join(translated_parts)
 
     except Exception as e:
         logger.error(f"Translation error using {ai_provider}: {e}")
-        raise Exception(f"Failed to translate insights: {str(e)}")
-    
-    
+        # InsightAIError (an Exception subclass) lets routes map provider 429s to HTTP 429.
+        raise InsightAIError(
+            f"Failed to translate insights: {e}",
+            rate_limited=is_rate_limit_error(e), provider=ai_provider,
+        ) from e
+
+
 def get_month_date_range():
     """
-    Get the start and end dates for the PREVIOUS month
-    When run on the 1st, this returns last month's range
+    Start/end of the most recent COMPLETE calendar month, with "today" evaluated in the
+    app/scheduler timezone (see get_week_date_range).
     """
-    today = datetime.now(UTC)
-    
-    # Get first day of current month
-    current_month_start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    # Get last month's start (go back one month)
-    if current_month_start.month == 1:
-        month_start = current_month_start.replace(year=current_month_start.year - 1, month=12)
-    else:
-        month_start = current_month_start.replace(month=current_month_start.month - 1)
-    
-    # Get last day of that month (which is day before current month starts)
-    month_end = (current_month_start - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
-    
-    return month_start, month_end
+    return previous_month_range()
 
 
 def get_previous_month_date_range():
-    """
-    Get the start and end dates for the month BEFORE the previous month
-    (Two months ago)
-    """
-    month_start, _ = get_month_date_range()
-    
-    # Go back one more month
-    if month_start.month == 1:
-        prev_month_start = month_start.replace(year=month_start.year - 1, month=12)
-    else:
-        prev_month_start = month_start.replace(month=month_start.month - 1)
-    
-    # Get last day of that month
-    prev_month_end = (month_start - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
-    
-    return prev_month_start, prev_month_end
+    """Start/end of the month BEFORE the most recent complete month (for comparison)."""
+    return month_before_previous_range()
 
 
-async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
-    """Generate monthly insight for a specific user"""
+async def generate_monthly_insight(user_id: str, ai_provider: str = "openai", notify: bool = False):
+    """
+    Generate monthly insight for a specific user.
+
+    notify: send the "monthly insights ready" notification. Off by default; the scheduled
+    all-users job sends exactly one notification per user after both providers ran.
+    """
     try:
         # Select chatbot based on provider
         chatbot = gemini_financial_chatbot if ai_provider == "gemini" else financial_chatbot
@@ -862,15 +1177,38 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai"):
         prev_month_data = await get_financial_summary(user_id, prev_month_start, prev_month_end)
         
         # Get goals & budgets
-        goals = processor.get_user_goals()
-        budgets = processor.get_user_budgets()
+        goals = await processor.get_user_goals()
+        budgets = await processor.get_user_budgets()
         
         # Check for activity
-        total_tx_count = sum(item['count'] for item in current_month_data.get('summary', []))
+        total_tx_count = _tx_count(current_month_data)
         has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
-        
+        period_to_date = False
+
+        if not has_activity:
+            # Nothing in the last complete month: month-to-date insight if the current month
+            # has transactions, else keep the latest real insight (no placeholder over history).
+            ptd_start, ptd_end = current_month_to_date_range()
+            ptd_data = await get_financial_summary(user_id, ptd_start, ptd_end)
+            if _tx_count(ptd_data) > 0:
+                logger.info(f"ℹ️  No activity last month for user {user_id}; generating month-to-date insight")
+                period_to_date = True
+                prev_month_data = current_month_data  # last complete month = comparison baseline
+                current_month_data = ptd_data
+                month_start, month_end = ptd_start, ptd_end
+                has_activity = True
+            else:
+                latest_real = await _latest_real_insight(user_id, ai_provider, "monthly")
+                if latest_real:
+                    logger.info(f"ℹ️  Quiet month for user {user_id}; keeping latest real monthly insight")
+                    return {**latest_real, "is_reused": True}
+
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
+            # Don't pile up a new placeholder on every request: reuse today's.
+            existing_placeholder = await _todays_placeholder(user_id, ai_provider, "monthly")
+            if existing_placeholder:
+                return existing_placeholder
             
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
@@ -928,81 +1266,37 @@ Start by adding your first transaction or creating a financial goal. The more da
             return new_insight
         
         # [FIX] Added await
-        previous_insight = await insights_collection.find_one(
-            {"user_id": user_id, "ai_provider": ai_provider, "insight_type": "monthly"},
-            sort=[("generated_at", -1)]
-        )
+        previous_insight = await _latest_real_insight(user_id, ai_provider, "monthly")
         
         # Build context
         context = _build_monthly_context(
-            user, 
-            current_month_data, 
-            prev_month_data,    
+            user,
+            current_month_data,
+            prev_month_data,
             goals,
             budgets,
             month_start,
             month_end,
-            previous_insight
+            previous_insight,
+            period_to_date=period_to_date,
         )
         
         system_prompt = _build_monthly_system_prompt()
         
-        from openai import AsyncOpenAI
-        from google import genai
-        
-        if ai_provider == "gemini":
-            client = genai.Client(api_key=GOOGLE_API_KEY)
-            full_prompt = f"{system_prompt}\n\n{context}"
-            # [FIX] Wrap blocking call in asyncio.to_thread
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-                contents=full_prompt,
-                config={"temperature": 0.7, "max_output_tokens": 8192}
-            )
-            insights_content = response.text
-            
-            if hasattr(response, 'usage_metadata'):
-                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
-                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
-                total_tokens = getattr(response.usage_metadata, 'total_token_count', 0)
-                
-                await track_ai_usage(
-                    user_id=user_id,
-                    feature_type=AIFeatureType.MONTHLY_INSIGHT,
-                    provider=AIProviderType.GEMINI,
-                    model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
-        else:
-            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-            response = await client.chat.completions.create(
-                model=chatbot.gpt_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": context}
-                ],
-                temperature=0.7,
-                max_tokens=3000
-            )
-            insights_content = response.choices[0].message.content
+        insights_content, input_tokens, output_tokens, total_tokens = await _call_insight_model(
+            ai_provider=ai_provider,
+            chatbot=chatbot,
+            system_prompt=system_prompt,
+            context=context,
+            openai_max_tokens=3000,
+            feature_type=AIFeatureType.MONTHLY_INSIGHT,
+            user_id=user_id,
+            label="Monthly Insight",
+        )
 
-            if hasattr(response, 'usage'):
-                input_tokens = response.usage.prompt_tokens
-                output_tokens = response.usage.completion_tokens
-                total_tokens = response.usage.total_tokens
-                
-                await track_ai_usage(
-                    user_id=user_id,
-                    feature_type=AIFeatureType.MONTHLY_INSIGHT,
-                    provider=AIProviderType.OPENAI,
-                    model_name=chatbot.gpt_model,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
+        if not _has_content(insights_content):
+            logger.error(f"❌ {ai_provider} returned empty monthly insight for user {user_id}; not saving")
+            return None
         
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -1019,14 +1313,25 @@ Start by adding your first transaction or creating a financial goal. The more da
             "ai_provider": ai_provider,
             "expires_at": None,
             "is_placeholder": False,
+            # True when the report covers the current, still-running month (1st..today).
+            "is_period_to_date": period_to_date,
+            "token_usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens
+            }
         }
         
         # [FIX] Added await
         await insights_collection.insert_one(new_insight)
-        notify_monthly_insights_generated(user_id)
+        if notify:
+            await notify_monthly_insights_generated(user_id)
         logger.info(f"✅ Monthly insight generated for user {user_id} using {ai_provider}")
         return new_insight
         
+    except InsightAIError as e:
+        logger.error(f"AI error generating monthly insight for user {user_id}: {e}")
+        raise
     except Exception as e:
         logger.error(f"Error generating monthly insight for user {user_id}: {str(e)}")
         import traceback
@@ -1137,9 +1442,14 @@ def _build_monthly_context(
     budgets,
     month_start,
     month_end,
-    previous_insight
+    previous_insight,
+    period_to_date: bool = False,
 ):
-    """Build context for monthly insights using aggregated data"""
+    """Build context for monthly insights using aggregated data.
+
+    period_to_date=True: current_month_data covers the current, still-running month
+    (1st..today) and prev_month_data the last complete month.
+    """
     
     # Extract data from aggregation structure
     curr_summary = {item['_id']: item for item in current_month_data.get('summary', [])}
@@ -1150,10 +1460,26 @@ def _build_monthly_context(
     # Calculate total transactions
     total_tx = sum(item['count'] for item in curr_summary.values())
 
-    context = f"""USER: {user.get('name', 'User')}
+    if period_to_date:
+        context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {datetime.now(UTC).strftime('%A, %B %d, %Y')} (1st of the Month)
+TODAY: {app_today().strftime('%A, %B %d, %Y')}
+
+REPORT PERIOD: CURRENT MONTH TO DATE (MONTH STILL IN PROGRESS): {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')} (today)
+NOTE: The last complete month had no transactions, so this report covers the current month so far.
+Do NOT call this period "last month", and do not treat the remaining days of the month as zero spending.
+
+=== THIS MONTH'S FINANCIAL ACTIVITY SO FAR ===
+
+Total Transactions: {total_tx}
+
+"""
+    else:
+        context = f"""USER: {user.get('name', 'User')}
+DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
+
+TODAY: {app_today().strftime('%A, %B %d, %Y')} (1st of the Month)
 
 LAST MONTH'S PERIOD: {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')}
 
@@ -1189,7 +1515,10 @@ Total Transactions: {total_tx}
     
     # Previous Month Comparison
     if prev_summary:
-        context += "\n\n=== PREVIOUS MONTH COMPARISON ===\n\n"
+        context += (
+            "\n\n=== LAST COMPLETE MONTH COMPARISON (full month vs. this partial month) ===\n\n"
+            if period_to_date else "\n\n=== PREVIOUS MONTH COMPARISON ===\n\n"
+        )
         
         all_currencies = set(list(curr_summary.keys()) + list(prev_summary.keys()))
         
@@ -1260,10 +1589,17 @@ Total Transactions: {total_tx}
     if previous_insight:
         context += "\n=== PREVIOUS MONTH'S KEY RECOMMENDATIONS ===\n"
         context += f"(Review to see if user followed through)\n\n"
-        prev_content = previous_insight.get("content", "")
+        prev_content = previous_insight.get("content") or ""
         context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
     
-    context += "\n\nGenerate a comprehensive monthly financial insight report based on the above data."
+    if period_to_date:
+        context += (
+            "\n\nGenerate a monthly financial insight report for the CURRENT MONTH SO FAR "
+            f"({month_start.strftime('%B %d')} to today, month still in progress) based on the above data. "
+            "Say clearly in the summary that it covers the month to date."
+        )
+    else:
+        context += "\n\nGenerate a comprehensive monthly financial insight report based on the above data."
     return context
 
 
@@ -1297,15 +1633,14 @@ async def generate_monthly_insights_for_all_users():
         async with sem:
             try:
                 # Check subscription validity
-                expires_at = user.get("subscription_expires_at")
-                if expires_at and expires_at < datetime.now(UTC):
+                if is_expired(user.get("subscription_expires_at")):
                     logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
                     return
 
                 # Run both providers concurrently
                 tasks = [
-                    generate_monthly_insight(user_id, "openai"),
-                    generate_monthly_insight(user_id, "gemini")
+                    generate_monthly_insight(user_id, "openai", notify=False),
+                    generate_monthly_insight(user_id, "gemini", notify=False)
                 ]
                 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1320,6 +1655,18 @@ async def generate_monthly_insights_for_all_users():
                     else:
                         logger.warning(f"⚠️ Failed to generate {provider} monthly insight for user {user_id} (Returned None)")
                         error_count += 1
+
+                # Exactly one "insights ready" notification per user per run, and only
+                # when at least one provider produced a real (non-placeholder) insight.
+                # (a reused older insight returned for a quiet period is not "new").
+                if any(
+                    isinstance(r, dict) and not r.get("is_placeholder") and not r.get("is_reused")
+                    for r in results
+                ):
+                    try:
+                        await notify_monthly_insights_generated(user_id)
+                    except Exception as notify_error:
+                        logger.error(f"⚠️ Failed to send monthly insights notification to {user_id}: {notify_error}")
 
             except Exception as e:
                 logger.error(f"❌ Critical error processing user {user_id}: {str(e)}")

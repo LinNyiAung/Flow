@@ -13,7 +13,7 @@ import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/transaction.dart';
-import '../../providers/transaction_provider.dart';
+import '../../services/api_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../transactions/edit_transaction_screen.dart';
 import '../transactions/add_transaction_screen.dart'; // Make sure to import this
@@ -38,6 +38,15 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   bool _hasMoreData = true;
 
   Currency? _selectedCurrency;
+
+  // The (filtered) list is kept local to this screen: writing it into the
+  // shared TransactionProvider made Home's Recent list / pace chart show
+  // the filtered subset after coming back.
+  List<Transaction> _transactions = [];
+  bool _isLoading = false;
+
+  /// Bumped for every new (filtered) load; older responses are dropped.
+  int _requestId = 0;
 
   final formatter = NumberFormat("#,##0.00", "en_US");
 
@@ -65,46 +74,82 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       _isLoadingMore = true;
     });
 
-    final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
-    final currentCount = transactionProvider.transactions.length;
+    final requestId = _requestId;
+    final currentCount = _transactions.length;
+    final limit = _currentLimit + 50;
 
-    _currentLimit += 50;
-
-    await transactionProvider.loadMoreTransactions(
-      type: _selectedFilterType,
-      startDate: _selectedStartDate,
-      endDate: _selectedEndDate,
-      currency: _selectedCurrency,
-      limit: _currentLimit,
-      currentCount: currentCount,
-    );
-
-    final newCount = transactionProvider.transactions.length;
-
-    setState(() {
-      _isLoadingMore = false;
-      _hasMoreData = newCount > currentCount;
-    });
+    try {
+      final result = await ApiService.getTransactions(
+        type: _selectedFilterType,
+        startDate: _apiStartDate,
+        endDate: _apiEndDate,
+        currency: _selectedCurrency,
+        limit: limit,
+        skip: 0,
+      );
+      // Filters changed (new load started) while this page was in flight.
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _currentLimit = limit;
+        if (result.length > currentCount) _transactions = result;
+        _isLoadingMore = false;
+        _hasMoreData = result.length > currentCount;
+      });
+    } catch (e) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() => _isLoadingMore = false);
+      _showLoadError(e);
+    }
   }
 
+  void _showLoadError(Object e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+    );
+  }
+
+  // Transaction dates are wall-clock values stored tagged as UTC, so the
+  // filter must send the picked calendar days as UTC day boundaries
+  // (00:00:00 / 23:59:59) — the same convention the analytics screens use.
+  DateTime? get _apiStartDate => _selectedStartDate == null
+      ? null
+      : DateTime.utc(_selectedStartDate!.year, _selectedStartDate!.month, _selectedStartDate!.day);
+  DateTime? get _apiEndDate => _selectedEndDate == null
+      ? null
+      : DateTime.utc(_selectedEndDate!.year, _selectedEndDate!.month, _selectedEndDate!.day, 23, 59, 59);
+
   Future<void> _fetchTransactionsWithFilter() async {
+    final requestId = ++_requestId;
     setState(() {
       _currentLimit = 50;
       _hasMoreData = true;
+      _isLoadingMore = false;
+      _isLoading = true;
     });
 
-    await Provider.of<TransactionProvider>(context, listen: false).fetchTransactions(
-      type: _selectedFilterType,
-      startDate: _selectedStartDate,
-      endDate: _selectedEndDate,
-      currency: _selectedCurrency,
-      limit: _currentLimit,
-    );
-
-    final loadedCount = Provider.of<TransactionProvider>(context, listen: false).transactions.length;
-    setState(() {
-      _hasMoreData = loadedCount >= _currentLimit;
-    });
+    try {
+      final result = await ApiService.getTransactions(
+        type: _selectedFilterType,
+        startDate: _apiStartDate,
+        endDate: _apiEndDate,
+        currency: _selectedCurrency,
+        limit: _currentLimit,
+        skip: 0,
+      );
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _transactions = result;
+        _isLoading = false;
+        _hasMoreData = result.length >= _currentLimit;
+      });
+    } catch (e) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _isLoading = false;
+        _hasMoreData = false;
+      });
+      _showLoadError(e);
+    }
   }
 
   @override
@@ -133,7 +178,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       },
     );
 
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _selectedStartDate = picked.start;
         _selectedEndDate = picked.end;
@@ -271,7 +316,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final transactionProvider = Provider.of<TransactionProvider>(context);
+    final transactions = _transactions;
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final hasActiveFilters = _selectedFilterType != null || _selectedStartDate != null || _selectedCurrency != null;
@@ -332,14 +377,14 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       body: Column(
         children: [
           _buildFilterBar(),
-          _buildCountRow(transactionProvider, localizations, scheme),
+          _buildCountRow(transactions, localizations, scheme),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refreshData,
               color: scheme.primary,
-              child: transactionProvider.isLoading
+              child: _isLoading
                   ? Center(child: CircularProgressIndicator())
-                  : transactionProvider.transactions.isEmpty
+                  : transactions.isEmpty
                       ? _buildEmptyState(localizations)
                       : ListView(
                           controller: _scrollController,
@@ -356,9 +401,9 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                               clipBehavior: Clip.antiAlias,
                               child: Column(
                                 children: [
-                                  for (final t in transactionProvider.transactions) ...[
+                                  for (final t in transactions) ...[
                                     _buildTransactionRow(t),
-                                    if (t != transactionProvider.transactions.last) Divider(height: 1),
+                                    if (t != transactions.last) Divider(height: 1),
                                   ],
                                 ],
                               ),
@@ -598,8 +643,8 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     );
   }
 
-  Widget _buildCountRow(TransactionProvider provider, AppLocalizations localizations, ColorScheme scheme) {
-    final count = provider.transactions.length;
+  Widget _buildCountRow(List<Transaction> transactions, AppLocalizations localizations, ColorScheme scheme) {
+    final count = transactions.length;
     final countLabel = count == 1
         ? localizations.oneTransactionLabel
         : '$count ${localizations.transactionsCountSuffix}';
@@ -608,13 +653,13 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     // filtered to one but every visible entry happens to share one anyway
     // (the common case), use that — only fall back to a placeholder when
     // the list is genuinely mixed-currency.
-    final currencies = provider.transactions.map((t) => t.currency).toSet();
+    final currencies = transactions.map((t) => t.currency).toSet();
     final totalCurrency = _selectedCurrency ?? (currencies.length == 1 ? currencies.first : null);
 
     String totalLabel;
     if (totalCurrency != null) {
       double net = 0;
-      for (final t in provider.transactions) {
+      for (final t in transactions) {
         if (t.currency != totalCurrency) continue;
         net += t.type == TransactionType.inflow ? t.amount : -t.amount;
       }

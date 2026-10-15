@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 from enum import Enum
@@ -24,6 +24,31 @@ class NotificationType(str, Enum):
     MONTHLY_INSIGHTS_GENERATED = "monthly_insights_generated"
     SYSTEM_BROADCAST = "system_broadcast"  # NEW
     ADMIN_ANNOUNCEMENT = "admin_announcement"  # NEW
+    SUBSCRIPTION_EXPIRED = "subscription_expired"
+
+def parse_notification_type(value) -> NotificationType:
+    """
+    Map a stored notification type to the enum. Unknown/legacy values (e.g. a custom
+    admin broadcast type) fall back to SYSTEM_BROADCAST so listing never fails.
+    """
+    try:
+        return NotificationType(value)
+    except ValueError:
+        return NotificationType.SYSTEM_BROADCAST
+
+
+class FcmTokenUpdate(BaseModel):
+    """Body for POST /api/auth/update-fcm-token"""
+    fcm_token: str = Field(..., min_length=1, max_length=4096)
+
+    @field_validator("fcm_token")
+    @classmethod
+    def _strip_non_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("fcm_token must not be empty")
+        return v
+
 
 class NotificationResponse(BaseModel):
     id: str

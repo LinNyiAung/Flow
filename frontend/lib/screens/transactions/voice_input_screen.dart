@@ -4,6 +4,7 @@ import 'package:frontend/models/transaction.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/amount_entry_dialog.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -29,6 +30,10 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   MultipleExtractedTransactions? _extractedData;
   List<bool> _selected = [];
   String? _error;
+
+  /// Spoken language picked by the user: null = Auto (backend detects),
+  /// 'en' or 'my'. Deliberately independent of the UI language.
+  String? _spokenLanguage;
   final formatter = NumberFormat("#,##0.00", "en_US");
 
   late AnimationController _pulseController;
@@ -66,6 +71,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           ),
           path: path,
         );
+        if (!mounted) return;
 
         setState(() {
           _isRecording = true;
@@ -76,6 +82,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = '${localizations.errorStartRecording} ${e.toString()}';
       });
@@ -86,6 +93,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     final localizations = AppLocalizations.of(context);
     try {
       final path = await _audioRecorder.stop();
+      if (!mounted) return;
 
       setState(() {
         _isRecording = false;
@@ -95,6 +103,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
         await _processAudio(path);
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = '${localizations.errorStopRecording} ${e.toString()}';
         _isRecording = false;
@@ -103,6 +112,9 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   }
 
   Future<void> _processAudio(String path) async {
+    // Only hint the speech-to-text model when the user explicitly chose the
+    // spoken language; "Auto" (null) lets the backend detect it.
+    final language = _spokenLanguage;
     setState(() {
       _isProcessing = true;
       _error = null;
@@ -110,7 +122,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
     try {
       // Step 1: Transcribe audio
-      final transcription = await ApiService.transcribeAudio(File(path));
+      final transcription = await ApiService.transcribeAudio(
+        File(path),
+        language: language,
+      );
+      if (!mounted) return;
 
       setState(() {
         _transcribedText = transcription;
@@ -118,6 +134,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
       // Step 2: Extract multiple transaction data
       final extractedData = await ApiService.extractMultipleTransactionsFromText(transcription);
+      if (!mounted) return;
 
       setState(() {
         _extractedData = extractedData;
@@ -125,6 +142,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
         _isProcessing = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString().replaceAll('Exception: ', '');
         _isProcessing = false;
@@ -141,10 +159,34 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     return list;
   }
 
+  /// Enter or correct the amount of item [index] (required when the AI
+  /// couldn't read it — the backend rejects amount <= 0).
+  Future<void> _enterAmount(int index) async {
+    final data = _extractedData;
+    if (data == null || index >= data.transactions.length) return;
+    final item = data.transactions[index];
+    final amount = await showAmountEntryDialog(
+      context,
+      currency: item.currency,
+      initialAmount: item.amount,
+    );
+    if (amount == null || !mounted || !identical(_extractedData, data)) return;
+    final updated = List<ExtractedTransactionData>.of(data.transactions);
+    updated[index] = item.copyWith(amount: amount);
+    setState(() {
+      _extractedData = data.copyWith(transactions: updated);
+      if (index < _selected.length) _selected[index] = true;
+    });
+  }
+
   Future<void> _saveAllTransactions() async {
     if (_extractedData == null || _isSaving) return;
     final selected = _selectedTransactions;
     if (selected.isEmpty) return;
+    if (selected.any((t) => t.needsAmount)) {
+      setState(() => _error = AppLocalizations.of(context).amountNeededBeforeSaving);
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -154,20 +196,24 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     try {
       // Use batch create endpoint - currencies are already in the extracted data
       await ApiService.batchCreateTransactions(transactions: selected);
+      if (!mounted) return;
 
       // Refresh transaction list and balance
       final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
+      final localizations = AppLocalizations.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
       await transactionProvider.fetchTransactions();
       await transactionProvider.fetchBalance();
 
       // Show success message
-      final localizations = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text('${localizations.successfullySavedPrefix} ${selected.length} ${localizations.transactionsSuffix}')),
       );
 
-      Navigator.pop(context, true);
+      if (mounted) navigator.pop(true);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isSaving = false;
         _error = e.toString().replaceAll('Exception: ', '');
@@ -197,7 +243,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
+    // Back is blocked while saving, like the app-bar button, so the batch
+    // save can't finish on a screen that's already gone.
+    return PopScope(
+      canPop: !_isSaving,
+      child: Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: Icon(Icons.arrow_back_rounded),
@@ -236,6 +286,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -269,6 +320,39 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           ),
         ],
       ),
+    );
+  }
+
+  /// Optional spoken-language toggle (Auto / English / မြန်မာ), default Auto.
+  Widget _buildSpokenLanguagePicker(AppLocalizations localizations) {
+    final scheme = Theme.of(context).colorScheme;
+    final enabled = !_isRecording && !_isProcessing && !_isSaving;
+    final options = <(String?, String)>[
+      (null, localizations.voiceLanguageAuto),
+      ('en', localizations.voiceLanguageEnglish),
+      ('my', localizations.voiceLanguageMyanmar),
+    ];
+    return Column(
+      children: [
+        Text(
+          localizations.voiceSpokenLanguageLabel,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+        ),
+        SizedBox(height: 8),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: options.map((option) {
+            final (code, label) = option;
+            return ChoiceChip(
+              label: Text(label),
+              selected: _spokenLanguage == code,
+              onSelected: enabled ? (_) => setState(() => _spokenLanguage = code) : null,
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
@@ -315,7 +399,9 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
           textAlign: TextAlign.center,
         ),
-        SizedBox(height: 32),
+        SizedBox(height: 20),
+        _buildSpokenLanguagePicker(localizations),
+        SizedBox(height: 24),
 
         if (_isProcessing) Padding(padding: const EdgeInsets.only(top: 8), child: CircularProgressIndicator(color: scheme.primary)),
 
@@ -356,6 +442,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     final scheme = Theme.of(context).colorScheme;
     final data = _extractedData!;
     final selectedCount = _selected.where((s) => s).length;
+    final missingAmount = _selectedTransactions.any((t) => t.needsAmount);
     double selectedTotal = 0;
     for (var i = 0; i < data.transactions.length; i++) {
       if (i < _selected.length && _selected[i]) {
@@ -399,7 +486,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           children: [
             Flexible(
               child: Text(
-                '${localizations.foundLabel} ${data.totalCount} ${data.totalCount > 1 ? localizations.transactions : localizations.transactionSingularLabel}',
+                '${localizations.foundLabel} ${data.transactions.length} ${data.transactions.length > 1 ? localizations.transactions : localizations.transactionSingularLabel}',
                 style: Theme.of(context).textTheme.titleMedium,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -488,9 +575,20 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text(
-                                '${t.currency.symbol}${formatter.format(t.amount)}',
-                                style: AppTheme.money(15, weight: FontWeight.w800, color: amountColor),
+                              // Tap to enter / correct the amount.
+                              GestureDetector(
+                                onTap: _isSaving ? null : () => _enterAmount(index),
+                                child: t.needsAmount
+                                    ? StatusPill(
+                                        label: localizations.amountNeededLabel,
+                                        background: scheme.errorContainer,
+                                        foreground: scheme.error,
+                                        dense: true,
+                                      )
+                                    : Text(
+                                        '${t.currency.symbol}${formatter.format(t.amount)}',
+                                        style: AppTheme.money(15, weight: FontWeight.w800, color: amountColor),
+                                      ),
                               ),
                               SizedBox(height: 4),
                               StatusPill(
@@ -514,6 +612,17 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                         padding: const EdgeInsets.only(top: 10),
                         child: Container(height: 1, color: scheme.outlineVariant),
                       ),
+                      if (t.needsAmount)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: InkWell(
+                            onTap: _isSaving ? null : () => _enterAmount(index),
+                            child: Text(
+                              localizations.amountNeededHint,
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.error),
+                            ),
+                          ),
+                        ),
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
                         child: Text(
@@ -554,10 +663,17 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
         ),
 
         SizedBox(height: 16),
+        if (missingAmount) ...[
+          Text(
+            localizations.amountNeededBeforeSaving,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.error),
+          ),
+          SizedBox(height: 8),
+        ],
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: (_isSaving || selectedCount == 0) ? null : _saveAllTransactions,
+            onPressed: (_isSaving || selectedCount == 0 || missingAmount) ? null : _saveAllTransactions,
             child: _isSaving
                 ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : Text(localizations.saveTransactionButton),

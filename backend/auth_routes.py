@@ -1,320 +1,449 @@
 import hashlib
-import random
+import hmac
+import re
 import secrets
+import threading
+import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, UTC
+from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends, Path
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends
 from fastapi.concurrency import run_in_threadpool
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from email_service import send_otp_email, send_verification_email
-from utils import create_access_token, get_current_user, get_password_hash, verify_password
+from utils import (
+    create_access_token,
+    ensure_utc_datetime,
+    get_current_user,
+    get_password_hash,
+    password_changed_now,
+    verify_password,
+)
 from models import (
-    Currency, CurrencyUpdate, ForgotPasswordRequest, LanguageUpdate, PasswordChange, ProfileUpdate, ResetPasswordRequest, SubscriptionType, SubscriptionUpdate, UserCreate, UserLogin, UserResponse, Token, CategoryResponse, TransactionType, VerifyOTPRequest,
+    Currency,
+    CurrencyUpdate,
+    DeleteAccountRequest,
+    ForgotPasswordRequest,
+    LanguageUpdate,
+    PasswordChange,
+    ProfileUpdate,
+    ResendVerificationRequest,
+    ResetPasswordRequest,
+    SubscriptionType,
+    UserCreate,
+    UserLogin,
+    UserResponse,
+    Token,
+    VerifyOTPRequest,
 )
 from database import users_collection
 from config import settings
 from database import (
-    transactions_collection, chat_sessions_collection, goals_collection, insights_collection, budgets_collection, notifications_collection, notification_preferences_collection
+    transactions_collection, chat_sessions_collection, goals_collection, insights_collection, budgets_collection,
+    notifications_collection, notification_preferences_collection, feedback_collection, ai_usage_collection,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+# ==================== CONSTANTS ====================
+
+VERIFICATION_TOKEN_TTL = timedelta(hours=48)
+OTP_TTL = timedelta(minutes=10)
+OTP_MAX_ATTEMPTS = 5
+OTP_LOCKOUT = timedelta(minutes=30)
+RESET_TOKEN_TTL = timedelta(minutes=10)
+
+GENERIC_OTP_ERROR = "Invalid or expired OTP. Please request a new one."
+GENERIC_RESET_ERROR = "Invalid or expired reset session. Please start over."
+GENERIC_VERIFY_ERROR = "Invalid or expired verification link. Please request a new one."
+
+
+# ==================== HELPERS ====================
+
+class _SlidingWindowRateLimiter:
+    """
+    Tiny in-memory per-key rate limiter (single uvicorn worker assumed).
+    rules: list of (max_hits, window_seconds).
+    """
+
+    def __init__(self, rules: list[tuple[int, int]]):
+        self._rules = rules
+        self._max_window = max(w for _, w in rules)
+        self._hits: dict[str, deque] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            if len(self._hits) > 10_000:
+                self._purge(now)
+            hits = self._hits.setdefault(key, deque())
+            while hits and now - hits[0] >= self._max_window:
+                hits.popleft()
+            for max_hits, window in self._rules:
+                if sum(1 for t in hits if now - t < window) >= max_hits:
+                    return False
+            hits.append(now)
+            return True
+
+    def _purge(self, now: float) -> None:
+        stale = [k for k, v in self._hits.items() if not v or now - v[-1] >= self._max_window]
+        for k in stale:
+            del self._hits[k]
+
+
+# 1 per minute, 5 per hour per e-mail address
+_otp_request_limiter = _SlidingWindowRateLimiter([(1, 60), (5, 3600)])
+_verification_email_limiter = _SlidingWindowRateLimiter([(1, 60), (5, 3600)])
+
+
+def _normalize_email(email: Optional[str]) -> str:
+    return (email or "").strip().lower()
+
+
+async def find_user_by_email(email: Optional[str]) -> Optional[dict]:
+    """
+    Find a user by e-mail, case-insensitively. New accounts are stored lowercase, so
+    the exact match hits first; legacy mixed-case accounts fall back to an anchored,
+    escaped case-insensitive regex.
+    """
+    normalized = _normalize_email(email)
+    if not normalized:
+        return None
+    user = await users_collection.find_one({"email": normalized})
+    if user:
+        return user
+    return await users_collection.find_one(
+        {"email": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}}
+    )
+
+
+def build_user_response(user: dict) -> UserResponse:
+    """Single place that turns a users-collection document into a UserResponse."""
+    return UserResponse(
+        id=user["_id"],
+        name=user["name"],
+        email=user["email"],
+        created_at=user["created_at"],
+        subscription_type=SubscriptionType(user.get("subscription_type") or "free"),
+        subscription_expires_at=ensure_utc_datetime(user.get("subscription_expires_at")),
+        default_currency=Currency(user.get("default_currency") or "usd"),
+        is_verified=bool(user.get("is_verified", False)),
+        has_claimed_free_trial=bool(user.get("has_claimed_free_trial", False)),
+        language=user.get("language"),
+    )
+
+
+def _issue_token(user: dict) -> str:
+    return create_access_token(
+        data={"sub": user["email"], "uid": user["_id"], "pwv": int(user.get("password_version", 0) or 0)},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def _hash_otp(user_id: str, otp: str) -> str:
+    key = (settings.SECRET_KEY or "").encode()
+    return hmac.new(key, f"{user_id}:{otp}".encode(), hashlib.sha256).hexdigest()
+
+
+def _safe_equals(a: Optional[str], b: Optional[str]) -> bool:
+    if not a or not b:
+        return False
+    return secrets.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
 
 # ==================== AUTHENTICATION ====================
 
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate, background_tasks: BackgroundTasks):
-    """Register new user"""
-    if await users_collection.find_one({"email": user_data.email}):
+    """
+    Register new user. The returned token is NOT usable for authenticated endpoints
+    until the e-mail address is verified (they return 403 "Email not verified").
+    """
+    email = _normalize_email(user_data.email)
+    if await find_user_by_email(email):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-    
+
     hashed_password = await run_in_threadpool(get_password_hash, user_data.password)
-    
+
+    now = datetime.now(UTC)
     user_id = str(uuid.uuid4())
     verification_token = secrets.token_urlsafe(32)
-    
+
     new_user = {
         "_id": user_id,
         "name": user_data.name,
-        "email": user_data.email,
+        "email": email,
         "password": hashed_password,
         "subscription_type": "free",
         "subscription_expires_at": None,
         "default_currency": "usd",
         "language": "en",
-        "created_at": datetime.now(UTC),
+        "created_at": now,
         "is_verified": False,
-        "verification_token": verification_token
+        "has_claimed_free_trial": False,
+        "verification_token": verification_token,
+        "verification_token_expires_at": now + VERIFICATION_TOKEN_TTL,
     }
-    
-    await users_collection.insert_one(new_user)
 
-    # Trigger the email to send in the background
-    background_tasks.add_task(send_verification_email, user_data.email, verification_token)
+    try:
+        await users_collection.insert_one(new_user)
+    except DuplicateKeyError:
+        # Lost a race with a concurrent registration of the same address (unique
+        # case-insensitive index email_unique_ci).
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
-    access_token = create_access_token(
-        data={"sub": user_data.email},
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
+    # The registration e-mail does NOT count against the resend limiter, so the user can
+    # press "Resend" right away (explicit resends stay limited to 1/min and 5/hour).
+    background_tasks.add_task(send_verification_email, email, verification_token)
 
     return Token(
-        access_token=access_token,
+        access_token=_issue_token(new_user),
         token_type="bearer",
-        user=UserResponse(
-            id=user_id,
-            name=user_data.name,
-            email=user_data.email,
-            created_at=new_user["created_at"],
-            subscription_type=SubscriptionType.FREE,
-            subscription_expires_at=None,
-            default_currency=Currency.USD,
-            is_verified=False
-        )
+        user=build_user_response(new_user),
     )
+
 
 @router.get("/verify-email")
 async def verify_email(email: str, token: str):
-    """Verify user's email address using the token"""
-    user = await users_collection.find_one({"email": email})
-    
+    """Verify user's email address using the token from the e-mail link"""
+    user = await find_user_by_email(email)
+
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
-    if user.get("is_verified"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_VERIFY_ERROR)
+
+    if user.get("is_verified") is True:
         return {"message": "Email is already verified. You can log in."}
-        
-    if user.get("verification_token") != token:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification token")
-        
+
+    stored_token = user.get("verification_token")
+    if not _safe_equals(stored_token, token):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_VERIFY_ERROR)
+
+    # Legacy tokens issued before expiry tracking have no expiry and remain valid.
+    expires_at = ensure_utc_datetime(user.get("verification_token_expires_at"))
+    if expires_at is not None and datetime.now(UTC) > expires_at:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_VERIFY_ERROR)
+
     await users_collection.update_one(
-        {"_id": user["_id"]},
+        {"_id": user["_id"], "verification_token": stored_token},
         {
-            "$set": {"is_verified": True},
-            "$unset": {"verification_token": ""} 
+            "$set": {"is_verified": True, "verified_at": datetime.now(UTC)},
+            "$unset": {"verification_token": "", "verification_token_expires_at": ""},
         }
     )
-    
+
     return {"message": "Email verified successfully! Your account is now active."}
-    
+
+
+@router.post("/resend-verification")
+async def resend_verification_email(request: ResendVerificationRequest, background_tasks: BackgroundTasks):
+    """
+    Re-send the verification e-mail with a fresh 48h token.
+    Always returns 200 with the same message (no account enumeration); silently
+    rate-limited to 1/minute and 5/hour per address.
+    """
+    email = _normalize_email(request.email)
+    generic = {"message": "If that email is registered and not yet verified, a new verification link has been sent."}
+
+    if not _verification_email_limiter.allow(email):
+        return generic
+
+    user = await find_user_by_email(email)
+    if user and user.get("is_verified") is not True:
+        verification_token = secrets.token_urlsafe(32)
+        await users_collection.update_one(
+            {"_id": user["_id"]},
+            {"$set": {
+                "verification_token": verification_token,
+                "verification_token_expires_at": datetime.now(UTC) + VERIFICATION_TOKEN_TTL,
+            }}
+        )
+        background_tasks.add_task(send_verification_email, user["email"], verification_token)
+
+    return generic
+
+
 @router.put("/language", response_model=UserResponse)
 async def update_language(
     language_data: LanguageUpdate,
     current_user: dict = Depends(get_current_user)
 ):
-    """Update user's preferred language"""
-    if language_data.language not in ["en", "my"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid language. Must be 'en' or 'my'"
-        )
-    
+    """Update user's preferred language (validated by the model: 'en' or 'my')"""
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"language": language_data.language}}
     )
-    
+
     updated_user = await users_collection.find_one({"_id": current_user["_id"]})
-    
-    return UserResponse(
-        id=updated_user["_id"],
-        name=updated_user["name"],
-        email=updated_user["email"],
-        created_at=updated_user["created_at"],
-        subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
-        subscription_expires_at=updated_user.get("subscription_expires_at"),
-        default_currency=Currency(updated_user.get("default_currency", "usd"))
-    )
+    return build_user_response(updated_user)
+
 
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin):
     """Login user"""
-    user = await users_collection.find_one({"email": user_credentials.email})
-    
-    if not user or not await run_in_threadpool(verify_password, user_credentials.password, user["password"]):
+    user = await find_user_by_email(user_credentials.email)
+
+    if (
+        not user
+        or not user.get("password")
+        or not await run_in_threadpool(verify_password, user_credentials.password, user["password"])
+    ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
     if not user.get("is_verified", False):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Please verify your email address before logging in. Check your inbox."
         )
 
-    access_token = create_access_token(
-        data={"sub": user["email"]},
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    return Token(
+        access_token=_issue_token(user),
+        token_type="bearer",
+        user=build_user_response(user),
     )
 
-    return Token(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserResponse(
-            id=user["_id"],
-            name=user["name"],
-            email=user["email"],
-            created_at=user["created_at"],
-            subscription_type=SubscriptionType(user.get("subscription_type", "free")),
-            subscription_expires_at=user.get("subscription_expires_at"),
-            default_currency=Currency(user.get("default_currency", "usd")),
-            is_verified=user.get("is_verified", True)
-        )
-    )
-    
+
+# ── 1. Request OTP ────────────────────────────────────────────────────────────
 @router.post("/forgot-password/request-otp")
 async def request_password_reset_otp(request: ForgotPasswordRequest, background_tasks: BackgroundTasks):
     """
-    Generate a secure 6-digit OTP, store it with a 10-minute expiry and attempt counter,
-    and e-mail it to the user in the background. Always returns 200 to avoid enumeration.
+    Generate a secure 6-digit OTP (10-minute expiry) and e-mail it in the background.
+    Always returns 200 with the same message to avoid enumeration. Silently
+    rate-limited (1/minute, 5/hour per address) and suppressed while the account is
+    locked out. Re-requesting does NOT reset the failed-attempt counter inside the
+    30-minute window.
     """
-    user = await users_collection.find_one({"email": request.email})
+    generic = {"message": "If that email is registered, you will receive an OTP shortly."}
+    email = _normalize_email(request.email)
 
-    if user:
-        # Generate a cryptographically secure 6-digit OTP
-        otp = str(secrets.randbelow(900000) + 100000)
-        otp_expiry = datetime.now(UTC) + timedelta(minutes=10)
+    if not _otp_request_limiter.allow(email):
+        return generic
 
-        await users_collection.update_one(
-            {"_id": user["_id"]},
-            {
-                "$set": {
-                    "password_reset_otp": otp,
-                    "password_reset_otp_expiry": otp_expiry,
-                    "password_reset_attempts": 0 # Initialize attempt counter
-                }
-            }
-        )
+    user = await find_user_by_email(email)
+    if not user:
+        return generic
 
-        # Send email in background to prevent blocking the API response
-        background_tasks.add_task(send_otp_email, request.email, otp)
+    now = datetime.now(UTC)
+    locked_until = ensure_utc_datetime(user.get("password_reset_locked_until"))
+    if locked_until is not None and locked_until > now:
+        return generic  # locked out: silently do nothing
 
-    return {"message": "If that email is registered, you will receive an OTP shortly."}
+    otp = str(secrets.randbelow(900000) + 100000)
+    set_fields = {
+        "password_reset_otp": _hash_otp(user["_id"], otp),
+        "password_reset_otp_expiry": now + OTP_TTL,
+    }
+    unset_fields = {}
+
+    # Start a fresh attempt window only if the previous one has elapsed (or a lock expired)
+    window_start = ensure_utc_datetime(user.get("password_reset_attempts_since"))
+    if locked_until is not None or window_start is None or now - window_start > OTP_LOCKOUT:
+        set_fields["password_reset_attempts"] = 0
+        set_fields["password_reset_attempts_since"] = now
+        unset_fields["password_reset_locked_until"] = ""
+
+    update = {"$set": set_fields}
+    if unset_fields:
+        update["$unset"] = unset_fields
+    await users_collection.update_one({"_id": user["_id"]}, update)
+
+    background_tasks.add_task(send_otp_email, user["email"], otp)
+    return generic
 
 
 # ── 2. Verify OTP ─────────────────────────────────────────────────────────────
 @router.post("/forgot-password/verify-otp")
 async def verify_password_reset_otp(request: VerifyOTPRequest):
     """
-    Check that the supplied OTP matches, hasn't expired, and hasn't exceeded attempt limits.
-    Returns a short-lived reset_token the client must present when calling /reset-password.
+    Check the OTP. Every attempt is counted atomically; after 5 failed attempts the
+    account is locked for 30 minutes (also across new OTP requests). All failure
+    cases return the same 400 error text.
+    Returns a short-lived reset_token for /reset-password.
     """
-    user = await users_collection.find_one({"email": request.email})
-
+    user = await find_user_by_email(request.email)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP or email"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_OTP_ERROR)
 
-    stored_otp = user.get("password_reset_otp")
-    otp_expiry = user.get("password_reset_otp_expiry")
-    attempts = user.get("password_reset_attempts", 0)
+    now = datetime.now(UTC)
 
-    if not stored_otp or not otp_expiry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No OTP was requested for this account"
-        )
+    # Atomically consume one attempt, only if an unexpired OTP exists, the attempt
+    # budget isn't exhausted and the account isn't locked.
+    updated = await users_collection.find_one_and_update(
+        {
+            "_id": user["_id"],
+            "password_reset_otp": {"$exists": True, "$ne": None},
+            "password_reset_otp_expiry": {"$gt": now},
+            "password_reset_attempts": {"$not": {"$gte": OTP_MAX_ATTEMPTS}},
+            "$or": [
+                {"password_reset_locked_until": None},
+                {"password_reset_locked_until": {"$lte": now}},
+            ],
+        },
+        {"$inc": {"password_reset_attempts": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
 
-    # Brute-force protection: Max 5 attempts
-    if attempts >= 5:
-        await users_collection.update_one(
-            {"_id": user["_id"]},
-            {
-                "$unset": {
-                    "password_reset_otp": "",
-                    "password_reset_otp_expiry": "",
-                    "password_reset_attempts": ""
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_OTP_ERROR)
+
+    submitted = (request.otp or "").strip()
+    if not _safe_equals(updated.get("password_reset_otp"), _hash_otp(updated["_id"], submitted)):
+        if updated.get("password_reset_attempts", 0) >= OTP_MAX_ATTEMPTS:
+            await users_collection.update_one(
+                {"_id": updated["_id"]},
+                {
+                    "$set": {"password_reset_locked_until": now + OTP_LOCKOUT},
+                    "$unset": {"password_reset_otp": "", "password_reset_otp_expiry": ""},
                 }
-            }
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Too many failed attempts. OTP invalidated. Please request a new one."
-        )
-
-    if otp_expiry.tzinfo is None:
-        otp_expiry = otp_expiry.replace(tzinfo=UTC)
-
-    if datetime.now(UTC) > otp_expiry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OTP has expired. Please request a new one."
-        )
-
-    if stored_otp != request.otp:
-        # Increment failed attempts
-        await users_collection.update_one(
-            {"_id": user["_id"]},
-            {"$inc": {"password_reset_attempts": 1}}
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP. Please try again."
-        )
+            )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_OTP_ERROR)
 
     # OTP is valid – issue a single-use reset token (10-min window)
     reset_token = secrets.token_urlsafe(32)
     hashed_reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
-    reset_token_expiry = datetime.now(UTC) + timedelta(minutes=10)
 
     await users_collection.update_one(
-        {"_id": user["_id"]},
+        {"_id": updated["_id"]},
         {
             "$set": {
-                "password_reset_token": hashed_reset_token, # Store hashed version
-                "password_reset_token_expiry": reset_token_expiry
+                "password_reset_token": hashed_reset_token,  # Store hashed version
+                "password_reset_token_expiry": now + RESET_TOKEN_TTL,
             },
             "$unset": {
                 "password_reset_otp": "",
                 "password_reset_otp_expiry": "",
-                "password_reset_attempts": ""
+                "password_reset_attempts": "",
+                "password_reset_attempts_since": "",
+                "password_reset_locked_until": "",
             }
         }
     )
 
-    # Return plaintext token to the client
     return {"message": "OTP verified successfully.", "reset_token": reset_token}
 
 
 # ── 3. Reset Password ─────────────────────────────────────────────────────────
 @router.post("/forgot-password/reset-password")
 async def reset_password(request: ResetPasswordRequest):
-    """
-    Accept the reset_token from step 2 and set a new password.
-    """
-    user = await users_collection.find_one({"email": request.email})
-
+    """Accept the reset_token from step 2 and set a new password."""
+    user = await find_user_by_email(request.email)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid request"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_RESET_ERROR)
 
     stored_token_hash = user.get("password_reset_token")
-    token_expiry = user.get("password_reset_token_expiry")
+    token_expiry = ensure_utc_datetime(user.get("password_reset_token_expiry"))
 
-    if not stored_token_hash or not token_expiry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No password reset was initiated for this account"
-        )
+    if not stored_token_hash or not token_expiry or datetime.now(UTC) > token_expiry:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_RESET_ERROR)
 
-    if token_expiry.tzinfo is None:
-        token_expiry = token_expiry.replace(tzinfo=UTC)
-
-    if datetime.now(UTC) > token_expiry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reset session expired. Please start over."
-        )
-
-    # Hash the incoming token to compare with the stored hash
     incoming_token_hash = hashlib.sha256(request.reset_token.encode()).hexdigest()
-
-    if stored_token_hash != incoming_token_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid reset token"
-        )
+    if not _safe_equals(stored_token_hash, incoming_token_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_RESET_ERROR)
 
     if len(request.new_password) < 6:
         raise HTTPException(
@@ -330,16 +459,20 @@ async def reset_password(request: ResetPasswordRequest):
 
     hashed_pw = await run_in_threadpool(get_password_hash, request.new_password)
 
-    await users_collection.update_one(
-        {"_id": user["_id"]},
+    # Only consume the token if it is still the one we validated (single use)
+    result = await users_collection.update_one(
+        {"_id": user["_id"], "password_reset_token": stored_token_hash},
         {
-            "$set": {"password": hashed_pw},
+            "$set": {"password": hashed_pw, "password_changed_at": password_changed_now()},
+            "$inc": {"password_version": 1},
             "$unset": {
                 "password_reset_token": "",
-                "password_reset_token_expiry": ""
+                "password_reset_token_expiry": "",
             }
         }
     )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_RESET_ERROR)
 
     return {"message": "Password reset successfully. You can now log in."}
 
@@ -347,51 +480,31 @@ async def reset_password(request: ResetPasswordRequest):
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current user info"""
-    return UserResponse(
-        id=current_user["_id"],
-        name=current_user["name"],
-        email=current_user["email"],
-        created_at=current_user["created_at"],
-        subscription_type=SubscriptionType(current_user.get("subscription_type", "free")),
-        subscription_expires_at=current_user.get("subscription_expires_at"),
-        default_currency=Currency(current_user.get("default_currency", "usd"))
-    )
+    return build_user_response(current_user)
+
 
 @router.put("/profile", response_model=UserResponse)
 async def update_profile(
     profile_data: ProfileUpdate,
     current_user: dict = Depends(get_current_user)
 ):
-    """Update user profile (name only)"""
-    if not profile_data.name or profile_data.name.strip() == "":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Name is required"
-        )
-    
-    if len(profile_data.name.strip()) < 2:
+    """Update user profile (name only). Name is stripped and validated by the model."""
+    name = profile_data.name.strip()
+    if len(name) < 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Name must be at least 2 characters"
         )
-    
+
     await users_collection.update_one(
         {"_id": current_user["_id"]},
-        {"$set": {"name": profile_data.name.strip()}}
+        {"$set": {"name": name}}
     )
-    
+
     updated_user = await users_collection.find_one({"_id": current_user["_id"]})
-    
-    return UserResponse(
-        id=updated_user["_id"],
-        name=updated_user["name"],
-        email=updated_user["email"],
-        created_at=updated_user["created_at"],
-        subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
-        subscription_expires_at=updated_user.get("subscription_expires_at"),
-        default_currency=Currency(updated_user.get("default_currency", "usd"))
-    )
-    
+    return build_user_response(updated_user)
+
+
 @router.put("/currency", response_model=UserResponse)
 async def update_default_currency(
     currency_data: CurrencyUpdate,
@@ -402,62 +515,73 @@ async def update_default_currency(
         {"_id": current_user["_id"]},
         {"$set": {"default_currency": currency_data.default_currency.value}}
     )
-    
+
     updated_user = await users_collection.find_one({"_id": current_user["_id"]})
-    
-    return UserResponse(
-        id=updated_user["_id"],
-        name=updated_user["name"],
-        email=updated_user["email"],
-        created_at=updated_user["created_at"],
-        subscription_type=SubscriptionType(updated_user.get("subscription_type", "free")),
-        subscription_expires_at=updated_user.get("subscription_expires_at"),
-        default_currency=Currency(updated_user["default_currency"])
-    )
-    
+    return build_user_response(updated_user)
+
+
 @router.put("/change-password")
 async def change_password(
     password_data: PasswordChange,
     current_user: dict = Depends(get_current_user)
 ):
-    """Change user password"""
+    """
+    Change user password. All previously issued tokens are revoked; the response
+    contains a fresh access_token the client must store.
+    """
     is_correct = await run_in_threadpool(verify_password, password_data.current_password, current_user["password"])
-    
+
     if not is_correct:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect"
         )
-    
+
     if len(password_data.new_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must be at least 6 characters"
         )
-    
+
     if password_data.new_password != password_data.confirm_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New passwords do not match"
         )
-    
+
     hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
-    
-    await users_collection.update_one(
+
+    updated_user = await users_collection.find_one_and_update(
         {"_id": current_user["_id"]},
-        {"$set": {"password": hashed_password}}
+        {
+            "$set": {"password": hashed_password, "password_changed_at": password_changed_now()},
+            "$inc": {"password_version": 1},
+        },
+        return_document=ReturnDocument.AFTER,
     )
-    
-    return {"message": "Password changed successfully"}
+
+    return {
+        "message": "Password changed successfully",
+        "access_token": _issue_token(updated_user or current_user),
+        "token_type": "bearer",
+    }
+
 
 @router.delete("/delete-account")
 async def delete_account(
+    body: DeleteAccountRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Delete user account and all associated data"""
+    """Delete user account and all associated data. Requires the current password."""
+    if not body.password or not await run_in_threadpool(verify_password, body.password, current_user["password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Password is incorrect"
+        )
+
     try:
         user_id = current_user["_id"]
-        
+
         await transactions_collection.delete_many({"user_id": user_id})
         await goals_collection.delete_many({"user_id": user_id})
         await budgets_collection.delete_many({"user_id": user_id})
@@ -465,17 +589,19 @@ async def delete_account(
         await insights_collection.delete_many({"user_id": user_id})
         await notifications_collection.delete_many({"user_id": user_id})
         await notification_preferences_collection.delete_many({"user_id": user_id})
-        
+        await feedback_collection.delete_many({"user_id": user_id})
+        await ai_usage_collection.delete_many({"user_id": user_id})
+
         result = await users_collection.delete_one({"_id": user_id})
-        
+
         if result.deleted_count == 0:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to delete account"
             )
-        
+
         return {"message": "Account deleted successfully"}
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -484,28 +610,32 @@ async def delete_account(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete account"
         )
-    
+
+
 @router.get("/subscription-status")
 async def get_subscription_status(current_user: dict = Depends(get_current_user)):
     """Check if user has active premium subscription"""
-    subscription_type = current_user.get("subscription_type", "free")
-    expires_at = current_user.get("subscription_expires_at")
-    
+    subscription_type = current_user.get("subscription_type") or "free"
+    try:
+        expires_at = ensure_utc_datetime(current_user.get("subscription_expires_at"))
+    except (TypeError, ValueError, AttributeError):
+        expires_at = None
+
     is_premium = subscription_type == "premium"
     is_expired = False
-    
+
     if is_premium and expires_at:
         is_expired = expires_at < datetime.now(UTC)
         is_premium = not is_expired
-    
+
     return {
         "subscription_type": subscription_type,
         "is_premium": is_premium,
         "expires_at": expires_at,
         "is_expired": is_expired
     }
-    
-    
+
+
 @router.post("/claim-free-trial", response_model=UserResponse)
 async def claim_free_trial(current_user: dict = Depends(get_current_user)):
     """
@@ -518,24 +648,21 @@ async def claim_free_trial(current_user: dict = Depends(get_current_user)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You have already claimed your free trial."
         )
- 
-    # Prevent claiming if already premium (e.g. admin-granted)
+
+    # Prevent claiming if already premium (admin-granted, lifetime or still active)
     if current_user.get("subscription_type") == "premium":
-        existing_expiry = current_user.get("subscription_expires_at")
-        if existing_expiry:
-            # Make timezone-aware for comparison
-            if existing_expiry.tzinfo is None:
-                existing_expiry = existing_expiry.replace(tzinfo=UTC)
-            if existing_expiry > datetime.now(UTC):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="You already have an active premium subscription."
-                )
- 
+        existing_expiry = ensure_utc_datetime(current_user.get("subscription_expires_at"))
+        if existing_expiry is None or existing_expiry > datetime.now(UTC):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You already have an active premium subscription."
+            )
+
     trial_expiry = datetime.now(UTC) + timedelta(days=30)
- 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
+
+    # Atomic guard against concurrent double-claims
+    result = await users_collection.update_one(
+        {"_id": current_user["_id"], "has_claimed_free_trial": {"$ne": True}},
         {
             "$set": {
                 "subscription_type": "premium",
@@ -544,16 +671,11 @@ async def claim_free_trial(current_user: dict = Depends(get_current_user)):
             }
         }
     )
- 
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You have already claimed your free trial."
+        )
+
     updated_user = await users_collection.find_one({"_id": current_user["_id"]})
- 
-    return UserResponse(
-        id=updated_user["_id"],
-        name=updated_user["name"],
-        email=updated_user["email"],
-        created_at=updated_user["created_at"],
-        subscription_type=SubscriptionType.PREMIUM,
-        subscription_expires_at=updated_user.get("subscription_expires_at"),
-        default_currency=Currency(updated_user.get("default_currency", "usd")),
-        is_verified=updated_user.get("is_verified", True),
-    )
+    return build_user_response(updated_user)

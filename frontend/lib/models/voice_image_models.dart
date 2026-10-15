@@ -1,3 +1,4 @@
+import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/user.dart';
 
@@ -51,12 +52,32 @@ class ExtractedTransactionData {
           : TransactionType.outflow,
       mainCategory: json['main_category'],
       subCategory: json['sub_category'],
-      date: DateTime.parse(json['date']),
+      date: parseWallClock(json['date']),
       description: json['description'],
-      amount: json['amount'].toDouble(),
+      // The backend returns amount 0 / confidence 0 when the AI couldn't
+      // read an amount (see [needsAmount]).
+      amount: (json['amount'] as num?)?.toDouble() ?? 0,
       currency: Currency.fromString(json['currency'] ?? 'usd'),  // ADDED CURRENCY WITH FALLBACK
-      confidence: json['confidence'].toDouble(),
+      confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
       reasoning: json['reasoning'],
+    );
+  }
+
+  /// The AI couldn't read an amount: the user must enter one (> 0) before
+  /// this item can be saved — the backend rejects amount <= 0 with 422.
+  bool get needsAmount => !(amount > 0);
+
+  ExtractedTransactionData copyWith({double? amount}) {
+    return ExtractedTransactionData(
+      type: type,
+      mainCategory: mainCategory,
+      subCategory: subCategory,
+      date: date,
+      description: description,
+      amount: amount ?? this.amount,
+      currency: currency,
+      confidence: confidence,
+      reasoning: reasoning,
     );
   }
 
@@ -78,6 +99,8 @@ class MultipleExtractedTransactions {
   final List<ExtractedTransactionData> transactions;
   final int totalCount;
   final double overallConfidence;
+
+  /// May mention how many items were omitted (zero / invalid amounts).
   final String? analysis;
 
   MultipleExtractedTransactions({
@@ -87,13 +110,25 @@ class MultipleExtractedTransactions {
     this.analysis,
   });
 
-  factory MultipleExtractedTransactions.fromJson(Map<String, dynamic> json) {
+  MultipleExtractedTransactions copyWith({
+    List<ExtractedTransactionData>? transactions,
+  }) {
     return MultipleExtractedTransactions(
-      transactions: (json['transactions'] as List)
-          .map((tx) => ExtractedTransactionData.fromJson(tx))
-          .toList(),
-      totalCount: json['total_count'],
-      overallConfidence: json['overall_confidence'].toDouble(),
+      transactions: transactions ?? this.transactions,
+      totalCount: totalCount,
+      overallConfidence: overallConfidence,
+      analysis: analysis,
+    );
+  }
+
+  factory MultipleExtractedTransactions.fromJson(Map<String, dynamic> json) {
+    final transactions = ((json['transactions'] as List?) ?? const [])
+        .map((tx) => ExtractedTransactionData.fromJson(tx))
+        .toList();
+    return MultipleExtractedTransactions(
+      transactions: transactions,
+      totalCount: (json['total_count'] as num?)?.toInt() ?? transactions.length,
+      overallConfidence: (json['overall_confidence'] as num?)?.toDouble() ?? 0,
       analysis: json['analysis'],
     );
   }

@@ -55,6 +55,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         name: _nameController.text.trim(),
       );
 
+      if (!mounted) return;
       setState(() => _isLoading = false);
 
       if (success) {
@@ -65,6 +66,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${localizations.errorOccurred} ${e.toString()}')),
@@ -109,7 +111,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         final shouldPop = await _onWillPop();
-        if (shouldPop && mounted) {
+        if (shouldPop && context.mounted) {
           Navigator.pop(context);
         }
       },
@@ -119,7 +121,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () async {
-              if (await _onWillPop()) {
+              if (await _onWillPop() && context.mounted) {
                 Navigator.pop(context);
               }
             },
@@ -330,10 +332,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
-    final confirmed = await showDialog<bool>(
+    final passwordController = TextEditingController();
+    var obscure = true;
+    String? passwordError;
+
+    final password = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
         title: Row(
           children: [
             Icon(Icons.warning_amber_rounded, color: scheme.error, size: 24),
@@ -346,7 +353,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ],
         ),
-        content: Column(
+        content: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -373,24 +381,56 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 style: TextStyle(fontSize: 12, color: scheme.onErrorContainer, fontWeight: FontWeight.bold),
               ),
             ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: obscure,
+              autofocus: true,
+              decoration: InputDecoration(
+                // Short label (a long one was truncated at 360 dp); the
+                // explanation goes in the helper, which can wrap.
+                labelText: localizations.passwordLabel,
+                helperText: localizations.deleteAccountPasswordHelper,
+                helperMaxLines: 3,
+                errorMaxLines: 3,
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
+                errorText: passwordError,
+                suffixIcon: IconButton(
+                  icon: Icon(obscure ? Icons.visibility_rounded : Icons.visibility_off_rounded),
+                  onPressed: () => setDialogState(() => obscure = !obscure),
+                ),
+              ),
+              onChanged: (_) {
+                if (passwordError != null) setDialogState(() => passwordError = null);
+              },
+            ),
           ],
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(context),
             child: Text(localizations.dialogCancel),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () {
+              if (passwordController.text.isEmpty) {
+                setDialogState(() => passwordError = localizations.enterPasswordError);
+                return;
+              }
+              Navigator.pop(context, passwordController.text);
+            },
             style: FilledButton.styleFrom(backgroundColor: scheme.error),
             child: Text(localizations.deleteAccount),
           ),
         ],
       ),
+      ),
     );
 
-    if (confirmed == true) {
-      await _deleteAccount(context);
+    if (password != null && password.isNotEmpty && mounted) {
+      // ignore: use_build_context_synchronously
+      await _deleteAccount(this.context, password);
     }
   }
 
@@ -401,34 +441,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  Future<void> _deleteAccount(BuildContext context) async {
+  Future<void> _deleteAccount(BuildContext context, String password) async {
     final localizations = AppLocalizations.of(context);
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     setState(() => _isLoading = true);
 
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final success = await authProvider.deleteAccount();
+      final success = await authProvider.deleteAccount(password: password);
 
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
 
       if (success) {
-        // Navigate to login screen
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/login',
-          (route) => false,
-        );
-
-        ScaffoldMessenger.of(context).showSnackBar(
+        // Back to a single fresh AuthWrapper (shows login).
+        navigator.pushNamedAndRemoveUntil('/', (route) => false);
+        messenger.showSnackBar(
           SnackBar(content: Text(localizations.accountDeletedSuccessfully)),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        // e.g. wrong password (400/401 with the server's detail message).
+        messenger.showSnackBar(
           SnackBar(content: Text(authProvider.error ?? localizations.failedToDeleteAccount)),
         );
       }
     } catch (e) {
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) setState(() => _isLoading = false);
+      messenger.showSnackBar(
         SnackBar(content: Text('${localizations.errorOccurred} ${e.toString()}')),
       );
     }

@@ -6,23 +6,34 @@ import shutil
 import tempfile
 from PIL import Image
 import uuid
+import time
+from collections import defaultdict
 from datetime import datetime, UTC, timezone
-from typing import List, Optional
+from decimal import Decimal
+from typing import Dict, List, Optional, Set
 import logging
 
 # Added BackgroundTasks to imports
-from fastapi import APIRouter, File, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
+from pydantic import ValidationError
 from pymongo.errors import BulkWriteError  # <--- PRO FIX IMPORT
 
 from ai_usage_models import AIFeatureType, AIProviderType
 from ai_usage_service import track_ai_usage
-from utils import get_current_user, require_premium
-from recurring_transaction_service import disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview
+from utils import (
+    get_current_user, get_user_balance, get_user_money_lock,
+    invalidate_user_balance_cache, require_premium,
+)
+from goal_routes import to_cents
+from recurring_transaction_service import (
+    disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview,
+    rearmed_recurrence_pointer, recurrence_schedule_key,
+)
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
 from budget_service import update_all_user_budgets, update_relevant_budgets
 from models import (
-    Currency, MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction, 
+    Currency, MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction,
     TransactionCreate, TransactionResponse, TransactionType,
     TransactionUpdate
 )
@@ -30,14 +41,257 @@ from models import (
 from notification_service import check_large_transaction
 
 from database import transactions_collection, categories_collection, users_collection
-    
+
 from config import settings
+from category_matching import normalize_type, parse_positive_amount, snap_category
+from tz_utils import app_today
+from finite_utils import finite_amount_filter, finite_amount_or_none, is_finite_number
 
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
+
+
+# ==================== HELPERS ====================
+
+def _as_utc(dt: datetime) -> datetime:
+    """Naive datetimes are treated as UTC (app convention: local wall-clock tagged as UTC)."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+# --- Category validation (categories cached in memory per transaction type) ---
+_CATEGORY_CACHE_TTL_SECONDS = 300
+_category_cache: Dict[str, tuple] = {}
+
+
+async def _get_category_map(tx_type: str) -> Optional[Dict[str, List[str]]]:
+    """{main_category: [sub_categories]} (configured order) for a transaction type, or None if not configured."""
+    now = time.monotonic()
+    cached = _category_cache.get(tx_type)
+    if cached and now - cached[0] < _CATEGORY_CACHE_TTL_SECONDS:
+        return cached[1]
+    doc = await categories_collection.find_one({"_id": tx_type})
+    cmap = None
+    if doc:
+        cmap = {
+            c["main_category"]: list(c.get("sub_categories") or [])
+            for c in doc.get("categories", [])
+            if c.get("main_category")
+        }
+    _category_cache[tx_type] = (now, cmap)
+    return cmap
+
+
+async def _validate_categories(tx_type: str, main_category: str, sub_category: str, prefix: str = "") -> None:
+    """Reject (400) categories that don't exist for the transaction type."""
+    cmap = await _get_category_map(tx_type)
+    if cmap is None:
+        logger.warning(f"No categories configured for type '{tx_type}'; skipping category validation")
+        return
+    if main_category not in cmap:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{prefix}Invalid main_category '{main_category}' for {tx_type} transactions"
+        )
+    subs = cmap[main_category]
+    if subs and sub_category not in subs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{prefix}Invalid sub_category '{sub_category}' for main_category '{main_category}'"
+        )
+
+
+# --- AI extraction post-processing ---
+def _safe_confidence(value) -> float:
+    try:
+        c = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if c != c:  # NaN
+        return 0.0
+    return min(max(c, 0.0), 1.0)
+
+
+def _extraction_date(value) -> datetime:
+    """Model-produced date (YYYY-MM-DD) as a UTC-tagged wall-clock datetime; today if unusable."""
+    try:
+        parsed = datetime.fromisoformat(str(value).strip()[:10])
+        return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+    except (TypeError, ValueError):
+        today = app_today()
+        return datetime(today.year, today.month, today.day, tzinfo=UTC)
+
+
+def _extraction_currency(value, default: str) -> Currency:
+    for candidate in (value, default, Currency.USD.value):
+        try:
+            return Currency(str(candidate).strip().lower())
+        except (ValueError, AttributeError):
+            continue
+    return Currency.USD
+
+
+async def _build_extraction(
+    data: dict, default_currency: str, keep_invalid_amount: bool
+) -> Optional[TransactionExtraction]:
+    """
+    Turn one model-produced transaction dict into a TransactionExtraction whose type and
+    categories are valid (snapped to the closest configured category, else the type's
+    "Other" category), so the result can be sent to create/batch-create as-is.
+
+    Amount <= 0 / missing: returns None (caller drops it) unless keep_invalid_amount, in
+    which case amount=0 and confidence=0 are returned with a note in `reasoning`.
+    """
+    if not isinstance(data, dict):
+        return None
+    notes = []
+    tx_type = normalize_type(data.get("type"))
+    raw_main, raw_sub = data.get("main_category"), data.get("sub_category")
+    cats = await _get_category_map(tx_type)
+    main, sub, adjusted = snap_category(tx_type, raw_main, raw_sub, cats)
+    if adjusted:
+        logger.info(f"AI extraction: category '{raw_main} / {raw_sub}' snapped to '{main} / {sub}' ({tx_type})")
+        notes.append(f"Category '{raw_main} / {raw_sub}' was mapped to '{main} / {sub}'.")
+
+    confidence = _safe_confidence(data.get("confidence"))
+    amount, flipped = parse_positive_amount(data.get("amount"))
+    if amount is None:
+        if not keep_invalid_amount:
+            logger.info(f"AI extraction: dropping item without a valid amount: {data.get('amount')!r}")
+            return None
+        amount, confidence = 0.0, 0.0
+        notes.append("Amount could not be determined; please enter it.")
+    elif flipped:
+        notes.append("Amount was negative; using its absolute value.")
+
+    reasoning = data.get("reasoning")
+    if notes:
+        reasoning = " ".join([str(reasoning)] + notes) if reasoning else " ".join(notes)
+
+    return TransactionExtraction(
+        type=tx_type,
+        main_category=main,
+        sub_category=sub,
+        date=_extraction_date(data.get("date")),
+        description=data.get("description"),
+        amount=amount,
+        currency=_extraction_currency(data.get("currency"), default_currency),
+        confidence=confidence,
+        reasoning=reasoning,
+    )
+
+
+# --- Recurrence helpers ---
+def _new_recurrence_doc(rec: Optional[TransactionRecurrence], tx_date: datetime) -> dict:
+    """Recurrence sub-document for a NEW transaction. Server-managed fields are never taken from the client."""
+    if not rec:
+        return {"enabled": False, "config": None, "last_created_date": None, "parent_transaction_id": None}
+    return {
+        "enabled": rec.enabled,
+        "config": rec.config.model_dump() if rec.config else None,
+        "last_created_date": tx_date if rec.enabled else None,
+        "parent_transaction_id": None,
+    }
+
+
+def _recurrence_obj(doc: dict) -> Optional[TransactionRecurrence]:
+    """Parse a stored recurrence without failing on legacy/invalid configs."""
+    rec = doc.get("recurrence")
+    if not rec:
+        return None
+    try:
+        return TransactionRecurrence(**rec)
+    except ValidationError:
+        return TransactionRecurrence(
+            enabled=bool(rec.get("enabled")),
+            config=None,
+            last_created_date=rec.get("last_created_date"),
+            parent_transaction_id=rec.get("parent_transaction_id"),
+        )
+
+
+def _transaction_response(t: dict) -> TransactionResponse:
+    amount = t.get("amount")
+    if not is_finite_number(amount):
+        # Legacy NaN/inf amount (can't be JSON-encoded): shown as 0 so the user can still
+        # open, fix or delete the row. Lists skip such rows (see _transaction_responses).
+        logger.warning(f"Transaction {t.get('_id')!r} has a non-finite/invalid amount {amount!r}; returning 0")
+        amount = 0.0
+    return TransactionResponse(
+        id=t["_id"],
+        user_id=t["user_id"],
+        type=TransactionType(t["type"]),
+        main_category=t["main_category"],
+        sub_category=t["sub_category"],
+        date=t["date"],
+        description=t.get("description"),
+        amount=amount,
+        currency=Currency(t.get("currency", "usd")),
+        created_at=t["created_at"],
+        updated_at=t.get("updated_at", t["created_at"]),
+        recurrence=_recurrence_obj(t),
+        parent_transaction_id=(t.get("recurrence") or {}).get("parent_transaction_id")
+    )
+
+
+def _transaction_responses(docs: List[dict]) -> List[TransactionResponse]:
+    """Serialize a list; rows with a non-finite amount or otherwise malformed are skipped (logged)."""
+    results = []
+    for t in docs:
+        if finite_amount_or_none(t) is None:
+            continue
+        try:
+            results.append(_transaction_response(t))
+        except Exception as e:
+            logger.warning(f"Skipping malformed transaction {t.get('_id')!r}: {e}")
+    return results
+
+
+def _cents_or_zero(value) -> Decimal:
+    """to_cents for a stored amount; legacy NaN/inf/invalid amounts count as 0."""
+    return to_cents(value) if is_finite_number(value) else Decimal("0.00")
+
+
+# --- Goal allocation guard ---
+async def _ensure_goal_allocations_covered(user_id: str, old_tx: dict, new_values: Optional[dict]) -> None:
+    """
+    Reject (400) deleting/editing an inflow when that would make a currency's
+    available_balance (balance - allocated_to_goals) negative while money is allocated
+    to goals. new_values = {"type", "amount", "currency"} after the edit, None for delete.
+    Must be called while holding get_user_money_lock(user_id).
+    """
+    if old_tx.get("type") != TransactionType.INFLOW.value:
+        return
+
+    deltas: Dict[str, Decimal] = defaultdict(Decimal)
+    # A legacy NaN/inf amount was never part of the balance (it is excluded there): 0.
+    deltas[old_tx.get("currency", "usd")] -= _cents_or_zero(old_tx.get("amount"))
+    if new_values is not None:
+        signed = _cents_or_zero(new_values["amount"])
+        if new_values["type"] != TransactionType.INFLOW.value:
+            signed = -signed
+        deltas[new_values["currency"]] += signed
+
+    for currency, delta in deltas.items():
+        if delta >= 0:
+            continue
+        balance = await get_user_balance(user_id, currency)
+        allocated = to_cents(balance.get("allocated_to_goals", 0))
+        if allocated <= 0:
+            continue
+        new_available = to_cents(balance.get("available_balance", 0)) + delta
+        if new_available < 0:
+            cur = currency.upper()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"This change would make your available {cur} balance negative "
+                    f"({cur} {new_available:.2f}) because {cur} {allocated:.2f} is allocated to goals. "
+                    f"Please withdraw at least {cur} {-new_available:.2f} from your goals first."
+                )
+            )
 
 
 # ==================== TRANSACTIONS ====================
@@ -49,45 +303,34 @@ async def create_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Create new transaction"""
+    await _validate_categories(
+        transaction_data.type.value, transaction_data.main_category, transaction_data.sub_category
+    )
+
     transaction_id = str(uuid.uuid4())
     now = datetime.now(UTC)
-    
+    tx_date = _as_utc(transaction_data.date)
+
     new_transaction = {
         "_id": transaction_id,
         "user_id": current_user["_id"],
         "type": transaction_data.type.value,
         "main_category": transaction_data.main_category,
         "sub_category": transaction_data.sub_category,
-        "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
+        "date": tx_date,
         "description": transaction_data.description,
         "amount": transaction_data.amount,
         "currency": transaction_data.currency.value,
         "created_at": now,
         "updated_at": now,
+        # Server-managed recurrence fields are never taken from the client.
+        "recurrence": _new_recurrence_doc(transaction_data.recurrence, tx_date),
     }
-    
-    # Add recurrence if provided
-    if transaction_data.recurrence:
-        new_transaction["recurrence"] = transaction_data.recurrence.dict()
-        if transaction_data.recurrence.enabled:
-            new_transaction["recurrence"]["last_created_date"] = new_transaction["date"]
-    else:
-        new_transaction["recurrence"] = {
-            "enabled": False,
-            "config": None,
-            "last_created_date": None,
-            "parent_transaction_id": None
-        }
 
     result = await transactions_collection.insert_one(new_transaction)
 
-    # === FIX: Cache Invalidation Strategy ===
-    # We simply wipe the cache. The next time get_balance() is called, 
-    # it will automatically re-aggregate all transactions for 100% accuracy.
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$unset": {"balances": ""}}
-    )
+    # Cache invalidation (versioned, race-safe) + mark AI data stale.
+    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
 
     if not result.inserted_id:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create transaction")
@@ -97,7 +340,8 @@ async def create_transaction(
         cursor = transactions_collection.find({
             "user_id": current_user["_id"],
             "type": "outflow",
-            "currency": transaction_data.currency.value
+            "currency": transaction_data.currency.value,
+            **finite_amount_filter(),
         }).limit(50)
         user_transactions = await cursor.to_list(length=50)
         
@@ -118,42 +362,18 @@ async def create_transaction(
     
     background_tasks.add_task(
         update_relevant_budgets,
-        current_user["_id"], 
-        transaction_data.date,
+        current_user["_id"],
+        tx_date,
         transaction_data.currency.value
     )
 
-    # 2. Mark AI Data as Stale
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
-
-    recurrence_obj = None
-    if new_transaction.get("recurrence"):
-        recurrence_obj = TransactionRecurrence(**new_transaction["recurrence"])
-
-    return TransactionResponse(
-        id=transaction_id,
-        user_id=current_user["_id"],
-        type=transaction_data.type,
-        main_category=transaction_data.main_category,
-        sub_category=transaction_data.sub_category,
-        date=transaction_data.date,
-        description=transaction_data.description,
-        amount=transaction_data.amount,
-        currency=transaction_data.currency,
-        created_at=now,
-        updated_at=now,
-        recurrence=recurrence_obj,
-        parent_transaction_id=new_transaction["recurrence"].get("parent_transaction_id")
-    )
+    return _transaction_response(new_transaction)
 
 
 @router.get("", response_model=List[TransactionResponse])
 async def get_transactions(
     current_user: dict = Depends(get_current_user),
-    limit: int = Query(default=50, le=10000),
+    limit: int = Query(default=50, ge=1, le=10000),
     skip: int = Query(default=0, ge=0),
     transaction_type: Optional[TransactionType] = None,
     start_date: Optional[datetime] = None,
@@ -172,41 +392,26 @@ async def get_transactions(
     if start_date or end_date:
         date_filter = {}
         if start_date:
-            date_filter["$gte"] = start_date
+            date_filter["$gte"] = _as_utc(start_date)
         if end_date:
-            date_filter["$lte"] = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            end_date = _as_utc(end_date)
+            # Date-only semantics only when the client sent exactly midnight (e.g. "2025-01-31");
+            # precise timestamps are respected as-is.
+            if (end_date.hour, end_date.minute, end_date.second, end_date.microsecond) == (0, 0, 0, 0):
+                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            date_filter["$lte"] = end_date
         query["date"] = date_filter
 
+    # _id as final tiebreaker gives a stable order for skip/limit pagination.
     cursor = transactions_collection.find(query)\
-        .sort([("date", -1), ("created_at", -1)])\
+        .sort([("date", -1), ("created_at", -1), ("_id", -1)])\
         .skip(skip)\
         .limit(limit)
-    
+
     transactions = await cursor.to_list(length=limit)
 
-    result = []
-    for t in transactions:
-        recurrence_obj = None
-        if t.get("recurrence"):
-            recurrence_obj = TransactionRecurrence(**t["recurrence"])
-        
-        result.append(TransactionResponse(
-            id=t["_id"],
-            user_id=t["user_id"],
-            type=TransactionType(t["type"]),
-            main_category=t["main_category"],
-            sub_category=t["sub_category"],
-            date=t["date"],
-            description=t.get("description"),
-            amount=t["amount"],
-            currency=Currency(t.get("currency", "usd")),
-            created_at=t["created_at"],
-            updated_at=t.get("updated_at", t["created_at"]),
-            recurrence=recurrence_obj,
-            parent_transaction_id=t.get("recurrence", {}).get("parent_transaction_id")
-        ))
-    
-    return result
+    # One legacy row with a NaN/inf amount must not 500 the whole list.
+    return _transaction_responses(transactions)
 
 
 @router.post("/{transaction_id}/disable-recurrence")
@@ -261,7 +466,7 @@ async def disable_parent_transaction_recurrence(
             detail="Transaction not found"
         )
     
-    parent_id = transaction.get("recurrence", {}).get("parent_transaction_id")
+    parent_id = (transaction.get("recurrence") or {}).get("parent_transaction_id")
     
     if not parent_id:
         raise HTTPException(
@@ -288,25 +493,29 @@ async def disable_parent_transaction_recurrence(
 @router.post("/preview-recurrence")
 async def preview_transaction_recurrence(
     request: RecurrencePreviewRequest,
-    count: int = Query(default=5, le=10),
+    count: int = Query(default=5, ge=1, le=10),
     current_user: dict = Depends(get_current_user)
 ):
     """Preview upcoming occurrences of a recurring transaction"""
     
-    config = RecurrenceConfig(
-        frequency=request.frequency,
-        day_of_week=request.day_of_week,
-        day_of_month=request.day_of_month,
-        month=request.month,
-        day_of_year=request.day_of_year,
-        end_date=request.end_date
-    )
-    
-    occurrences = get_recurring_transaction_preview(
-        last_date=request.start_date,
-        config=config,
-        count=count
-    )
+    # Bounds (day_of_week 0-6, day_of_month 1-31, month 1-12, day_of_year 1-31) are
+    # enforced by RecurrencePreviewRequest -> 422 on bad input.
+    try:
+        config = RecurrenceConfig(
+            frequency=request.frequency,
+            day_of_week=request.day_of_week,
+            day_of_month=request.day_of_month,
+            month=request.month,
+            day_of_year=request.day_of_year,
+            end_date=request.end_date
+        )
+        occurrences = get_recurring_transaction_preview(
+            last_date=request.start_date,
+            config=config,
+            count=count
+        )
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid recurrence: {e}")
     
     return {
         "occurrences": [date.isoformat() for date in occurrences],
@@ -328,25 +537,7 @@ async def get_transaction(
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
-    recurrence_obj = None
-    if transaction.get("recurrence"):
-        recurrence_obj = TransactionRecurrence(**transaction["recurrence"])
-
-    return TransactionResponse(
-        id=transaction["_id"],
-        user_id=transaction["user_id"],
-        type=TransactionType(transaction["type"]),
-        main_category=transaction["main_category"],
-        sub_category=transaction["sub_category"],
-        date=transaction["date"],
-        description=transaction.get("description"),
-        amount=transaction["amount"],
-        currency=Currency(transaction.get("currency", "usd")),
-        created_at=transaction["created_at"],
-        updated_at=transaction.get("updated_at", transaction["created_at"]),
-        recurrence=recurrence_obj,
-        parent_transaction_id=transaction.get("recurrence", {}).get("parent_transaction_id")
-    )
+    return _transaction_response(transaction)
 
 
 @router.put("/{transaction_id}", response_model=TransactionResponse)
@@ -366,60 +557,109 @@ async def update_transaction(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
     update_data = {"updated_at": datetime.now(UTC)}
-    
+
     for field in ["type", "main_category", "sub_category", "date", "description", "amount", "currency"]:
         value = getattr(transaction_data, field, None)
         if value is not None:
             update_data[field] = value.value if field in ["type", "currency"] else value
 
+    # An empty description is how the app clears a note; store it as "no note".
+    if isinstance(update_data.get("description"), str) and not update_data["description"].strip():
+        update_data["description"] = None
+
+    if "date" in update_data:
+        update_data["date"] = _as_utc(update_data["date"])
+
+    new_type = update_data.get("type", transaction["type"])
+    new_main = update_data.get("main_category", transaction["main_category"])
+    new_sub = update_data.get("sub_category", transaction["sub_category"])
+    new_amount = update_data.get("amount", transaction["amount"])
+    new_currency = update_data.get("currency", transaction.get("currency", "usd"))
+    new_date = update_data.get("date", transaction["date"])
+
+    # Validate the effective categories only when they actually differ from the stored
+    # document (the app always resends type/main/sub, so editing e.g. only the description
+    # of a transaction with a legacy/renamed category must not be rejected).
+    if (
+        new_type != transaction["type"]
+        or new_main != transaction["main_category"]
+        or new_sub != transaction["sub_category"]
+    ):
+        await _validate_categories(new_type, new_main, new_sub)
+
+    # Recurrence: only `enabled` and `config` are client-editable. last_created_date and
+    # parent_transaction_id are server-managed and preserved from the stored document
+    # (auto-created children keep their parent link even if the client sends enabled=false).
+    existing_rec = transaction.get("recurrence") or {}
     if transaction_data.recurrence is not None:
-        update_data["recurrence"] = transaction_data.recurrence.dict()
-        if transaction_data.recurrence.enabled and not transaction.get("recurrence", {}).get("enabled"):
-            update_data["recurrence"]["last_created_date"] = update_data.get("date", transaction["date"])
+        incoming = transaction_data.recurrence
+        new_rec = {
+            "enabled": incoming.enabled,
+            "config": incoming.config.model_dump() if incoming.config else None,
+            "last_created_date": existing_rec.get("last_created_date"),
+            "parent_transaction_id": existing_rec.get("parent_transaction_id"),
+        }
+        if new_rec["enabled"]:
+            # Never schedule occurrences before the transaction's own date.
+            candidates = [_as_utc(d) for d in (new_rec["last_created_date"], new_date) if d]
+            pointer = max(candidates)
+            was_enabled = bool(existing_rec.get("enabled"))
+            schedule_changed = (
+                recurrence_schedule_key(existing_rec.get("config"))
+                != recurrence_schedule_key(new_rec["config"])
+            )
+            if (not was_enabled or schedule_changed) and incoming.config:
+                # Re-enabled (disabled -> enabled) or rescheduled (frequency/day changed):
+                # don't back-fill the past. Every occurrence up to and including today
+                # (app timezone) counts as handled, so the job only creates from the next
+                # occurrence after today. An unchanged enabled recurrence keeps its pointer.
+                try:
+                    pointer = rearmed_recurrence_pointer(pointer, incoming.config, app_today())
+                except Exception as e:
+                    logger.warning(f"Could not fast-forward recurrence pointer for {transaction_id}: {e}")
+            new_rec["last_created_date"] = pointer
+        update_data["recurrence"] = new_rec
+    elif "date" in update_data and existing_rec.get("enabled"):
+        last = existing_rec.get("last_created_date")
+        if not last or _as_utc(last) < new_date:
+            update_data["recurrence.last_created_date"] = new_date
 
-    await transactions_collection.update_one(
-    {"_id": transaction_id, "user_id": current_user["_id"]}, 
-    {"$set": update_data}
+    money_changed = (
+        new_type != transaction["type"]
+        or new_currency != transaction.get("currency", "usd")
+        or _cents_or_zero(new_amount) != _cents_or_zero(transaction.get("amount"))
     )
 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$unset": {"balances": ""}}
-    )
+    async with get_user_money_lock(current_user["_id"]):
+        if money_changed:
+            await _ensure_goal_allocations_covered(
+                current_user["_id"],
+                transaction,
+                {"type": new_type, "amount": new_amount, "currency": new_currency},
+            )
+
+        await transactions_collection.update_one(
+            {"_id": transaction_id, "user_id": current_user["_id"]},
+            {"$set": update_data}
+        )
+
+        # Versioned cache invalidation + AI data stale
+        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
 
     updated_transaction = await transactions_collection.find_one({"_id": transaction_id})
-    
-    background_tasks.add_task(
-        update_relevant_budgets,
-        current_user["_id"], 
-        transaction["date"], 
-        transaction["currency"]
-    )
 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
-    
-    recurrence_obj = None
-    if updated_transaction.get("recurrence"):
-        recurrence_obj = TransactionRecurrence(**updated_transaction["recurrence"])
+    # Recalculate budgets for BOTH the old and the new (date, currency).
+    old_key = (_as_utc(transaction["date"]), transaction.get("currency", "usd"))
+    new_key = (_as_utc(new_date), new_currency)
+    for budget_date, budget_currency in {old_key, new_key}:
+        background_tasks.add_task(
+            update_relevant_budgets,
+            current_user["_id"],
+            budget_date,
+            budget_currency
+        )
 
-    return TransactionResponse(
-        id=updated_transaction["_id"],
-        user_id=updated_transaction["user_id"],
-        type=TransactionType(updated_transaction["type"]),
-        main_category=updated_transaction["main_category"],
-        sub_category=updated_transaction["sub_category"],
-        date=updated_transaction["date"],
-        description=updated_transaction["description"],
-        amount=updated_transaction["amount"],
-        currency=Currency(updated_transaction.get("currency", "usd")),
-        created_at=updated_transaction["created_at"],
-        updated_at=updated_transaction["updated_at"],
-        recurrence=recurrence_obj,
-        parent_transaction_id=updated_transaction.get("recurrence", {}).get("parent_transaction_id")
-    )
+    return _transaction_response(updated_transaction)
 
 
 @router.delete("/{transaction_id}")
@@ -440,43 +680,58 @@ async def delete_transaction(
             detail="Transaction not found"
         )
 
-    result = await transactions_collection.delete_one({
-        "_id": transaction_id, 
-        "user_id": current_user["_id"]
-    })
+    async with get_user_money_lock(current_user["_id"]):
+        # Deleting an inflow must not leave money "allocated to goals" that no longer exists.
+        await _ensure_goal_allocations_covered(current_user["_id"], transaction, None)
 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$unset": {"balances": ""}}
-    )
-    
+        result = await transactions_collection.delete_one({
+            "_id": transaction_id,
+            "user_id": current_user["_id"]
+        })
+
+        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+
     if result.deleted_count == 0:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete transaction"
         )
 
     background_tasks.add_task(
         update_relevant_budgets,
-        current_user["_id"], 
-        transaction["date"],
-        transaction["currency"]
+        current_user["_id"],
+        _as_utc(transaction["date"]),
+        transaction.get("currency", "usd")
     )
 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
-    
     return {"message": "Transaction deleted successfully"}
+
+
+# App language code -> Whisper (ISO-639-1) language code
+_WHISPER_LANGUAGES = {"en": "en", "my": "my", "mm": "my"}
 
 
 @router.post("/transcribe-audio")
 async def transcribe_audio(
     audio: UploadFile = File(...),
+    language: Optional[str] = Form(default=None),
     current_user: dict = Depends(require_premium)
 ):
-    """Transcribe audio to text using OpenAI Whisper (Memory Optimized)"""
+    """
+    Transcribe audio to text using OpenAI Whisper (Memory Optimized).
+
+    Optional multipart form field `language`: "en" or "my" (Burmese; "mm" accepted as an
+    alias). When omitted, Whisper auto-detects the language.
+    """
+    whisper_language = None
+    if language is not None and language.strip():
+        whisper_language = _WHISPER_LANGUAGES.get(language.strip().lower())
+        if whisper_language is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported language. Use 'en' or 'my', or omit it for auto-detection."
+            )
+
     temp_path = None
     try:
         if not settings.OPENAI_API_KEY:
@@ -505,11 +760,13 @@ async def transcribe_audio(
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
             
+            whisper_kwargs = {"model": "whisper-1"}
+            if whisper_language:
+                whisper_kwargs["language"] = whisper_language  # omitted -> auto-detect
             with open(temp_path, 'rb') as audio_file:
                 transcript = await client.audio.transcriptions.create(
-                    model="whisper-1",
                     file=audio_file,
-                    language="en" 
+                    **whisper_kwargs
                 )
             
             transcription_length = len(transcript.text)
@@ -595,7 +852,7 @@ RULES:
 1. Determine if it's 'inflow' (income) or 'outflow' (expense)
 2. Select the most appropriate main_category and sub_category from the list above
 3. Extract the amount as a positive number
-4. Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
+4. Determine the date (default to today if not specified: {app_today().isoformat()})
 5. Extract any description/notes
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Carefully analyze the text for currency indicators
@@ -665,19 +922,14 @@ Respond in JSON format:
             )
         
         result = json.loads(response.choices[0].message.content)
-        
-        return TransactionExtraction(
-            type=result["type"],
-            main_category=result["main_category"],
-            sub_category=result["sub_category"],
-            date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
-            description=result.get("description"),
-            amount=float(result["amount"]),
-            currency=Currency(result.get("currency", user_default_currency)),
-            confidence=float(result["confidence"]),
-            reasoning=result.get("reasoning")
-        )
-        
+
+        extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True)
+        if extraction is None:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI returned an unexpected response")
+        return extraction
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Extraction error: {str(e)}")
         raise HTTPException(
@@ -724,7 +976,7 @@ RULES:
    - Determine if it's 'inflow' (income) or 'outflow' (expense)
    - Select the most appropriate main_category and sub_category from the list above
    - Extract the amount as a positive number
-   - Determine the date (default to today if not specified: {datetime.now(UTC).strftime('%Y-%m-%d')})
+   - Determine the date (default to today if not specified: {app_today().isoformat()})
    - Extract any description/notes
    - CURRENCY DETECTION (VERY IMPORTANT):
      * Carefully analyze the text for currency indicators for EACH transaction
@@ -809,26 +1061,29 @@ Respond in JSON format:
         result = json.loads(response.choices[0].message.content)
         
         transactions = []
-        for tx_data in result.get("transactions", []):
-            transactions.append(TransactionExtraction(
-                type=tx_data["type"],
-                main_category=tx_data["main_category"],
-                sub_category=tx_data["sub_category"],
-                date=datetime.fromisoformat(tx_data["date"]).replace(tzinfo=UTC),
-                description=tx_data.get("description"),
-                amount=float(tx_data["amount"]),
-                currency=Currency(tx_data.get("currency", user_default_currency)),
-                confidence=float(tx_data["confidence"]),
-                reasoning=tx_data.get("reasoning")
-            ))
-        
+        raw_items = result.get("transactions") or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        for tx_data in raw_items:
+            extraction = await _build_extraction(tx_data, user_default_currency, keep_invalid_amount=False)
+            if extraction is not None:
+                transactions.append(extraction)
+
+        analysis = result.get("analysis")
+        dropped = len(raw_items) - len(transactions)
+        if dropped:
+            note = f"{dropped} item(s) without a valid amount were omitted."
+            analysis = f"{analysis} {note}" if analysis else note
+
         return MultipleTransactionExtraction(
             transactions=transactions,
-            total_count=result.get("total_count", len(transactions)),
-            overall_confidence=float(result.get("overall_confidence", 0.0)),
-            analysis=result.get("analysis")
+            total_count=len(transactions),
+            overall_confidence=_safe_confidence(result.get("overall_confidence")),
+            analysis=analysis
         )
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Extraction error: {str(e)}")
         raise HTTPException(
@@ -846,62 +1101,43 @@ async def batch_create_transactions(
     """Create multiple transactions at once (Optimized with BulkWriteError handling)"""
     new_transactions = []
     response_models = []
-    
+
     now = datetime.now(UTC)
+
+    # 0. Validate categories for every item before inserting anything
+    for index, transaction_data in enumerate(transactions_data, start=1):
+        label = (transaction_data.description or "").strip()
+        label = f" ('{label[:40]}')" if label else ""
+        await _validate_categories(
+            transaction_data.type.value,
+            transaction_data.main_category,
+            transaction_data.sub_category,
+            prefix=f"Transaction #{index}{label}: ",
+        )
 
     # 1. Prepare all documents in memory (Fast)
     for transaction_data in transactions_data:
         transaction_id = str(uuid.uuid4())
-        
+        tx_date = _as_utc(transaction_data.date)
+
         doc = {
             "_id": transaction_id,
             "user_id": current_user["_id"],
             "type": transaction_data.type.value,
             "main_category": transaction_data.main_category,
             "sub_category": transaction_data.sub_category,
-            "date": transaction_data.date.replace(tzinfo=timezone.utc) if transaction_data.date.tzinfo is None else transaction_data.date,
+            "date": tx_date,
             "description": transaction_data.description,
             "amount": transaction_data.amount,
             "currency": transaction_data.currency.value,
             "created_at": now,
-            "updated_at": now
+            "updated_at": now,
+            # Server-managed recurrence fields are never taken from the client.
+            "recurrence": _new_recurrence_doc(transaction_data.recurrence, tx_date),
         }
 
-        # Add recurrence logic
-        if transaction_data.recurrence:
-            doc["recurrence"] = transaction_data.recurrence.dict()
-            if transaction_data.recurrence.enabled:
-                doc["recurrence"]["last_created_date"] = doc["date"]
-        else:
-            doc["recurrence"] = {
-                "enabled": False,
-                "config": None,
-                "last_created_date": None,
-                "parent_transaction_id": None
-            }
-        
         new_transactions.append(doc)
-
-        # Prepare response model immediately
-        recurrence_obj = None
-        if transaction_data.recurrence:
-             recurrence_obj = transaction_data.recurrence # Re-use input model or construct from dict
-
-        response_models.append(TransactionResponse(
-            id=transaction_id,
-            user_id=current_user["_id"],
-            type=transaction_data.type,
-            main_category=transaction_data.main_category,
-            sub_category=transaction_data.sub_category,
-            date=transaction_data.date,
-            description=transaction_data.description,
-            amount=transaction_data.amount,
-            currency=transaction_data.currency,
-            created_at=now,
-            updated_at=now,
-            recurrence=recurrence_obj,
-            parent_transaction_id=None
-        ))
+        response_models.append(_transaction_response(doc))
 
     # 2. Bulk Insert with "Pro" Error Handling
     if new_transactions:
@@ -935,10 +1171,7 @@ async def batch_create_transactions(
         # We run this if at least one transaction succeeded (either normal flow or partial BulkWriteError)
         background_tasks.add_task(update_all_user_budgets, current_user["_id"])
 
-        await users_collection.update_one(
-            {"_id": current_user["_id"]},
-            {"$unset": {"balances": ""}, "$set": {"ai_data_stale": True}}
-        )
+        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
 
     return response_models
 
@@ -1048,7 +1281,7 @@ RULES:
 1. Identify if it's 'inflow' or 'outflow' (receipts are usually outflow)
 2. Select the most appropriate category from the list above based on merchant/items
 3. Extract the total amount
-4. Extract the date from receipt (default to today if not visible: {datetime.now(UTC).strftime('%Y-%m-%d')})
+4. Extract the date from receipt (default to today if not visible: {app_today().isoformat()})
 5. Create a brief description including merchant name
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Look CAREFULLY at the receipt for currency indicators
@@ -1133,18 +1366,11 @@ Respond in JSON format:
         
         # 9. Parse Response
         result = json.loads(response.choices[0].message.content)
-        
-        return TransactionExtraction(
-            type=result["type"],
-            main_category=result["main_category"],
-            sub_category=result["sub_category"],
-            date=datetime.fromisoformat(result["date"]).replace(tzinfo=UTC),
-            description=result.get("description"),
-            amount=float(result["amount"]),
-            currency=Currency(result.get("currency", user_default_currency)),
-            confidence=float(result["confidence"]),
-            reasoning=result.get("reasoning")
-        )
+
+        extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True)
+        if extraction is None:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI returned an unexpected response")
+        return extraction
 
     except HTTPException:
         raise

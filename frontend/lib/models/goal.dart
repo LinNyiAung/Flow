@@ -1,3 +1,4 @@
+import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/user.dart';
 import 'package:intl/intl.dart';  // NEW - import Currency
 
@@ -6,6 +7,15 @@ enum GoalType { savings, debt_reduction, large_purchase }
 enum GoalStatus { active, achieved }
 
 final formatter = NumberFormat("#,##0.00", "en_US");
+
+/// Short due date for the "Overdue · was due …" label: "Oct 07", with the
+/// year added when it isn't [now]'s year ("Dec 20, 2025").
+String formatOverdueDueDate(DateTime due, {DateTime? now}) {
+  final current = now ?? DateTime.now();
+  return due.year == current.year
+      ? DateFormat('MMM dd').format(due)
+      : DateFormat('MMM dd, yyyy').format(due);
+}
 
 class Goal {
   final String id;
@@ -45,17 +55,29 @@ class Goal {
       name: json['name'],
       targetAmount: json['target_amount'].toDouble(),
       currentAmount: json['current_amount'].toDouble(),
-      targetDate: json['target_date'] != null ? DateTime.parse(json['target_date']) : null,
+      targetDate: parseWallClockOrNull(json['target_date']),
       goalType: GoalType.values.firstWhere((e) => e.name == json['goal_type']),
       status: GoalStatus.values.firstWhere((e) => e.name == json['status']),
       progressPercentage: json['progress_percentage'].toDouble(),
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
-      achievedAt: json['achieved_at'] != null ? DateTime.parse(json['achieved_at']) : null,
+      createdAt: parseInstant(json['created_at']),
+      updatedAt: parseInstant(json['updated_at']),
+      achievedAt: parseInstantOrNull(json['achieved_at']),
       currency: Currency.fromString(json['currency'] ?? 'usd'),  // NEW
     );
   }
   
+  /// An active goal whose (wall-clock) target date is before [now]'s
+  /// calendar day. A goal due today is not overdue yet.
+  bool isOverdueOn(DateTime now) {
+    final due = targetDate;
+    if (status != GoalStatus.active || due == null) return false;
+    final dueDay = DateTime(due.year, due.month, due.day);
+    final today = DateTime(now.year, now.month, now.day);
+    return dueDay.isBefore(today);
+  }
+
+  bool get isOverdue => isOverdueOn(DateTime.now());
+
   // NEW - Helper method to display amounts with currency symbol
   String get displayCurrentAmount {
     return '${currency.symbol}${formatter.format(currentAmount)}';

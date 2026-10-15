@@ -13,6 +13,64 @@ class LocalizationService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_languageKey, languageCode);
   }
+
+  /// Id of the user whose local language choice has not reached the server
+  /// yet (PUT /api/auth/language failed or is in flight), or null.
+  static const String _languageSyncPendingKey = 'language_sync_pending_user';
+
+  static Future<String?> getLanguageSyncPendingUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_languageSyncPendingKey);
+  }
+
+  static Future<void> setLanguageSyncPendingUser(String? userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (userId == null) {
+      await prefs.remove(_languageSyncPendingKey);
+    } else {
+      await prefs.setString(_languageSyncPendingKey, userId);
+    }
+  }
+}
+
+/// What to do with the language preference when a user signs in.
+class LanguageSyncDecision {
+  /// Language to apply locally (null = leave the local choice alone).
+  final String? apply;
+
+  /// Re-send the local choice to the server.
+  final bool push;
+
+  /// Clear the "sync pending" marker.
+  final bool clearPending;
+
+  const LanguageSyncDecision({
+    this.apply,
+    this.push = false,
+    this.clearPending = false,
+  });
+
+  /// While [userId]'s own local change is still unsynced, the local value
+  /// wins and is pushed again; otherwise the server value is applied (and
+  /// a stale marker left by another account is dropped).
+  static LanguageSyncDecision decide({
+    required String userId,
+    required String? serverLanguage,
+    required String localLanguage,
+    required String? pendingUserId,
+  }) {
+    final serverValid = serverLanguage == 'en' || serverLanguage == 'my';
+    if (pendingUserId == userId) {
+      if (serverLanguage == localLanguage) {
+        return const LanguageSyncDecision(clearPending: true);
+      }
+      return const LanguageSyncDecision(push: true);
+    }
+    return LanguageSyncDecision(
+      apply: serverValid ? serverLanguage : null,
+      clearPending: pendingUserId != null,
+    );
+  }
 }
 
 class AppLocalizations {
@@ -994,6 +1052,45 @@ class AppLocalizations {
       'previewAreasAttention': 'Spending patterns, overruns or concerning trends from this week that are worth a closer look before they become a habit.',
       'previewRecommendations': 'Specific, actionable suggestions for the week ahead based on your own numbers — not generic advice.',
       'previewWeeklyChallenge': 'One focused, measurable goal for the week ahead, with clear steps and a reason it\'ll actually move the needle.',
+
+      // Added: auth/session, home, insights error strings
+      'validationAmountRequired': 'Please enter an amount',
+      'continueReading': 'Continue reading',
+      'budgetOverCapWithDays': '{name} is {percent}% over its cap with {days} days to go.',
+      'budgetOverCap': '{name} is {percent}% over its cap.',
+      'tapToSeeWhatToCut': 'Tap to see what to cut — and by how much.',
+      'availableToSpend': 'Available to spend',
+      'amountSetAsideForGoals': '{amount} set aside for goals',
+      'amountTotal': '{amount} total',
+      'todayLabel': 'Today',
+      'errorRequestTimedOut': 'The request timed out. Please check your connection and try again.',
+      'errorNetworkUnreachable': 'Could not reach the server. Please check your internet connection.',
+      'sessionExpiredSignInAgain': 'Your session has expired. Please sign in again.',
+      'insightsServerError': 'Our insights service is having trouble right now. Please try again in a moment.',
+      'insightsRateLimited': 'You have generated insights too many times. Please try again later.',
+      'insightsGenericError': 'We could not load your insights. Please try again.',
+      'errorDetailsLabel': 'Details',
+      'checkEmailToVerify': 'Your email address is not verified yet. Check your inbox for the verification link, then sign in.',
+      'resendVerificationEmail': 'Resend verification email',
+      'verificationEmailResent': 'If your account still needs verification, a new link has been sent to your email.',
+      'confirmWithPasswordLabel': 'Enter your password to confirm',
+      'connectingToServer': 'Connecting to the server… this can take up to a minute.',
+      'sessionRestoreFailedTitle': "Can't reach the server",
+      'sessionRestoreFailedBody': "You're still signed in. We'll keep trying to connect.",
+      'voiceSpokenLanguageLabel': 'Spoken language',
+      'voiceLanguageAuto': 'Auto',
+      'voiceLanguageEnglish': 'English',
+      'voiceLanguageMyanmar': 'မြန်မာ',
+      'amountNeededLabel': 'Amount needed',
+      'amountNeededHint': "The amount couldn't be read. Tap to enter it.",
+      'amountNeededBeforeSaving': 'Enter the missing amount before saving.',
+      'amountAmbiguousFormat': 'Unclear amount. Use a dot for decimals, e.g. 1,500.50',
+      'insightsTemporarilyUnavailable': 'Insights are temporarily unavailable. Please try again in a few minutes.',
+      'goalOverdue': 'Overdue',
+      'goalOverdueWasDue': 'Overdue · was due {date}',
+      'goalOverdueHint': 'The target date has passed. Extend the date to keep tracking this goal.',
+      'goalExtendDate': 'Extend date',
+      'deleteAccountPasswordHelper': 'Required to confirm deletion.',
     },
     'my': {
       // Home Screen
@@ -1947,6 +2044,45 @@ class AppLocalizations {
       'previewAreasAttention': 'ဒီအပတ်မှ အလေ့အကျင့်တစ်ခု မဖြစ်မီ အနီးကပ် ဂရုစိုက်သင့်သော အသုံးစရိတ်ပုံစံများ၊ ကန့်သတ်ကျော်လွန်မှုများနှင့် စိုးရိမ်ဖွယ် ခြေရာများ။',
       'previewRecommendations': 'သင့်ကိုယ်ပိုင် ကိန်းဂဏန်းများအပေါ် အခြေခံသည့် လာမည့်အပတ်အတွက် တိကျသည့် လုပ်ဆောင်နိုင်သော အကြံပြုချက်များ — အထွေထွေအကြံပြုချက် မဟုတ်ပါ။',
       'previewWeeklyChallenge': 'လာမည့်အပတ်အတွက် အာရုံစိုက်ရမည့် ပန်းတိုင်တစ်ခု၊ ရှင်းလင်းသောအဆင့်များနှင့် အဘယ်ကြောင့် အထောက်အကူဖြစ်မည်ဆိုသည့် အကြောင်းရင်း။',
+
+      // Added: auth/session, home, insights error strings
+      'validationAmountRequired': 'ပမာဏ ထည့်ပါ',
+      'continueReading': 'ဆက်ဖတ်ရန်',
+      'budgetOverCapWithDays': '{name} သည် ကန့်သတ်ပမာဏထက် {percent}% ကျော်လွန်နေပြီး {days} ရက် ကျန်ပါသေးသည်။',
+      'budgetOverCap': '{name} သည် ကန့်သတ်ပမာဏထက် {percent}% ကျော်လွန်နေပါသည်။',
+      'tapToSeeWhatToCut': 'ဘာကို ဘယ်လောက် လျှော့ရမလဲ ကြည့်ရန် နှိပ်ပါ။',
+      'availableToSpend': 'သုံးစွဲနိုင်သော ငွေ',
+      'amountSetAsideForGoals': 'ရည်မှန်းချက်များအတွက် {amount} ဖယ်ထားသည်',
+      'amountTotal': 'စုစုပေါင်း {amount}',
+      'todayLabel': 'ယနေ့',
+      'errorRequestTimedOut': 'တုံ့ပြန်မှု အချိန်ကုန်သွားပါသည်။ အင်တာနက်ချိတ်ဆက်မှုကို စစ်ဆေးပြီး ထပ်ကြိုးစားပါ။',
+      'errorNetworkUnreachable': 'ဆာဗာသို့ ချိတ်ဆက်၍ မရပါ။ အင်တာနက်ချိတ်ဆက်မှုကို စစ်ဆေးပါ။',
+      'sessionExpiredSignInAgain': 'သင်၏ အကောင့်ဝင်ထားမှု သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ ထပ်မံ ဝင်ရောက်ပါ။',
+      'insightsServerError': 'သုံးသပ်ချက် ဝန်ဆောင်မှုတွင် ယခု အခက်အခဲရှိနေပါသည်။ ခဏအကြာတွင် ထပ်ကြိုးစားပါ။',
+      'insightsRateLimited': 'သုံးသပ်ချက်များကို အကြိမ်များစွာ ထုတ်ယူပြီးပါပြီ။ နောက်မှ ထပ်ကြိုးစားပါ။',
+      'insightsGenericError': 'သင့်သုံးသပ်ချက်များကို ဖော်ပြ၍ မရပါ။ ထပ်ကြိုးစားပါ။',
+      'errorDetailsLabel': 'အသေးစိတ်',
+      'checkEmailToVerify': 'သင့်အီးမေးလ်လိပ်စာကို အတည်မပြုရသေးပါ။ အတည်ပြုလင့်ခ်အတွက် သင့်စာဝင်ပုံးကို စစ်ဆေးပြီးမှ ဝင်ရောက်ပါ။',
+      'resendVerificationEmail': 'အတည်ပြုအီးမေးလ် ပြန်ပို့ရန်',
+      'verificationEmailResent': 'သင့်အကောင့်ကို အတည်ပြုရန် လိုအပ်နေသေးပါက လင့်ခ်အသစ်ကို သင့်အီးမေးလ်သို့ ပို့ပြီးပါပြီ။',
+      'confirmWithPasswordLabel': 'အတည်ပြုရန် သင့်စကားဝှက်ကို ထည့်ပါ',
+      'connectingToServer': 'ဆာဗာသို့ ချိတ်ဆက်နေပါသည်… တစ်မိနစ်ခန့် ကြာနိုင်ပါသည်။',
+      'sessionRestoreFailedTitle': 'ဆာဗာသို့ ချိတ်ဆက်၍ မရပါ',
+      'sessionRestoreFailedBody': 'သင် အကောင့်ဝင်ထားဆဲ ဖြစ်ပါသည်။ ဆက်လက် ချိတ်ဆက်ရန် ကြိုးစားနေပါမည်။',
+      'voiceSpokenLanguageLabel': 'ပြောမည့် ဘာသာစကား',
+      'voiceLanguageAuto': 'အလိုအလျောက်',
+      'voiceLanguageEnglish': 'English',
+      'voiceLanguageMyanmar': 'မြန်မာ',
+      'amountNeededLabel': 'ပမာဏ ထည့်ရန် လိုအပ်',
+      'amountNeededHint': 'ပမာဏကို ဖတ်၍ မရပါ။ ထည့်ရန် နှိပ်ပါ။',
+      'amountNeededBeforeSaving': 'မသိမ်းဆည်းမီ မပါဝင်သေးသော ပမာဏကို ထည့်ပါ။',
+      'amountAmbiguousFormat': 'ပမာဏ မရှင်းလင်းပါ။ ဒဿမအတွက် အစက် (.) ကို သုံးပါ၊ ဥပမာ 1,500.50',
+      'insightsTemporarilyUnavailable': 'သုံးသပ်ချက်များကို ယာယီ အသုံးပြု၍ မရသေးပါ။ မိနစ်အနည်းငယ်အကြာတွင် ထပ်ကြိုးစားပါ။',
+      'goalOverdue': 'ရက်လွန်',
+      'goalOverdueWasDue': 'ရက်လွန်နေပြီ · သတ်မှတ်ရက် {date}',
+      'goalOverdueHint': 'ပစ်မှတ်ရက် ကျော်လွန်သွားပါပြီ။ ဤရည်မှန်းချက်ကို ဆက်လက်ခြေရာခံရန် ရက်ကို တိုးပါ။',
+      'goalExtendDate': 'ရက် တိုးရန်',
+      'deleteAccountPasswordHelper': 'ဖျက်ရန် အတည်ပြုချက် လိုအပ်ပါသည်။',
     }
   };
 
@@ -2567,7 +2703,7 @@ class AppLocalizations {
   String get incomeDayOfWeek => translate('incomeDayOfWeek');
   String get incomeByMonth => translate('incomeByMonth');
   String get incomeByYear => translate('incomeByYear');
-  String get incomeOverTime => translate('incomeOverTim');
+  String get incomeOverTime => translate('incomeOverTime');
 
 
 
@@ -2950,6 +3086,44 @@ class AppLocalizations {
   String get previewAreasAttention => translate('previewAreasAttention');
   String get previewRecommendations => translate('previewRecommendations');
   String get previewWeeklyChallenge => translate('previewWeeklyChallenge');
+
+  // Added: auth/session, home, insights error strings
+  String get continueReading => translate('continueReading');
+  String get budgetOverCapWithDays => translate('budgetOverCapWithDays');
+  String get budgetOverCap => translate('budgetOverCap');
+  String get tapToSeeWhatToCut => translate('tapToSeeWhatToCut');
+  String get availableToSpend => translate('availableToSpend');
+  String get amountSetAsideForGoals => translate('amountSetAsideForGoals');
+  String get amountTotal => translate('amountTotal');
+  String get todayLabel => translate('todayLabel');
+  String get errorRequestTimedOut => translate('errorRequestTimedOut');
+  String get errorNetworkUnreachable => translate('errorNetworkUnreachable');
+  String get sessionExpiredSignInAgain => translate('sessionExpiredSignInAgain');
+  String get insightsServerError => translate('insightsServerError');
+  String get insightsRateLimited => translate('insightsRateLimited');
+  String get insightsGenericError => translate('insightsGenericError');
+  String get errorDetailsLabel => translate('errorDetailsLabel');
+  String get checkEmailToVerify => translate('checkEmailToVerify');
+  String get resendVerificationEmail => translate('resendVerificationEmail');
+  String get verificationEmailResent => translate('verificationEmailResent');
+  String get confirmWithPasswordLabel => translate('confirmWithPasswordLabel');
+  String get connectingToServer => translate('connectingToServer');
+  String get sessionRestoreFailedTitle => translate('sessionRestoreFailedTitle');
+  String get sessionRestoreFailedBody => translate('sessionRestoreFailedBody');
+  String get voiceSpokenLanguageLabel => translate('voiceSpokenLanguageLabel');
+  String get voiceLanguageAuto => translate('voiceLanguageAuto');
+  String get voiceLanguageEnglish => translate('voiceLanguageEnglish');
+  String get voiceLanguageMyanmar => translate('voiceLanguageMyanmar');
+  String get amountNeededLabel => translate('amountNeededLabel');
+  String get amountNeededHint => translate('amountNeededHint');
+  String get amountNeededBeforeSaving => translate('amountNeededBeforeSaving');
+  String get amountAmbiguousFormat => translate('amountAmbiguousFormat');
+  String get insightsTemporarilyUnavailable => translate('insightsTemporarilyUnavailable');
+  String get goalOverdue => translate('goalOverdue');
+  String goalOverdueWasDue(String date) => translate('goalOverdueWasDue').replaceAll('{date}', date);
+  String get goalOverdueHint => translate('goalOverdueHint');
+  String get goalExtendDate => translate('goalExtendDate');
+  String get deleteAccountPasswordHelper => translate('deleteAccountPasswordHelper');
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

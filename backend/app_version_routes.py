@@ -6,9 +6,9 @@ from packaging.version import Version, InvalidVersion
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
 
 from admin_utils import (
-    get_current_admin,
     log_admin_action,
     require_admin_or_super,
+    require_moderator_or_above,
     require_super_admin,
 )
 from app_version_models import (
@@ -36,6 +36,16 @@ def _parse_version(v: str) -> Version:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid version string: '{v}'. Use semantic versioning e.g. '2.1.0'."
         )
+
+
+def _safe_version(v) -> Optional[Version]:
+    """Parse a version stored in the DB; returns None (record ignored) if malformed."""
+    if not v or not isinstance(v, str):
+        return None
+    try:
+        return Version(v.strip())
+    except InvalidVersion:
+        return None
 
 
 def _doc_to_response(doc: dict) -> AppVersionResponse:
@@ -82,7 +92,7 @@ async def create_app_version(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Version {data.version} for platform '{data.platform}' already exists.",
+            detail=f"Version {data.version} for platform '{data.platform.value}' already exists.",
         )
 
     now = datetime.now(UTC)
@@ -106,7 +116,7 @@ async def create_app_version(
         admin_id=current_admin["_id"],
         admin_email=current_admin["email"],
         action="created_app_version",
-        details=f"Version {data.version} ({data.platform}) — force_update={data.is_force_update}",
+        details=f"Version {data.version} ({data.platform.value}) — force_update={data.is_force_update}",
     )
 
     return _doc_to_response(doc)
@@ -114,7 +124,7 @@ async def create_app_version(
 
 @admin_router.get("/app-versions", response_model=List[AppVersionResponse])
 async def list_app_versions(
-    current_admin: dict = Depends(get_current_admin),
+    current_admin: dict = Depends(require_moderator_or_above),
     platform: Optional[Platform] = Query(None),
     active_only: bool = Query(False),
     skip: int = Query(0, ge=0),
@@ -135,7 +145,7 @@ async def list_app_versions(
 @admin_router.get("/app-versions/{version_id}", response_model=AppVersionResponse)
 async def get_app_version(
     version_id: str = Path(...),
-    current_admin: dict = Depends(get_current_admin),
+    current_admin: dict = Depends(require_moderator_or_above),
 ):
     """Get a specific app version by ID."""
     doc = await app_versions_collection.find_one({"_id": version_id})
@@ -156,18 +166,23 @@ async def update_app_version(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="App version not found")
 
     update_fields: dict = {"updated_at": datetime.now(UTC)}
+    sent = data.model_fields_set  # fields the client explicitly included (even if null)
 
+    # Non-nullable fields: an explicit null is ignored
     if data.download_url is not None:
         update_fields["download_url"] = data.download_url
-    if data.release_notes is not None:
-        update_fields["release_notes"] = data.release_notes
     if data.is_force_update is not None:
         update_fields["is_force_update"] = data.is_force_update
-    if data.min_supported_version is not None:
-        _parse_version(data.min_supported_version)
-        update_fields["min_supported_version"] = data.min_supported_version
     if data.is_active is not None:
         update_fields["is_active"] = data.is_active
+
+    # Nullable fields: explicit null clears the value
+    if "release_notes" in sent:
+        update_fields["release_notes"] = data.release_notes
+    if "min_supported_version" in sent:
+        if data.min_supported_version is not None:
+            _parse_version(data.min_supported_version)
+        update_fields["min_supported_version"] = data.min_supported_version
 
     await app_versions_collection.update_one({"_id": version_id}, {"$set": update_fields})
 
@@ -217,14 +232,16 @@ async def check_app_version(
     Returns whether the user needs to update, and whether it is forced.
 
     Logic:
-    1. Find the latest ACTIVE version for the user's platform (or "all").
-    2. If no version record exists → user is up to date (nothing to enforce).
-    3. Compare current_version with latest_version.
+    1. Load all ACTIVE versions for the user's platform (or "all").
+    2. If none exist → user is up to date (nothing to enforce).
+    3. latest_version / download_url / release_notes come from the highest version.
     4. Force update if:
-       - `is_force_update` is True on the latest record, OR
-       - `min_supported_version` is set and current_version is below it.
+       - ANY active version newer than current_version has `is_force_update`, OR
+       - current_version is below the HIGHEST `min_supported_version` among active versions.
+    Versions are compared numerically (2.10.0 > 2.1.0). A malformed current_version
+    is rejected with 422 by the request model.
     """
-    _parse_version(payload.current_version)
+    current_v = _parse_version(payload.current_version)
 
     # Query: active versions matching the device platform OR "all"
     cursor = app_versions_collection.find({
@@ -232,9 +249,12 @@ async def check_app_version(
         "is_active": True,
     }).sort("created_at", -1)
 
-    docs = await cursor.to_list(length=100)
+    docs = await cursor.to_list(length=500)
 
-    if not docs:
+    # Ignore any malformed records already in the DB instead of 500-ing
+    parsed = [(v, d) for d in docs if (v := _safe_version(d.get("version"))) is not None]
+
+    if not parsed:
         # No version info published yet — let the user through
         return VersionCheckResponse(
             is_up_to_date=True,
@@ -243,24 +263,22 @@ async def check_app_version(
             message="Your app is up to date.",
         )
 
-    # Pick the highest version among active records
-    latest_doc = max(docs, key=lambda d: Version(d["version"]))
+    # Highest version among active records
+    latest_v, latest_doc = max(parsed, key=lambda pair: pair[0])
     latest_version = latest_doc["version"]
 
-    current_v = Version(payload.current_version)
-    latest_v = Version(latest_version)
+    # Any newer active version flagged as force update?
+    force_update = any(v > current_v and d.get("is_force_update") for v, d in parsed)
 
-    is_up_to_date = current_v >= latest_v
+    # Highest min_supported_version among all active records
+    min_versions = [
+        mv for _, d in parsed
+        if (mv := _safe_version(d.get("min_supported_version"))) is not None
+    ]
+    if min_versions and current_v < max(min_versions):
+        force_update = True
 
-    # Determine if this must be a forced update
-    force_update = False
-    if not is_up_to_date:
-        if latest_doc.get("is_force_update"):
-            force_update = True
-        elif latest_doc.get("min_supported_version"):
-            min_v = Version(latest_doc["min_supported_version"])
-            if current_v < min_v:
-                force_update = True
+    is_up_to_date = current_v >= latest_v and not force_update
 
     if is_up_to_date:
         return VersionCheckResponse(

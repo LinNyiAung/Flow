@@ -4,6 +4,7 @@ import '../models/recurring_transaction.dart';
 import 'package:frontend/services/localization_service.dart';
 import '../services/api_service.dart';
 import 'package:frontend/services/responsive_helper.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 
 class RecurrenceSettings extends StatefulWidget {
   final TransactionRecurrence? initialRecurrence;
@@ -275,11 +276,19 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
             SizedBox(height: responsive.sp8),
             InkWell(
               onTap: () async {
+                // The transaction date may have moved past the saved end
+                // date (or past now + 365): clamp instead of asserting.
+                final firstDate = widget.transactionDate.add(Duration(days: 1));
+                final bounds = DatePickerBounds.clamped(
+                  initialDate: _endDate ?? DateTime.now().add(Duration(days: 365)),
+                  firstDate: firstDate,
+                  lastDate: laterDate(DateTime.now().add(Duration(days: 3650)), firstDate),
+                );
                 final picked = await showDatePicker(
                   context: context,
-                  initialDate: _endDate ?? DateTime.now().add(Duration(days: 365)),
-                  firstDate: widget.transactionDate.add(Duration(days: 1)),
-                  lastDate: DateTime.now().add(Duration(days: 3650)),
+                  initialDate: bounds.initialDate,
+                  firstDate: bounds.firstDate,
+                  lastDate: bounds.lastDate,
                 );
                 if (picked != null) {
                   setState(() {
@@ -344,12 +353,15 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                     children: [
                       Icon(Icons.visibility_rounded, color: scheme.onPrimaryContainer, size: responsive.icon20),
                       SizedBox(width: responsive.sp8),
-                      Text(
-                        localizations.next5Occurrences,
-                        style: TextStyle(
-                          fontSize: responsive.fs14,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onPrimaryContainer,
+                      // Flexible: the Myanmar label wraps at large font sizes.
+                      Flexible(
+                        child: Text(
+                          localizations.next5Occurrences,
+                          style: TextStyle(
+                            fontSize: responsive.fs14,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onPrimaryContainer,
+                          ),
                         ),
                       ),
                     ],

@@ -1,3 +1,4 @@
+import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:intl/intl.dart';
@@ -46,12 +47,12 @@ class Transaction {
           : TransactionType.outflow,
       mainCategory: json['main_category'],
       subCategory: json['sub_category'],
-      date: DateTime.parse(json['date']),
+      date: parseWallClock(json['date']),
       description: json['description'],
       amount: json['amount'].toDouble(),
       currency: Currency.fromString(json['currency'] ?? 'usd'), // NEW
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      createdAt: parseInstant(json['created_at']),
+      updatedAt: parseInstant(json['updated_at']),
       recurrence: json['recurrence'] != null
           ? TransactionRecurrence.fromJson(json['recurrence'])
           : null,

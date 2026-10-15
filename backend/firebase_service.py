@@ -89,64 +89,114 @@ def send_fcm_notification(
         return False
 
 
+def _stringify_data(data: dict | None) -> dict:
+    """FCM data payload values must all be strings."""
+    return {str(k): ("" if v is None else str(v)) for k, v in (data or {}).items()}
+
+
+def send_fcm_data_message(fcm_token: str, data: dict = None) -> bool:
+    """
+    Send a data-only ("silent") FCM message: no Notification block, no badge, no
+    sound. The app receives it in its message handler and can refresh state.
+    Blocking — call via run_in_threadpool from async code.
+    """
+    if _firebase_app is None:
+        print("⚠️  Firebase not initialized, skipping FCM data message")
+        return False
+
+    try:
+        message = messaging.Message(
+            data=_stringify_data(data),
+            token=fcm_token,
+            android=messaging.AndroidConfig(priority='high'),
+            apns=messaging.APNSConfig(
+                headers={
+                    'apns-push-type': 'background',
+                    'apns-priority': '5',
+                },
+                payload=messaging.APNSPayload(
+                    aps=messaging.Aps(content_available=True),
+                ),
+            ),
+        )
+        response = messaging.send(message)
+        print(f'✅ FCM data message sent successfully: {response}')
+        return True
+
+    except messaging.UnregisteredError:
+        print('❌ FCM token is invalid or unregistered (data message)')
+        return False
+    except Exception as e:
+        print(f'❌ FCM data message error: {e}')
+        return False
+
+
+FCM_MULTICAST_LIMIT = 500
+
+
 def send_fcm_to_multiple(
     fcm_tokens: list[str],
     title: str,
     body: str,
     data: dict = None
 ) -> dict:
-    """Send FCM notification to multiple devices using send_each_for_multicast"""
+    """
+    Send FCM notification to multiple devices using send_each_for_multicast,
+    in chunks of at most 500 tokens (the FCM multicast limit).
+    Blocking — call via run_in_threadpool from async code.
+    """
+    if not fcm_tokens:
+        return {"success": 0, "failure": 0}
+
     if _firebase_app is None:
         print("⚠️  Firebase not initialized, skipping FCM notifications")
         return {"success": 0, "failure": len(fcm_tokens)}
-    
-    if not fcm_tokens:
-        return {"success": 0, "failure": 0}
-    
-    try:
-        # Create MulticastMessage
-        multicast_message = messaging.MulticastMessage(
-            notification=messaging.Notification(
-                title=title,
-                body=body,
-            ),
-            data=data or {},
-            tokens=fcm_tokens,
-            android=messaging.AndroidConfig(
-                priority='high',
-                notification=messaging.AndroidNotification(
-                    sound='default',
-                    channel_id='toe_pwar_notifications',
+
+    payload_data = _stringify_data(data)
+    total_success = 0
+    total_failure = 0
+
+    for start in range(0, len(fcm_tokens), FCM_MULTICAST_LIMIT):
+        chunk = fcm_tokens[start:start + FCM_MULTICAST_LIMIT]
+        try:
+            multicast_message = messaging.MulticastMessage(
+                notification=messaging.Notification(
+                    title=title,
+                    body=body,
                 ),
-            ),
-            apns=messaging.APNSConfig(
-                payload=messaging.APNSPayload(
-                    aps=messaging.Aps(
+                data=payload_data,
+                tokens=chunk,
+                android=messaging.AndroidConfig(
+                    priority='high',
+                    notification=messaging.AndroidNotification(
                         sound='default',
-                        badge=1,
+                        channel_id='toe_pwar_notifications',
                     ),
                 ),
-            ),
-        )
-        
-        # Send using send_each_for_multicast (correct method for v7.x)
-        response = messaging.send_each_for_multicast(multicast_message)
-        
-        print(f'✅ FCM multicast sent: {response.success_count} success, {response.failure_count} failure')
-        
-        # Log any failures for debugging
-        if response.failure_count > 0:
-            for idx, resp in enumerate(response.responses):
-                if not resp.success:
-                    print(f'❌ Failed to send to token {idx}: {resp.exception}')
-        
-        return {
-            "success": response.success_count,
-            "failure": response.failure_count,
-        }
-        
-    except Exception as e:
-        print(f'❌ FCM multicast error: {e}')
-        import traceback
-        traceback.print_exc()
-        return {"success": 0, "failure": len(fcm_tokens)}
+                apns=messaging.APNSConfig(
+                    payload=messaging.APNSPayload(
+                        aps=messaging.Aps(
+                            sound='default',
+                            badge=1,
+                        ),
+                    ),
+                ),
+            )
+
+            response = messaging.send_each_for_multicast(multicast_message)
+            total_success += response.success_count
+            total_failure += response.failure_count
+
+            if response.failure_count > 0:
+                for idx, resp in enumerate(response.responses):
+                    if not resp.success:
+                        print(f'❌ Failed to send to token {start + idx}: {resp.exception}')
+
+        except Exception as e:
+            print(f'❌ FCM multicast error (chunk starting at {start}): {e}')
+            import traceback
+            traceback.print_exc()
+            total_failure += len(chunk)
+
+    print(f'✅ FCM multicast sent: {total_success} success, {total_failure} failure')
+    return {"success": total_success, "failure": total_failure}

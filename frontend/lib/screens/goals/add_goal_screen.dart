@@ -3,6 +3,7 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/goal.dart';
@@ -57,11 +58,17 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
   }
 
   Future<void> _selectTargetDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(Duration(days: 30)),
+    // Re-opening starts from the date already picked (clamped into range).
+    final bounds = DatePickerBounds.clamped(
+      initialDate: _targetDate ?? DateTime.now().add(Duration(days: 30)),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(Duration(days: 3650)),
+    );
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: bounds.initialDate,
+      firstDate: bounds.firstDate,
+      lastDate: bounds.lastDate,
       // The picker already inherits the app's theme (jade in light,
       // darkPrimary in dark) — no override needed. The previous override
       // hardcoded AppTheme.jade, forcing light-mode green in dark mode too.

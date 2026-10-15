@@ -11,6 +11,21 @@ class BudgetProvider with ChangeNotifier {
   Currency? _selectedCurrency;  // NEW: track selected currency for filtering
   MultiCurrencyBudgetSummary? _multiCurrencySummary;
 
+  /// Bumped on [reset]; responses for an older session are discarded.
+  int _generation = 0;
+
+  /// Clears all per-user state (called on logout / user switch).
+  void reset() {
+    _generation++;
+    _budgets = [];
+    _summary = null;
+    _multiCurrencySummary = null;
+    _selectedCurrency = null;
+    _isLoading = false;
+    _error = null;
+    notifyListeners();
+  }
+
   List<Budget> get budgets => _budgets;
   BudgetSummary? get summary => _summary;
   bool get isLoading => _isLoading;
@@ -46,8 +61,11 @@ class BudgetProvider with ChangeNotifier {
   }
 
   Future<void> fetchMultiCurrencySummary() async {
+  final gen = _generation;
   try {
-    _multiCurrencySummary = await ApiService.getMultiCurrencyBudgetsSummary();
+    final result = await ApiService.getMultiCurrencyBudgetsSummary();
+    if (gen != _generation) return;
+    _multiCurrencySummary = result;
     notifyListeners();
   } catch (e) {
     print("Error fetching multi-currency budgets summary: $e");
@@ -133,23 +151,30 @@ class BudgetProvider with ChangeNotifier {
   }) async {
     _setLoading(true);
     _setError(null);
+    final gen = _generation;
 
     try {
-      _budgets = await ApiService.getBudgets(
+      final result = await ApiService.getBudgets(
         activeOnly: activeOnly,
         period: period,
         currency: currency,  // NEW
       );
+      if (gen != _generation) return;
+      _budgets = result;
       _setLoading(false);
     } catch (e) {
+      if (gen != _generation) return;
       _setError(e.toString().replaceAll('Exception: ', ''));
       _setLoading(false);
     }
   }
 
   Future<void> fetchSummary({Currency? currency}) async {  // NEW: add currency parameter
+    final gen = _generation;
     try {
-      _summary = await ApiService.getBudgetsSummary(currency: currency);
+      final result = await ApiService.getBudgetsSummary(currency: currency);
+      if (gen != _generation) return;
+      _summary = result;
       notifyListeners();
     } catch (e) {
       print("Error fetching budget summary: $e");
@@ -208,14 +233,21 @@ class BudgetProvider with ChangeNotifier {
     _setError(null);
 
     try {
-      // Get the budget's currency before deleting
-      final budget = _budgets.firstWhere((b) => b.id == budgetId);
-      final budgetCurrency = budget.currency;
-      
+      // Get the budget's currency before deleting. The budget may not be in
+      // the cached list (e.g. opened from a notification or a filtered
+      // list) — then fall back to the selected currency / default summary.
+      Currency? budgetCurrency;
+      for (final b in _budgets) {
+        if (b.id == budgetId) {
+          budgetCurrency = b.currency;
+          break;
+        }
+      }
+
       await ApiService.deleteBudget(budgetId);
       _budgets.removeWhere((b) => b.id == budgetId);
-      
-      await fetchSummary(currency: budgetCurrency);  // NEW: use budget's currency
+
+      await fetchSummary(currency: budgetCurrency ?? _selectedCurrency);
       _setLoading(false);
       return true;
     } catch (e) {

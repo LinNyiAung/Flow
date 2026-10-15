@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin-e2e",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5174", "--bind", "127.0.0.1", "--directory", "C:\\Users\\LINNYI~1\\AppData\\Local\\Temp\\claude\\C--projects-Flow\\88f449c7-2e35-4a07-890d-5a91aa9c3948\\scratchpad\\admin_e2e_dist"],
+      "port": 5174
+    }
+  ]
+}
