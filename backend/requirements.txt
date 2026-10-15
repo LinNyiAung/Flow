@@ -4,6 +4,10 @@ pydantic==2.14.0
 uvicorn[standard]==0.54.0
 pymongo==4.18.3
 motor==3.7.1
+# PostgreSQL (migration in progress: see docs/postgres-migration-plan.md)
+SQLAlchemy[asyncio]==2.1.4
+asyncpg==0.32.0
+alembic==1.20.0
 PyJWT==2.15.1
 passlib[bcrypt]==1.7.4
 # bcrypt 5.x rejects >72-byte secrets, which breaks passlib 1.7.4's backend self-test; keep 4.3.x
