@@ -37,9 +37,10 @@ from notification_service import (
 from database import (
     chat_sessions_collection, create_db_indexes, initialize_admin,
     initialize_categories, insights_collection, notifications_collection,
-    notification_preferences_collection, users_collection
+    notification_preferences_collection,
 )
 from sql.categories import get_categories_doc
+from sql import users as users_db
 from ai_chatbot import financial_chatbot, ChatServiceError
 from ai_chatbot_gemini import gemini_financial_chatbot
 from ai_usage_service import track_ai_usage
@@ -275,11 +276,7 @@ async def stream_chat_with_ai(
     # BOTH providers' caches. Clearing it with a conditional update first means a data
     # change that lands after this point re-sets the flag and is picked up next time.
     try:
-        cleared = await users_collection.update_one(
-            {"_id": user_id, "ai_data_stale": True},
-            {"$set": {"ai_data_stale": False}}
-        )
-        if cleared.modified_count:
+        if await users_db.claim_ai_data_fresh(user_id):
             _invalidate_ai_caches(user_id)
             print(f"🔄 AI data was stale for user {user_id}; invalidated cached vector stores")
     except Exception as e:
@@ -762,17 +759,9 @@ async def update_fcm_token(
 
         # A device token belongs to exactly one account: detach it from any other user
         # first so a shared device never receives another account's pushes.
-        released = await users_collection.update_many(
-            {"fcm_token": token, "_id": {"$ne": user_id}},
-            {"$unset": {"fcm_token": ""}}
-        )
-        if released.modified_count:
-            print(f"🔁 FCM token detached from {released.modified_count} other user(s)")
-
-        await users_collection.update_one(
-            {"_id": user_id},
-            {"$set": {"fcm_token": token}}
-        )
+        released = await users_db.set_device_token(user_id, token)
+        if released:
+            print(f"🔁 FCM token detached from {released} other user(s)")
         return {"message": "FCM token updated successfully"}
     except Exception as e:
         print(f"Error updating FCM token: {str(e)}")
@@ -783,10 +772,7 @@ async def update_fcm_token(
 async def delete_fcm_token(current_user: dict = Depends(get_current_user)):
     """Unregister the current user's FCM token (call on logout)"""
     try:
-        await users_collection.update_one(
-            {"_id": current_user["_id"]},
-            {"$unset": {"fcm_token": ""}}
-        )
+        await users_db.clear_device_token(current_user["_id"])
         return {"message": "FCM token removed successfully"}
     except Exception as e:
         print(f"Error removing FCM token: {str(e)}")

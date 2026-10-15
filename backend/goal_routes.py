@@ -14,7 +14,7 @@ from notification_service import (
     check_milestone_amount,
 )
 
-from database import goals_collection, users_collection
+from database import goals_collection
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 

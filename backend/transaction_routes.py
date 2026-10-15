@@ -40,7 +40,8 @@ from models import (
 
 from notification_service import check_large_transaction
 
-from database import transactions_collection, users_collection
+from database import transactions_collection
+from sql import users as users_db
 from sql.categories import get_categories_doc
 
 from config import settings
@@ -441,10 +442,7 @@ async def disable_transaction_recurrence(
             detail="Transaction not found or recurrence not enabled"
         )
 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
+    await users_db.mark_ai_data_stale(current_user["_id"])
     
     return {"message": "Recurrence disabled successfully"}
 
@@ -483,10 +481,7 @@ async def disable_parent_transaction_recurrence(
             detail="Parent transaction not found"
         )
     
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
+    await users_db.mark_ai_data_stale(current_user["_id"])
     
     return {"message": "Parent transaction recurrence disabled successfully"}
 

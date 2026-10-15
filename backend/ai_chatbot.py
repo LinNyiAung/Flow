@@ -14,7 +14,8 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
 from budget_service import get_running_budgets
-from database import transactions_collection, users_collection, goals_collection, budgets_collection
+from database import transactions_collection, goals_collection, budgets_collection
+from sql import users as users_db
 from finite_utils import finite_amount_filter
 from tz_utils import app_today, app_wall_clock_now, days_until, stored_calendar_date
 from dotenv import load_dotenv
@@ -1210,7 +1211,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 raise ChatServiceError("The AI assistant is not available right now. Please try again later.")
 
             # [FIX] Direct await (no to_thread needed for DB)
-            user = await users_collection.find_one({"_id": user_id})
+            user = await users_db.get_user(user_id)
             if not user:
                 raise ChatServiceError("We couldn't load your account. Please log in again.")
             

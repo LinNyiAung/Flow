@@ -11,8 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends
 from fastapi.concurrency import run_in_threadpool
-from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
+from sqlalchemy.exc import IntegrityError
 
 from email_service import send_otp_email, send_verification_email
 from utils import (
@@ -40,8 +39,8 @@ from models import (
     Token,
     VerifyOTPRequest,
 )
-from database import users_collection
 from config import settings
+from sql import users as users_db
 from database import (
     transactions_collection, chat_sessions_collection, goals_collection, insights_collection, budgets_collection,
     notifications_collection, notification_preferences_collection, feedback_collection, ai_usage_collection,
@@ -112,15 +111,7 @@ async def find_user_by_email(email: Optional[str]) -> Optional[dict]:
     the exact match hits first; legacy mixed-case accounts fall back to an anchored,
     escaped case-insensitive regex.
     """
-    normalized = _normalize_email(email)
-    if not normalized:
-        return None
-    user = await users_collection.find_one({"email": normalized})
-    if user:
-        return user
-    return await users_collection.find_one(
-        {"email": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}}
-    )
+    return await users_db.get_user_by_email(email)
 
 
 def build_user_response(user: dict) -> UserResponse:
@@ -192,8 +183,8 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks):
     }
 
     try:
-        await users_collection.insert_one(new_user)
-    except DuplicateKeyError:
+        await users_db.insert_user(new_user)
+    except IntegrityError:
         # Lost a race with a concurrent registration of the same address (unique
         # case-insensitive index email_unique_ci).
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
@@ -229,13 +220,7 @@ async def verify_email(email: str, token: str):
     if expires_at is not None and datetime.now(UTC) > expires_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_VERIFY_ERROR)
 
-    await users_collection.update_one(
-        {"_id": user["_id"], "verification_token": stored_token},
-        {
-            "$set": {"is_verified": True, "verified_at": datetime.now(UTC)},
-            "$unset": {"verification_token": "", "verification_token_expires_at": ""},
-        }
-    )
+    await users_db.mark_verified(user["_id"], stored_token, datetime.now(UTC))
 
     return {"message": "Email verified successfully! Your account is now active."}
 
@@ -256,12 +241,10 @@ async def resend_verification_email(request: ResendVerificationRequest, backgrou
     user = await find_user_by_email(email)
     if user and user.get("is_verified") is not True:
         verification_token = secrets.token_urlsafe(32)
-        await users_collection.update_one(
-            {"_id": user["_id"]},
-            {"$set": {
-                "verification_token": verification_token,
-                "verification_token_expires_at": datetime.now(UTC) + VERIFICATION_TOKEN_TTL,
-            }}
+        await users_db.update_user(
+            user["_id"],
+            verification_token=verification_token,
+            verification_token_expires_at=datetime.now(UTC) + VERIFICATION_TOKEN_TTL,
         )
         background_tasks.add_task(send_verification_email, user["email"], verification_token)
 
@@ -274,12 +257,7 @@ async def update_language(
     current_user: dict = Depends(get_current_user)
 ):
     """Update user's preferred language (validated by the model: 'en' or 'my')"""
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"language": language_data.language}}
-    )
-
-    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
+    updated_user = await users_db.update_user_returning(current_user["_id"], language=language_data.language)
     return build_user_response(updated_user)
 
 
@@ -338,19 +316,15 @@ async def request_password_reset_otp(request: ForgotPasswordRequest, background_
         "password_reset_otp": _hash_otp(user["_id"], otp),
         "password_reset_otp_expiry": now + OTP_TTL,
     }
-    unset_fields = {}
 
     # Start a fresh attempt window only if the previous one has elapsed (or a lock expired)
     window_start = ensure_utc_datetime(user.get("password_reset_attempts_since"))
     if locked_until is not None or window_start is None or now - window_start > OTP_LOCKOUT:
         set_fields["password_reset_attempts"] = 0
         set_fields["password_reset_attempts_since"] = now
-        unset_fields["password_reset_locked_until"] = ""
+        set_fields["password_reset_locked_until"] = None
 
-    update = {"$set": set_fields}
-    if unset_fields:
-        update["$unset"] = unset_fields
-    await users_collection.update_one({"_id": user["_id"]}, update)
+    await users_db.update_user(user["_id"], **set_fields)
 
     background_tasks.add_task(send_otp_email, user["email"], otp)
     return generic
@@ -373,20 +347,7 @@ async def verify_password_reset_otp(request: VerifyOTPRequest):
 
     # Atomically consume one attempt, only if an unexpired OTP exists, the attempt
     # budget isn't exhausted and the account isn't locked.
-    updated = await users_collection.find_one_and_update(
-        {
-            "_id": user["_id"],
-            "password_reset_otp": {"$exists": True, "$ne": None},
-            "password_reset_otp_expiry": {"$gt": now},
-            "password_reset_attempts": {"$not": {"$gte": OTP_MAX_ATTEMPTS}},
-            "$or": [
-                {"password_reset_locked_until": None},
-                {"password_reset_locked_until": {"$lte": now}},
-            ],
-        },
-        {"$inc": {"password_reset_attempts": 1}},
-        return_document=ReturnDocument.AFTER,
-    )
+    updated = await users_db.consume_reset_attempt(user["_id"], now, OTP_MAX_ATTEMPTS)
 
     if not updated:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_OTP_ERROR)
@@ -394,12 +355,11 @@ async def verify_password_reset_otp(request: VerifyOTPRequest):
     submitted = (request.otp or "").strip()
     if not _safe_equals(updated.get("password_reset_otp"), _hash_otp(updated["_id"], submitted)):
         if updated.get("password_reset_attempts", 0) >= OTP_MAX_ATTEMPTS:
-            await users_collection.update_one(
-                {"_id": updated["_id"]},
-                {
-                    "$set": {"password_reset_locked_until": now + OTP_LOCKOUT},
-                    "$unset": {"password_reset_otp": "", "password_reset_otp_expiry": ""},
-                }
+            await users_db.update_user(
+                updated["_id"],
+                password_reset_locked_until=now + OTP_LOCKOUT,
+                password_reset_otp=None,
+                password_reset_otp_expiry=None,
             )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_OTP_ERROR)
 
@@ -407,21 +367,15 @@ async def verify_password_reset_otp(request: VerifyOTPRequest):
     reset_token = secrets.token_urlsafe(32)
     hashed_reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
 
-    await users_collection.update_one(
-        {"_id": updated["_id"]},
-        {
-            "$set": {
-                "password_reset_token": hashed_reset_token,  # Store hashed version
-                "password_reset_token_expiry": now + RESET_TOKEN_TTL,
-            },
-            "$unset": {
-                "password_reset_otp": "",
-                "password_reset_otp_expiry": "",
-                "password_reset_attempts": "",
-                "password_reset_attempts_since": "",
-                "password_reset_locked_until": "",
-            }
-        }
+    await users_db.update_user(
+        updated["_id"],
+        password_reset_token=hashed_reset_token,  # Store hashed version
+        password_reset_token_expiry=now + RESET_TOKEN_TTL,
+        password_reset_otp=None,
+        password_reset_otp_expiry=None,
+        password_reset_attempts=None,
+        password_reset_attempts_since=None,
+        password_reset_locked_until=None,
     )
 
     return {"message": "OTP verified successfully.", "reset_token": reset_token}
@@ -460,18 +414,7 @@ async def reset_password(request: ResetPasswordRequest):
     hashed_pw = await run_in_threadpool(get_password_hash, request.new_password)
 
     # Only consume the token if it is still the one we validated (single use)
-    result = await users_collection.update_one(
-        {"_id": user["_id"], "password_reset_token": stored_token_hash},
-        {
-            "$set": {"password": hashed_pw, "password_changed_at": password_changed_now()},
-            "$inc": {"password_version": 1},
-            "$unset": {
-                "password_reset_token": "",
-                "password_reset_token_expiry": "",
-            }
-        }
-    )
-    if result.matched_count == 0:
+    if not await users_db.reset_password_with_token(user["_id"], stored_token_hash, hashed_pw, password_changed_now()):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_RESET_ERROR)
 
     return {"message": "Password reset successfully. You can now log in."}
@@ -496,12 +439,7 @@ async def update_profile(
             detail="Name must be at least 2 characters"
         )
 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"name": name}}
-    )
-
-    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
+    updated_user = await users_db.update_user_returning(current_user["_id"], name=name)
     return build_user_response(updated_user)
 
 
@@ -511,12 +449,9 @@ async def update_default_currency(
     current_user: dict = Depends(get_current_user)
 ):
     """Update user's default currency"""
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"default_currency": currency_data.default_currency.value}}
+    updated_user = await users_db.update_user_returning(
+        current_user["_id"], default_currency=currency_data.default_currency.value
     )
-
-    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
     return build_user_response(updated_user)
 
 
@@ -551,14 +486,7 @@ async def change_password(
 
     hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
 
-    updated_user = await users_collection.find_one_and_update(
-        {"_id": current_user["_id"]},
-        {
-            "$set": {"password": hashed_password, "password_changed_at": password_changed_now()},
-            "$inc": {"password_version": 1},
-        },
-        return_document=ReturnDocument.AFTER,
-    )
+    updated_user = await users_db.change_password(current_user["_id"], hashed_password, password_changed_now())
 
     return {
         "message": "Password changed successfully",
@@ -592,9 +520,8 @@ async def delete_account(
         await feedback_collection.delete_many({"user_id": user_id})
         await ai_usage_collection.delete_many({"user_id": user_id})
 
-        result = await users_collection.delete_one({"_id": user_id})
-
-        if result.deleted_count == 0:
+        # PostgreSQL tables cascade from users; Mongo collections are cleared above.
+        if await users_db.delete_user(user_id) == 0:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to delete account"
@@ -661,21 +588,11 @@ async def claim_free_trial(current_user: dict = Depends(get_current_user)):
     trial_expiry = datetime.now(UTC) + timedelta(days=30)
 
     # Atomic guard against concurrent double-claims
-    result = await users_collection.update_one(
-        {"_id": current_user["_id"], "has_claimed_free_trial": {"$ne": True}},
-        {
-            "$set": {
-                "subscription_type": "premium",
-                "subscription_expires_at": trial_expiry,
-                "has_claimed_free_trial": True,
-            }
-        }
-    )
-    if result.matched_count == 0:
+    if not await users_db.claim_free_trial(current_user["_id"], trial_expiry):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You have already claimed your free trial."
         )
 
-    updated_user = await users_collection.find_one({"_id": current_user["_id"]})
+    updated_user = await users_db.get_user(current_user["_id"])
     return build_user_response(updated_user)

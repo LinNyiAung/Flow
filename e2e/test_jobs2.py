@@ -27,7 +27,8 @@ class FakeAsyncOpenAI:
 openai.AsyncOpenAI = FakeAsyncOpenAI
 
 import insights_service as ins  # noqa: E402
-from database import users_collection as U, insights_collection as I  # noqa: E402
+from database import insights_collection as I  # noqa: E402
+U = __import__("pgcompat").async_collection("users")  # users live in PostgreSQL
 
 stubenv.patch_loaded_modules()
 HERE = os.path.dirname(os.path.abspath(__file__))

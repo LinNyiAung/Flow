@@ -9,7 +9,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
-from database import transactions_collection, users_collection, goals_collection
+from database import transactions_collection, goals_collection
+from sql import users as users_db
 from tz_utils import app_wall_clock_now
 from dotenv import load_dotenv
 
@@ -385,7 +386,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 raise ChatServiceError("The Gemini assistant is not available right now. Please try again later.")
 
             # [FIX] Direct await (Async Motor)
-            user = await users_collection.find_one({"_id": user_id})
+            user = await users_db.get_user(user_id)
             if not user:
                 raise ChatServiceError("We couldn't load your account. Please log in again.")
             

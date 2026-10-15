@@ -25,7 +25,8 @@ from budget_service import (
 from notification_service import notify_budget_started
 
 
-from database import budgets_collection, users_collection
+from database import budgets_collection
+from sql import users as users_db
 
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
@@ -215,10 +216,7 @@ async def create_budget(
             )
 
         # Mark AI data as stale
-        await users_collection.update_one(
-            {"_id": current_user["_id"]},
-            {"$set": {"ai_data_stale": True}}
-        )
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
         # Get updated budget
         updated_budget = await budgets_collection.find_one({"_id": budget_id})
@@ -460,10 +458,7 @@ async def update_budget(
         await update_budget_spent_amounts(current_user["_id"], budget_id)
 
         # Mark AI data as stale
-        await users_collection.update_one(
-            {"_id": current_user["_id"]},
-            {"$set": {"ai_data_stale": True}}
-        )
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
         updated_budget = await budgets_collection.find_one({"_id": budget_id})
 
@@ -522,10 +517,7 @@ async def delete_budget(
                 print(f"⚠️ Failed to clear rollover marker of parent budget {budget['parent_budget_id']}: {e}")
 
         # Mark AI data as stale
-        await users_collection.update_one(
-            {"_id": current_user["_id"]},
-            {"$set": {"ai_data_stale": True}}
-        )
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
         return {"message": "Budget deleted successfully"}
 

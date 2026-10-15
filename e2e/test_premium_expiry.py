@@ -17,6 +17,16 @@ import subscription_service as ss  # noqa: E402
 stubenv.patch_loaded_modules()
 
 db = __import__("pgcompat").get_db()
+
+def ACTIVE(now=None):
+    """Mongo-style filter equivalent of subscription_service.active_premium_filter (for pgcompat)."""
+    now = now or datetime.now(UTC)
+    return {"subscription_type": "premium", "$or": [{"subscription_expires_at": None}, {"subscription_expires_at": {"$gt": now}}]}
+
+
+def FREE(now=None):
+    now = now or datetime.now(UTC)
+    return {"$or": [{"subscription_type": {"$ne": "premium"}}, {"subscription_expires_at": {"$lte": now}}]}
 c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
 H = lambda t: {"Authorization": f"Bearer {t}"}
 now = datetime.now(UTC)
@@ -50,8 +60,8 @@ ids = [expired_en, expired_my, active, lifetime, free, race, lapsed]
 scope = {"_id": {"$in": ids}}
 
 # --- admin counts BEFORE the job already treat expired as free
-check(db.users.count_documents({**scope, **ss.active_premium_filter(now)}) == 2, "active-premium filter: only the active + lifetime users")
-check(db.users.count_documents({**scope, **ss.effectively_free_filter(now)}) == 5, "effectively-free filter: free + the 4 expired users")
+check(db.users.count_documents({**scope, **ACTIVE(now)}) == 2, "active-premium filter: only the active + lifetime users")
+check(db.users.count_documents({**scope, **FREE(now)}) == 5, "effectively-free filter: free + the 4 expired users")
 
 # --- premium features stop at expiry even before the job runs
 r = c.get("/api/insights", headers=H(tok_expired))
@@ -60,22 +70,23 @@ r = c.get("/api/insights", headers=H(tok_active))
 check(r.status_code != 403, "active premium user still has access", f"{r.status_code}")
 
 # --- race: an admin extends 'race' before the job's conditional update lands
-real_update = ss.users_collection.update_one
+real_downgrade = ss.users_db.downgrade_if_unchanged
 
 
-async def update_with_admin_extension(filt, update, *a, **k):
-    if filt.get("_id") == race and "subscription_type" in filt:
-        await real_update({"_id": race}, {"$set": {"subscription_expires_at": now + timedelta(days=30)}})
-    return await real_update(filt, update, *a, **k)
+async def downgrade_after_admin_extension(user_id, stored_expiry, ended_at):
+    # An admin extends 'race' after the job read it but before its conditional update lands.
+    if user_id == race:
+        db.users.update_one({"_id": race}, {"$set": {"subscription_expires_at": now + timedelta(days=30)}})
+    return await real_downgrade(user_id, stored_expiry, ended_at)
 
 pushes = []
 ss.send_fcm_data_message = lambda token, data=None: pushes.append((token, data)) or True
-ss.users_collection.update_one = update_with_admin_extension
+ss.users_db.downgrade_if_unchanged = downgrade_after_admin_extension
 
 
 async def run_job_twice():
     first = await ss.expire_premium_subscriptions(now)
-    ss.users_collection.update_one = real_update
+    ss.users_db.downgrade_if_unchanged = real_downgrade
     second = await ss.expire_premium_subscriptions(now)
     return first, second
 
@@ -122,8 +133,8 @@ db.admins.insert_one({"_id": str(uuid.uuid4()), "name": "PX", "email": ae, "pass
                       "role": "super_admin", "created_at": now, "last_login": None})
 AD = H(c.post("/api/admin/login", json={"email": ae, "password": "px-admin-pw"}).json()["access_token"])
 st = c.get("/api/admin/stats/users", headers=AD).json()
-truth_p = db.users.count_documents(ss.active_premium_filter())
-truth_f = db.users.count_documents(ss.effectively_free_filter())
+truth_p = db.users.count_documents(ACTIVE())
+truth_f = db.users.count_documents(FREE())
 check(st.get("premium_users") == truth_p and st.get("free_users") == truth_f and truth_p + truth_f == st.get("total_users"),
       f"admin stats: premium {st.get('premium_users')} + free {st.get('free_users')} = total {st.get('total_users')}")
 bs = c.get("/api/admin/broadcast-stats", headers=AD).json()

@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: 370e86741054
+Revision ID: d6377f07d33f
 Revises: 
-Create Date: 2026-10-15 15:31:48.183839
+Create Date: 2026-10-15 16:04:33.913827
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = '370e86741054'
+revision: str = 'd6377f07d33f'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -105,6 +105,8 @@ def upgrade() -> None:
     sa.Column('password_reset_token_expiry', sa.DateTime(timezone=True), nullable=True),
     sa.Column('fcm_token', sa.Text(), nullable=True),
     sa.Column('ai_data_stale', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+    sa.Column('balances', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('balances_version', sa.Integer(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.CheckConstraint("default_currency IN ('usd','mmk','thb')", name=op.f('ck_users_default_currency')),
     sa.CheckConstraint("language IN ('en','my')", name=op.f('ck_users_language')),

@@ -3,7 +3,8 @@ import uuid
 import os
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
-from database import users_collection, insights_collection, budgets_collection, transactions_collection, goals_collection
+from database import insights_collection, budgets_collection, transactions_collection, goals_collection
+from sql import users as users_db
 from tz_utils import (
     app_today, app_wall_clock_now, as_utc, get_app_timezone, is_expired, previous_week_range,
     week_before_previous_range, previous_month_range, month_before_previous_range,
@@ -298,7 +299,7 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai", not
         prev_week_start, prev_week_end = get_previous_week_date_range()
         
         # [FIX] Added await
-        user = await users_collection.find_one({"_id": user_id})
+        user = await users_db.get_user(user_id)
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
@@ -815,11 +816,7 @@ async def generate_weekly_insights_for_all_users():
     
     # 1. Fetch all premium users quickly to release DB cursor
     # Projection only gets necessary fields to save memory
-    cursor = users_collection.find(
-        {"subscription_type": "premium"},
-        {"_id": 1, "subscription_expires_at": 1}
-    )
-    users = await cursor.to_list(length=None)
+    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type == "premium")
     
     if not users:
         logger.info("ℹ️ No premium users found for weekly insights.")
@@ -1164,7 +1161,7 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai", no
         prev_month_start, prev_month_end = get_previous_month_date_range()
         
         # [FIX] Added await
-        user = await users_collection.find_one({"_id": user_id})
+        user = await users_db.get_user(user_id)
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
@@ -1608,11 +1605,7 @@ async def generate_monthly_insights_for_all_users():
     logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
     
     # 1. Fetch all premium users
-    cursor = users_collection.find(
-        {"subscription_type": "premium"},
-        {"_id": 1, "subscription_expires_at": 1}
-    )
-    users = await cursor.to_list(length=None)
+    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type == "premium")
 
     if not users:
         logger.info("ℹ️ No premium users found for monthly insights.")

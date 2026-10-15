@@ -12,7 +12,6 @@ def get_database():
     return database
 
 # ==================== COLLECTIONS ====================
-users_collection = database.users
 transactions_collection = database.transactions
 chat_sessions_collection = database.chat_sessions
 goals_collection = database.goals 
@@ -213,17 +212,7 @@ async def create_db_indexes():
             background=True,
         )
 
-        # Case-insensitive unique emails, so two simultaneous registrations
-        # (or Foo@x.com vs foo@x.com) can't both create an account.
-        try:
-            await users_collection.create_index(
-                [("email", ASCENDING)],
-                unique=True,
-                collation={"locale": "en", "strength": 2},
-                name="email_unique_ci",
-            )
-        except Exception as e:
-            print(f"⚠️ Could not create unique email index (existing duplicate emails?): {e}")
+        # (Case-insensitive unique e-mails: PostgreSQL index uq_users_lower_email.)
         await transactions_collection.create_index(
             [("user_id", ASCENDING), ("type", ASCENDING), ("date", ASCENDING)],
             background=True,

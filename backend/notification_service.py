@@ -5,7 +5,8 @@ from typing import Dict, List, Optional
 import uuid
 from firebase_service import send_fcm_notification
 from finite_utils import finite_amount_filter
-from database import goals_collection, notification_preferences_collection, notifications_collection, budgets_collection, transactions_collection, users_collection
+from database import goals_collection, notification_preferences_collection, notifications_collection, budgets_collection, transactions_collection
+from sql import users as users_db
 from tz_utils import (
     app_today, app_wall_clock_now, as_utc, days_until, goal_reminder_threshold, is_budget_ending_soon,
     GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
@@ -112,7 +113,7 @@ def format_currency_amount(amount: float, currency: str) -> str:
 async def get_user_language(user_id: str) -> str:
     """Get user's preferred language from user preferences or default to 'en'"""
     # [FIX] Added await
-    user = await users_collection.find_one({"_id": user_id})
+    user = await users_db.get_user(user_id)
     return user.get("language", "en") if user else "en"
 
 
@@ -204,7 +205,7 @@ async def create_notification(
     
     # [FIX] Fetch user data ASYNC before starting the thread
     # This prevents running async DB calls inside the sync thread
-    user = await users_collection.find_one({"_id": user_id})
+    user = await users_db.get_user(user_id)
     fcm_token = user.get("fcm_token") if user else None
 
     # Send FCM push notification in a separate thread
@@ -894,8 +895,7 @@ async def detect_and_notify_recurring_payments():
     now = datetime.now(UTC)
     today = app_today(now)
 
-    cursor_users = users_collection.find({}, {"_id": 1})
-    users = await cursor_users.to_list(length=None)
+    users = [{"_id": uid} for uid in await users_db.user_ids()]
 
     for user in users:
         try:

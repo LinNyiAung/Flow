@@ -59,6 +59,10 @@ users = Table(
     Column("password_reset_token_expiry", TS),
     Column("fcm_token", Text),
     Column("ai_data_stale", Boolean, nullable=False, server_default=text("false")),
+    # TEMPORARY balance cache, kept only while transactions/goals are still in MongoDB.
+    # Removed when they move (balances are then a live SQL SUM; see migration plan).
+    Column("balances", JSONB),
+    Column("balances_version", Integer),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     CheckConstraint("subscription_type IN ('free','premium')", name="subscription_type"),
     CheckConstraint(f"default_currency IN {CURRENCIES}", name="default_currency"),

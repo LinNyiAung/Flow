@@ -25,6 +25,7 @@ from pymongo import MongoClient
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 from sql import docs as D  # noqa: E402
 from sql import tables as T  # noqa: E402
+from migration.convert import CONVERTERS  # noqa: E402  (same rules as the production data migration)
 
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 MONGO_URL = os.environ.get("E2E_MONGO", "mongodb://127.0.0.1:27999")
@@ -34,7 +35,7 @@ ALL = {"users", "transactions", "goals", "budgets", "notifications", "notificati
 
 # Collections the backend code already stores in PostgreSQL. Updated with each migration
 # step so the suites follow the code; E2E_PG_COLLECTIONS (comma list or "all") overrides.
-MIGRATED = {"categories", "admins", "admin_action_logs", "app_versions"}
+MIGRATED = {"categories", "admins", "admin_action_logs", "app_versions", "users"}
 
 
 def migrated() -> set:
@@ -162,6 +163,11 @@ class PgCollection:
         return D.row_to_doc(row)
 
     def _to_row(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        if self.name in CONVERTERS:
+            # Test inserts go through the migration converter, so legacy-shaped test
+            # documents are stored exactly as the production migration would store them.
+            row = CONVERTERS[self.name](doc)
+            return {k: self._value(k, v) for k, v in row.items()}
         if self.name == "transactions":
             row = D.transaction_row(doc)
         elif self.name == "insights":
@@ -302,6 +308,24 @@ class CompatDB:
         with self._pg.cursor(row_factory=dict_row) as cur:
             cur.execute(query, params)
             return cur.fetchall() if cur.description else cur.rowcount
+
+
+class AsyncCollection:
+    """Awaitable facade (motor-like) over a collection, for suites that used backend motor collections."""
+
+    def __init__(self, coll):
+        self._c = coll
+
+    def __getattr__(self, op):
+        target = getattr(self._c, op)
+
+        async def call(*a, **k):
+            return target(*a, **k)
+        return call
+
+
+def async_collection(name: str, db_name: str = "flow_e2e") -> AsyncCollection:
+    return AsyncCollection(getattr(get_db(db_name), name))
 
 
 def get_db(name: str = "flow_e2e") -> CompatDB:

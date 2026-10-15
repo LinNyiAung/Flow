@@ -8,7 +8,8 @@ from pydantic import ValidationError
 from pymongo.errors import DuplicateKeyError
 
 from recurrence_models import RecurrenceConfig, RecurrenceFrequency
-from database import transactions_collection, users_collection
+from database import transactions_collection
+from sql import users as users_db
 from finite_utils import finite_amount_filter
 from notification_service import create_notification
 from tz_utils import app_today
@@ -366,14 +367,7 @@ async def _refresh_user_after_recurring(user_id: str, per_currency: Dict[str, Li
     """Invalidate balance cache, mark AI data stale and recompute affected budgets."""
     from budget_service import update_budgets_in_range  # local import: avoid import cycles
 
-    await users_collection.update_one(
-        {"_id": user_id},
-        {
-            "$unset": {"balances": ""},
-            "$inc": {"balances_version": 1},
-            "$set": {"ai_data_stale": True},
-        }
-    )
+    await users_db.invalidate_balance_cache(user_id, mark_ai_stale=True)
     for currency, dates in per_currency.items():
         if not dates:
             continue

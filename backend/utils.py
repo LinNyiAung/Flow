@@ -4,7 +4,8 @@ from fastapi import Depends, HTTPException , status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_chatbot import financial_chatbot
-from database import users_collection, transactions_collection, goals_collection
+from database import transactions_collection, goals_collection
+from sql import users as users_db
 import jwt  # PyJWT (replaces python-jose; same HS256 tokens)
 from passlib.context import CryptContext
 
@@ -96,7 +97,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     """Get current authenticated (and e-mail verified) user"""
     payload = _decode_user_token(credentials.credentials)
     email = payload["sub"]
-    user = await users_collection.find_one({"email": email})
+    user = await users_db.get_user_by_email(email)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
@@ -162,9 +163,7 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     # 1. FAST PATH: Check cache
     # balances_version is bumped by every invalidation (see invalidate_user_balance_cache);
     # we only write our freshly computed cache back if no invalidation happened meanwhile.
-    user = await users_collection.find_one(
-        {"_id": user_id}, {"balances": 1, "default_currency": 1, "balances_version": 1}
-    )
+    user = await users_db.get_user(user_id)
     
     # Handle case where user might be None (rare but possible)
     if not user:
@@ -249,10 +248,7 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     # Conditional on the version we read: if anyone invalidated the cache while we were
     # aggregating (balances_version was $inc'ed), this write is skipped so a stale
     # aggregate can never overwrite a newer invalidation. A missing field matches None.
-    await users_collection.update_one(
-        {"_id": user_id, "balances_version": user.get("balances_version")},
-        {"$set": {"balances": balances}}
-    )
+    await users_db.write_balance_cache(user_id, balances, user.get("balances_version"))
 
     if currency:
         return balances.get(currency, {
@@ -262,20 +258,9 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     return {"balances": balances}
 
 
-def balance_cache_invalidation_update(extra_set: Optional[dict] = None) -> dict:
-    """Mongo update document that invalidates users.balances (and bumps balances_version)."""
-    update = {"$unset": {"balances": ""}, "$inc": {"balances_version": 1}}
-    if extra_set:
-        update["$set"] = dict(extra_set)
-    return update
-
-
 async def invalidate_user_balance_cache(user_id: str, mark_ai_stale: bool = False) -> None:
     """Invalidate the cached balances for a user (race-safe with get_user_balance)."""
-    await users_collection.update_one(
-        {"_id": user_id},
-        balance_cache_invalidation_update({"ai_data_stale": True} if mark_ai_stale else None),
-    )
+    await users_db.invalidate_balance_cache(user_id, mark_ai_stale=mark_ai_stale)
 
 
 # Per-user lock serializing operations that move money between "available balance"

@@ -18,8 +18,9 @@ warnings.simplefilter("always", RuntimeWarning)
 import recurring_transaction_service as rts  # noqa: E402
 import notification_service as ns  # noqa: E402
 import insights_service as ins  # noqa: E402
-from database import (users_collection as U, transactions_collection as T, goals_collection as G,  # noqa: E402
+from database import (transactions_collection as T, goals_collection as G,  # noqa: E402
                       budgets_collection as B, notifications_collection as N, insights_collection as I)
+U = __import__("pgcompat").async_collection("users")  # users live in PostgreSQL
 
 stubenv.patch_loaded_modules()
 

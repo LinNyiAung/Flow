@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 
-from database import users_collection
+from sql import users as users_db
 from firebase_service import send_fcm_data_message
 from notification_service import create_notification, get_user_language, translate
 from tz_utils import get_app_timezone
@@ -24,24 +24,14 @@ logger = logging.getLogger(__name__)
 NOTIFY_IF_ENDED_WITHIN = timedelta(days=7)
 
 
-def active_premium_filter(now: Optional[datetime] = None) -> dict:
-    """Mongo filter for users who currently have premium (lifetime or not yet expired)."""
-    now = now or datetime.now(UTC)
-    return {
-        "subscription_type": "premium",
-        "$or": [{"subscription_expires_at": None}, {"subscription_expires_at": {"$gt": now}}],
-    }
+def active_premium_filter(now: Optional[datetime] = None):
+    """SQL condition: users who currently have premium (lifetime or not yet expired)."""
+    return users_db.active_premium(now or datetime.now(UTC))
 
 
-def effectively_free_filter(now: Optional[datetime] = None) -> dict:
-    """Mongo filter for users without active premium (free, or premium that has expired)."""
-    now = now or datetime.now(UTC)
-    return {
-        "$or": [
-            {"subscription_type": {"$ne": "premium"}},
-            {"subscription_expires_at": {"$lte": now}},
-        ]
-    }
+def effectively_free_filter(now: Optional[datetime] = None):
+    """SQL condition: users without active premium (free, or premium that has expired)."""
+    return users_db.effectively_free(now or datetime.now(UTC))
 
 
 def _format_end_date(expired_at: datetime, lang: str) -> str:
@@ -58,11 +48,11 @@ async def expire_premium_subscriptions(now: Optional[datetime] = None) -> int:
     Returns the number of users downgraded.
     """
     now = now or datetime.now(UTC)
-    cursor = users_collection.find(
-        {"subscription_type": "premium", "subscription_expires_at": {"$ne": None}},
-        {"_id": 1, "subscription_expires_at": 1, "fcm_token": 1},
+    candidates = await users_db.list_fields(
+        ["subscription_expires_at", "fcm_token"],
+        users_db.users.c.subscription_type == "premium",
+        users_db.users.c.subscription_expires_at.isnot(None),
     )
-    candidates = await cursor.to_list(length=None)
 
     downgraded = 0
     for user in candidates:
@@ -75,11 +65,7 @@ async def expire_premium_subscriptions(now: Optional[datetime] = None) -> int:
         if expired_at is None or expired_at > now:
             continue
 
-        claim = await users_collection.update_one(
-            {"_id": user["_id"], "subscription_type": "premium", "subscription_expires_at": stored_expiry},
-            {"$set": {"subscription_type": "free", "premium_ended_at": expired_at}},
-        )
-        if claim.modified_count == 0:
+        if not await users_db.downgrade_if_unchanged(user["_id"], stored_expiry, expired_at):
             continue
         downgraded += 1
         logger.info(f"Premium expired for user {user['_id']} (ended {expired_at.isoformat()}); downgraded to free")
