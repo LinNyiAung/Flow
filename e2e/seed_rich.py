@@ -14,7 +14,7 @@ from pymongo import MongoClient
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 mc = MongoClient("mongodb://127.0.0.1:27999")
-db = mc["flow_e2e"]
+db = __import__("pgcompat").get_db()
 c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=120)
 random.seed(7)
 
