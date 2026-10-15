@@ -14,7 +14,6 @@ def get_database():
 # ==================== COLLECTIONS ====================
 users_collection = database.users
 transactions_collection = database.transactions
-categories_collection = database.categories
 chat_sessions_collection = database.chat_sessions
 goals_collection = database.goals 
 insights_collection = database.insights
@@ -36,141 +35,141 @@ app_versions_collection = database.app_versions  # NEW
 
 async def initialize_categories():
     """Initialize default categories if they don't exist"""
-    if await categories_collection.count_documents({}) == 0:
-        default_categories = [
-            {
-                "_id": "inflow",
-                "categories": [
-                    {
-                        "main_category": "Employment Income",
-                        "sub_categories": [
-                            "Salary", "Overtime Pay", "Bonus", "Commission", "Allowances", "Pension"
-                        ]
-                    },
-                    {
-                        "main_category": "Self-Employment & Business",
-                        "sub_categories": [
-                            "Freelance Income", "Business Income", 
-                            "Side Hustle", "Royalties"
-                        ]
-                    },
-                    {
-                        "main_category": "Investment Income",
-                        "sub_categories": [
-                            "Dividends", "Interest Income", "Capital Gains",
-                            "Crypto Gains", "Rental Income"
-                        ]
-                    },
-                    {
-                        "main_category": "Gifts & Support",
-                        "sub_categories": [
-                            "Gifts Received", "Family Support",
-                            "Wedding / Events", "Inheritance"
-                        ]
-                    },
-                    {
-                        "main_category": "Refunds & Reimbursements",
-                        "sub_categories": [
-                            "Tax Refund", "Expense Reimbursement",
-                            "Purchase Refund", "Insurance Claim", "Cashback / Rewards"
-                        ]
-                    },
-                    {
-                        "main_category": "Other Income",
-                        "sub_categories": [
-                            "Asset Sale", "Prize / Lottery",
-                            "Other Income"
-                        ]
-                    }
-                ]
-            },
-            {
-                "_id": "outflow",
-                "categories": [
-                    {
-                        "main_category": "Food & Daily Living",
-                        "sub_categories": [
-                            "Groceries", "Restaurants", "Fast Food",
-                            "Coffee & Snacks", "Alcohol"
-                        ]
-                    },
-                    {
-                        "main_category": "Housing & Utilities",
-                        "sub_categories": [
-                            "Rent", "Mortgage", "Electricity", "Water",
-                            "Gas", "Internet", "Mobile Phone", "Home Maintenance"
-                        ]
-                    },
-                    {
-                        "main_category": "Transportation",
-                        "sub_categories": [
-                            "Fuel", "Public Transport", "Taxi",
-                            "Vehicle Maintenance", "Vehicle Insurance",
-                            "Parking", "Toll Fees"
-                        ]
-                    },
-                    {
-                        "main_category": "Shopping & Lifestyle",
-                        "sub_categories": [
-                            "Clothing", "Footwear", "Accessories",
-                            "Electronics", "Home Supplies", "Furniture"
-                        ]
-                    },
-                    {
-                        "main_category": "Entertainment & Leisure",
-                        "sub_categories": [
-                            "Movies & Streaming", "Games", "Music",
-                            "Events & Concerts", "Hobbies", "Subscriptions"
-                        ]
-                    },
-                    {
-                        "main_category": "Health & Insurance",
-                        "sub_categories": [
-                            "Doctor Visits", "Dental", "Pharmacy",
-                            "Health Insurance", "Mental Health", "Fitness & Gym"
-                        ]
-                    },
-                    {
-                        "main_category": "Education & Self-Improvement",
-                        "sub_categories": [
-                            "Tuition Fees", "Online Courses", "Books",
-                            "Professional Development", "Workshops", "Learning Subscriptions"
-                        ]
-                    },
-                    {
-                        "main_category": "Travel & Vacation",
-                        "sub_categories": [
-                            "Flights", "Accommodation", "Transport (Travel)",
-                            "Food (Travel)", "Activities", "Travel Insurance"
-                        ]
-                    },
-                    {
-                        "main_category": "Financial Expenses",
-                        "sub_categories": [
-                            "Bank Fees", "Loan Repayment",
-                            "Credit Card Payment", "Interest Paid",
-                            "Taxes", "Investment Fees"
-                        ]
-                    },
-                    {
-                        "main_category": "Business Expenses",
-                        "sub_categories": [
-                            "Software & Tools", "Marketing & Ads",
-                            "Office Supplies", "Hosting & Domains",
-                            "Business Travel", "Contractor Payments"
-                        ]
-                    },
-                    {
-                        "main_category": "Other & Adjustments",
-                        "sub_categories": [
-                            "Cash Withdrawal", "Currency Exchange Loss",
-                            "Correction / Adjustment", "Miscellaneous", "Emergency Expenses", "Other Expenses"
-                        ]
-                    }
-                ]
-            }
-        ]
-        await categories_collection.insert_many(default_categories)
+    from sql.categories import seed_default_categories
+    default_categories = [
+        {
+            "_id": "inflow",
+            "categories": [
+                {
+                    "main_category": "Employment Income",
+                    "sub_categories": [
+                        "Salary", "Overtime Pay", "Bonus", "Commission", "Allowances", "Pension"
+                    ]
+                },
+                {
+                    "main_category": "Self-Employment & Business",
+                    "sub_categories": [
+                        "Freelance Income", "Business Income", 
+                        "Side Hustle", "Royalties"
+                    ]
+                },
+                {
+                    "main_category": "Investment Income",
+                    "sub_categories": [
+                        "Dividends", "Interest Income", "Capital Gains",
+                        "Crypto Gains", "Rental Income"
+                    ]
+                },
+                {
+                    "main_category": "Gifts & Support",
+                    "sub_categories": [
+                        "Gifts Received", "Family Support",
+                        "Wedding / Events", "Inheritance"
+                    ]
+                },
+                {
+                    "main_category": "Refunds & Reimbursements",
+                    "sub_categories": [
+                        "Tax Refund", "Expense Reimbursement",
+                        "Purchase Refund", "Insurance Claim", "Cashback / Rewards"
+                    ]
+                },
+                {
+                    "main_category": "Other Income",
+                    "sub_categories": [
+                        "Asset Sale", "Prize / Lottery",
+                        "Other Income"
+                    ]
+                }
+            ]
+        },
+        {
+            "_id": "outflow",
+            "categories": [
+                {
+                    "main_category": "Food & Daily Living",
+                    "sub_categories": [
+                        "Groceries", "Restaurants", "Fast Food",
+                        "Coffee & Snacks", "Alcohol"
+                    ]
+                },
+                {
+                    "main_category": "Housing & Utilities",
+                    "sub_categories": [
+                        "Rent", "Mortgage", "Electricity", "Water",
+                        "Gas", "Internet", "Mobile Phone", "Home Maintenance"
+                    ]
+                },
+                {
+                    "main_category": "Transportation",
+                    "sub_categories": [
+                        "Fuel", "Public Transport", "Taxi",
+                        "Vehicle Maintenance", "Vehicle Insurance",
+                        "Parking", "Toll Fees"
+                    ]
+                },
+                {
+                    "main_category": "Shopping & Lifestyle",
+                    "sub_categories": [
+                        "Clothing", "Footwear", "Accessories",
+                        "Electronics", "Home Supplies", "Furniture"
+                    ]
+                },
+                {
+                    "main_category": "Entertainment & Leisure",
+                    "sub_categories": [
+                        "Movies & Streaming", "Games", "Music",
+                        "Events & Concerts", "Hobbies", "Subscriptions"
+                    ]
+                },
+                {
+                    "main_category": "Health & Insurance",
+                    "sub_categories": [
+                        "Doctor Visits", "Dental", "Pharmacy",
+                        "Health Insurance", "Mental Health", "Fitness & Gym"
+                    ]
+                },
+                {
+                    "main_category": "Education & Self-Improvement",
+                    "sub_categories": [
+                        "Tuition Fees", "Online Courses", "Books",
+                        "Professional Development", "Workshops", "Learning Subscriptions"
+                    ]
+                },
+                {
+                    "main_category": "Travel & Vacation",
+                    "sub_categories": [
+                        "Flights", "Accommodation", "Transport (Travel)",
+                        "Food (Travel)", "Activities", "Travel Insurance"
+                    ]
+                },
+                {
+                    "main_category": "Financial Expenses",
+                    "sub_categories": [
+                        "Bank Fees", "Loan Repayment",
+                        "Credit Card Payment", "Interest Paid",
+                        "Taxes", "Investment Fees"
+                    ]
+                },
+                {
+                    "main_category": "Business Expenses",
+                    "sub_categories": [
+                        "Software & Tools", "Marketing & Ads",
+                        "Office Supplies", "Hosting & Domains",
+                        "Business Travel", "Contractor Payments"
+                    ]
+                },
+                {
+                    "main_category": "Other & Adjustments",
+                    "sub_categories": [
+                        "Cash Withdrawal", "Currency Exchange Loss",
+                        "Correction / Adjustment", "Miscellaneous", "Emergency Expenses", "Other Expenses"
+                    ]
+                }
+            ]
+        }
+    ]
+    if await seed_default_categories(default_categories):
         print("✅ Default categories initialized")
 
 

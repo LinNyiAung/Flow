@@ -22,6 +22,8 @@ os.environ.update({
     "ADMIN_BOOTSTRAP_PASSWORD": "e2e-root-admin-pass",
     "MONGODB_URL": os.environ.get("E2E_MONGO", "mongodb://127.0.0.1:27999"),
     "DATABASE_NAME": "flow_e2e",
+    # Local throwaway PostgreSQL (migration in progress: tables move from Mongo one by one).
+    "DATABASE_URL": os.environ.get("E2E_PG_URL", "postgresql://flow@127.0.0.1:54329/flow_e2e"),
     "SECRET_KEY": "e2e-local-secret-not-production",
     "OPENAI_API_KEY": "sk-e2e-stub",
     "GOOGLE_API_KEY": "e2e-stub",

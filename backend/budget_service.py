@@ -8,7 +8,8 @@ import uuid
 
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once
 from tz_utils import app_wall_clock_now
-from database import transactions_collection, budgets_collection, goals_collection, categories_collection
+from database import transactions_collection, budgets_collection, goals_collection
+from sql.categories import get_categories_doc
 from budget_models import (
     BudgetPeriod, CategoryBudget, CategoryBudgetIn, AIBudgetSuggestion, BudgetStatus
 )
@@ -280,7 +281,7 @@ class BudgetAnalyzer:
         currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
         
         # [FIX] Added await
-        outflow_categories_doc = await categories_collection.find_one({"_id": "outflow"})
+        outflow_categories_doc = await get_categories_doc("outflow")
         categories_structure = []
         
         if outflow_categories_doc:
@@ -1298,7 +1299,7 @@ async def _generate_ai_category_budgets(
     days_in_period = (end_date - start_date).days + 1
     
     # [FIX] Added await
-    outflow_categories_doc = await categories_collection.find_one({"_id": "outflow"})
+    outflow_categories_doc = await get_categories_doc("outflow")
     categories_structure = []
     
     if outflow_categories_doc:

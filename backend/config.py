@@ -7,6 +7,8 @@ load_dotenv()
 class Settings:
     MONGODB_URL = os.getenv("MONGODB_URL")
     DATABASE_NAME = os.getenv("DATABASE_NAME")
+    # PostgreSQL (postgres:// or postgresql:// URL). Read directly by sql.db as well.
+    DATABASE_URL = os.getenv("DATABASE_URL")
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = "HS256"
     # 30 days

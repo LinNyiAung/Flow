@@ -32,8 +32,15 @@ ALL = {"users", "transactions", "goals", "budgets", "notifications", "notificati
        "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories", "app_versions"}
 
 
+# Collections the backend code already stores in PostgreSQL. Updated with each migration
+# step so the suites follow the code; E2E_PG_COLLECTIONS (comma list or "all") overrides.
+MIGRATED = {"categories"}
+
+
 def migrated() -> set:
-    raw = os.environ.get("E2E_PG_COLLECTIONS", "")
+    raw = os.environ.get("E2E_PG_COLLECTIONS")
+    if raw is None:
+        return MIGRATED
     return ALL if raw.strip() == "all" else {c.strip() for c in raw.split(",") if c.strip()}
 
 

@@ -34,10 +34,11 @@ from notification_service import (
 )
 
 from database import (
-    categories_collection, chat_sessions_collection, create_db_indexes, initialize_admin,
+    chat_sessions_collection, create_db_indexes, initialize_admin,
     initialize_categories, insights_collection, notifications_collection,
     notification_preferences_collection, users_collection
 )
+from sql.categories import get_categories_doc
 from ai_chatbot import financial_chatbot, ChatServiceError
 from ai_chatbot_gemini import gemini_financial_chatbot
 from ai_usage_service import track_ai_usage
@@ -91,7 +92,9 @@ async def shutdown_db_client():
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown()
         print("🛑 Scheduler shut down successfully")
-    
+    from sql.db import dispose_engine
+    await dispose_engine()
+
     
 try:
     initialize_firebase()
@@ -137,7 +140,7 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
 @app.get("/api/categories/{transaction_type}", response_model=List[CategoryResponse])
 async def get_categories(transaction_type: TransactionType):
     """Get categories for transaction type"""
-    categories_doc = await categories_collection.find_one({"_id": transaction_type.value})
+    categories_doc = await get_categories_doc(transaction_type.value)
     if not categories_doc:
         return []
 

@@ -40,7 +40,8 @@ from models import (
 
 from notification_service import check_large_transaction
 
-from database import transactions_collection, categories_collection, users_collection
+from database import transactions_collection, users_collection
+from sql.categories import get_categories_doc
 
 from config import settings
 from category_matching import normalize_type, parse_positive_amount, snap_category
@@ -72,7 +73,7 @@ async def _get_category_map(tx_type: str) -> Optional[Dict[str, List[str]]]:
     cached = _category_cache.get(tx_type)
     if cached and now - cached[0] < _CATEGORY_CACHE_TTL_SECONDS:
         return cached[1]
-    doc = await categories_collection.find_one({"_id": tx_type})
+    doc = await get_categories_doc(tx_type)
     cmap = None
     if doc:
         cmap = {
@@ -829,8 +830,8 @@ async def extract_transaction_from_text(
                 detail="OpenAI API key not configured"
             )
         
-        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
+        inflow_cats = await get_categories_doc("inflow")
+        outflow_cats = await get_categories_doc("outflow")
         
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
@@ -951,8 +952,8 @@ async def extract_multiple_transactions_from_text(
                 detail="OpenAI API key not configured"
             )
         
-        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
+        inflow_cats = await get_categories_doc("inflow")
+        outflow_cats = await get_categories_doc("outflow")
         
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
@@ -1257,8 +1258,8 @@ async def extract_transaction_from_image(
             )
 
         # 5. Prepare Categories for Prompt
-        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
+        inflow_cats = await get_categories_doc("inflow")
+        outflow_cats = await get_categories_doc("outflow")
         
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
