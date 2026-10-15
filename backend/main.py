@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import json
-import uuid
 from datetime import datetime, timedelta, UTC
 from typing import List, Optional
 
@@ -35,12 +34,15 @@ from notification_service import (
 )
 
 from database import (
-    chat_sessions_collection, create_db_indexes, initialize_admin,
-    initialize_categories, insights_collection, notifications_collection,
-    notification_preferences_collection,
+    create_db_indexes, initialize_admin,
+    initialize_categories,
 )
 from sql.categories import get_categories_doc
 from sql import users as users_db
+from sql import notification_prefs as prefs_db
+from sql import notifications as notifications_db
+from sql import chat as chat_db
+from sql import insights as insights_db
 from ai_chatbot import financial_chatbot, ChatServiceError
 from ai_chatbot_gemini import gemini_financial_chatbot
 from ai_usage_service import track_ai_usage
@@ -80,7 +82,7 @@ async def startup_db_client():
     await initialize_categories()
     await initialize_admin()
     await create_db_indexes()
-    
+
     try:
         from scheduler import start_scheduler
         app.state.scheduler = start_scheduler()
@@ -97,7 +99,7 @@ async def shutdown_db_client():
     from sql.db import dispose_engine
     await dispose_engine()
 
-    
+
 try:
     initialize_firebase()
 except Exception as e:
@@ -114,6 +116,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class RejectNulCharacters:
+    """
+    400 for a request whose path or query contains a NUL character (%00). PostgreSQL text
+    can't hold NUL, and many routes turn any exception into a 500, so this is rejected up
+    front instead of reaching the database (see database_input_error_handler for bodies).
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and ("\x00" in scope.get("path", "") or b"%00" in scope.get("query_string", b"")):
+            response = JSONResponse(status_code=status.HTTP_400_BAD_REQUEST,
+                                    content={"detail": "The request contains a value that isn't allowed."})
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(RejectNulCharacters)
 
 
 # ==================== ERROR HANDLERS ====================
@@ -214,28 +238,7 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str):
             {"role": "assistant", "content": ai_response, "timestamp": current_time},
         ]
 
-        existing_session = await chat_sessions_collection.find_one(
-            {"user_id": user_id},
-            {"_id": 1},
-            sort=[("updated_at", -1)]
-        )
-
-        if existing_session:
-            await chat_sessions_collection.update_one(
-                {"_id": existing_session["_id"]},
-                {
-                    "$push": {"messages": {"$each": new_messages, "$slice": -settings.MAX_CHAT_HISTORY}},
-                    "$set": {"updated_at": current_time},
-                }
-            )
-        else:
-            await chat_sessions_collection.insert_one({
-                "_id": str(uuid.uuid4()),
-                "user_id": user_id,
-                "messages": new_messages[-settings.MAX_CHAT_HISTORY:],
-                "created_at": current_time,
-                "updated_at": current_time
-            })
+        await chat_db.append_exchange(user_id, new_messages, settings.MAX_CHAT_HISTORY, current_time)
     except Exception as e:
         print(f"Error saving chat session: {e}")
 
@@ -387,17 +390,8 @@ async def get_chat_history(
 ):
     """Get user's chat history"""
     try:
-        # [FIX] Added await
-        session = await chat_sessions_collection.find_one(
-            {"user_id": current_user["_id"]},
-            sort=[("updated_at", -1)]
-        )
-        
-        if not session or "messages" not in session:
-            return []
-        
-        messages = session["messages"][-limit:]
-        
+        messages = await chat_db.history(current_user["_id"], limit)
+
         return [
             ChatMessage(
                 role=MessageRole(msg["role"]),
@@ -415,11 +409,10 @@ async def get_chat_history(
 async def clear_chat_history(current_user: dict = Depends(get_current_user)):
     """Clear user's chat history"""
     try:
-        # [FIX] Added await
-        result = await chat_sessions_collection.delete_many({"user_id": current_user["_id"]})
+        deleted = await chat_db.clear(current_user["_id"])
         return {
-            "message": f"Cleared {result.deleted_count} chat sessions",
-            "deleted_count": result.deleted_count
+            "message": f"Cleared {deleted} chat sessions",
+            "deleted_count": deleted
         }
     except Exception as e:
         print(f"Clear chat history error: {str(e)}")
@@ -450,7 +443,7 @@ async def refresh_ai_data(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="OpenAI AI service is currently unavailable"
                 )
-        
+
         return {"message": f"AI data refreshed successfully for {ai_provider.value}"}
     except HTTPException:
         raise
@@ -460,7 +453,7 @@ async def refresh_ai_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while refreshing AI data"
         )
-    
+
 
 # ==================== AI INSIGHTS ====================
 
@@ -487,10 +480,7 @@ async def _ensure_myanmar_translation(insight: dict, ai_provider: str, user_id: 
         # None (legacy docs without the flag) falls back to text detection
         is_placeholder=insight.get("is_placeholder"),
     )
-    await insights_collection.update_one(
-        {"_id": insight["_id"]},
-        {"$set": {"content_mm": myanmar_content}}
-    )
+    await insights_db.set_translation(insight["_id"], myanmar_content)
     insight["content_mm"] = myanmar_content
     return insight
 
@@ -626,18 +616,13 @@ async def delete_insights(
 ):
     """Delete cached insights"""
     try:
-        query = {"user_id": current_user["_id"]}
-        if ai_provider:
-            query["ai_provider"] = ai_provider.value
-        if insight_type:
-            query["insight_type"] = insight_type
-
-        # [FIX] Added await
-        result = await insights_collection.delete_many(query)
+        deleted = await insights_db.delete_for_user(
+            current_user["_id"], ai_provider.value if ai_provider else None, insight_type
+        )
 
         provider_msg = f" for {ai_provider.value}" if ai_provider else ""
         type_msg = f" {insight_type}" if insight_type else ""
-        return {"message": f"Deleted {result.deleted_count}{type_msg} insights{provider_msg}", "deleted_count": result.deleted_count}
+        return {"message": f"Deleted {deleted}{type_msg} insights{provider_msg}", "deleted_count": deleted}
     except Exception as e:
         print(f"Error deleting insights: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete insights")
@@ -716,9 +701,9 @@ async def manually_generate_weekly_insights(
     """Manually trigger weekly insights generation for current user"""
     try:
         from insights_service import generate_weekly_insight
-        
+
         results = {}
-        
+
         for provider in ["openai", "gemini"]:
             try:
                 insight = await generate_weekly_insight(
@@ -732,18 +717,18 @@ async def manually_generate_weekly_insights(
                 print(f"❌ Manual weekly insight ({provider}) failed: {type(e).__name__}: {e}")
                 # No raw exception text in the response.
                 results[provider] = "rate_limited" if is_rate_limit_error(e) else "error"
-        
+
         return {
             "message": "Weekly insights generation completed",
             "results": results
         }
-        
+
     except Exception as e:
         print(f"Error in manual weekly generation: {str(e)}")
         raise _insight_http_error(e, "generate weekly insights")
-    
-        
-        
+
+
+
 # ==================== NOTIFICATIONS ====================
 
 
@@ -783,23 +768,10 @@ async def delete_fcm_token(current_user: dict = Depends(get_current_user)):
 async def get_notification_preferences(current_user: dict = Depends(get_current_user)):
     """Get user's notification preferences"""
     try:
-        # [FIX] Added await
-        prefs_doc = await notification_preferences_collection.find_one({
-            "user_id": current_user["_id"]
-        })
-        
-        if not prefs_doc:
-            default_prefs = NotificationPreferences()
-            now = datetime.now(UTC)
-            prefs_doc = {
-                "user_id": current_user["_id"],
-                "preferences": default_prefs.dict(),
-                "created_at": now,
-                "updated_at": now
-            }
-            # [FIX] Added await
-            await notification_preferences_collection.insert_one(prefs_doc)
-        
+        prefs_doc = await prefs_db.get_or_create(
+            current_user["_id"], NotificationPreferences().dict(), datetime.now(UTC)
+        )
+
         return NotificationPreferencesResponse(
             user_id=prefs_doc["user_id"],
             preferences=NotificationPreferences(**prefs_doc["preferences"]),
@@ -817,42 +789,12 @@ async def update_notification_preferences(
 ):
     """Update user's notification preferences"""
     try:
-        now = datetime.now(UTC)
-        # [FIX] Added await
-        prefs_doc = await notification_preferences_collection.find_one({
-            "user_id": current_user["_id"]
-        })
-        
-        if prefs_doc:
-            current_prefs = prefs_doc.get("preferences", {})
-            current_prefs.update(update_data.preferences)
-            # [FIX] Added await
-            await notification_preferences_collection.update_one(
-                {"user_id": current_user["_id"]},
-                {
-                    "$set": {
-                        "preferences": current_prefs,
-                        "updated_at": now
-                    }
-                }
-            )
-        else:
-            default_prefs = NotificationPreferences().dict()
-            default_prefs.update(update_data.preferences)
-            prefs_doc = {
-                "user_id": current_user["_id"],
-                "preferences": default_prefs,
-                "created_at": now,
-                "updated_at": now
-            }
-            # [FIX] Added await
-            await notification_preferences_collection.insert_one(prefs_doc)
-        
-        # [FIX] Added await
-        updated_doc = await notification_preferences_collection.find_one({
-            "user_id": current_user["_id"]
-        })
-        
+        # One atomic upsert: the changes are merged into the stored map in the database,
+        # so two quick toggles can't overwrite each other.
+        updated_doc = await prefs_db.merge(
+            current_user["_id"], NotificationPreferences().dict(), dict(update_data.preferences), datetime.now(UTC)
+        )
+
         return NotificationPreferencesResponse(
             user_id=updated_doc["user_id"],
             preferences=NotificationPreferences(**updated_doc["preferences"]),
@@ -869,19 +811,9 @@ async def reset_notification_preferences(current_user: dict = Depends(get_curren
     try:
         now = datetime.now(UTC)
         default_prefs = NotificationPreferences()
-        
-        # [FIX] Added await
-        await notification_preferences_collection.update_one(
-            {"user_id": current_user["_id"]},
-            {
-                "$set": {
-                    "preferences": default_prefs.dict(),
-                    "updated_at": now
-                }
-            },
-            upsert=True
-        )
-        
+
+        await prefs_db.reset(current_user["_id"], default_prefs.dict(), now)
+
         return {"message": "Notification preferences reset to default", "preferences": default_prefs.dict()}
     except Exception as e:
         print(f"Error resetting notification preferences: {str(e)}")
@@ -895,13 +827,7 @@ async def get_notifications(
 ):
     """Get user notifications"""
     try:
-        query = {"user_id": current_user["_id"]}
-        if unread_only:
-            query["is_read"] = False
-
-        # [FIX] Async query execution
-        cursor = notifications_collection.find(query).sort("created_at", -1).limit(limit)
-        notifications = await cursor.to_list(length=limit)
+        notifications = await notifications_db.list_for_user(current_user["_id"], unread_only, limit)
 
         results = []
         for n in notifications:
@@ -935,15 +861,9 @@ async def mark_notification_read(
 ):
     """Mark a notification as read (idempotent: already-read returns 200)"""
     try:
-        # [FIX] Added await
-        result = await notifications_collection.update_one(
-            {"_id": notification_id, "user_id": current_user["_id"]},
-            {"$set": {"is_read": True}}
-        )
-
-        if result.matched_count == 0:
+        if await notifications_db.mark_read(current_user["_id"], notification_id) == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
-        
+
         return {"message": "Notification marked as read"}
     except HTTPException:
         raise
@@ -956,13 +876,9 @@ async def mark_notification_read(
 async def mark_all_notifications_read(current_user: dict = Depends(get_current_user)):
     """Mark all notifications as read"""
     try:
-        # [FIX] Added await
-        result = await notifications_collection.update_many(
-            {"user_id": current_user["_id"], "is_read": False},
-            {"$set": {"is_read": True}}
-        )
-        
-        return {"message": f"Marked {result.modified_count} notifications as read", "count": result.modified_count}
+        count = await notifications_db.mark_all_read(current_user["_id"])
+
+        return {"message": f"Marked {count} notifications as read", "count": count}
     except Exception as e:
         print(f"Error marking all notifications read: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to mark notifications as read")
@@ -975,15 +891,9 @@ async def delete_notification(
 ):
     """Delete a notification"""
     try:
-        # [FIX] Added await
-        result = await notifications_collection.delete_one({
-            "_id": notification_id,
-            "user_id": current_user["_id"]
-        })
-        
-        if result.deleted_count == 0:
+        if await notifications_db.delete_notification(current_user["_id"], notification_id) == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
-        
+
         return {"message": "Notification deleted successfully"}
     except HTTPException:
         raise
@@ -996,18 +906,14 @@ async def delete_notification(
 async def get_unread_count(current_user: dict = Depends(get_current_user)):
     """Get count of unread notifications"""
     try:
-        # [FIX] Added await
-        count = await notifications_collection.count_documents({
-            "user_id": current_user["_id"],
-            "is_read": False
-        })
-        
+        count = await notifications_db.unread_count(current_user["_id"])
+
         return {"unread_count": count}
     except Exception as e:
         print(f"Error getting unread count: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get unread count")
-        
-        
+
+
 @app.post("/api/notifications/analyze-spending")
 async def analyze_spending_patterns(current_user: dict = Depends(get_current_user)):
     """Manually trigger unusual spending analysis"""

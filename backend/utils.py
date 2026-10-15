@@ -4,14 +4,15 @@ from fastapi import Depends, HTTPException , status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_chatbot import financial_chatbot
-from database import transactions_collection, goals_collection
+from database import transactions_collection
+from sql import goals as goals_db
 from sql import users as users_db
 import jwt  # PyJWT (replaces python-jose; same HS256 tokens)
 from passlib.context import CryptContext
 
 
 from config import settings
-from finite_utils import FINITE_NUMBER_RANGE, finite_amount_filter, is_finite_number
+from finite_utils import finite_amount_filter, is_finite_number
 
 
 def _balances_are_finite(balances) -> bool:
@@ -141,18 +142,18 @@ def ensure_utc_datetime(dt) -> datetime:
     """Ensure datetime is timezone-aware UTC"""
     if dt is None:
         return None
-    
+
     # If it's a string, parse it
     if isinstance(dt, str):
         dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-    
+
     # If naive (no timezone), make it UTC
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     # If has timezone but not UTC, convert to UTC
     elif dt.tzinfo != UTC:
         dt = dt.astimezone(UTC)
-    
+
     return dt
 
 
@@ -164,11 +165,11 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     # balances_version is bumped by every invalidation (see invalidate_user_balance_cache);
     # we only write our freshly computed cache back if no invalidation happened meanwhile.
     user = await users_db.get_user(user_id)
-    
+
     # Handle case where user might be None (rare but possible)
     if not user:
          return {"balances": {}}
-         
+
     cached_balances = user.get("balances")
 
     # A cache computed before non-finite amounts were excluded may hold NaN/inf, which
@@ -206,34 +207,29 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
             }
         }
     ]
-    goals_pipeline = [
-        {"$match": {"user_id": user_id, "current_amount": dict(FINITE_NUMBER_RANGE)}},
-        {"$group": {"_id": "$currency", "total_allocated": {"$sum": "$current_amount"}}}
-    ]
-    
+
     # [FIX] Async Aggregation
     tx_cursor = transactions_collection.aggregate(tx_pipeline)
     tx_results = await tx_cursor.to_list(length=None)
-    
-    goal_cursor = goals_collection.aggregate(goals_pipeline)
-    goal_results = await goal_cursor.to_list(length=None)
-    
+
+    goal_results = await goals_db.allocated_by_currency(user_id)
+
     tx_map = {res["_id"]: res for res in tx_results if res["_id"]}
     all_currencies = set(tx_map.keys()) | {g["_id"] for g in goal_results if g["_id"]}
-    
+
     if not all_currencies:
         all_currencies = {user.get("default_currency", "usd")}
-    
+
     balances = {}
     for curr in all_currencies:
         tx_data = tx_map.get(curr, {"total_inflow": 0, "total_outflow": 0})
         # Safe generator expression for goals
         allocated = next((g["total_allocated"] for g in goal_results if g["_id"] == curr), 0)
-        
+
         # Ensure values are floats/ints, not None
         total_inflow = tx_data.get("total_inflow", 0) or 0
         total_outflow = tx_data.get("total_outflow", 0) or 0
-        
+
         balance = total_inflow - total_outflow
         balances[curr] = {
             "currency": curr,
@@ -285,7 +281,7 @@ def get_user_money_lock(user_id: str) -> "asyncio.Lock":
 async def require_premium(current_user: dict = Depends(get_current_user)):
     """Middleware to check if user has premium subscription"""
     subscription_type = current_user.get("subscription_type", "free")
-    
+
     if subscription_type == "premium":
         # Check if subscription hasn't expired
         expires_at = current_user.get("subscription_expires_at")
@@ -296,10 +292,10 @@ async def require_premium(current_user: dict = Depends(get_current_user)):
                 return current_user
         elif not expires_at:  # Lifetime premium (no expiration date)
             return current_user
-    
+
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="This feature requires a premium subscription"
     )
-    
-    
+
+

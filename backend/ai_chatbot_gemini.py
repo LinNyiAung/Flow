@@ -9,7 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
-from database import transactions_collection, goals_collection
+from database import transactions_collection
 from sql import users as users_db
 from tz_utils import app_wall_clock_now
 from dotenv import load_dotenv

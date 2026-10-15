@@ -50,16 +50,14 @@ from models import Currency, SubscriptionType
 from sqlalchemy.exc import IntegrityError
 from sql import admins as admins_db
 from sql import users as users_db
+from sql import feedback as feedback_db
+from sql import ai_usage as ai_usage_db
+from sql import notifications as notifications_db
+from sql import chat as chat_db
+from sql import goals as goals_db
 from database import (
     transactions_collection,
-    goals_collection,
     budgets_collection,
-    chat_sessions_collection,
-    notifications_collection,
-    ai_usage_collection,
-    feedback_collection,
-    insights_collection,
-    notification_preferences_collection,
 )
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
 from config import settings
@@ -546,16 +544,14 @@ async def get_all_users(
     user_list = []
     for user in users:
         transaction_count = await transactions_collection.count_documents({"user_id": user["_id"]})
-        goals_count = await goals_collection.count_documents({"user_id": user["_id"]})
+        goals_count = await goals_db.count_goals(user["_id"])
 
         last_transaction = await transactions_collection.find_one(
             {"user_id": user["_id"]},
             sort=[("created_at", -1)]
         )
-        last_chat = await chat_sessions_collection.find_one(
-            {"user_id": user["_id"]},
-            sort=[("updated_at", -1)]
-        )
+        last_chat_at = await chat_db.latest_activity(user["_id"])
+        last_chat = {"updated_at": last_chat_at} if last_chat_at else None
 
         last_active = None
         if last_transaction and last_chat:
@@ -599,18 +595,16 @@ async def get_user_detail(
         )
 
     transaction_count = await transactions_collection.count_documents({"user_id": user_id})
-    goals_count = await goals_collection.count_documents({"user_id": user_id})
+    goals_count = await goals_db.count_goals(user_id)
     budgets_count = await budgets_collection.count_documents({"user_id": user_id})
-    chat_sessions_count = await chat_sessions_collection.count_documents({"user_id": user_id})
+    chat_sessions_count = await chat_db.count_sessions(user_id)
 
     last_transaction = await transactions_collection.find_one(
         {"user_id": user_id},
         sort=[("created_at", -1)]
     )
-    last_chat = await chat_sessions_collection.find_one(
-        {"user_id": user_id},
-        sort=[("updated_at", -1)]
-    )
+    last_chat_at = await chat_db.latest_activity(user_id)
+    last_chat = {"updated_at": last_chat_at} if last_chat_at else None
 
     last_active = None
     if last_transaction and last_chat:
@@ -712,14 +706,7 @@ async def delete_user(
         )
 
     await transactions_collection.delete_many({"user_id": user_id})
-    await goals_collection.delete_many({"user_id": user_id})
     await budgets_collection.delete_many({"user_id": user_id})
-    await chat_sessions_collection.delete_many({"user_id": user_id})
-    await notifications_collection.delete_many({"user_id": user_id})
-    await insights_collection.delete_many({"user_id": user_id})
-    await notification_preferences_collection.delete_many({"user_id": user_id})
-    await ai_usage_collection.delete_many({"user_id": user_id})
-    await feedback_collection.delete_many({"user_id": user_id})
 
     # PostgreSQL tables cascade from users; Mongo collections are cleared above.
     if await users_db.delete_user(user_id) == 0:
@@ -762,16 +749,12 @@ async def get_user_stats(current_admin: dict = Depends(require_moderator_or_abov
     async for t in cursor_tx:
         active_user_ids.add(t["user_id"])
 
-    cursor_chat = chat_sessions_collection.find({
-        "updated_at": {"$gte": seven_days_ago}
-    }, {"user_id": 1})
-    async for c in cursor_chat:
-        active_user_ids.add(c["user_id"])
+    active_user_ids.update(await chat_db.active_user_ids(seven_days_ago))
 
     active_users_last_7_days = len(active_user_ids)
 
     total_transactions = await transactions_collection.count_documents({})
-    total_goals = await goals_collection.count_documents({})
+    total_goals = await goals_db.count_goals()
 
     return UserStatsResponse(
         total_users=total_users,
@@ -810,17 +793,14 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
     async for t in transactions_collection.find({"created_at": {"$gte": week_start}}, {"user_id": 1}):
         active_week.add(t["user_id"])
 
-    async for c in chat_sessions_collection.find({"updated_at": {"$gte": today_start}}, {"user_id": 1}):
-        active_today.add(c["user_id"])
-
-    async for c in chat_sessions_collection.find({"updated_at": {"$gte": week_start}}, {"user_id": 1}):
-        active_week.add(c["user_id"])
+    active_today.update(await chat_db.active_user_ids(today_start))
+    active_week.update(await chat_db.active_user_ids(week_start))
 
     total_transactions = await transactions_collection.count_documents({})
-    total_goals = await goals_collection.count_documents({})
+    total_goals = await goals_db.count_goals()
     total_budgets = await budgets_collection.count_documents({})
-    total_chat_sessions = await chat_sessions_collection.count_documents({})
-    total_notifications = await notifications_collection.count_documents({})
+    total_chat_sessions = await chat_db.count_sessions()
+    total_notifications = await notifications_db.count_all()
 
     return SystemStatsResponse(
         total_users=total_users,
@@ -895,13 +875,11 @@ async def broadcast_notification(
                 fcm_tokens.append(user["fcm_token"])
 
             if len(pending_docs) >= 500:
-                await notifications_collection.insert_many(pending_docs, ordered=False)
-                notifications_sent += len(pending_docs)
+                notifications_sent += await notifications_db.insert_many(pending_docs)
                 pending_docs = []
 
         if pending_docs:
-            await notifications_collection.insert_many(pending_docs, ordered=False)
-            notifications_sent += len(pending_docs)
+            notifications_sent += await notifications_db.insert_many(pending_docs)
 
         fcm_result = {"success": 0, "failure": 0}
         if fcm_tokens:
@@ -989,75 +967,8 @@ async def get_ai_usage_stats(
 ):
     """Get overall AI usage statistics"""
     try:
-        query = {}
-        if start_date or end_date:
-            query["created_at"] = {}
-            if start_date:
-                query["created_at"]["$gte"] = start_date
-            if end_date:
-                query["created_at"]["$lte"] = end_date
-
-        pipeline = [
-            {"$match": query} if query else {"$match": {}},
-            {
-                "$group": {
-                    "_id": None,
-                    "total_requests": {"$sum": 1},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "openai_cost": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$provider", "openai"]}, "$estimated_cost_usd", 0]
-                        }
-                    },
-                    "gemini_cost": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$provider", "gemini"]}, "$estimated_cost_usd", 0]
-                        }
-                    },
-                    "weekly_insights": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "weekly_insight"]}, 1, 0]
-                        }
-                    },
-                    "monthly_insights": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "monthly_insight"]}, 1, 0]
-                        }
-                    },
-                    "chat_requests": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "chat"]}, 1, 0]
-                        }
-                    },
-                    "translations": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "translation"]}, 1, 0]
-                        }
-                    }
-                }
-            }
-        ]
-
-        cursor = ai_usage_collection.aggregate(pipeline)
-        result = await cursor.to_list(length=None)
-
-        if not result:
-            return AIUsageStatsResponse(
-                total_users=0,
-                total_requests=0,
-                total_tokens=0,
-                total_cost_usd=0.0,
-                openai_total_cost=0.0,
-                gemini_total_cost=0.0,
-                weekly_insights_requests=0,
-                monthly_insights_requests=0,
-                chat_requests=0,
-                translation_requests=0
-            )
-
-        stats = result[0]
-        unique_users = len(await ai_usage_collection.distinct("user_id", query))
+        stats = await ai_usage_db.overall_stats(start_date, end_date)
+        unique_users = stats["unique_users"]
 
         return AIUsageStatsResponse(
             total_users=unique_users,
@@ -1093,72 +1004,27 @@ async def get_users_ai_usage(
 ):
     """Get AI usage statistics per user (optionally within [start_date, end_date])"""
     try:
-        match: dict = {}
-        if start_date or end_date:
-            match["created_at"] = {}
-            if start_date:
-                match["created_at"]["$gte"] = start_date
-            if end_date:
-                match["created_at"]["$lte"] = end_date
+        results = await ai_usage_db.per_user_stats(start_date, end_date, sort_by, skip, limit)
 
-        pipeline = [
-            {"$match": match},
-            {
-                "$group": {
-                    "_id": "$user_id",
-                    "total_requests": {"$sum": 1},
-                    "total_input_tokens": {"$sum": "$input_tokens"},
-                    "total_output_tokens": {"$sum": "$output_tokens"},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "weekly_insights": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "weekly_insight"]}, 1, 0]}
-                    },
-                    "monthly_insights": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "monthly_insight"]}, 1, 0]}
-                    },
-                    "chat_requests": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "chat"]}, 1, 0]}
-                    },
-                    "translations": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "translation"]}, 1, 0]}
-                    },
-                    "openai_cost": {
-                        "$sum": {"$cond": [{"$eq": ["$provider", "openai"]}, "$estimated_cost_usd", 0]}
-                    },
-                    "gemini_cost": {
-                        "$sum": {"$cond": [{"$eq": ["$provider", "gemini"]}, "$estimated_cost_usd", 0]}
-                    }
-                }
-            },
-            {"$sort": {sort_by: -1, "_id": 1}},
-            {"$skip": skip},
-            {"$limit": limit}
+        user_stats = [
+            UserAIUsageStats(
+                user_id=result["user_id"],
+                user_name=result["user_name"],
+                user_email=result["user_email"],
+                total_requests=result["total_requests"],
+                total_input_tokens=result["total_input_tokens"],
+                total_output_tokens=result["total_output_tokens"],
+                total_tokens=result["total_tokens"],
+                total_cost_usd=round(result["total_cost"], 4),
+                weekly_insights_count=result["weekly_insights"],
+                monthly_insights_count=result["monthly_insights"],
+                chat_requests_count=result["chat_requests"],
+                translation_count=result["translations"],
+                openai_cost=round(result["openai_cost"], 4),
+                gemini_cost=round(result["gemini_cost"], 4)
+            )
+            for result in results
         ]
-
-        cursor = ai_usage_collection.aggregate(pipeline)
-        results = await cursor.to_list(length=limit)
-
-        user_stats = []
-        for result in results:
-            user = await users_db.get_user(result["_id"])
-            if user:
-                user_stats.append(UserAIUsageStats(
-                    user_id=result["_id"],
-                    user_name=user["name"],
-                    user_email=user["email"],
-                    total_requests=result["total_requests"],
-                    total_input_tokens=result["total_input_tokens"],
-                    total_output_tokens=result["total_output_tokens"],
-                    total_tokens=result["total_tokens"],
-                    total_cost_usd=round(result["total_cost"], 4),
-                    weekly_insights_count=result["weekly_insights"],
-                    monthly_insights_count=result["monthly_insights"],
-                    chat_requests_count=result["chat_requests"],
-                    translation_count=result["translations"],
-                    openai_cost=round(result["openai_cost"], 4),
-                    gemini_cost=round(result["gemini_cost"], 4)
-                ))
 
         return user_stats
 
@@ -1181,12 +1047,7 @@ async def get_user_ai_usage_detail(
 ):
     """Get detailed AI usage for a specific user"""
     try:
-        query = {"user_id": user_id}
-        if feature_type:
-            query["feature_type"] = feature_type.value
-
-        cursor = ai_usage_collection.find(query).sort("created_at", -1).limit(limit)
-        usage_records = await cursor.to_list(length=limit)
+        usage_records = await ai_usage_db.user_detail(user_id, feature_type.value if feature_type else None, limit)
 
         return [
             AIUsageResponse(
@@ -1221,32 +1082,7 @@ async def get_budget_ai_usage_stats(
 ):
     """Get AI usage statistics specifically for budget features"""
     try:
-        query = {
-            "feature_type": {"$in": ["budget_suggestion", "budget_auto_create"]}
-        }
-
-        if start_date or end_date:
-            query["created_at"] = {}
-            if start_date:
-                query["created_at"]["$gte"] = start_date
-            if end_date:
-                query["created_at"]["$lte"] = end_date
-
-        pipeline = [
-            {"$match": query},
-            {
-                "$group": {
-                    "_id": "$feature_type",
-                    "total_requests": {"$sum": 1},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "unique_users": {"$addToSet": "$user_id"}
-                }
-            }
-        ]
-
-        cursor = ai_usage_collection.aggregate(pipeline)
-        results = await cursor.to_list(length=None)
+        results = await ai_usage_db.feature_stats(["budget_suggestion", "budget_auto_create"], start_date, end_date)
 
         stats = {
             "budget_suggestion": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
@@ -1255,16 +1091,16 @@ async def get_budget_ai_usage_stats(
         }
 
         for result in results:
-            feature = result["_id"]
+            feature = result["feature_type"]
             stats[feature]["requests"] = result["total_requests"]
             stats[feature]["tokens"] = result["total_tokens"]
             stats[feature]["cost"] = round(result["total_cost"], 4)
-            stats[feature]["unique_users"] = len(result["unique_users"])
+            stats[feature]["unique_users"] = len(result["user_ids"])
 
             stats["total"]["requests"] += result["total_requests"]
             stats["total"]["tokens"] += result["total_tokens"]
             stats["total"]["cost"] += result["total_cost"]
-            stats["total"]["unique_users"].update(result["unique_users"])
+            stats["total"]["unique_users"].update(result["user_ids"])
 
         stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
         stats["total"]["cost"] = round(stats["total"]["cost"], 4)
@@ -1290,38 +1126,10 @@ async def get_transaction_extraction_ai_usage_stats(
 ):
     """Get AI usage statistics specifically for transaction extraction features"""
     try:
-        query = {
-            "feature_type": {
-                "$in": [
-                    "transaction_text_extraction",
-                    "transaction_image_extraction",
-                    "transaction_audio_transcription"
-                ]
-            }
-        }
-
-        if start_date or end_date:
-            query["created_at"] = {}
-            if start_date:
-                query["created_at"]["$gte"] = start_date
-            if end_date:
-                query["created_at"]["$lte"] = end_date
-
-        pipeline = [
-            {"$match": query},
-            {
-                "$group": {
-                    "_id": "$feature_type",
-                    "total_requests": {"$sum": 1},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "unique_users": {"$addToSet": "$user_id"}
-                }
-            }
-        ]
-
-        cursor = ai_usage_collection.aggregate(pipeline)
-        results = await cursor.to_list(length=None)
+        results = await ai_usage_db.feature_stats(
+            ["transaction_text_extraction", "transaction_image_extraction", "transaction_audio_transcription"],
+            start_date, end_date,
+        )
 
         stats = {
             "transaction_text_extraction": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
@@ -1331,16 +1139,16 @@ async def get_transaction_extraction_ai_usage_stats(
         }
 
         for result in results:
-            feature = result["_id"]
+            feature = result["feature_type"]
             stats[feature]["requests"] = result["total_requests"]
             stats[feature]["tokens"] = result["total_tokens"]
             stats[feature]["cost"] = round(result["total_cost"], 4)
-            stats[feature]["unique_users"] = len(result["unique_users"])
+            stats[feature]["unique_users"] = len(result["user_ids"])
 
             stats["total"]["requests"] += result["total_requests"]
             stats["total"]["tokens"] += result["total_tokens"]
             stats["total"]["cost"] += result["total_cost"]
-            stats["total"]["unique_users"].update(result["unique_users"])
+            stats["total"]["unique_users"].update(result["user_ids"])
 
         stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
         stats["total"]["cost"] = round(stats["total"]["cost"], 4)
@@ -1390,28 +1198,7 @@ async def get_feedback_stats(
     current_admin: dict = Depends(require_moderator_or_above),
 ):
     """Aggregate statistics over ALL feedback (not just the current page)"""
-    def _count_status(value: str) -> dict:
-        return {"$sum": {"$cond": [{"$eq": [{"$ifNull": ["$status", "pending"]}, value]}, 1, 0]}}
-
-    pipeline = [
-        {
-            "$group": {
-                "_id": None,
-                "total": {"$sum": 1},
-                "pending": _count_status("pending"),
-                "reviewed": _count_status("reviewed"),
-                "resolved": _count_status("resolved"),
-                # $avg ignores null / missing / non-numeric ratings
-                "average_rating": {"$avg": "$rating"},
-            }
-        }
-    ]
-    result = await feedback_collection.aggregate(pipeline).to_list(length=1)
-
-    if not result:
-        return FeedbackStatsResponse(total=0, pending=0, reviewed=0, resolved=0, average_rating=None)
-
-    stats = result[0]
+    stats = await feedback_db.stats()
     avg = stats.get("average_rating")
     return FeedbackStatsResponse(
         total=stats["total"],
@@ -1431,15 +1218,8 @@ async def get_all_feedback(
     status: Optional[str] = Query(None, pattern="^(pending|reviewed|resolved)$"),
 ):
     """Get all user feedback"""
-    query = {}
-    if category:
-        query["category"] = category
-    if status:
-        # Older feedback documents may have no status field; treat them as pending.
-        query["status"] = {"$in": ["pending", None]} if status == "pending" else status
-
-    cursor = feedback_collection.find(query).sort("created_at", -1).skip(skip).limit(limit)
-    feedbacks = await cursor.to_list(length=limit)
+    # (Legacy feedback without a status is stored as "pending" by the data migration.)
+    feedbacks = await feedback_db.list_feedback(category, status, skip, limit)
 
     return [
         AdminFeedbackListResponse(
@@ -1463,13 +1243,8 @@ async def update_feedback_status(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update feedback status"""
-    result = await feedback_collection.update_one(
-        {"_id": feedback_id},
-        {"$set": {"status": status_update}}
-    )
-
-    # matched_count: setting the same status again is a no-op, not a 404
-    if result.matched_count == 0:
+    # Matched rows: setting the same status again is a no-op, not a 404
+    if await feedback_db.set_status(feedback_id, status_update) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found"
@@ -1483,9 +1258,7 @@ async def delete_feedback(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Delete feedback (Super Admin only)"""
-    result = await feedback_collection.delete_one({"_id": feedback_id})
-
-    if result.deleted_count == 0:
+    if await feedback_db.delete_feedback(feedback_id) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found"

@@ -42,8 +42,7 @@ from models import (
 from config import settings
 from sql import users as users_db
 from database import (
-    transactions_collection, chat_sessions_collection, goals_collection, insights_collection, budgets_collection,
-    notifications_collection, notification_preferences_collection, feedback_collection, ai_usage_collection,
+    transactions_collection, budgets_collection,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -511,14 +510,7 @@ async def delete_account(
         user_id = current_user["_id"]
 
         await transactions_collection.delete_many({"user_id": user_id})
-        await goals_collection.delete_many({"user_id": user_id})
         await budgets_collection.delete_many({"user_id": user_id})
-        await chat_sessions_collection.delete_many({"user_id": user_id})
-        await insights_collection.delete_many({"user_id": user_id})
-        await notifications_collection.delete_many({"user_id": user_id})
-        await notification_preferences_collection.delete_many({"user_id": user_id})
-        await feedback_collection.delete_many({"user_id": user_id})
-        await ai_usage_collection.delete_many({"user_id": user_id})
 
         # PostgreSQL tables cascade from users; Mongo collections are cleared above.
         if await users_db.delete_user(user_id) == 0:

@@ -25,7 +25,7 @@ from pymongo import MongoClient
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 from sql import docs as D  # noqa: E402
 from sql import tables as T  # noqa: E402
-from migration.convert import CONVERTERS  # noqa: E402  (same rules as the production data migration)
+from migration.convert import CONVERTERS, Quarantine  # noqa: E402  (same rules as the production data migration)
 
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 MONGO_URL = os.environ.get("E2E_MONGO", "mongodb://127.0.0.1:27999")
@@ -35,7 +35,8 @@ ALL = {"users", "transactions", "goals", "budgets", "notifications", "notificati
 
 # Collections the backend code already stores in PostgreSQL. Updated with each migration
 # step so the suites follow the code; E2E_PG_COLLECTIONS (comma list or "all") overrides.
-MIGRATED = {"categories", "admins", "admin_action_logs", "app_versions", "users"}
+MIGRATED = {"categories", "admins", "admin_action_logs", "app_versions", "users", "feedback", "ai_usage",
+            "notification_preferences", "notifications", "insights", "chat_sessions", "goals"}
 
 
 def migrated() -> set:
@@ -212,7 +213,12 @@ class PgCollection:
 
     # ----------------------------------------------------------- writes
     def insert_one(self, doc):
-        row = self._to_row(doc)
+        try:
+            row = self._to_row(doc)
+        except Quarantine as e:
+            # The production migration sets such rows aside instead of storing them.
+            print(f"[pgcompat] {self.name}: not stored, as in the migration: {e}", file=sys.stderr)
+            return Result(inserted_id=doc.get("_id"))
         q = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
             sql.Identifier(self.name), sql.SQL(", ").join(map(sql.Identifier, row)), sql.SQL(", ").join(sql.Placeholder() * len(row)))
         with self.conn.cursor() as cur:

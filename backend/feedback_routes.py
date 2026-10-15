@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, status, Depends
 from models import FeedbackCreate, FeedbackResponse
 from utils import get_current_user
-from database import feedback_collection
+from sql import feedback as feedback_db
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
@@ -18,7 +18,7 @@ async def submit_feedback(
     try:
         feedback_id = str(uuid.uuid4())
         now = datetime.now(UTC)
-        
+
         new_feedback = {
             "_id": feedback_id,
             "user_id": current_user["_id"],
@@ -31,10 +31,9 @@ async def submit_feedback(
             "created_at": now,
             "status": "pending"
         }
-        
-        # [FIX] Added await for async database insertion
-        await feedback_collection.insert_one(new_feedback)
-        
+
+        await feedback_db.insert_feedback(new_feedback)
+
         return FeedbackResponse(
             id=feedback_id,
             user_id=current_user["_id"],
@@ -44,7 +43,7 @@ async def submit_feedback(
             created_at=now,
             status="pending"
         )
-        
+
     except Exception as e:
         print(f"Error submitting feedback: {str(e)}")
         raise HTTPException(

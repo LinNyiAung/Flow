@@ -3,7 +3,9 @@ import uuid
 import os
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
-from database import insights_collection, budgets_collection, transactions_collection, goals_collection
+from database import budgets_collection, transactions_collection
+from sql import goals as goals_db
+from sql import insights as insights_db
 from sql import users as users_db
 from tz_utils import (
     app_today, app_wall_clock_now, as_utc, get_app_timezone, is_expired, previous_week_range,
@@ -135,27 +137,16 @@ def is_rate_limit_error(exc: Optional[BaseException]) -> bool:
     return False
 
 
-# Insights whose content is a non-empty string. Legacy documents with content None / ""
-# are treated as missing everywhere (they can't be shown or translated).
-VALID_INSIGHT_CONTENT_FILTER = {"content": {"$type": "string", "$regex": r"\S"}}
-
-
+# Stored insights always have non-blank content (enforced by the database; legacy
+# documents with content None / "" were never migrated, as the code treated them as missing).
 async def latest_valid_insight(user_id: str, ai_provider: str, insight_type: str):
-    """Latest stored insight (placeholder or real) with non-empty content, or None."""
-    return await insights_collection.find_one(
-        {"user_id": user_id, "ai_provider": ai_provider, "insight_type": insight_type,
-         **VALID_INSIGHT_CONTENT_FILTER},
-        sort=[("generated_at", -1)],
-    )
+    """Latest stored insight (placeholder or real), or None."""
+    return await insights_db.latest(user_id, ai_provider, insight_type)
 
 
 async def _latest_real_insight(user_id: str, ai_provider: str, insight_type: str):
-    """Latest stored non-placeholder insight with content for provider/type (None if none)."""
-    return await insights_collection.find_one(
-        {"user_id": user_id, "ai_provider": ai_provider, "insight_type": insight_type,
-         "is_placeholder": {"$ne": True}, **VALID_INSIGHT_CONTENT_FILTER},
-        sort=[("generated_at", -1)],
-    )
+    """Latest stored non-placeholder insight for provider/type (None if none)."""
+    return await insights_db.latest(user_id, ai_provider, insight_type, real_only=True)
 
 
 async def user_has_insight_data(user_id: str, insight_type: str = "weekly") -> bool:
@@ -175,7 +166,7 @@ async def user_has_insight_data(user_id: str, insight_type: str = "weekly") -> b
             {"user_id": user_id, "date": {"$gte": start, "$lte": end}, **finite_amount_filter()}, limit=1
         ):
             return True
-    if await goals_collection.count_documents({"user_id": user_id}, limit=1):
+    if await goals_db.user_has_goals(user_id):
         return True
     # Cheap pre-check (any budget whose window contains now) before the refreshing lookup.
     wall_now = app_wall_clock_now()
@@ -289,33 +280,33 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai", not
     try:
         # Select chatbot based on provider
         chatbot = gemini_financial_chatbot if ai_provider == "gemini" else financial_chatbot
-        
+
         if chatbot is None:
             logger.error(f"Chatbot not available for provider: {ai_provider}")
             return None
-        
+
         # Get date ranges
         week_start, week_end = get_week_date_range()
         prev_week_start, prev_week_end = get_previous_week_date_range()
-        
+
         # [FIX] Added await
         user = await users_db.get_user(user_id)
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
-        
+
         # Get financial data processor for other data (goals/budgets)
         processor = FinancialDataProcessor(user_id)
-        
+
         # [FIX] Added await (Function updated to async below)
         current_week_data = await get_financial_summary(user_id, week_start, week_end)
         prev_week_data = await get_financial_summary(user_id, prev_week_start, prev_week_end)
-        
+
         # Note: Assuming processor methods handle async internally or return data synchronously for now.
         # If FinancialDataProcessor uses the same database.py, these might need updates too.
         goals = await processor.get_user_goals()
         budgets = await processor.get_user_budgets()
-        
+
         # Efficient check for activity
         total_tx_count = _tx_count(current_week_data)
         has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
@@ -350,7 +341,7 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai", not
                 return existing_placeholder
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
-            
+
             placeholder_content = """## 👋 Welcome to Toe Pwar!
 ### 🎯 Get Started with Your Financial Journey
 
@@ -383,7 +374,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
 ---
 *Your financial journey starts here. Let's make it count!* 💪"""
-            
+
             new_insight = {
                 "_id": insight_id,
                 "user_id": user_id,
@@ -397,14 +388,14 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "expires_at": None,
                 "is_placeholder": True
             }
-            
+
             # [FIX] Added await
-            await insights_collection.insert_one(new_insight)
+            await insights_db.insert_insight(new_insight)
             return new_insight
-        
+
         # [FIX] Added await
         previous_insight = await _latest_real_insight(user_id, ai_provider, "weekly")
-        
+
         # Build context
         context = _build_weekly_context(
             user,
@@ -417,9 +408,9 @@ Start by adding your first transaction or creating a financial goal. The more da
             previous_insight,
             period_to_date=period_to_date,
         )
-        
+
         system_prompt = _build_weekly_system_prompt()
-        
+
         insights_content, input_tokens, output_tokens, total_tokens = await _call_insight_model(
             ai_provider=ai_provider,
             chatbot=chatbot,
@@ -434,7 +425,7 @@ Start by adding your first transaction or creating a financial goal. The more da
         if not _has_content(insights_content):
             logger.error(f"❌ {ai_provider} returned empty weekly insight for user {user_id}; not saving")
             return None
-        
+
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
 
@@ -459,14 +450,14 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "total_tokens": total_tokens
             }
         }
-        
+
         # [FIX] Added await
-        await insights_collection.insert_one(new_insight)
+        await insights_db.insert_insight(new_insight)
         if notify:
             await notify_weekly_insights_generated(user_id)
         logger.info(f"✅ Weekly insight generated for user {user_id} using {ai_provider}")
         return new_insight
-        
+
     except InsightAIError as e:
         # Propagate so routes can map it (429 for provider rate limits, 502/503 otherwise);
         # the scheduled job gathers with return_exceptions=True.
@@ -477,7 +468,7 @@ Start by adding your first transaction or creating a financial goal. The more da
         import traceback
         traceback.print_exc()
         return None
-    
+
 
 
 async def get_financial_summary(user_id, start_date, end_date):
@@ -544,15 +535,15 @@ async def get_financial_summary(user_id, start_date, end_date):
             }
         }
     ]
-    
+
     # [FIX] Async aggregation execution
     cursor = transactions_collection.aggregate(pipeline)
     result = await cursor.to_list(length=None)
-    
+
     # Default structure if no results
     if not result:
         return {"summary": [], "categories": []}
-        
+
     return result[0]
 
 
@@ -691,23 +682,23 @@ LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.str
 Total Transactions: {total_tx}
 
 """
-    
+
     # Process Current Week Data
     for currency, data in curr_summary.items():
         # Fallback for currency code if missing
         if not currency: currency = "usd"
-            
+
         currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
         currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-        
+
         net = data['inflow'] - data['outflow']
-        
+
         context += f"\n{currency_name}:\n"
         context += f"  Income: {currency_symbol}{data['inflow']:,.2f}\n"
         context += f"  Expenses: {currency_symbol}{data['outflow']:,.2f}\n"
         context += f"  Net: {currency_symbol}{net:,.2f}\n"
         context += f"  Transactions: {data['count']}\n"
-        
+
         # Top spending categories from aggregation
         context += f"\n  Top Spending Categories:\n"
         top_items = curr_cats.get(currency, [])
@@ -716,36 +707,36 @@ Total Transactions: {total_tx}
                 context += f"    - {item['category']}: {currency_symbol}{item['amount']:,.2f}\n"
         else:
             context += "    - No expenses recorded\n"
-    
+
     # Previous week comparison
     if prev_summary:
         context += (
             "\n\n=== LAST COMPLETE WEEK COMPARISON (full week vs. this partial week) ===\n\n"
             if period_to_date else "\n\n=== WEEK BEFORE LAST COMPARISON ===\n\n"
         )
-        
+
         # Union of all currencies found in both weeks
         all_currencies = set(list(curr_summary.keys()) + list(prev_summary.keys()))
-        
+
         for currency in all_currencies:
             if not currency: continue
-            
+
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
             currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-            
+
             current = curr_summary.get(currency, {"inflow": 0, "outflow": 0})
             prev = prev_summary.get(currency, {"inflow": 0, "outflow": 0})
-            
+
             # Calculate % change
             income_change = ((current["inflow"] - prev["inflow"]) / prev["inflow"] * 100) if prev["inflow"] > 0 else 0
             expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
-            
+
             context += f"{currency_name}:\n"
             context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change:+.1f}%)\n"
             context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change:+.1f}%)\n\n"
-    
+
     # --- GOALS & BUDGETS Logic remains exactly the same as before ---
-    
+
     # Goals progress
     if goals:
         context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
@@ -754,12 +745,12 @@ Total Transactions: {total_tx}
             curr = g.get("currency", "usd")
             if curr not in goals_by_currency: goals_by_currency[curr] = []
             goals_by_currency[curr].append(g)
-        
+
         for curr, curr_goals in goals_by_currency.items():
             sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
             name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
             active_goals = [g for g in curr_goals if g["status"] == "active"]
-            
+
             context += f"{name} Goals:\n"
             for goal in active_goals[:5]:
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
@@ -774,31 +765,31 @@ Total Transactions: {total_tx}
             curr = b.get("currency", "usd")
             if curr not in budgets_by_currency: budgets_by_currency[curr] = []
             budgets_by_currency[curr].append(b)
-        
+
         for curr, curr_budgets in budgets_by_currency.items():
             sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
             name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
-            
+
             context += f"{name} Budgets:\n"
             for budget in curr_budgets:
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
                 context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
                 context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
-                
+
                 # Show category breakdowns
                 for cat_budget in budget.get('category_budgets', [])[:5]:
                     cat_util = cat_budget.get('percentage_used', 0)
                     context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
                 context += "\n"
-    
+
     # Previous insight summary
     if previous_insight:
         context += "\n=== PREVIOUS WEEK'S KEY RECOMMENDATIONS ===\n"
         context += f"(Review to see if user followed through)\n\n"
         prev_content = previous_insight.get("content") or ""
         context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
-    
+
     if period_to_date:
         context += (
             "\n\nGenerate a weekly financial insight report for the CURRENT WEEK SO FAR "
@@ -813,11 +804,11 @@ Total Transactions: {total_tx}
 async def generate_weekly_insights_for_all_users():
     """Generate weekly insights for all premium users using Bounded Concurrency"""
     logger.info("🔄 Starting weekly insights generation (Concurrent Mode)...")
-    
+
     # 1. Fetch all premium users quickly to release DB cursor
     # Projection only gets necessary fields to save memory
     users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type == "premium")
-    
+
     if not users:
         logger.info("ℹ️ No premium users found for weekly insights.")
         return
@@ -827,14 +818,14 @@ async def generate_weekly_insights_for_all_users():
     # 2. Semaphore to limit concurrency (e.g., 5 users at a time = ~10 concurrent AI calls)
     # Adjust this number based on your OpenAI/Gemini tier limits.
     sem = asyncio.Semaphore(5)
-    
+
     success_count = 0
     error_count = 0
 
     async def process_user_weekly(user):
         nonlocal success_count, error_count
         user_id = user["_id"]
-        
+
         async with sem:  # Wait for a free slot in the semaphore
             try:
                 # Check subscription validity
@@ -848,7 +839,7 @@ async def generate_weekly_insights_for_all_users():
                     generate_weekly_insight(user_id, "openai", notify=False),
                     generate_weekly_insight(user_id, "gemini", notify=False)
                 ]
-                
+
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for provider, result in zip(["openai", "gemini"], results):
@@ -882,7 +873,7 @@ async def generate_weekly_insights_for_all_users():
     # This fires off the workers, which will respect the semaphore limit
     tasks = [process_user_weekly(user) for user in users]
     await asyncio.gather(*tasks)
-    
+
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
 
 
@@ -1151,32 +1142,32 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai", no
     try:
         # Select chatbot based on provider
         chatbot = gemini_financial_chatbot if ai_provider == "gemini" else financial_chatbot
-        
+
         if chatbot is None:
             logger.error(f"Chatbot not available for provider: {ai_provider}")
             return None
-        
+
         # Get date ranges
         month_start, month_end = get_month_date_range()
         prev_month_start, prev_month_end = get_previous_month_date_range()
-        
+
         # [FIX] Added await
         user = await users_db.get_user(user_id)
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
-        
+
         # Get financial data processor
         processor = FinancialDataProcessor(user_id)
-        
+
         # [FIX] Added await (Function is now async)
         current_month_data = await get_financial_summary(user_id, month_start, month_end)
         prev_month_data = await get_financial_summary(user_id, prev_month_start, prev_month_end)
-        
+
         # Get goals & budgets
         goals = await processor.get_user_goals()
         budgets = await processor.get_user_budgets()
-        
+
         # Check for activity
         total_tx_count = _tx_count(current_month_data)
         has_activity = total_tx_count > 0 or len(goals) > 0 or len(budgets) > 0
@@ -1206,10 +1197,10 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai", no
             existing_placeholder = await _todays_placeholder(user_id, ai_provider, "monthly")
             if existing_placeholder:
                 return existing_placeholder
-            
+
             insight_id = str(uuid.uuid4())
             now = datetime.now(UTC)
-            
+
             placeholder_content = """## 👋 Welcome to Toe Pwar!
 ### 🎯 Get Started with Your Financial Journey
 
@@ -1243,7 +1234,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
 ---
 *Your financial journey starts here. Let's make it count!* 💪"""
-            
+
             new_insight = {
                 "_id": insight_id,
                 "user_id": user_id,
@@ -1257,14 +1248,14 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "expires_at": None,
                 "is_placeholder": True
             }
-            
+
             # [FIX] Added await
-            await insights_collection.insert_one(new_insight)
+            await insights_db.insert_insight(new_insight)
             return new_insight
-        
+
         # [FIX] Added await
         previous_insight = await _latest_real_insight(user_id, ai_provider, "monthly")
-        
+
         # Build context
         context = _build_monthly_context(
             user,
@@ -1277,9 +1268,9 @@ Start by adding your first transaction or creating a financial goal. The more da
             previous_insight,
             period_to_date=period_to_date,
         )
-        
+
         system_prompt = _build_monthly_system_prompt()
-        
+
         insights_content, input_tokens, output_tokens, total_tokens = await _call_insight_model(
             ai_provider=ai_provider,
             chatbot=chatbot,
@@ -1294,7 +1285,7 @@ Start by adding your first transaction or creating a financial goal. The more da
         if not _has_content(insights_content):
             logger.error(f"❌ {ai_provider} returned empty monthly insight for user {user_id}; not saving")
             return None
-        
+
         insight_id = str(uuid.uuid4())
         now = datetime.now(UTC)
 
@@ -1318,14 +1309,14 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "total_tokens": total_tokens
             }
         }
-        
+
         # [FIX] Added await
-        await insights_collection.insert_one(new_insight)
+        await insights_db.insert_insight(new_insight)
         if notify:
             await notify_monthly_insights_generated(user_id)
         logger.info(f"✅ Monthly insight generated for user {user_id} using {ai_provider}")
         return new_insight
-        
+
     except InsightAIError as e:
         logger.error(f"AI error generating monthly insight for user {user_id}: {e}")
         raise
@@ -1447,11 +1438,11 @@ def _build_monthly_context(
     period_to_date=True: current_month_data covers the current, still-running month
     (1st..today) and prev_month_data the last complete month.
     """
-    
+
     # Extract data from aggregation structure
     curr_summary = {item['_id']: item for item in current_month_data.get('summary', [])}
     curr_cats = {item['_id']: item['top_items'] for item in current_month_data.get('categories', [])}
-    
+
     prev_summary = {item['_id']: item for item in prev_month_data.get('summary', [])}
 
     # Calculate total transactions
@@ -1485,22 +1476,22 @@ LAST MONTH'S PERIOD: {month_start.strftime('%B %d, %Y')} to {month_end.strftime(
 Total Transactions: {total_tx}
 
 """
-    
+
     # Process Current Month Data
     for currency, data in curr_summary.items():
         if not currency: currency = "usd"
-            
+
         currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
         currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-        
+
         net = data['inflow'] - data['outflow']
-        
+
         context += f"\n{currency_name}:\n"
         context += f"  Income: {currency_symbol}{data['inflow']:,.2f}\n"
         context += f"  Expenses: {currency_symbol}{data['outflow']:,.2f}\n"
         context += f"  Net: {currency_symbol}{net:,.2f}\n"
         context += f"  Transactions: {data['count']}\n"
-        
+
         # Top spending categories
         context += f"\n  Top Spending Categories:\n"
         top_items = curr_cats.get(currency, [])
@@ -1509,33 +1500,33 @@ Total Transactions: {total_tx}
                 context += f"    - {item['category']}: {currency_symbol}{item['amount']:,.2f}\n"
         else:
             context += "    - No expenses recorded\n"
-    
+
     # Previous Month Comparison
     if prev_summary:
         context += (
             "\n\n=== LAST COMPLETE MONTH COMPARISON (full month vs. this partial month) ===\n\n"
             if period_to_date else "\n\n=== PREVIOUS MONTH COMPARISON ===\n\n"
         )
-        
+
         all_currencies = set(list(curr_summary.keys()) + list(prev_summary.keys()))
-        
+
         for currency in all_currencies:
             if not currency: continue
-            
+
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
             currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-            
+
             current = curr_summary.get(currency, {"inflow": 0, "outflow": 0})
             prev = prev_summary.get(currency, {"inflow": 0, "outflow": 0})
-            
+
             # Calculate % change
             income_change = ((current["inflow"] - prev["inflow"]) / prev["inflow"] * 100) if prev["inflow"] > 0 else 0
             expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
-            
+
             context += f"{currency_name}:\n"
             context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change:+.1f}%)\n"
             context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change:+.1f}%)\n\n"
-    
+
     # Goals - Logic remains same
     if goals:
         context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
@@ -1544,12 +1535,12 @@ Total Transactions: {total_tx}
             curr = g.get("currency", "usd")
             if curr not in goals_by_currency: goals_by_currency[curr] = []
             goals_by_currency[curr].append(g)
-        
+
         for curr, curr_goals in goals_by_currency.items():
             sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
             name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
             active_goals = [g for g in curr_goals if g["status"] == "active"]
-            
+
             context += f"{name} Goals:\n"
             for goal in active_goals[:5]:
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
@@ -1564,31 +1555,31 @@ Total Transactions: {total_tx}
             curr = b.get("currency", "usd")
             if curr not in budgets_by_currency: budgets_by_currency[curr] = []
             budgets_by_currency[curr].append(b)
-        
+
         for curr, curr_budgets in budgets_by_currency.items():
             sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
             name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
-            
+
             context += f"{name} Budgets:\n"
             for budget in curr_budgets:
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
                 context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
                 context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
-                
+
                 # Show category breakdowns
                 for cat_budget in budget.get('category_budgets', [])[:8]:
                     cat_util = cat_budget.get('percentage_used', 0)
                     context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
                 context += "\n"
-    
+
     # Previous insight
     if previous_insight:
         context += "\n=== PREVIOUS MONTH'S KEY RECOMMENDATIONS ===\n"
         context += f"(Review to see if user followed through)\n\n"
         prev_content = previous_insight.get("content") or ""
         context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
-    
+
     if period_to_date:
         context += (
             "\n\nGenerate a monthly financial insight report for the CURRENT MONTH SO FAR "
@@ -1603,7 +1594,7 @@ Total Transactions: {total_tx}
 async def generate_monthly_insights_for_all_users():
     """Generate monthly insights for all premium users using Bounded Concurrency"""
     logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
-    
+
     # 1. Fetch all premium users
     users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type == "premium")
 
@@ -1615,14 +1606,14 @@ async def generate_monthly_insights_for_all_users():
 
     # 2. Semaphore to limit concurrency
     sem = asyncio.Semaphore(5)
-    
+
     success_count = 0
     error_count = 0
 
     async def process_user_monthly(user):
         nonlocal success_count, error_count
         user_id = user["_id"]
-        
+
         async with sem:
             try:
                 # Check subscription validity
@@ -1635,7 +1626,7 @@ async def generate_monthly_insights_for_all_users():
                     generate_monthly_insight(user_id, "openai", notify=False),
                     generate_monthly_insight(user_id, "gemini", notify=False)
                 ]
-                
+
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for provider, result in zip(["openai", "gemini"], results):
@@ -1668,5 +1659,5 @@ async def generate_monthly_insights_for_all_users():
     # 3. Run all tasks
     tasks = [process_user_monthly(user) for user in users]
     await asyncio.gather(*tasks)
-    
+
     logger.info(f"✅ Monthly insights generation completed: {success_count} successful, {error_count} errors")

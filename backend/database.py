@@ -13,14 +13,7 @@ def get_database():
 
 # ==================== COLLECTIONS ====================
 transactions_collection = database.transactions
-chat_sessions_collection = database.chat_sessions
-goals_collection = database.goals 
-insights_collection = database.insights
 budgets_collection = database.budgets
-notifications_collection = database.notifications
-notification_preferences_collection = database.notification_preferences
-ai_usage_collection = database.ai_usage
-feedback_collection = database.feedback
 
 # Admin collections
 
