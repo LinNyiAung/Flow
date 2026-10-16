@@ -26,7 +26,7 @@ from migration.convert import CONVERTERS, MULTI_CONVERTERS, Quarantine, quaranti
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 TABLES = {"users", "transactions", "goals", "budgets", "notifications", "notification_preferences", "insights",
           "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories", "app_versions",
-          "quarantined_transactions"}
+          "quarantined_records"}
 
 
 # Mongo field path -> column, per table (only the non-obvious ones).
@@ -194,15 +194,12 @@ class PgCollection:
 
     # ----------------------------------------------------------- writes
     def _quarantine(self, doc, reason):
-        """What the production migration does with a row it can't store: set it aside
-        (transactions into quarantined_transactions, other rows only in the report)."""
-        if self.name != "transactions":
-            print(f"[pgcompat] {self.name}: not stored, as in the migration: {reason}", file=sys.stderr)
-            return
-        row = quarantine_row(doc, reason)
+        """What the production migration does with a document it can't store: set it aside."""
+        row = quarantine_row(self.name, doc, reason)
         with self.conn.cursor() as cur:
-            cur.execute("INSERT INTO quarantined_transactions (id, user_id, reason, original) VALUES (%s, %s, %s, %s)"
-                        " ON CONFLICT (id) DO NOTHING", (row["id"], row["user_id"], row["reason"], Jsonb(row["original"])))
+            cur.execute("INSERT INTO quarantined_records (source, id, user_id, reason, original) VALUES (%s, %s, %s, %s, %s)"
+                        " ON CONFLICT (source, id) DO NOTHING",
+                        (row["source"], row["id"], row["user_id"], row["reason"], Jsonb(row["original"])))
 
     def _insert_sql(self, row):
         return sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(

@@ -79,7 +79,7 @@ db.transactions.insert_one({"_id": "leg-nan", "user_id": lid, "type": "outflow",
                             "amount": float("nan"), "currency": "usd", "date": now, "created_at": now, "updated_at": now})
 codes = {p: c.get(p, headers=H(tok)).status_code for p in ("/api/dashboard/balance", "/api/transactions")}
 codes["report"] = c.post("/api/reports/generate", headers=H(tok), json={"period": "month", "currency": "usd"}).status_code
-quarantined = db.sql("SELECT reason FROM quarantined_transactions WHERE id = %s", "leg-nan")
+quarantined = db.sql("SELECT reason FROM quarantined_records WHERE source = 'transactions' AND id = %s", "leg-nan")
 rec("legacy NaN row is quarantined by the migration; that user's balance/list/report work",
     "PASS" if quarantined and 500 not in codes.values() else "BUG", {**codes, "quarantined": [q["reason"] for q in quarantined]})
 

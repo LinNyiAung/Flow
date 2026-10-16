@@ -132,7 +132,7 @@ Index `(user_id, created_at DESC)`, `(user_id, is_read)`, `(user_id, type, creat
 | feedback | `id`, `user_id` → CASCADE, `user_email`, `user_name`, `category` CHECK, `message`, `rating` CHECK 1–5, `screenshot_url`, `status` NOT NULL default 'pending', `created_at` |
 | categories | `type`, `main_category`, `sub_category`, `position`; unique `(type, main_category, sub_category)` |
 | app_versions | as today + unique `(version, platform)` (fixes today's check-then-insert) |
-| quarantined_transactions | raw JSON of rows rejected by the data checks, with reason (audit only) |
+| quarantined_records | raw JSON of documents rejected by the data checks, with source collection and reason (audit only) |
 
 ## Code changes
 
@@ -157,7 +157,10 @@ A rerunnable script copies MongoDB → PostgreSQL:
 - Reads every collection, applies the same cleanup rules as `scripts/data_cleanup.py`
   (lowercase emails, legacy defaults, string dates parsed), and writes in dependency order.
 - Rows that can't satisfy the constraints (e.g. NaN amounts) go to
-  `quarantined_transactions` with the reason, never silently dropped.
+  `quarantined_records` with the reason, never silently dropped.
+
+Implemented in `backend/migration/` (`run.py`, `convert.py`); the step-by-step rehearsal
+and cutover runbook is `backend/migration/README.md`.
 - **Verification report**: row counts per table, and per user and currency the inflow /
   outflow totals, goal allocations and budget totals computed in both databases — must
   match exactly.

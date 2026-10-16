@@ -9,6 +9,7 @@ code used when it read those documents. Rows that can't be made valid raise
 """
 import uuid
 from datetime import datetime, UTC
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, Optional
 
 MIGRATION_TIME = datetime.now(UTC)
@@ -34,9 +35,10 @@ def json_safe(value: Any) -> Any:
     return str(value)
 
 
-def quarantine_row(doc: Dict[str, Any], reason: str) -> Dict[str, Any]:
-    """Row for quarantined_transactions: the untouched original plus why it was set aside."""
+def quarantine_row(source: str, doc: Dict[str, Any], reason: str) -> Dict[str, Any]:
+    """Row for quarantined_records: the untouched original plus why it was set aside."""
     return {
+        "source": source,
         "id": str(doc.get("_id") or uuid.uuid4()),
         "user_id": str(doc["user_id"]) if doc.get("user_id") else None,
         "reason": reason,
@@ -259,7 +261,8 @@ def finite_amount(value: Any) -> Optional[float]:
         return None
     if number != number or abs(number) >= 1e16:
         return None
-    return round(number, 2)
+    # Half-up on the decimal value, like the app's sql.docs.money (round(10.005, 2) gives 10.0).
+    return float(Decimal(str(number)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def convert_goal(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -436,9 +439,97 @@ def convert_budget(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+ADMIN_ROLES = {"super_admin", "admin", "moderator"}
+
+
+def convert_admin(doc: Dict[str, Any]) -> Dict[str, Any]:
+    email = doc.get("email")
+    if not doc.get("_id") or not isinstance(email, str) or not email.strip():
+        raise Quarantine("admin without id or e-mail")
+    if not doc.get("password"):
+        raise Quarantine("admin without password hash")
+    if doc.get("role") not in ADMIN_ROLES:
+        # Never grant more than the code would have: an unknown role passed no role check.
+        raise Quarantine(f"unknown admin role {doc.get('role')!r}")
+    return {
+        "id": str(doc["_id"]),
+        "name": doc.get("name") if isinstance(doc.get("name"), str) and doc["name"].strip() else email.split("@")[0],
+        "email": email.strip().lower(),
+        "password": doc["password"],
+        "role": doc["role"],
+        "password_version": _int_or(doc.get("password_version"), 0) or 0,
+        "password_changed_at": as_datetime(doc.get("password_changed_at")),
+        "last_login": as_datetime(doc.get("last_login")),
+        "created_at": as_datetime(doc.get("created_at")) or MIGRATION_TIME,
+    }
+
+
+def convert_admin_action_log(doc: Dict[str, Any]) -> Dict[str, Any]:
+    if not doc.get("_id"):
+        raise Quarantine("admin log entry without id")
+    details = doc.get("details")
+    if details is not None and not isinstance(details, str):
+        import json
+        details = json.dumps(json_safe(details), ensure_ascii=False)
+    return {
+        "id": str(doc["_id"]),
+        "admin_id": str(doc.get("admin_id") or "unknown"),
+        "admin_email": str(doc.get("admin_email") or "unknown"),
+        "action": str(doc.get("action") or "unknown"),
+        "target_user_id": str(doc["target_user_id"]) if doc.get("target_user_id") else None,
+        "target_user_email": _str_or_none(doc.get("target_user_email")),
+        "details": details,
+        "timestamp": as_datetime(doc.get("timestamp")) or as_datetime(doc.get("created_at")) or MIGRATION_TIME,
+    }
+
+
+def convert_app_version(doc: Dict[str, Any]) -> Dict[str, Any]:
+    if not doc.get("_id") or not isinstance(doc.get("version"), str) or not doc["version"].strip():
+        raise Quarantine("app version without id or version")
+    if doc.get("platform") not in ("android", "ios", "all"):
+        raise Quarantine(f"unknown platform {doc.get('platform')!r}")
+    return {
+        "id": str(doc["_id"]),
+        "version": doc["version"].strip(),
+        "platform": doc["platform"],
+        "download_url": doc.get("download_url") if isinstance(doc.get("download_url"), str) else "",
+        "release_notes": _str_or_none(doc.get("release_notes")),
+        "is_force_update": bool(doc.get("is_force_update", False)),
+        "min_supported_version": _str_or_none(doc.get("min_supported_version")),
+        "is_active": bool(doc.get("is_active", True)),
+        "created_by_email": _str_or_none(doc.get("created_by_email")),
+        "created_at": as_datetime(doc.get("created_at")) or MIGRATION_TIME,
+        "updated_at": as_datetime(doc.get("updated_at")),
+    }
+
+
+def convert_categories(doc: Dict[str, Any]) -> list:
+    """{"_id": "inflow"|"outflow", "categories": [{"main_category", "sub_categories"}]} -> category rows
+    (configured order kept; duplicates and blank names dropped)."""
+    if doc.get("_id") not in ("inflow", "outflow"):
+        raise Quarantine(f"unknown category type {doc.get('_id')!r}")
+    rows, seen, mains = [], set(), 0
+    for cat in doc.get("categories") or []:
+        main = cat.get("main_category") if isinstance(cat, dict) else None
+        if not isinstance(main, str) or not main.strip():
+            continue
+        subs = [s for s in (cat.get("sub_categories") or []) if isinstance(s, str) and s.strip()]
+        added = 0
+        for sub in subs:
+            if (main, sub) not in seen:
+                seen.add((main, sub))
+                rows.append({"type": doc["_id"], "main_category": main, "sub_category": sub,
+                             "main_position": mains, "sub_position": added})
+                added += 1
+        if added:
+            mains += 1
+    return rows
+
+
 # Single-row converters (collection -> one table). Multi-table ones are listed separately.
 CONVERTERS = {"users": convert_user, "feedback": convert_feedback, "ai_usage": convert_ai_usage,
               "notification_preferences": convert_notification_preferences, "notifications": convert_notification,
               "insights": convert_insight, "goals": convert_goal,
-              "transactions": convert_transaction}
+              "transactions": convert_transaction, "admins": convert_admin,
+              "admin_action_logs": convert_admin_action_log, "app_versions": convert_app_version}
 MULTI_CONVERTERS = {"chat_sessions": convert_chat_session, "budgets": convert_budget}
