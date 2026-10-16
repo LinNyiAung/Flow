@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/platform/platform_info.dart';
+import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/screens/auth/login_screen.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/android_download_link.dart';
+import 'package:provider/provider.dart';
 
 const _desktopChrome =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -63,8 +67,38 @@ void main() {
     );
     await tester.pump();
 
+    final link = find.byType(AndroidDownloadLink);
+    expect(tester.getSize(link), Size.zero);
+    expect(find.descendant(of: link, matching: find.byType(InkWell)), findsNothing);
+    expect(find.descendant(of: link, matching: find.byType(Text)), findsNothing);
     expect(find.text('Get the Android app'), findsNothing);
-    expect(find.byType(SizedBox), findsWidgets);
-    expect(find.byType(InkWell), findsNothing);
+  });
+
+  testWidgets('login screen adds no spacing for the link off the web',
+      (tester) async {
+    PlatformInfo.isWeb = false;
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthProvider(),
+        child: const MaterialApp(
+          localizationsDelegates: [AppLocalizations.delegate],
+          supportedLocales: [Locale('en'), Locale('my')],
+          home: LoginScreen(embedded: true),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final link = find.byType(AndroidDownloadLink);
+    expect(link, findsOneWidget);
+    expect(tester.getSize(link), Size.zero);
+
+    // The link is the Column's last child, directly after the register link,
+    // with no spacer from this feature in between.
+    final column = tester.widget<Column>(
+      find.ancestor(of: link, matching: find.byType(Column)).first,
+    );
+    expect(column.children.last, isA<AndroidDownloadLink>());
+    expect(column.children[column.children.length - 2], isA<GestureDetector>());
   });
 }

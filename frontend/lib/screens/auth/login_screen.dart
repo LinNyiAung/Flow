@@ -232,8 +232,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
 
-                  // Web only: link to the latest Android APK.
-                  const SizedBox(height: 10),
+                  // Web only: link to the latest Android APK (renders nothing,
+                  // spacing included, anywhere else).
                   const AndroidDownloadLink(),
                 ],
               ),

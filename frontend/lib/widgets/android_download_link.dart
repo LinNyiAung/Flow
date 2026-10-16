@@ -105,33 +105,38 @@ class _AndroidDownloadLinkState extends State<AndroidDownloadLink> {
       );
     }
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => _open(download),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.android_rounded, size: 20, color: scheme.primary),
-                const SizedBox(width: 6),
-                Text(
-                  localizations.getAndroidApp,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: scheme.primary,
+    // The top gap lives here so nothing is added to the layout when the link
+    // is not shown (e.g. inside the Android app).
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _open(download),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.android_rounded, size: 20, color: scheme.primary),
+                  const SizedBox(width: 6),
+                  Text(
+                    localizations.getAndroidApp,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            Text(
-              versionText,
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
-            ),
-          ],
+                ],
+              ),
+              Text(
+                versionText,
+                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
         ),
       ),
     );
