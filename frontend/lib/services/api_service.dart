@@ -31,6 +31,14 @@ class ReportPdf {
   const ReportPdf({required this.bytes, required this.filename});
 }
 
+/// The newest published Android build, for the web "Get the Android app" link.
+class AndroidDownload {
+  final String version;
+  final String url;
+
+  const AndroidDownload({required this.version, required this.url});
+}
+
 /// Extracts the filename from a `Content-Disposition` header, falling back to
 /// `financial_report.pdf` when the header is missing or carries no filename.
 String reportFilenameFromContentDisposition(String? header) {
@@ -411,6 +419,25 @@ class ApiService {
       return VersionCheckResponse.fromJson(jsonDecode(response.body));
     } else {
       throw apiError(response, 'Failed to check app version');
+    }
+  }
+
+  /// The newest published Android build, or null when none is published or
+  /// the request fails for any reason. Public endpoint: sends no auth header.
+  static Future<AndroidDownload?> getLatestAndroidDownload() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/api/app/latest-android'),
+      );
+      if (response.statusCode != 200) return null;
+      final json = jsonDecode(response.body);
+      if (json is! Map) return null;
+      final version = json['version'];
+      final url = json['download_url'];
+      if (version is! String || url is! String) return null;
+      return AndroidDownload(version: version, url: url);
+    } catch (_) {
+      return null;
     }
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
+import '../../widgets/android_download_link.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -230,6 +231,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+
+                  // Web only: link to the latest Android APK.
+                  const SizedBox(height: 10),
+                  const AndroidDownloadLink(),
                 ],
               ),
             ),

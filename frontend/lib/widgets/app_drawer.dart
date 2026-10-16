@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/widgets/android_download_link.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
@@ -226,6 +227,8 @@ class AppDrawer extends StatelessWidget {
               padding: responsive.padding(horizontal: 12, vertical: 8),
               child: Column(
                 children: [
+                  // Web only: link to the latest Android APK.
+                  const AndroidDownloadLink(inDrawer: true),
                   _DrawerRow(
                     item: _DrawerNavItem(
                       icon: Icons.settings_rounded,

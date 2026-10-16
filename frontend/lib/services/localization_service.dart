@@ -788,6 +788,8 @@ class AppLocalizations {
       'passwordLabel': 'Password',
       'enterPasswordError': 'Please enter your password',
       'forgotPasswordQuestion': 'Forgot password?',
+      'getAndroidApp': 'Get the Android app',
+      'androidAppVersion': 'Version {version}',
       'signIn': 'Sign in',
       'newHerePrefix': 'New here? ',
       'createAnAccount': 'Create an account',
@@ -1780,6 +1782,8 @@ class AppLocalizations {
       'passwordLabel': 'စကားဝှက်',
       'enterPasswordError': 'ကျေးဇူးပြု၍ သင့်စကားဝှက်ကို ထည့်ပါ',
       'forgotPasswordQuestion': 'စကားဝှက် မေ့နေပါသလား?',
+      'getAndroidApp': 'Android အက်ပ်ကို ရယူပါ',
+      'androidAppVersion': 'ဗားရှင်း {version}',
       'signIn': 'အကောင့်ဝင်ရန်',
       'newHerePrefix': 'ဒီနေရာမှာ အသစ်လား? ',
       'createAnAccount': 'အကောင့်တစ်ခု ဖန်တီးရန်',
@@ -2822,6 +2826,8 @@ class AppLocalizations {
   String get passwordLabel => translate('passwordLabel');
   String get enterPasswordError => translate('enterPasswordError');
   String get forgotPasswordQuestion => translate('forgotPasswordQuestion');
+  String get getAndroidApp => translate('getAndroidApp');
+  String get androidAppVersion => translate('androidAppVersion');
   String get signIn => translate('signIn');
   String get newHerePrefix => translate('newHerePrefix');
   String get createAnAccount => translate('createAnAccount');
