@@ -1,5 +1,8 @@
+import asyncio
+import weakref
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import AsyncIterator, Optional
 from fastapi import Depends, HTTPException , status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -185,21 +188,23 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
 
 # Per-user lock serializing operations that move money between "available balance"
 # and goals (goal contributions, goal creation with initial contribution, editing /
-# deleting inflows). Only effective within a single worker process.
-_user_money_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = None  # initialised lazily
+# deleting inflows). The database row lock works across all server processes; the
+# in-process lock in front of it just queues same-user requests of one process in
+# memory instead of each holding a pooled connection while it waits.
+_user_money_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = weakref.WeakValueDictionary()
 
 
-def get_user_money_lock(user_id: str) -> "asyncio.Lock":
-    import asyncio
-    import weakref
-    global _user_money_locks
-    if _user_money_locks is None:
-        _user_money_locks = weakref.WeakValueDictionary()
+@asynccontextmanager
+async def get_user_money_lock(user_id: str) -> AsyncIterator[None]:
+    """`async with get_user_money_lock(uid):` - the block is serialized per user and its
+    database writes commit (or roll back) together."""
     lock = _user_money_locks.get(user_id)
     if lock is None:
         lock = asyncio.Lock()
         _user_money_locks[user_id] = lock
-    return lock
+    async with lock:
+        async with users_db.money_lock(user_id):
+            yield
 
 
 async def require_premium(current_user: dict = Depends(get_current_user)):

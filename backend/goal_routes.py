@@ -87,7 +87,7 @@ async def create_goal(
 
         await goals_db.insert_goal(new_goal)
 
-        # Cache invalidation (+ AI data stale) before releasing the lock
+        # AI data stale (same transaction as the goal)
         await users_db.mark_ai_data_stale(current_user["_id"])
 
     progress = (current_amount / new_goal["target_amount"] * 100) if new_goal["target_amount"] > 0 else 0
@@ -267,8 +267,8 @@ async def contribute_to_goal(
     if amount == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contribution amount must not be zero")
 
-    # Serialize all balance-moving operations of this user (single worker), so two
-    # concurrent contributions can't both spend the same available balance.
+    # Serialize all balance-moving operations of this user (database row lock, so across
+    # workers too): two concurrent contributions can't both spend the same available balance.
     async with get_user_money_lock(current_user["_id"]):
         # 1. READ (inside the lock): Fetch the goal state
         goal = await goals_db.get_goal(goal_id, current_user["_id"])
@@ -328,7 +328,7 @@ async def contribute_to_goal(
             new_status = GoalStatus.ACTIVE.value
             achieved_at = None
 
-        # --- ATOMIC WRITE (guard kept for multi-worker deployments) ---
+        # --- ATOMIC WRITE (optimistic guard kept as a second line of defence) ---
         updated = await goals_db.update_amount_if_unchanged(goal_id, original_amount, {
             "current_amount": new_amount,
             "status": new_status,
@@ -342,7 +342,7 @@ async def contribute_to_goal(
                 detail="Transaction failed due to concurrent modification. Please try again."
             )
 
-        # Invalidate cached balances before releasing the lock
+        # AI data stale (same transaction as the contribution)
         await users_db.mark_ai_data_stale(current_user["_id"])
 
     # --- POST-UPDATE ACTIONS ---

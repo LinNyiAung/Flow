@@ -7,11 +7,17 @@ Usage:
     async with transaction() as conn:                         # all-or-nothing
         await conn.execute(...)
 
+Inside `transaction()` every helper call (in any sql module) without an explicit `conn`
+joins that transaction, so a block of ordinary calls is all-or-nothing and sees its own
+writes (used by the per-user money lock). Nested `transaction()` blocks become savepoints.
+Don't run queries concurrently (asyncio.gather) inside a transaction: it is one connection.
+
 Rows come back as plain dicts (column -> value); sql.docs converts them to the
 document shapes the rest of the backend already uses.
 """
 import os
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -27,6 +33,8 @@ def _async_url(url: str) -> str:
 
 
 _engine: Optional[AsyncEngine] = None
+# The connection of the transaction() block the current task is in, if any.
+_current: ContextVar[Optional[AsyncConnection]] = ContextVar("sql_current_transaction", default=None)
 
 
 def get_engine() -> AsyncEngine:
@@ -57,6 +65,7 @@ def _as_dict(row) -> Dict[str, Any]:
 
 
 async def fetch_one(stmt, conn: Optional[AsyncConnection] = None) -> Optional[Dict[str, Any]]:
+    conn = conn or _current.get()
     if conn is not None:
         row = (await conn.execute(stmt)).first()
         return _as_dict(row) if row is not None else None
@@ -66,6 +75,7 @@ async def fetch_one(stmt, conn: Optional[AsyncConnection] = None) -> Optional[Di
 
 
 async def fetch_all(stmt, conn: Optional[AsyncConnection] = None) -> List[Dict[str, Any]]:
+    conn = conn or _current.get()
     if conn is not None:
         return [_as_dict(r) for r in (await conn.execute(stmt)).all()]
     async with get_engine().connect() as c:
@@ -73,6 +83,7 @@ async def fetch_all(stmt, conn: Optional[AsyncConnection] = None) -> List[Dict[s
 
 
 async def fetch_value(stmt, conn: Optional[AsyncConnection] = None) -> Any:
+    conn = conn or _current.get()
     if conn is not None:
         return (await conn.execute(stmt)).scalar()
     async with get_engine().connect() as c:
@@ -81,6 +92,7 @@ async def fetch_value(stmt, conn: Optional[AsyncConnection] = None) -> Any:
 
 async def execute(stmt, conn: Optional[AsyncConnection] = None) -> int:
     """Run a write in its own transaction (or the given one); returns the affected row count."""
+    conn = conn or _current.get()
     if conn is not None:
         return (await conn.execute(stmt)).rowcount
     async with get_engine().begin() as c:
@@ -89,6 +101,7 @@ async def execute(stmt, conn: Optional[AsyncConnection] = None) -> int:
 
 async def write_returning(stmt, conn: Optional[AsyncConnection] = None) -> Optional[Dict[str, Any]]:
     """Run an INSERT/UPDATE/DELETE ... RETURNING and return the first row (or None)."""
+    conn = conn or _current.get()
     if conn is not None:
         row = (await conn.execute(stmt)).first()
         return _as_dict(row) if row is not None else None
@@ -99,6 +112,16 @@ async def write_returning(stmt, conn: Optional[AsyncConnection] = None) -> Optio
 
 @asynccontextmanager
 async def transaction() -> AsyncIterator[AsyncConnection]:
-    """All-or-nothing unit of work: commits on success, rolls back on any exception."""
+    """All-or-nothing unit of work: commits on success, rolls back on any exception.
+    Inside an outer transaction() it is a savepoint of that transaction."""
+    outer = _current.get()
+    if outer is not None:
+        async with outer.begin_nested():
+            yield outer
+        return
     async with get_engine().begin() as conn:
-        yield conn
+        token = _current.set(conn)
+        try:
+            yield conn
+        finally:
+            _current.reset(token)

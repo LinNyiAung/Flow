@@ -1,6 +1,7 @@
 """User accounts: lookups, updates and the atomic (conditional) updates the auth flows need."""
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 
 from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.sql import ColumnElement
@@ -178,3 +179,16 @@ async def set_device_token(user_id: str, token: str) -> int:
 
 async def clear_device_token(user_id: str) -> None:
     await update_user(user_id, fcm_token=None)
+
+
+# ------------------------------------------------------------------ money lock
+@asynccontextmanager
+async def money_lock(user_id: str) -> AsyncIterator[None]:
+    """
+    Serialize one user's money-moving operations across every server process: holds the
+    user's row lock (SELECT ... FOR UPDATE) for the whole block. All database calls in the
+    block run in that one transaction, so the block also commits or rolls back as a unit.
+    """
+    async with transaction() as conn:
+        await conn.execute(select(users.c.id).where(users.c.id == user_id).with_for_update())
+        yield
