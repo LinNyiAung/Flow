@@ -7,12 +7,22 @@ import 'package:url_launcher/url_launcher.dart';
 
 /// Whether to show the "Get the Android app" link: only in a browser, and not
 /// on iPhone/iPad/iPod, which cannot install an APK.
+///
+/// Since iPadOS 13, Safari and Chrome on an iPad send a desktop Mac user agent
+/// by default, so a `Macintosh` user agent on a touch screen (a real Mac reports
+/// 0 touch points) is treated as an iPad too.
 bool shouldOfferAndroidDownload({
   required bool isWeb,
   required String userAgent,
+  int maxTouchPoints = 0,
 }) {
-  return isWeb &&
-      !RegExp('iPhone|iPad|iPod', caseSensitive: false).hasMatch(userAgent);
+  if (!isWeb) return false;
+  if (RegExp('iPhone|iPad|iPod', caseSensitive: false).hasMatch(userAgent)) {
+    return false;
+  }
+  final isIpadInDesktopMode =
+      userAgent.contains('Macintosh') && maxTouchPoints > 1;
+  return !isIpadInDesktopMode;
 }
 
 /// A link to the latest Android APK. Renders nothing inside the Android app,
@@ -36,6 +46,7 @@ class _AndroidDownloadLinkState extends State<AndroidDownloadLink> {
     if (shouldOfferAndroidDownload(
       isWeb: PlatformInfo.isWeb,
       userAgent: currentUserAgent(),
+      maxTouchPoints: currentMaxTouchPoints(),
     )) {
       _load();
     }

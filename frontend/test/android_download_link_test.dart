@@ -20,6 +20,11 @@ const _iPad =
     'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 '
     '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
+// Safari/Chrome on an iPad (iPadOS 13+) in the default "desktop website" mode.
+const _macDesktop =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+    '(KHTML, like Gecko) Version/17.5 Safari/605.1.15';
+
 void main() {
   final originalIsWeb = PlatformInfo.isWeb;
   tearDown(() => PlatformInfo.isWeb = originalIsWeb);
@@ -50,6 +55,43 @@ void main() {
       expect(
         shouldOfferAndroidDownload(isWeb: true, userAgent: _iPad),
         isFalse,
+      );
+    });
+
+    test('hides the link on an iPad in desktop mode (Mac UA + touch screen)', () {
+      expect(
+        shouldOfferAndroidDownload(
+          isWeb: true,
+          userAgent: _macDesktop,
+          maxTouchPoints: 5,
+        ),
+        isFalse,
+      );
+    });
+
+    test('offers the link on a real Mac (Mac UA, no touch screen)', () {
+      expect(
+        shouldOfferAndroidDownload(
+          isWeb: true,
+          userAgent: _macDesktop,
+          maxTouchPoints: 0,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldOfferAndroidDownload(isWeb: true, userAgent: _macDesktop),
+        isTrue,
+      );
+    });
+
+    test('touch points alone do not hide the link (touch laptops)', () {
+      expect(
+        shouldOfferAndroidDownload(
+          isWeb: true,
+          userAgent: _desktopChrome,
+          maxTouchPoints: 10,
+        ),
+        isTrue,
       );
     });
 
