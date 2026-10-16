@@ -34,6 +34,7 @@ import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/web_phone_frame.dart';
 import 'package:frontend/providers/theme_provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -163,6 +164,8 @@ class _MyAppState extends State<MyApp> {
           navigatorKey: navigatorKey,
           title: 'Toe Pwar',
           debugShowCheckedModeBanner: false,
+          builder: (context, child) =>
+              PlatformInfo.isWeb ? WebPhoneFrame(child: child!) : child!,
           locale: _locale,
           supportedLocales: const [Locale('en', ''), Locale('my', '')],
           localizationsDelegates: const [
