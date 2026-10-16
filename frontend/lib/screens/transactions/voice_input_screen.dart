@@ -101,6 +101,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           _extractedData = null;
           _selected = [];
         });
+      } else if (PlatformInfo.isWeb) {
+        // The browser said no (blocked or dismissed): say so instead of
+        // leaving the button looking dead.
+        if (!mounted) return;
+        setState(() => _error = localizations.microphoneAccessDenied);
       }
     } catch (e) {
       if (!mounted) return;
