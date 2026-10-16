@@ -82,7 +82,7 @@ class AuthProvider with ChangeNotifier {
     // reflects premium access the moment admin grants it — no sign-out needed.
     _subscriptionUpdateSub = NotificationEventBus()
         .onSubscriptionUpdated
-        .listen((_) => _silentRefreshUser());
+        .listen((_) => refreshUserSilently());
   }
 
   @override
@@ -259,8 +259,9 @@ class AuthProvider with ChangeNotifier {
   }
 
   /// Silently re-fetches the user from /api/auth/me and updates state.
-  /// Called automatically when a subscription_updated FCM message arrives.
-  Future<void> _silentRefreshUser() async {
+  /// Called when a subscription_updated FCM message arrives and (web) when the
+  /// browser tab becomes visible again. Does nothing when signed out; never throws.
+  Future<void> refreshUserSilently() async {
     if (_user == null) return;
     try {
       final refreshed = await ApiService.getCurrentUser();

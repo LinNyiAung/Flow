@@ -98,13 +98,27 @@ class _MyAppState extends State<MyApp> {
   final FeedbackProvider _feedbackProvider = FeedbackProvider();
   final ThemeProvider _themeProvider = ThemeProvider()..loadThemeMode();
 
+  /// Web only: there is no push, so refresh when the browser tab becomes
+  /// visible again (premium granted elsewhere, new notifications).
+  AppLifecycleListener? _lifecycleListener;
+
   @override
   void initState() {
     super.initState();
+    if (PlatformInfo.isWeb) {
+      _lifecycleListener = AppLifecycleListener(onResume: _refreshOnResume);
+    }
     _authProvider.onSessionReset = _resetUserState;
     _authProvider.onLanguagePreference =
         (code) => _changeLanguage(Locale(code));
     ApiService.onSessionExpired = _handleSessionExpired;
+  }
+
+  void _refreshOnResume() {
+    if (_authProvider.isAuthenticated) {
+      _authProvider.refreshUserSilently();
+      _notificationProvider.fetchUnreadCount();
+    }
   }
 
   void _resetUserState() {
@@ -140,6 +154,7 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
+    _lifecycleListener?.dispose();
     ApiService.onSessionExpired = null;
     super.dispose();
   }
