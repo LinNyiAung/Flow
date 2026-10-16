@@ -1,4 +1,4 @@
-﻿import 'package:fetch_client/fetch_client.dart';
+import 'package:fetch_client/fetch_client.dart';
 import 'package:http/http.dart' as http;
 
 /// fetch-based client: unlike the XHR-based default it delivers the response
