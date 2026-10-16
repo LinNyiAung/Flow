@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/platform/platform_info.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/app_version_provider.dart';
 import 'package:frontend/providers/budget_provider.dart';
@@ -61,9 +62,12 @@ void main() async {
   final languageCode = await LocalizationService.getSelectedLanguage();
   ApiService.currentLanguage = languageCode;
 
-  await Firebase.initializeApp();
-  await FCMService().initialize();
-  await NotificationService().initialize();
+  // No Firebase / push / local notifications on the web.
+  if (!PlatformInfo.isWeb) {
+    await Firebase.initializeApp();
+    await FCMService().initialize();
+    await NotificationService().initialize();
+  }
 
   runApp(MyApp(initialLocale: Locale(languageCode)));
 }
@@ -235,9 +239,15 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<void> _checkVersion() async {
+    // The web version is always current: no force-update check.
+    if (PlatformInfo.isWeb) {
+      if (mounted) setState(() => _versionCheckDone = true);
+      return;
+    }
     try {
       final info = await PackageInfo.fromPlatform();
-      final platform = Platform.isIOS ? 'ios' : 'android';
+      final platform =
+          defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
       if (!mounted) return;
       await Provider.of<AppVersionProvider>(
         context,

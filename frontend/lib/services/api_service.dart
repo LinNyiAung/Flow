@@ -382,9 +382,18 @@ class ApiService {
     }
   }
 
+  /// Test seam: when set, [deleteFCMToken] calls it instead of the request.
+  @visibleForTesting
+  static Future<void> Function(String authToken)? deleteFcmTokenOverride;
+
   /// Unregisters this device's FCM token so the previous user stops
   /// receiving pushes after logout. Must be called while the token is valid.
   static Future<void> deleteFCMToken({String? authToken}) async {
+    final override = deleteFcmTokenOverride;
+    if (override != null && authToken != null) {
+      await override(authToken);
+      return;
+    }
     final headers = await _getHeaders();
     if (authToken != null) headers['Authorization'] = 'Bearer $authToken';
     final response = await _client.delete(

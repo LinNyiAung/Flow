@@ -1,6 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/platform/platform_info.dart';
 import '../models/notification.dart';
 
 class NotificationService {
@@ -14,6 +15,7 @@ class NotificationService {
   bool _isInitialized = false;
 
   Future<void> initialize() async {
+    if (PlatformInfo.isWeb) return;
     if (_isInitialized) return;
 
     const androidSettings = AndroidInitializationSettings('@mipmap/launcher_icon');
@@ -38,6 +40,7 @@ class NotificationService {
   }
 
   Future<bool> requestPermissions() async {
+    if (PlatformInfo.isWeb) return false;
     if (await Permission.notification.isGranted) {
       return true;
     }
@@ -58,6 +61,7 @@ class NotificationService {
     required NotificationType type,
     String? payload,
   }) async {
+    if (PlatformInfo.isWeb) return;
     if (!_isInitialized) {
       await initialize();
     }
@@ -116,10 +120,12 @@ class NotificationService {
   }
 
   Future<void> cancelNotification(int id) async {
+    if (PlatformInfo.isWeb) return;
     await _notifications.cancel(id);
   }
 
   Future<void> cancelAllNotifications() async {
+    if (PlatformInfo.isWeb) return;
     await _notifications.cancelAll();
   }
 
