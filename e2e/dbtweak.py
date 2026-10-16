@@ -1,5 +1,4 @@
 import sys
-from pymongo import MongoClient
 
 d = __import__("pgcompat").get_db()
 cmd = sys.argv[1]

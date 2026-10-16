@@ -1,18 +1,7 @@
-from motor.motor_asyncio import AsyncIOMotorClient
+"""Startup data initialization (default categories, bootstrap admin). Storage: PostgreSQL (sql/)."""
 from config import settings
 import uuid
 from datetime import datetime, UTC
-
-# Initialize Async Client
-client = AsyncIOMotorClient(settings.MONGODB_URL, tz_aware=True)
-database = client[settings.DATABASE_NAME]
-
-def get_database():
-    return database
-
-# ==================== COLLECTIONS ====================
-
-# Admin collections
 
 
 # ==================== INITIALIZATION FUNCTIONS ====================
@@ -155,24 +144,6 @@ async def initialize_categories():
     ]
     if await seed_default_categories(default_categories):
         print("✅ Default categories initialized")
-
-
-async def create_db_indexes():
-    """Create indexes - Must be async now"""
-    try:
-        # (Budget indexes: PostgreSQL uq_budgets_rollover_child, ix_budgets_*.)
-
-        # (Transaction indexes: PostgreSQL ix_transactions_*; case-insensitive unique e-mails:
-        # PostgreSQL index uq_users_lower_email.)
-
-        print("✅ Database indexes verified/created")
-    except Exception as e:
-        print(f"⚠️ Failed to create indexes: {e}")
-
-
-async def initialize_notification_preferences():
-    """Initialize default notification preferences for users who don't have them"""
-    pass
 
 
 async def initialize_admin():

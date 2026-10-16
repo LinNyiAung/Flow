@@ -1,4 +1,4 @@
-"""End-to-end API suite for the Flow backend (runs against run_server.py on a throwaway local mongod)."""
+"""End-to-end API suite for the Flow backend (runs against run_server.py on a throwaway local PostgreSQL)."""
 import json
 import math
 import os
@@ -7,7 +7,6 @@ import traceback
 from datetime import datetime, timedelta, UTC
 
 import httpx
-from pymongo import MongoClient
 
 BASE = os.environ.get("E2E_BASE", "http://127.0.0.1:8765")
 HERE = os.path.dirname(os.path.abspath(__file__))

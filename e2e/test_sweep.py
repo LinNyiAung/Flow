@@ -12,7 +12,6 @@ import stubenv  # noqa: E402
 
 os.chdir(stubenv.BACKEND)
 import httpx  # noqa: E402
-from pymongo import MongoClient  # noqa: E402
 import main  # noqa: E402  (only to enumerate routes; the server under test is the separate process)
 
 BASE = "http://127.0.0.1:8765"

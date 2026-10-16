@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Request, status, Depends, Query, Path
 from starlette.concurrency import run_in_threadpool
 
-from pymongo import ReturnDocument
 
 from admin_utils import (
     ADMIN_TOKEN_TTL,

@@ -1,9 +1,9 @@
-﻿<#
+<#
 .SYNOPSIS
   One-command Flutter end-to-end run against a local, fully stubbed backend.
 
 .DESCRIPTION
-  Starts (or reuses) a throwaway mongod, the backend with every external
+  Starts (or reuses) a throwaway PostgreSQL, the backend with every external
   service stubbed (stubenv.py: no .env, no OpenAI/Gemini/SMTP/FCM), the
   outbox helper the tests read e-mails from, and the Android emulator; seeds
   known accounts; then runs frontend/integration_test on the emulator.
@@ -13,23 +13,24 @@
   permission is granted the moment the APK lands.
 
 .EXAMPLE
-  .\e2e\run_e2e.ps1 -Python .venv\Scripts\python.exe -Mongod C:\mongodb\bin\mongod.exe
+  .\e2e\run_e2e.ps1 -Python .venv\Scripts\python.exe -PgBin "C:\Program Files\PostgreSQL\16\bin"
 .EXAMPLE
   .\e2e\run_e2e.ps1 -Name "^(04 Recurring|05 Budgets) "
 .EXAMPLE
   .\e2e\run_e2e.ps1 -LargeText -Name "^14 Large text tour "
 #>
 param(
-  # Interpreter with the backend requirements plus httpx and pymongo.
+  # Interpreter with the backend requirements plus httpx and psycopg.
   [string]$Python = "python",
-  # mongod binary (only used when nothing is listening on the Mongo port yet).
-  [string]$Mongod = "mongod",
+  # Folder with initdb / pg_ctl / psql (only used when nothing listens on port 54329 yet;
+  # empty = find them on PATH).
+  [string]$PgBin = "",
   [string]$Avd = "Small_Phone",
   # Test-name regex passed to `flutter test --name`; empty runs everything.
   [string]$Name = "",
   # Run with Android font scale 1.3 and enable the large-text tour group.
   [switch]$LargeText,
-  # Leave the backend, mongod and emulator running afterwards.
+  # Leave the backend, PostgreSQL and emulator running afterwards.
   [switch]$KeepRunning
 )
 
@@ -39,7 +40,7 @@ $ErrorActionPreference = "Continue"
 $E2E = $PSScriptRoot
 $Repo = Split-Path $E2E -Parent
 $Logs = Join-Path $E2E "logs"
-$Data = Join-Path $E2E ".data\db"
+$Data = Join-Path $E2E ".data\pg"
 New-Item -ItemType Directory -Force $Logs, $Data | Out-Null
 $adb = Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
 $emulatorExe = Join-Path $env:LOCALAPPDATA "Android\Sdk\emulator\emulator.exe"
@@ -59,14 +60,30 @@ function Wait-Until($what, $seconds, [scriptblock]$cond) {
 }
 
 try {
-  # ---- 1. throwaway mongod ----
-  if (-not (Test-Port 27999)) {
-    Write-Host "Starting mongod on 127.0.0.1:27999 ..."
-    if (-not (Get-Command $Mongod -ErrorAction SilentlyContinue)) { throw "mongod not found: $Mongod (pass -Mongod)" }
-    $started += Start-Process -FilePath $Mongod -PassThru -WindowStyle Hidden -ArgumentList `
-      "--dbpath `"$Data`" --port 27999 --bind_ip 127.0.0.1 --logpath `"$Logs\mongod.log`" --logappend"
-    Wait-Until "mongod" 60 { Test-Port 27999 }
+  # ---- 1. throwaway PostgreSQL (trust auth, local only) + schema ----
+  function PgTool($name) { if ($PgBin) { Join-Path $PgBin "$name.exe" } else { (Get-Command $name -ErrorAction Stop).Source } }
+  $pgStarted = $false
+  if (-not (Test-Port 54329)) {
+    Write-Host "Starting PostgreSQL on 127.0.0.1:54329 ..."
+    if (-not (Test-Path (Join-Path $Data "PG_VERSION"))) {
+      & (PgTool "initdb") -D $Data -U flow -A trust -E UTF8 --locale=C | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw "initdb failed (pass -PgBin)" }
+    }
+    # pg_ctl keeps its output handle open, so it is started detached and we wait for the port.
+    Start-Process -FilePath (PgTool "pg_ctl") -WindowStyle Hidden -ArgumentList `
+      "-D `"$Data`" -o `"-p 54329 -c listen_addresses=127.0.0.1 -c timezone=UTC`" -l `"$Logs\postgres.log`" start"
+    $pgStarted = $true
+    Wait-Until "PostgreSQL" 60 { Test-Port 54329 }
+    Wait-Until "PostgreSQL ready" 60 { & (PgTool "psql") -h 127.0.0.1 -p 54329 -U flow -d postgres -tAc "select 1" 2>$null; $LASTEXITCODE -eq 0 }
   }
+  $hasDb = & (PgTool "psql") -h 127.0.0.1 -p 54329 -U flow -d postgres -tAc "select 1 from pg_database where datname = 'flow_e2e'"
+  if ("$hasDb".Trim() -ne "1") { & (PgTool "psql") -h 127.0.0.1 -p 54329 -U flow -d postgres -c "create database flow_e2e" | Out-Null }
+  $env:DATABASE_URL = "postgresql://flow@127.0.0.1:54329/flow_e2e"
+  Push-Location (Join-Path $Repo "backend")
+  & $Python -m alembic upgrade head
+  $alembicExit = $LASTEXITCODE
+  Pop-Location
+  if ($alembicExit -ne 0) { throw "alembic upgrade failed" }
 
   # ---- 2. stubbed backend + outbox helper ----
   if (-not (Test-Port 8765)) {
@@ -146,6 +163,7 @@ finally {
   if ($LargeText) { & $adb shell settings put system font_scale 1.0 2>$null | Out-Null }
   if (-not $KeepRunning) {
     if ($emulatorStarted) { & $adb emu kill 2>$null | Out-Null }
+    if ($pgStarted) { & (PgTool "pg_ctl") -D $Data stop -m fast 2>$null | Out-Null }
     $started | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
   }
 }

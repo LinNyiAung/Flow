@@ -1,0 +1,3 @@
+# Extra dependency of the one-time MongoDB -> PostgreSQL migration (reads the old database).
+# Install on top of ../requirements.txt only where the migration is run.
+pymongo==4.18.3

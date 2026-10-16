@@ -5,42 +5,44 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    MONGODB_URL = os.getenv("MONGODB_URL")
-    DATABASE_NAME = os.getenv("DATABASE_NAME")
     # PostgreSQL (postgres:// or postgresql:// URL). Read directly by sql.db as well.
     DATABASE_URL = os.getenv("DATABASE_URL")
+    # Legacy MongoDB: no longer used by the app; only read by the one-time data migration
+    # (migration/) and scripts/data_cleanup.py. Remove after the production cutover.
+    MONGODB_URL = os.getenv("MONGODB_URL")
+    DATABASE_NAME = os.getenv("DATABASE_NAME")
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = "HS256"
     # 30 days
     ACCESS_TOKEN_EXPIRE_MINUTES = 43200 
-    
+
     # AI Chatbot settings
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    
+
     # NEW: Gemini settings
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     EMAIL_SENDER = os.getenv("EMAIL_SENDER")
     EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-    
-    
+
+
     FIREBASE_CREDENTIALS_PATH: str = os.getenv(
         "FIREBASE_CREDENTIALS_PATH", 
         "toepwar-ai-firebase-adminsdk-fbsvc-cc42c07a7c.json"
     )
-    
+
     # NEW: Allow passing the credentials as a raw JSON string
     FIREBASE_CREDENTIALS_JSON: dict = None
-    
+
     _json_str = os.getenv("FIREBASE_CREDENTIALS_JSON_STR")
     if _json_str:
         try:
             FIREBASE_CREDENTIALS_JSON = json.loads(_json_str)
         except json.JSONDecodeError:
             print("❌ Error decoding FIREBASE_CREDENTIALS_JSON_STR")
-    
+
     MAX_CHAT_HISTORY = int(os.getenv("MAX_CHAT_HISTORY", "20"))
 
     # Public base URL of this API (used in e-mail verification links)

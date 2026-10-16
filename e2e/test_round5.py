@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stubenv  # noqa: E402,F401
 
 import httpx  # noqa: E402
-from pymongo import MongoClient  # noqa: E402
 
 db = __import__("pgcompat").get_db()
 c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
@@ -37,7 +36,7 @@ def put(body):
 
 code, body = put({"description": ""})
 check(code == 200 and body.get("description") is None, "empty description clears the note", f"{code} {body}")
-check(db.transactions.find_one({"_id": tid}).get("description") is None, "cleared note stored as null in Mongo")
+check(db.transactions.find_one({"_id": tid}).get("description") is None, "cleared note stored as null in the database")
 
 code, body = put({"description": "kept"})
 check(code == 200 and body.get("description") == "kept", "setting a note after clearing works", f"{code} {body}")

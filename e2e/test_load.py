@@ -9,7 +9,6 @@ import uuid
 from datetime import datetime, timedelta, UTC
 
 import httpx
-from pymongo import MongoClient
 
 BASE = "http://127.0.0.1:8765"
 HERE = os.path.dirname(os.path.abspath(__file__))

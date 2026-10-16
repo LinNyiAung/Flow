@@ -11,7 +11,6 @@ import stubenv  # noqa: E402
 
 os.chdir(stubenv.BACKEND)
 import httpx  # noqa: E402
-from pymongo import MongoClient  # noqa: E402
 
 import subscription_service as ss  # noqa: E402
 stubenv.patch_loaded_modules()

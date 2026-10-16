@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime, timedelta, UTC
 
 import httpx
-from pymongo import MongoClient
 
 BASE = "http://127.0.0.1:8765"
 db = __import__("pgcompat").get_db()

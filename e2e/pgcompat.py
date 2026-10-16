@@ -1,13 +1,10 @@
-"""Test-only adapter: pymongo-style calls on PostgreSQL tables.
+"""Test-only adapter: pymongo-style calls on the PostgreSQL tables.
 
 The E2E suites poke the database directly (make a user premium, insert a legacy
-transaction, read an OTP hash, ...). During the MongoDB -> PostgreSQL migration each
-collection moves to PostgreSQL in turn; `get_db()` returns an object whose attributes
-are real pymongo collections for collections still in MongoDB and `PgCollection`s for
-migrated ones, so the suites themselves barely change.
-
-Migrated collections are listed in the E2E_PG_COLLECTIONS env var (comma separated,
-"all" for every table). Supports the subset of Mongo operators the suites use.
+transaction, read an OTP hash, ...). They were written against MongoDB; `get_db()`
+returns an object whose attributes are `PgCollection`s accepting the subset of Mongo
+calls and operators the suites use, so the suites barely changed in the move. Direct
+inserts go through the production migration converters (migration/convert.py).
 """
 import json
 import os
@@ -20,7 +17,6 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pymongo import MongoClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 from sql import docs as D  # noqa: E402
@@ -28,22 +24,9 @@ from sql import tables as T  # noqa: E402
 from migration.convert import CONVERTERS, MULTI_CONVERTERS, Quarantine, quarantine_row  # noqa: E402  (same rules as the production data migration)
 
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
-MONGO_URL = os.environ.get("E2E_MONGO", "mongodb://127.0.0.1:27999")
-ALL = {"users", "transactions", "goals", "budgets", "notifications", "notification_preferences", "insights",
-       "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories", "app_versions"}
-
-
-# Collections the backend code already stores in PostgreSQL. Updated with each migration
-# step so the suites follow the code; E2E_PG_COLLECTIONS (comma list or "all") overrides.
-MIGRATED = {"categories", "admins", "admin_action_logs", "app_versions", "users", "feedback", "ai_usage",
-            "notification_preferences", "notifications", "insights", "chat_sessions", "goals", "transactions", "budgets"}
-
-
-def migrated() -> set:
-    raw = os.environ.get("E2E_PG_COLLECTIONS")
-    if raw is None:
-        return MIGRATED
-    return ALL if raw.strip() == "all" else {c.strip() for c in raw.split(",") if c.strip()}
+TABLES = {"users", "transactions", "goals", "budgets", "notifications", "notification_preferences", "insights",
+          "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories", "app_versions",
+          "quarantined_transactions"}
 
 
 # Mongo field path -> column, per table (only the non-obvious ones).
@@ -340,22 +323,23 @@ class PgCollection:
 
 
 class CompatDB:
-    """Attribute access like a pymongo Database; routes each collection to its store."""
+    """Attribute access like a pymongo Database: db.users, db["goals"], ..."""
 
-    def __init__(self, mongo_db_name: str = "flow_e2e"):
-        self._mongo = MongoClient(MONGO_URL)[mongo_db_name]
+    def __init__(self):
         self._pg = psycopg.connect(PG_DSN, autocommit=True)
 
     def __getattr__(self, name):
         if name.startswith("_"):
             raise AttributeError(name)
-        return PgCollection(self._pg, name) if name in migrated() else self._mongo[name]
+        if name not in TABLES:
+            raise AttributeError(f"no table {name!r}")
+        return PgCollection(self._pg, name)
 
     def __getitem__(self, name):
         return getattr(self, name)
 
     def list_collection_names(self):
-        return sorted(ALL)
+        return sorted(TABLES)
 
     def sql(self, query: str, *params):
         """Escape hatch for suites: run raw SQL, return rows as dicts."""
@@ -378,12 +362,12 @@ class AsyncCollection:
         return call
 
 
-def async_collection(name: str, db_name: str = "flow_e2e") -> AsyncCollection:
-    return AsyncCollection(getattr(get_db(db_name), name))
+def async_collection(name: str) -> AsyncCollection:
+    return AsyncCollection(getattr(get_db(), name))
 
 
-def get_db(name: str = "flow_e2e") -> CompatDB:
-    return CompatDB(name)
+def get_db() -> CompatDB:
+    return CompatDB()
 
 
 def reset_postgres() -> None:

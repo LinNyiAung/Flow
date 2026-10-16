@@ -15,10 +15,8 @@ try:
     import jwt  # PyJWT (replaces python-jose)
 except ImportError:  # pragma: no cover
     from jose import jwt  # noqa: E402
-from pymongo import MongoClient  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-mc = MongoClient("mongodb://127.0.0.1:27999")
 db = __import__("pgcompat").get_db()
 c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=120)
 H = lambda t: {"Authorization": f"Bearer {t}"}
@@ -119,34 +117,6 @@ async def jobs():
 
 
 asyncio.run(jobs())
-
-# 7. unique email index vs existing duplicate-case emails (a copy of production might have them)
-leg = mc["flow_e2e_legacy_copy"]
-mc.drop_database("flow_e2e_legacy_copy")
-leg.users.insert_many([{"_id": "u1", "email": "Same@Example.com"}, {"_id": "u2", "email": "same@example.com"}, {"_id": "u3", "email": "other@example.com"}])
-import database  # noqa: E402
-from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
-
-
-async def idx():
-    cli = AsyncIOMotorClient(os.environ["MONGODB_URL"], tz_aware=True)
-    ldb = cli["flow_e2e_legacy_copy"]
-    for name in ("users_collection", "transactions_collection", "budgets_collection", "app_versions_collection"):
-        setattr(database, name, ldb[name.replace("_collection", "")])
-    import contextlib, io
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        await database.create_db_indexes()
-    names = [i["name"] for i in await ldb.users.list_indexes().to_list(None)]
-    return buf.getvalue(), names
-
-
-out, names = asyncio.run(idx())
-dups = list(leg.users.aggregate([{"$group": {"_id": {"$toLower": "$email"}, "n": {"$sum": 1}, "emails": {"$push": "$email"}}}, {"$match": {"n": {"$gt": 1}}}]))
-rec("startup with duplicate-case emails: index creation fails gracefully (no crash), index missing",
-    "PASS" if "email_unique_ci" not in names and ("Could not create unique email index" in out or "unique" in out.lower()) else "INFO",
-    f"indexes={names}; duplicates to merge before deploy: {[d['emails'] for d in dups]}")
-mc.drop_database("flow_e2e_legacy_copy")
 
 p = os.path.join(HERE, "api_results.json")
 data = json.load(open(p)) if os.path.exists(p) else {"results": []}

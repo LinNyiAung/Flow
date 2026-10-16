@@ -13,7 +13,6 @@ import stubenv  # noqa: E402
 
 os.chdir(stubenv.BACKEND)
 import httpx  # noqa: E402
-from pymongo import MongoClient  # noqa: E402
 
 BASE = "http://127.0.0.1:8765"
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -1,8 +1,8 @@
 """Isolates the Flow backend for E2E testing.
 
 Import this BEFORE any backend module. It:
-  * blocks .env loading (so production Mongo/API keys/Firebase creds are never read)
-  * points the app at a local throwaway mongod
+  * blocks .env loading (so production database URLs/API keys/Firebase creds are never read)
+  * points the app at a local throwaway PostgreSQL
   * replaces OpenAI / Gemini clients, SMTP and Firebase messaging with recorders that never touch the network
 """
 import json
@@ -20,9 +20,7 @@ dotenv.dotenv_values = lambda *a, **k: {}
 os.environ.update({
     "ADMIN_BOOTSTRAP_EMAIL": "root-admin@example.com",
     "ADMIN_BOOTSTRAP_PASSWORD": "e2e-root-admin-pass",
-    "MONGODB_URL": os.environ.get("E2E_MONGO", "mongodb://127.0.0.1:27999"),
-    "DATABASE_NAME": "flow_e2e",
-    # Local throwaway PostgreSQL (migration in progress: tables move from Mongo one by one).
+    # Local throwaway PostgreSQL.
     "DATABASE_URL": os.environ.get("E2E_PG_URL", "postgresql://flow@127.0.0.1:54329/flow_e2e"),
     "SECRET_KEY": "e2e-local-secret-not-production",
     "OPENAI_API_KEY": "sk-e2e-stub",

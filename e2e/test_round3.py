@@ -10,7 +10,6 @@ import stubenv  # noqa: E402
 
 os.chdir(stubenv.BACKEND)
 import httpx  # noqa: E402
-from pymongo import MongoClient  # noqa: E402
 
 db = __import__("pgcompat").get_db()
 c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)

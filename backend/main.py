@@ -33,10 +33,7 @@ from notification_service import (
     notify_budget_started
 )
 
-from database import (
-    create_db_indexes, initialize_admin,
-    initialize_categories,
-)
+from database import initialize_admin, initialize_categories
 from sql.categories import get_categories_doc
 from sql import users as users_db
 from sql import notification_prefs as prefs_db
@@ -81,7 +78,6 @@ app.include_router(app_version_user_router)
 async def startup_db_client():
     await initialize_categories()
     await initialize_admin()
-    await create_db_indexes()
 
     try:
         from scheduler import start_scheduler
