@@ -219,6 +219,20 @@ async def delete_app_version(
 user_router = APIRouter(prefix="/api", tags=["app-versions"])
 
 
+@user_router.get("/app/latest-android")
+async def latest_android_version() -> dict:
+    """
+    Public (no auth): the newest published Android build, for the website's download link.
+    Highest parseable version among ACTIVE records for "android" or "all"; nulls if none.
+    """
+    docs = await versions_db.active_for_platforms([Platform.ANDROID.value, Platform.ALL.value], limit=500)
+    parsed = [(v, d) for d in docs if (v := _safe_version(d.get("version"))) is not None]
+    if not parsed:
+        return {"version": None, "download_url": None}
+    _, latest_doc = max(parsed, key=lambda pair: pair[0])
+    return {"version": latest_doc["version"], "download_url": latest_doc["download_url"]}
+
+
 @user_router.post("/app/check-version", response_model=VersionCheckResponse)
 async def check_app_version(
     payload: VersionCheckRequest,
