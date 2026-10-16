@@ -114,6 +114,8 @@ class _ApiClient extends http.BaseClient {
   static const List<String> _coldStartPrefixes = [
     '/api/auth/',
     '/api/app/check-version',
+    // Fetched by the web login screen, often as the very first request.
+    '/api/app/latest-android',
   ];
 
   /// Endpoints that run AI generation, uploads or report rendering.

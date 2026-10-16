@@ -75,6 +75,7 @@ void main() {
       expect(t('/api/auth/me'), const Duration(seconds: 60));
       expect(t('/api/auth/login'), const Duration(seconds: 60));
       expect(t('/api/app/check-version'), const Duration(seconds: 60));
+      expect(t('/api/app/latest-android'), const Duration(seconds: 60));
     });
 
     test('insights get the longest timeout', () {
