@@ -4,8 +4,8 @@ import threading
 from typing import Dict, List, Optional
 import uuid
 from firebase_service import send_fcm_notification
-from finite_utils import finite_amount_filter
-from database import budgets_collection, transactions_collection
+from database import budgets_collection
+from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import notifications as notifications_db
 from sql import notification_prefs as prefs_db
@@ -693,8 +693,7 @@ async def analyze_unusual_spending(user_id: str):
     # Transaction dates are local wall-clock values stored tagged as UTC, so the "this
     # week" window is measured on the app-timezone wall clock (created_at stays real UTC).
     wall_now = app_wall_clock_now(now)
-    # [FIX] Async distinct
-    currencies = await transactions_collection.distinct("currency", {"user_id": user_id})
+    currencies = await transactions_db.currencies(user_id)
     # [FIX] Added await
     lang = await get_user_language(user_id)
 
@@ -705,27 +704,15 @@ async def analyze_unusual_spending(user_id: str):
     for currency in currencies:
         this_week_start = wall_now - timedelta(days=7)
         recent_notification_cutoff = now - timedelta(days=7)
-        # [FIX] Async cursor
-        cursor = transactions_collection.find({
-            "user_id": user_id,
-            "type": "outflow",
-            "currency": currency,
-            "date": {"$gte": this_week_start, "$lte": end_of_today},
-            **finite_amount_filter(),
-        })
-        this_week_transactions = await cursor.to_list(length=None)
+        this_week_transactions = await transactions_db.find_transactions(
+            user_id, type_="outflow", currency=currency, date_from=this_week_start, date_to=end_of_today
+        )
 
         last_month_start = wall_now - timedelta(days=35)
         last_month_end = this_week_start
-        # [FIX] Async cursor
-        cursor = transactions_collection.find({
-            "user_id": user_id,
-            "type": "outflow",
-            "currency": currency,
-            "date": {"$gte": last_month_start, "$lt": last_month_end},
-            **finite_amount_filter(),
-        })
-        last_month_transactions = await cursor.to_list(length=None)
+        last_month_transactions = await transactions_db.find_transactions(
+            user_id, type_="outflow", currency=currency, date_from=last_month_start, date_before=last_month_end
+        )
 
         if len(last_month_transactions) < 5:
             continue
@@ -779,18 +766,13 @@ async def _detect_recurring_payments_for_user(user_id: str, now: datetime, today
     from collections import defaultdict
 
     lang = await get_user_language(user_id)
-    currencies = await transactions_collection.distinct("currency", {"user_id": user_id})
+    currencies = await transactions_db.currencies(user_id)
 
     for currency in currencies:
         ninety_days_ago = now - timedelta(days=90)
-        cursor = transactions_collection.find({
-            "user_id": user_id,
-            "type": "outflow",
-            "currency": currency,
-            "date": {"$gte": ninety_days_ago},
-            **finite_amount_filter(),
-        })
-        transactions = await cursor.to_list(length=None)
+        transactions = await transactions_db.find_transactions(
+            user_id, type_="outflow", currency=currency, date_from=ninety_days_ago
+        )
 
         if len(transactions) < 10:
             continue

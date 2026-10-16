@@ -41,9 +41,7 @@ from models import (
 )
 from config import settings
 from sql import users as users_db
-from database import (
-    transactions_collection, budgets_collection,
-)
+from database import budgets_collection
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -509,7 +507,6 @@ async def delete_account(
     try:
         user_id = current_user["_id"]
 
-        await transactions_collection.delete_many({"user_id": user_id})
         await budgets_collection.delete_many({"user_id": user_id})
 
         # PostgreSQL tables cascade from users; Mongo collections are cleared above.

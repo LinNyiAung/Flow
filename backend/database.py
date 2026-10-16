@@ -12,7 +12,6 @@ def get_database():
     return database
 
 # ==================== COLLECTIONS ====================
-transactions_collection = database.transactions
 budgets_collection = database.budgets
 
 # Admin collections
@@ -192,24 +191,8 @@ async def create_db_indexes():
         except Exception as e:
             print(f"⚠️ Could not create budget rollover indexes: {e}")
 
-        # transactions_collection had no indexes at all — every query
-        # (transaction list, dashboard "recent", budget spent-amount
-        # recalculation, and especially the analytics screens' up-to-10,000
-        # row fetches) was a full collection scan across every user's
-        # transactions, then an in-memory sort. These cover the two actual
-        # query shapes used throughout the app: user_id (+ optional date
-        # range, always sorted by date) is the base case everywhere, and
-        # user_id + type (+ date) is the analytics/inflow-outflow case.
-        await transactions_collection.create_index(
-            [("user_id", ASCENDING), ("date", ASCENDING)],
-            background=True,
-        )
-
-        # (Case-insensitive unique e-mails: PostgreSQL index uq_users_lower_email.)
-        await transactions_collection.create_index(
-            [("user_id", ASCENDING), ("type", ASCENDING), ("date", ASCENDING)],
-            background=True,
-        )
+        # (Transaction indexes: PostgreSQL ix_transactions_*; case-insensitive unique e-mails:
+        # PostgreSQL index uq_users_lower_email.)
 
         print("✅ Database indexes verified/created")
     except Exception as e:

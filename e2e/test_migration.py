@@ -79,12 +79,11 @@ rec("notifications list with an unknown legacy type", "PASS" if r.status_code ==
 # 3. a NaN amount already stored before validation existed
 db.transactions.insert_one({"_id": "leg-nan", "user_id": lid, "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
                             "amount": float("nan"), "currency": "usd", "date": now, "created_at": now, "updated_at": now})
-db.users.update_one({"_id": lid}, {"$unset": {"balances": ""}})
 codes = {p: c.get(p, headers=H(tok)).status_code for p in ("/api/dashboard/balance", "/api/transactions")}
 codes["report"] = c.post("/api/reports/generate", headers=H(tok), json={"period": "month", "currency": "usd"}).status_code
-rec("existing NaN row still breaks that user's balance/list/report (needs a one-off cleanup)", "BUG" if 500 in codes.values() else "PASS", codes)
-db.transactions.delete_one({"_id": "leg-nan"})
-db.users.update_one({"_id": lid}, {"$unset": {"balances": ""}})
+quarantined = db.sql("SELECT reason FROM quarantined_transactions WHERE id = %s", "leg-nan")
+rec("legacy NaN row is quarantined by the migration; that user's balance/list/report work",
+    "PASS" if quarantined and 500 not in codes.values() else "BUG", {**codes, "quarantined": [q["reason"] for q in quarantined]})
 
 
 async def jobs():
@@ -97,10 +96,10 @@ async def jobs():
                                 "amount": 1, "currency": "usd", "date": now - timedelta(days=200), "created_at": now, "updated_at": now,
                                 "recurrence": {"enabled": True, "config": {"frequency": "daily"}, "last_created_date": now - timedelta(days=200)}})
     await rts.check_and_create_recurring_transactions()
-    n = db.transactions.count_documents({"$or": [{"recurrence.parent_transaction_id": "leg-rec"}, {"parent_transaction_id": "leg-rec"}]})
+    n = db.transactions.count_documents({"parent_transaction_id": "leg-rec"})
     rec(f"200-day-behind daily recurrence: first run creates {n}", "PASS" if 0 < n <= 33 else "BUG", "expected ≤ ~31 (catch-up window)")
     await rts.check_and_create_recurring_transactions()
-    n2 = db.transactions.count_documents({"$or": [{"recurrence.parent_transaction_id": "leg-rec"}, {"parent_transaction_id": "leg-rec"}]})
+    n2 = db.transactions.count_documents({"parent_transaction_id": "leg-rec"})
     rec("second run the same day creates no duplicates", "PASS" if n2 == n else "BUG", f"{n} -> {n2}")
     # 5. long-running active budgets without started_notified must not all get 'now active' on deploy
     db.budgets.insert_one({"_id": "leg-running", "user_id": lid, "name": "Running", "period": "custom", "currency": "usd",

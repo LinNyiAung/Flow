@@ -13,9 +13,8 @@ from report_models import (
 )
 from models import Currency
 
-from database import transactions_collection
+from sql import transactions as transactions_db
 from sql import goals as goals_db
-from finite_utils import finite_amount_filter
 
 router = APIRouter(prefix="/api/reports", tags=["transactions"])
 
@@ -175,77 +174,24 @@ async def generate_report(
         if currency is None:
             currency = Currency(current_user.get("default_currency", "usd"))
 
-        # ✅ OPTIMIZED: Use MongoDB aggregation pipeline instead of loading all data
-        pipeline = [
-            {
-                "$match": {
-                    "user_id": current_user["_id"],
-                    "currency": currency.value,
-                    "date": {"$gte": start_date, "$lte": end_date},
-                    # Legacy NaN/inf amounts are excluded (they'd make every total NaN).
-                    **finite_amount_filter(),
-                }
+        # Totals and per-category sums are computed in the database.
+        window = dict(currency=currency.value, date_from=start_date, date_to=end_date)
+        totals = await transactions_db.currency_totals(current_user["_id"], **window)
+        categories = await transactions_db.category_totals(current_user["_id"], **window)
+        result = [{
+            "totals": [
+                {"total_inflow": s["total_inflow"], "total_outflow": s["total_outflow"],
+                 "inflow_count": s["inflow_count"], "outflow_count": s["outflow_count"], "total_count": s["count"]}
+                for s in totals
+            ],
+            **{
+                f"{kind}_categories": [
+                    {"_id": {"main": c["main_category"], "sub": c["sub_category"]}, "amount": c["total"], "count": c["count"]}
+                    for c in categories if c["type"] == kind
+                ]
+                for kind in ("inflow", "outflow")
             },
-            {
-                "$facet": {
-                    # Calculate totals
-                    "totals": [
-                        {
-                            "$group": {
-                                "_id": None,
-                                "total_inflow": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
-                                },
-                                "total_outflow": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
-                                },
-                                "inflow_count": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, 1, 0]}
-                                },
-                                "outflow_count": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, 1, 0]}
-                                },
-                                "total_count": {"$sum": 1}
-                            }
-                        }
-                    ],
-                    # Group by category for inflows
-                    "inflow_categories": [
-                        {"$match": {"type": "inflow"}},
-                        {
-                            "$group": {
-                                "_id": {
-                                    "main": "$main_category",
-                                    "sub": "$sub_category"
-                                },
-                                "amount": {"$sum": "$amount"},
-                                "count": {"$sum": 1}
-                            }
-                        },
-                        {"$sort": {"amount": -1}}
-                    ],
-                    # Group by category for outflows
-                    "outflow_categories": [
-                        {"$match": {"type": "outflow"}},
-                        {
-                            "$group": {
-                                "_id": {
-                                    "main": "$main_category",
-                                    "sub": "$sub_category"
-                                },
-                                "amount": {"$sum": "$amount"},
-                                "count": {"$sum": 1}
-                            }
-                        },
-                        {"$sort": {"amount": -1}}
-                    ]
-                }
-            }
-        ]
-
-        # [FIX] Async Aggregation
-        cursor = transactions_collection.aggregate(pipeline)
-        result = await cursor.to_list(length=None)
+        }]
 
         # Handle empty result
         if not result or not result[0]["totals"]:
@@ -400,13 +346,9 @@ async def generate_multi_currency_report(
             report_request.timezone_offset or 0,
         )
 
-        # [FIX] Async fetch all transactions
-        cursor = transactions_collection.find({
-            "user_id": current_user["_id"],
-            "date": {"$gte": start_date, "$lte": end_date},
-            **finite_amount_filter(),
-        })
-        all_transactions = await cursor.to_list(length=None)
+        all_transactions = await transactions_db.find_transactions(
+            current_user["_id"], date_from=start_date, date_to=end_date
+        )
 
         # Group by currency
         transactions_by_currency = {}
@@ -487,14 +429,9 @@ async def download_report_pdf(
             report_request.timezone_offset or 0,
         )
 
-        # [FIX] Async fetch transactions
-        cursor = transactions_collection.find({
-            "user_id": current_user["_id"],
-            "currency": currency.value,
-            "date": {"$gte": start_date, "$lte": end_date},
-            **finite_amount_filter(),
-        })
-        transactions = await cursor.to_list(length=None)
+        transactions = await transactions_db.find_transactions(
+            current_user["_id"], currency=currency.value, date_from=start_date, date_to=end_date
+        )
 
         currency_report = generate_currency_report(transactions, currency, start_date, end_date)
 

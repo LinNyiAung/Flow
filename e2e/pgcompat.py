@@ -25,7 +25,7 @@ from pymongo import MongoClient
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 from sql import docs as D  # noqa: E402
 from sql import tables as T  # noqa: E402
-from migration.convert import CONVERTERS, Quarantine  # noqa: E402  (same rules as the production data migration)
+from migration.convert import CONVERTERS, Quarantine, quarantine_row  # noqa: E402  (same rules as the production data migration)
 
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 MONGO_URL = os.environ.get("E2E_MONGO", "mongodb://127.0.0.1:27999")
@@ -36,7 +36,7 @@ ALL = {"users", "transactions", "goals", "budgets", "notifications", "notificati
 # Collections the backend code already stores in PostgreSQL. Updated with each migration
 # step so the suites follow the code; E2E_PG_COLLECTIONS (comma list or "all") overrides.
 MIGRATED = {"categories", "admins", "admin_action_logs", "app_versions", "users", "feedback", "ai_usage",
-            "notification_preferences", "notifications", "insights", "chat_sessions", "goals"}
+            "notification_preferences", "notifications", "insights", "chat_sessions", "goals", "transactions"}
 
 
 def migrated() -> set:
@@ -212,17 +212,29 @@ class PgCollection:
         return sorted({d.get(field) for d in self.find(flt)})
 
     # ----------------------------------------------------------- writes
+    def _quarantine(self, doc, reason):
+        """What the production migration does with a row it can't store: set it aside
+        (transactions into quarantined_transactions, other rows only in the report)."""
+        if self.name != "transactions":
+            print(f"[pgcompat] {self.name}: not stored, as in the migration: {reason}", file=sys.stderr)
+            return
+        row = quarantine_row(doc, reason)
+        with self.conn.cursor() as cur:
+            cur.execute("INSERT INTO quarantined_transactions (id, user_id, reason, original) VALUES (%s, %s, %s, %s)"
+                        " ON CONFLICT (id) DO NOTHING", (row["id"], row["user_id"], row["reason"], Jsonb(row["original"])))
+
+    def _insert_sql(self, row):
+        return sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+            sql.Identifier(self.name), sql.SQL(", ").join(map(sql.Identifier, row)), sql.SQL(", ").join(sql.Placeholder() * len(row)))
+
     def insert_one(self, doc):
         try:
             row = self._to_row(doc)
         except Quarantine as e:
-            # The production migration sets such rows aside instead of storing them.
-            print(f"[pgcompat] {self.name}: not stored, as in the migration: {e}", file=sys.stderr)
+            self._quarantine(doc, str(e))
             return Result(inserted_id=doc.get("_id"))
-        q = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
-            sql.Identifier(self.name), sql.SQL(", ").join(map(sql.Identifier, row)), sql.SQL(", ").join(sql.Placeholder() * len(row)))
         with self.conn.cursor() as cur:
-            cur.execute(q, list(row.values()))
+            cur.execute(self._insert_sql(row), list(row.values()))
             if self.name == "budgets":
                 for a in D.allocation_rows(row["id"], doc.get("category_budgets") or []):
                     cur.execute("INSERT INTO budget_allocations (budget_id, position, main_category, allocated_amount, spent_amount,"
@@ -231,8 +243,21 @@ class PgCollection:
         return Result(inserted_id=doc.get("_id"))
 
     def insert_many(self, docs, ordered=True):
-        ids = [self.insert_one(d).inserted_id for d in docs]
-        return Result(inserted_ids=ids)
+        if self.name == "budgets":
+            return Result(inserted_ids=[self.insert_one(d).inserted_id for d in docs])
+        rows = []
+        for d in docs:
+            try:
+                rows.append(self._to_row(d))
+            except Quarantine as e:
+                self._quarantine(d, str(e))
+        by_shape = {}
+        for row in rows:
+            by_shape.setdefault(tuple(row), []).append(list(row.values()))
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            for shape, values in by_shape.items():
+                cur.executemany(self._insert_sql(dict.fromkeys(shape)), values)
+        return Result(inserted_ids=[d.get("_id") for d in docs])
 
     def _update(self, flt, update, many: bool) -> Result:
         assignments, params = [], []

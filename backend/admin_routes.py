@@ -55,8 +55,8 @@ from sql import ai_usage as ai_usage_db
 from sql import notifications as notifications_db
 from sql import chat as chat_db
 from sql import goals as goals_db
+from sql import transactions as transactions_db
 from database import (
-    transactions_collection,
     budgets_collection,
 )
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
@@ -543,13 +543,11 @@ async def get_all_users(
 
     user_list = []
     for user in users:
-        transaction_count = await transactions_collection.count_documents({"user_id": user["_id"]})
+        transaction_count = await transactions_db.count_transactions(user["_id"])
         goals_count = await goals_db.count_goals(user["_id"])
 
-        last_transaction = await transactions_collection.find_one(
-            {"user_id": user["_id"]},
-            sort=[("created_at", -1)]
-        )
+        last_tx_at = await transactions_db.latest_created_at(user["_id"])
+        last_transaction = {"created_at": last_tx_at} if last_tx_at else None
         last_chat_at = await chat_db.latest_activity(user["_id"])
         last_chat = {"updated_at": last_chat_at} if last_chat_at else None
 
@@ -594,15 +592,13 @@ async def get_user_detail(
             detail="User not found"
         )
 
-    transaction_count = await transactions_collection.count_documents({"user_id": user_id})
+    transaction_count = await transactions_db.count_transactions(user_id)
     goals_count = await goals_db.count_goals(user_id)
     budgets_count = await budgets_collection.count_documents({"user_id": user_id})
     chat_sessions_count = await chat_db.count_sessions(user_id)
 
-    last_transaction = await transactions_collection.find_one(
-        {"user_id": user_id},
-        sort=[("created_at", -1)]
-    )
+    last_tx_at = await transactions_db.latest_created_at(user_id)
+    last_transaction = {"created_at": last_tx_at} if last_tx_at else None
     last_chat_at = await chat_db.latest_activity(user_id)
     last_chat = {"updated_at": last_chat_at} if last_chat_at else None
 
@@ -705,7 +701,6 @@ async def delete_user(
             detail="User not found"
         )
 
-    await transactions_collection.delete_many({"user_id": user_id})
     await budgets_collection.delete_many({"user_id": user_id})
 
     # PostgreSQL tables cascade from users; Mongo collections are cleared above.
@@ -743,17 +738,13 @@ async def get_user_stats(current_admin: dict = Depends(require_moderator_or_abov
     seven_days_ago = datetime.now(UTC) - timedelta(days=7)
     active_user_ids = set()
 
-    cursor_tx = transactions_collection.find({
-        "created_at": {"$gte": seven_days_ago}
-    }, {"user_id": 1})
-    async for t in cursor_tx:
-        active_user_ids.add(t["user_id"])
+    active_user_ids.update(await transactions_db.active_user_ids(seven_days_ago))
 
     active_user_ids.update(await chat_db.active_user_ids(seven_days_ago))
 
     active_users_last_7_days = len(active_user_ids)
 
-    total_transactions = await transactions_collection.count_documents({})
+    total_transactions = await transactions_db.count_transactions()
     total_goals = await goals_db.count_goals()
 
     return UserStatsResponse(
@@ -787,16 +778,13 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
     active_today = set()
     active_week = set()
 
-    async for t in transactions_collection.find({"created_at": {"$gte": today_start}}, {"user_id": 1}):
-        active_today.add(t["user_id"])
-
-    async for t in transactions_collection.find({"created_at": {"$gte": week_start}}, {"user_id": 1}):
-        active_week.add(t["user_id"])
+    active_today.update(await transactions_db.active_user_ids(today_start))
+    active_week.update(await transactions_db.active_user_ids(week_start))
 
     active_today.update(await chat_db.active_user_ids(today_start))
     active_week.update(await chat_db.active_user_ids(week_start))
 
-    total_transactions = await transactions_collection.count_documents({})
+    total_transactions = await transactions_db.count_transactions()
     total_goals = await goals_db.count_goals()
     total_budgets = await budgets_collection.count_documents({})
     total_chat_sessions = await chat_db.count_sessions()

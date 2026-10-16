@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Path
 
 from models import Currency
-from utils import get_current_user, get_user_balance, get_user_money_lock, invalidate_user_balance_cache
+from utils import get_current_user, get_user_balance, get_user_money_lock
 from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
@@ -15,6 +15,7 @@ from notification_service import (
 )
 
 from sql import goals as goals_db
+from sql import users as users_db
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
@@ -87,7 +88,7 @@ async def create_goal(
         await goals_db.insert_goal(new_goal)
 
         # Cache invalidation (+ AI data stale) before releasing the lock
-        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
     progress = (current_amount / new_goal["target_amount"] * 100) if new_goal["target_amount"] > 0 else 0
 
@@ -236,7 +237,7 @@ async def update_goal(
 
     updated_goal = await goals_db.update_goal(goal_id, update_data)
 
-    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+    await users_db.mark_ai_data_stale(current_user["_id"])
 
     return GoalResponse(
         id=updated_goal["_id"],
@@ -342,7 +343,7 @@ async def contribute_to_goal(
             )
 
         # Invalidate cached balances before releasing the lock
-        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
     # --- POST-UPDATE ACTIONS ---
     new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
@@ -403,7 +404,7 @@ async def delete_goal(
             detail="Failed to delete goal"
         )
 
-    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+    await users_db.mark_ai_data_stale(current_user["_id"])
 
     return {
         "message": "Goal deleted successfully",

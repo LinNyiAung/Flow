@@ -9,7 +9,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
-from database import transactions_collection
 from sql import users as users_db
 from tz_utils import app_wall_clock_now
 from dotenv import load_dotenv
@@ -21,15 +20,15 @@ def ensure_utc_datetime(dt) -> datetime:
     """Ensure datetime is timezone-aware UTC"""
     if dt is None:
         return None
-    
+
     if isinstance(dt, str):
         dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-    
+
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     elif dt.tzinfo != timezone.utc:
         dt = dt.astimezone(timezone.utc)
-    
+
     return dt
 
 
@@ -44,17 +43,17 @@ from ai_chatbot import FinancialDataProcessor, ChatServiceError, UserVectorStore
 
 class GeminiFinancialChatbot:
     """AI Chatbot with Gemini + Optimized RAG"""
-    
+
     def __init__(self):
         self.last_usage = {}
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
         if not self.google_api_key:
             print("Warning: GOOGLE_API_KEY not found")
-        
+
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             print("Warning: OPENAI_API_KEY not found (needed for embeddings)")
-        
+
         try:
             # Still use OpenAI embeddings (Gemini doesn't have good embedding API via langchain)
             self.embeddings = OpenAIEmbeddings(
@@ -64,7 +63,7 @@ class GeminiFinancialChatbot:
         except Exception as e:
             print(f"Error initializing embeddings: {e}")
             self.embeddings = None
-        
+
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1500,
             chunk_overlap=200,
@@ -74,9 +73,9 @@ class GeminiFinancialChatbot:
         self.user_vector_stores = UserVectorStoreCache(
             max_users=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
         )
-        
+
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        
+
         # Initialize the new Gemini client
         self.client = None
         if self.google_api_key:
@@ -86,7 +85,7 @@ class GeminiFinancialChatbot:
                 print("✅ Initialized new google.genai client")
             except Exception as e:
                 print(f"❌ Failed to initialize genai client: {e}")
-    
+
     async def _build_vector_store(self, user_id: str) -> Optional[InMemoryVectorStore]:
         processor = FinancialDataProcessor(user_id)
         documents = await processor.create_financial_documents()
@@ -122,7 +121,7 @@ class GeminiFinancialChatbot:
         return await self.user_vector_stores.acquire(
             user_id, lambda: self._build_vector_store(user_id)
         )
-    
+
     def refresh_user_data(self, user_id: str):
         """
         Invalidate user's vector store cache. 
@@ -130,10 +129,10 @@ class GeminiFinancialChatbot:
         """
         if self.user_vector_stores.invalidate(user_id):
             print(f"✅ Refreshed (Invalidated) data for user {user_id}")
-    
+
     def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
         """Build enhanced system prompt for Gemini with Myanmar language support and response style"""
-        
+
         # Define style-specific instructions
         style_instructions = {
             "normal": """
@@ -160,9 +159,9 @@ class GeminiFinancialChatbot:
     - Help users understand not just "what" but "why" and "how"
     """
         }
-        
+
         style_instruction = style_instructions.get(response_style, style_instructions["normal"])
-        
+
         return f"""You are Toe Pwar AI, an expert personal finance assistant with complete access to the user's transaction history, financial goals, and budgets.
 
 📅 Today's date: {today}
@@ -270,7 +269,7 @@ Your capabilities:
 Remember: Accuracy is more important than speed. Double-check dates, amounts, AND currencies! Respect their time and adapt your verbosity to their preference. Help users make informed decisions by considering their budgets, goals, and spending together.
 
 ဘာသာစကားကို သဘာဝကျကျ သုံးပါ။ (Use language naturally.)"""
-    
+
     def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, budgets_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
         """Build comprehensive user prompt with multi-currency support including budgets"""
         prompt = f"""User Profile:
@@ -280,17 +279,17 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
     Quick Overview:
     """
-        
+
         # Multi-currency balance display
         if summary.get("currencies"):
             prompt += "💰 BALANCES BY CURRENCY:\n"
             for currency, data in summary["currencies"].items():
                 currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
                 currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
-                
+
                 prompt += f"\n{currency_name}:\n"
                 prompt += f"  Total Balance: {currency_symbol}{data.get('balance', 0):,.2f}\n"
-                
+
                 # Goals allocation for this currency
                 if goals_summary:
                     curr_goals = [g for g in goals_summary.get('goals_by_currency', {}).get(currency, [])]
@@ -298,10 +297,10 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
                         prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:,.2f}\n"
                         prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:,.2f}\n"
-                
+
                 prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
                 prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
-                
+
                 # Budget info for this currency
                 if budgets_summary:
                     curr_budgets = budgets_summary.get('budgets_by_currency', {}).get(currency, {})
@@ -310,16 +309,16 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         budget_spent = curr_budgets.get('total_spent', 0)
                         budget_remaining = curr_budgets.get('remaining', 0)
                         budget_percentage = curr_budgets.get('percentage_used', 0)
-                        
+
                         prompt += f"  📊 Active Budget: {currency_symbol}{budget_allocated:,.2f}\n"
                         prompt += f"  💸 Budget Spent: {currency_symbol}{budget_spent:,.2f} ({budget_percentage:.1f}%)\n"
                         prompt += f"  💰 Budget Left: {currency_symbol}{budget_remaining:,.2f}\n"
-                        
+
                         if budget_percentage >= 100:
                             prompt += f"  ⚠️  BUDGET EXCEEDED!\n"
                         elif budget_percentage >= 80:
                             prompt += f"  🟡 High budget usage - caution needed\n"
-                
+
                 # Calculate available balance (after goals and considering budget)
                 available = data.get('balance', 0)
                 if goals_summary:
@@ -327,10 +326,10 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     if curr_goals:
                         allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
                         available -= allocated
-                
+
                 prompt += f"  ✨ Available Balance: {currency_symbol}{available:,.2f}\n"
-                
-                
+
+
         # Goals summary by currency
         if goals_summary and goals_summary.get('goals_by_currency'):
             prompt += "\n🎯 GOALS BY CURRENCY:\n"
@@ -339,25 +338,25 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 active = [g for g in curr_goals if g.get('status') == 'active']
                 achieved = [g for g in curr_goals if g.get('status') == 'achieved']
                 prompt += f"  {currency_name}: {len(active)} active, {len(achieved)} achieved\n"
-        
+
         # Budgets summary by currency
         if budgets_summary and budgets_summary.get('budgets_by_currency'):
             prompt += "\n📊 BUDGETS BY CURRENCY:\n"
             for currency, curr_budget_data in budgets_summary['budgets_by_currency'].items():
                 currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
-                
+
                 active_count = curr_budget_data.get('active_count', 0)
                 total_allocated = curr_budget_data.get('total_allocated', 0)
                 total_spent = curr_budget_data.get('total_spent', 0)
                 percentage = curr_budget_data.get('percentage_used', 0)
-                
+
                 status_icon = "🔴" if percentage >= 100 else ("🟡" if percentage >= 80 else "🟢")
-                
+
                 prompt += f"  {currency_name}: {active_count} active budget(s) - "
                 prompt += f"{currency_symbol}{total_spent:,.2f}/{currency_symbol}{total_allocated:,.2f} "
                 prompt += f"({percentage:.1f}%) {status_icon}\n"
-        
+
         prompt += f"""
 
     ╔══════════════════════════════════════════════════╗
@@ -375,9 +374,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
     {message}
 
     Please provide an accurate, helpful answer based on the financial data above. Remember to specify currencies when discussing amounts, and consider budgets, goals, and spending together!"""
-        
+
         return prompt
-    
+
     async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None, response_style: str = "normal"):
         """Stream chat response using Gemini Flash 2.5 with enhanced RAG"""
         try:
@@ -389,23 +388,23 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             user = await users_db.get_user(user_id)
             if not user:
                 raise ChatServiceError("We couldn't load your account. Please log in again.")
-            
+
             processor = FinancialDataProcessor(user_id)
-            
+
             # [FIX] Await async methods concurrently
             summary, goals, budgets = await asyncio.gather(
                 processor.get_financial_summary(),
                 processor.get_user_goals(),
                 processor.get_user_budgets()
             )
-            
+
             # Calculate goals summary (Logic remains same)
             goals_summary = None
             if goals:
                 active_goals = [g for g in goals if g["status"] == "active"]
                 achieved_goals = [g for g in goals if g["status"] == "achieved"]
                 total_allocated = sum(g["current_amount"] for g in active_goals)
-                
+
                 # Group goals by currency
                 goals_by_currency = {}
                 for goal in goals:
@@ -413,7 +412,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     if curr not in goals_by_currency:
                         goals_by_currency[curr] = []
                     goals_by_currency[curr].append(goal)
-                
+
                 goals_summary = {
                     "total_goals": len(goals),
                     "active_goals": len(active_goals),
@@ -421,7 +420,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     "total_allocated": total_allocated,
                     "goals_by_currency": goals_by_currency
                 }
-            
+
             # Calculate budgets summary (Logic remains same)
             budgets_summary = None
             if budgets:
@@ -437,88 +436,88 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                             'remaining': 0,
                             'percentage_used': 0
                         }
-                    
+
                     budgets_by_currency[curr]['budgets'].append(budget)
                     budgets_by_currency[curr]['active_count'] += 1
                     budgets_by_currency[curr]['total_allocated'] += budget['total_budget']
                     budgets_by_currency[curr]['total_spent'] += budget['total_spent']
-                
+
                 for curr, data in budgets_by_currency.items():
                     data['remaining'] = data['total_allocated'] - data['total_spent']
                     data['percentage_used'] = (data['total_spent'] / data['total_allocated'] * 100) if data['total_allocated'] > 0 else 0
-                
+
                 budgets_summary = {
                     "total_budgets": len(budgets),
                     "active_budgets": len(budgets),
                     "budgets_by_currency": budgets_by_currency
                 }
-            
+
             if summary.get("message") and not goals:
                 yield "I don't have access to your financial data yet. Please add some transactions or goals first!", None
                 return
-            
+
             # Get relevant context from RAG
             context = ""
-            
+
             # [FIX] Await async vector store creation
             vector_store, release_vector_store = await self._get_or_create_vector_store(user_id)
-            
+
             if vector_store:
                 try:
                     # Detect query type
                     temporal_keywords = ["latest", "last", "recent", "newest", "today", "yesterday", "this week"]
                     goal_keywords = ["goal", "save", "saving", "target", "progress", "achieve", "reached"]
                     budget_keywords = ["budget", "spending", "spend", "expense", "limit", "exceeded", "remaining"]
-                    
+
                     is_temporal = any(keyword in message.lower() for keyword in temporal_keywords)
                     is_goal_query = any(keyword in message.lower() for keyword in goal_keywords)
                     is_budget_query = any(keyword in message.lower() for keyword in budget_keywords)
-                    
+
                     k_value = 12 if (is_temporal or is_goal_query or is_budget_query) else 6
-                    
+
                     retriever = vector_store.as_retriever(
                         search_kwargs={"k": k_value}
                     )
-                    
+
                     # [FIX] Run blocking retriever in a thread
                     relevant_docs = await asyncio.to_thread(retriever.invoke, message)
-                    
+
                     # Prioritize important documents
                     if is_temporal or is_goal_query or is_budget_query:
                         priority_docs = [d for d in relevant_docs if d.metadata.get("priority") in ["critical", "high"]]
                         other_docs = [d for d in relevant_docs if d.metadata.get("priority") not in ["critical", "high"]]
                         relevant_docs = priority_docs + other_docs
-                    
+
                     context = "\n\n".join([doc.page_content for doc in relevant_docs])
-                    
+
                 except Exception as e:
                     print(f"❌ Error retrieving documents: {e}")
                     context = json.dumps(summary, indent=2)
                 finally:
                     # Let a retired (evicted/invalidated) store be deleted now that we're done.
                     release_vector_store()
-            
+
             # Prepare chat history
             history_text = ""
             if chat_history:
                 for msg in chat_history[-4:]:
                     role = "You" if msg.get("role") == "user" else "Assistant"
                     history_text += f"\n{role}: {msg.get('content', '')}"
-            
+
             # "Today" for the user is the app-timezone calendar date, not the UTC one.
             today = app_wall_clock_now().strftime("%A, %B %d, %Y")
-            
+
             system_prompt = self._build_system_prompt(today, response_style)
             user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text, message, today)
-            
-            
+
+
             # Adjust temperature based on style
             temperature_map = {
                 "normal": 0.3,
                 "concise": 0.2,
                 "explanatory": 0.4
             }
-            
+
             # Approximate token count (fallback when usage metadata is missing)
             estimated_input = len(system_prompt + user_prompt) // 4
             full_prompt = f"{system_prompt}\n\nUSER QUERY: {user_prompt}"
@@ -577,7 +576,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             # Log details server-side; the client gets a friendly error frame instead.
             print(f"❌ Gemini streaming chat error: {type(e).__name__}: {e}")
             raise ChatServiceError() from e
-            
+
 
 # Global Gemini chatbot instance
 try:

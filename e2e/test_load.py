@@ -61,9 +61,8 @@ def timed(name, method, path, budget_s, **kw):
     return r
 
 
-db.users.update_one({"_id": uid}, {"$unset": {"balances": ""}})
-timed("balance, cache miss over 30k rows", "GET", "/api/dashboard/balance", 2)
-timed("balance, cached", "GET", "/api/dashboard/balance", 0.5)
+timed("balance over 30k rows (live SQL sum)", "GET", "/api/dashboard/balance", 2)
+timed("balance, repeated", "GET", "/api/dashboard/balance", 0.5)
 timed("transaction list, first page", "GET", "/api/transactions", 1, params={"limit": 50})
 timed("transaction list, deep page (skip 20000)", "GET", "/api/transactions", 2, params={"limit": 50, "skip": 20000})
 timed("analytics fetch 10k outflows", "GET", "/api/transactions", 5, params={"limit": 10000, "transaction_type": "outflow", "currency": "usd"})
@@ -114,9 +113,9 @@ p50, p95 = statistics.median(lat), lat[int(len(lat) * 0.95) - 1]
 rec(f"burst: {len(res)} requests from 40 clients in {wall:.1f}s (p50 {p50:.2f}s, p95 {p95:.2f}s)",
     "PASS" if not errors and p95 < 10 else ("FAIL" if errors else "SLOW"), f"non-200: {dict((e, errors.count(e)) for e in set(errors))}" if errors else "")
 bal = c.get("/api/dashboard/balance", headers=H(tok), params={"currency": "usd"}).json()
-agg = list(db.transactions.aggregate([{"$match": {"user_id": uid, "currency": "usd"}},
-                                      {"$group": {"_id": None, "i": {"$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}},
-                                                  "o": {"$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}}}}]))[0]
+agg = db.sql("SELECT coalesce(sum(amount) FILTER (WHERE type = 'inflow'), 0)::float AS i,"
+             " coalesce(sum(amount) FILTER (WHERE type = 'outflow'), 0)::float AS o"
+             " FROM transactions WHERE user_id = %s AND currency = 'usd'", uid)[0]
 rec("balance consistent with DB after concurrent writes", "PASS" if abs(bal["balance"] - (agg["i"] - agg["o"])) < 0.01 else "FAIL",
     f"api={bal['balance']:.2f} db={agg['i'] - agg['o']:.2f}")
 

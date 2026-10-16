@@ -7,6 +7,7 @@ a row that satisfies the PostgreSQL schema, applying the SAME defaults the appli
 code used when it read those documents. Rows that can't be made valid raise
 `Quarantine(reason)` so the migration can set them aside instead of dropping them.
 """
+import uuid
 from datetime import datetime, UTC
 from typing import Any, Dict, Optional
 
@@ -16,6 +17,31 @@ CURRENCIES = {"usd", "mmk", "thb"}
 
 class Quarantine(Exception):
     """The document can't be stored as a valid row; carries the reason."""
+
+
+def json_safe(value: Any) -> Any:
+    """A Mongo document as JSON for the audit copy: dates as ISO text, NaN/inf as text."""
+    if isinstance(value, dict):
+        return {str(k): json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return repr(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def quarantine_row(doc: Dict[str, Any], reason: str) -> Dict[str, Any]:
+    """Row for quarantined_transactions: the untouched original plus why it was set aside."""
+    return {
+        "id": str(doc.get("_id") or uuid.uuid4()),
+        "user_id": str(doc["user_id"]) if doc.get("user_id") else None,
+        "reason": reason,
+        "original": json_safe(doc),
+    }
 
 
 def as_datetime(value: Any) -> Optional[datetime]:
@@ -80,9 +106,6 @@ def convert_user(doc: Dict[str, Any]) -> Dict[str, Any]:
         "password_reset_token_expiry": as_datetime(doc.get("password_reset_token_expiry")),
         "fcm_token": _str_or_none(doc.get("fcm_token")),
         "ai_data_stale": bool(doc.get("ai_data_stale", False)),
-        # Temporary cache columns: never carried over (recomputed on first read).
-        "balances": None,
-        "balances_version": None,
         "created_at": as_datetime(doc.get("created_at")) or MIGRATION_TIME,
     }
 
@@ -266,8 +289,68 @@ def convert_goal(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_FREQUENCIES = {"daily", "weekly", "monthly", "annually"}
+
+
+def _recurrence(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Nested recurrence -> columns. A config without a known frequency was never run by the
+    job (it failed validation), so it is stored as "not recurring"; parent links are kept."""
+    rec = doc.get("recurrence") if isinstance(doc.get("recurrence"), dict) else {}
+    config = rec.get("config") if isinstance(rec.get("config"), dict) else {}
+    frequency = config.get("frequency") if config.get("frequency") in _FREQUENCIES else None
+    parent = rec.get("parent_transaction_id")
+    return {
+        "recurrence_enabled": bool(rec.get("enabled")) and frequency is not None,
+        "recurrence_frequency": frequency,
+        "recurrence_day_of_week": _int_or(config.get("day_of_week"), None) if frequency else None,
+        "recurrence_day_of_month": _int_or(config.get("day_of_month"), None) if frequency else None,
+        "recurrence_month": _int_or(config.get("month"), None) if frequency else None,
+        "recurrence_day_of_year": _int_or(config.get("day_of_year"), None) if frequency else None,
+        "recurrence_end_date": as_datetime(config.get("end_date")) if frequency else None,
+        "recurrence_last_created_date": as_datetime(rec.get("last_created_date")),
+        "parent_transaction_id": str(parent) if parent else None,
+    }
+
+
+def convert_transaction(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Rows the old code could not show (no amount / NaN / unknown type ...) are quarantined.
+    A dangling parent_transaction_id is cleared by the migration script (it needs the full id set)."""
+    if not doc.get("_id") or not doc.get("user_id"):
+        raise Quarantine("transaction without id or user")
+    amount = finite_amount(doc.get("amount"))
+    if amount is None or amount <= 0:
+        raise Quarantine(f"amount not a positive finite number: {doc.get('amount')!r}")
+    if doc.get("type") not in ("inflow", "outflow"):
+        raise Quarantine(f"unknown type {doc.get('type')!r}")
+    for field in ("main_category", "sub_category"):
+        if not isinstance(doc.get(field), str):
+            raise Quarantine(f"{field} missing")
+    currency = doc.get("currency") or "usd"  # the code read a missing currency as usd
+    if currency not in CURRENCIES:
+        raise Quarantine(f"unknown currency {doc.get('currency')!r}")
+    date = as_datetime(doc.get("date"))
+    if date is None:
+        raise Quarantine(f"date missing or unreadable: {doc.get('date')!r}")
+    created = as_datetime(doc.get("created_at")) or MIGRATION_TIME
+    return {
+        "id": str(doc["_id"]),
+        "user_id": str(doc["user_id"]),
+        "type": doc["type"],
+        "main_category": doc["main_category"],
+        "sub_category": doc["sub_category"],
+        "amount": amount,
+        "currency": currency,
+        "date": date,
+        "description": doc.get("description") if isinstance(doc.get("description"), str) else None,
+        **_recurrence(doc),
+        "created_at": created,
+        "updated_at": as_datetime(doc.get("updated_at")) or created,  # the code fell back to created_at
+    }
+
+
 # Single-row converters (collection -> one table). Multi-table ones are listed separately.
 CONVERTERS = {"users": convert_user, "feedback": convert_feedback, "ai_usage": convert_ai_usage,
               "notification_preferences": convert_notification_preferences, "notifications": convert_notification,
-              "insights": convert_insight, "goals": convert_goal}
+              "insights": convert_insight, "goals": convert_goal,
+              "transactions": convert_transaction}
 MULTI_CONVERTERS = {"chat_sessions": convert_chat_session}

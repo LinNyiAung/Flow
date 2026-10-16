@@ -18,8 +18,9 @@ warnings.simplefilter("always", RuntimeWarning)
 import recurring_transaction_service as rts  # noqa: E402
 import notification_service as ns  # noqa: E402
 import insights_service as ins  # noqa: E402
-from database import (transactions_collection as T,  # noqa: E402
-                      budgets_collection as B)
+from database import budgets_collection as B  # noqa: E402
+from utils import get_user_balance  # noqa: E402
+T = __import__("pgcompat").async_collection("transactions")  # transactions live in PostgreSQL
 I = __import__("pgcompat").async_collection("insights")  # insights live in PostgreSQL
 G = __import__("pgcompat").async_collection("goals")  # goals live in PostgreSQL
 N = __import__("pgcompat").async_collection("notifications")  # notifications live in PostgreSQL
@@ -61,27 +62,27 @@ async def main():
 
     # ---------------- recurring transactions
     parent = await T.find_one({"_id": state["rec_parent"]})
-    before_children = await T.count_documents({"recurrence.parent_transaction_id": state["rec_parent"]})
-    cached_before = (await U.find_one({"_id": A})).get("balances")
+    before_children = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
+    currency = parent.get("currency", "usd")
+    outflow_before = (await get_user_balance(A, currency))["total_outflow"]
     exc, out, na = await run_job("recurring", rts.check_and_create_recurring_transactions)
-    after_children = await T.count_documents({"recurrence.parent_transaction_id": state["rec_parent"]})
-    if after_children == before_children:
-        after_children = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
+    after_children = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
     rec("recurring job ran without exception", "PASS" if exc is None else "FAIL", repr(exc) if exc else "")
     rec("daily recurrence started 3 days ago: occurrences created in one run", "INFO",
         f"{after_children - before_children} created (3 are due: days -2, -1, today)")
     if after_children - before_children < 3:
         rec("daily recurrence catches up at most 1 occurrence per run (stays behind permanently)", "BUG",
             f"created {after_children - before_children} of 3 due")
-    cached_after = (await U.find_one({"_id": A})).get("balances")
-    if cached_before and cached_after == cached_before and after_children > before_children:
-        rec("auto-created recurring tx not reflected in cached dashboard balance", "BUG",
-            f"cached usd balance still {cached_after.get('usd', {}).get('balance')}")
+    outflow_after = (await get_user_balance(A, currency))["total_outflow"]
+    expected = (after_children - before_children) * parent["amount"] * (1 if parent["type"] == "outflow" else 0)
+    if parent["type"] == "outflow" and abs(outflow_after - outflow_before - expected) > 0.005:
+        rec("auto-created recurring tx not reflected in the dashboard balance", "BUG",
+            f"outflow {outflow_before} -> {outflow_after}, expected +{expected}")
     else:
-        rec("balance cache invalidated after recurring creation", "PASS")
+        rec("balance reflects the auto-created recurring transactions", "PASS")
 
     exc, out, na = await run_job("recurring-2", rts.check_and_create_recurring_transactions)
-    again = await T.count_documents({"$or": [{"recurrence.parent_transaction_id": state["rec_parent"]}, {"parent_transaction_id": state["rec_parent"]}]})
+    again = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
     rec("second run same day is idempotent-ish", "INFO", f"total children now {again}")
 
     # malformed recurrence row (last_created_date: null) placed before a healthy one
@@ -92,14 +93,15 @@ async def main():
     await T.insert_one({**base, "_id": good_id, "date": now - timedelta(days=2), "created_at": now - timedelta(days=29),
                         "recurrence": {"enabled": True, "config": {"frequency": "daily"}, "last_created_date": now - timedelta(days=2)}})
     exc, out, na = await run_job("recurring-bad", rts.check_and_create_recurring_transactions)
-    good_children = await T.count_documents({"$or": [{"recurrence.parent_transaction_id": good_id}, {"parent_transaction_id": good_id}]})
+    good_children = await T.count_documents({"parent_transaction_id": good_id})
     if exc is not None or good_children == 0:
         rec("one recurrence with last_created_date=null aborts the whole job (other users' recurrences skipped)", "BUG",
             f"exception={exc!r}; healthy recurrence children={good_children}; {errlines(out)}")
     else:
         rec("job survives a malformed recurrence row", "PASS")
+    # Children first: deleting a parent clears its children's link (ON DELETE SET NULL).
+    await T.delete_many({"parent_transaction_id": {"$in": [bad_id, good_id]}})
     await T.delete_many({"_id": {"$in": [bad_id, good_id]}})
-    await T.delete_many({"$or": [{"recurrence.parent_transaction_id": {"$in": [bad_id, good_id]}}, {"parent_transaction_id": {"$in": [bad_id, good_id]}}]})
 
     # ---------------- goal target dates
     await G.update_one({"_id": state["goal_id"]}, {"$set": {"target_date": now + timedelta(days=7), "status": "active"}})

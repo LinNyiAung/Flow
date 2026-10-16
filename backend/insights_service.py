@@ -3,7 +3,8 @@ import uuid
 import os
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
-from database import budgets_collection, transactions_collection
+from database import budgets_collection
+from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import insights as insights_db
 from sql import users as users_db
@@ -15,7 +16,6 @@ from tz_utils import (
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
 from ai_chatbot_gemini import gemini_financial_chatbot
 from budget_service import get_running_budgets
-from finite_utils import finite_amount_filter
 import logging
 import re
 from typing import Optional
@@ -162,9 +162,7 @@ async def user_has_insight_data(user_id: str, insight_type: str = "weekly") -> b
         ranges = (get_week_date_range(), current_week_to_date_range())
 
     for start, end in ranges:
-        if await transactions_collection.count_documents(
-            {"user_id": user_id, "date": {"$gte": start, "$lte": end}, **finite_amount_filter()}, limit=1
-        ):
+        if await transactions_db.has_transactions_between(user_id, start, end):
             return True
     if await goals_db.user_has_goals(user_id):
         return True
@@ -473,78 +471,22 @@ Start by adding your first transaction or creating a financial goal. The more da
 
 async def get_financial_summary(user_id, start_date, end_date):
     """
-    Efficiently calculate financial totals and top categories using MongoDB Aggregation.
-    Returns summary stats instead of raw documents to prevent OOM errors.
+    Financial totals per currency and the top 5 spending categories per currency, summed in
+    the database (summary stats instead of raw rows).
     """
-    pipeline = [
-        # 1. Match transactions for this user in the date range
-        {
-            "$match": {
-                "user_id": user_id,
-                "date": {"$gte": start_date, "$lte": end_date},
-                # Legacy NaN/inf amounts would turn every total NaN.
-                **finite_amount_filter(),
-            }
-        },
-        # 2. Split into two calculation branches
-        {
-            "$facet": {
-                # Branch A: Calculate Totals by Currency
-                "summary": [
-                    {
-                        "$group": {
-                            "_id": "$currency",
-                            "inflow": {
-                                "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
-                            },
-                            "outflow": {
-                                "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
-                            },
-                            "count": {"$sum": 1}
-                        }
-                    }
-                ],
-                # Branch B: Get Top Spending Categories by Currency
-                "categories": [
-                    {"$match": {"type": "outflow"}},
-                    {
-                        "$group": {
-                            "_id": {
-                                "currency": "$currency",
-                                "name": {"$concat": ["$main_category", " > ", "$sub_category"]}
-                            },
-                            "amount": {"$sum": "$amount"}
-                        }
-                    },
-                    {"$sort": {"amount": -1}},
-                    {
-                        "$group": {
-                            "_id": "$_id.currency",
-                            "top_items": {
-                                "$push": {"category": "$_id.name", "amount": "$amount"}
-                            }
-                        }
-                    },
-                    # Keep only top 5 categories per currency
-                    {
-                        "$project": {
-                            "top_items": {"$slice": ["$top_items", 5]}
-                        }
-                    }
-                ]
-            }
-        }
-    ]
-
-    # [FIX] Async aggregation execution
-    cursor = transactions_collection.aggregate(pipeline)
-    result = await cursor.to_list(length=None)
-
-    # Default structure if no results
-    if not result:
-        return {"summary": [], "categories": []}
-
-    return result[0]
+    summary = await transactions_db.currency_totals(user_id, date_from=start_date, date_to=end_date)
+    top_items = {}
+    for c in await transactions_db.category_totals(user_id, type_="outflow", date_from=start_date, date_to=end_date):
+        items = top_items.setdefault(c["currency"], [])
+        if len(items) < 5:
+            items.append({"category": f"{c['main_category']} > {c['sub_category']}", "amount": c["total"]})
+    return {
+        "summary": [
+            {"_id": s["currency"], "inflow": s["total_inflow"], "outflow": s["total_outflow"], "count": s["count"]}
+            for s in summary
+        ],
+        "categories": [{"_id": currency, "top_items": items} for currency, items in top_items.items()],
+    }
 
 
 def _build_weekly_system_prompt():

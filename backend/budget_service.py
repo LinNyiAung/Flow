@@ -8,14 +8,15 @@ import uuid
 
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once
 from tz_utils import app_wall_clock_now
-from database import transactions_collection, budgets_collection
+from database import budgets_collection
+from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql.categories import get_categories_doc
 from budget_models import (
     BudgetPeriod, CategoryBudget, CategoryBudgetIn, AIBudgetSuggestion, BudgetStatus
 )
 from config import settings
-from finite_utils import finite_amount_filter, is_finite_number
+from finite_utils import is_finite_number
 from pymongo.errors import DuplicateKeyError
 import logging
 
@@ -60,15 +61,9 @@ class BudgetAnalyzer:
         """Analyze user's spending patterns over the last N months for specific currency"""
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
 
-        # [FIX] Async find
-        cursor = transactions_collection.find({
-            "user_id": self.user_id,
-            "date": {"$gte": cutoff_date},
-            "type": "outflow",
-            "currency": currency,
-            **finite_amount_filter(),  # legacy NaN/inf amounts would poison every statistic
-        })
-        transactions = await cursor.to_list(length=None)
+        transactions = await transactions_db.find_transactions(
+            self.user_id, type_="outflow", currency=currency, date_from=cutoff_date
+        )
 
         if len(transactions) < 10:
             return {
@@ -102,15 +97,9 @@ class BudgetAnalyzer:
                 "variability": "high" if len(amounts) > 1 and statistics.stdev(amounts) > data["total"] / data["count"] else "stable"
             }
 
-        # [FIX] Async find for income
-        income_cursor = transactions_collection.find({
-            "user_id": self.user_id,
-            "date": {"$gte": cutoff_date},
-            "type": "inflow",
-            "currency": currency,
-            **finite_amount_filter(),
-        })
-        income_transactions = await income_cursor.to_list(length=None)
+        income_transactions = await transactions_db.find_transactions(
+            self.user_id, type_="inflow", currency=currency, date_from=cutoff_date
+        )
 
         total_income = sum(t["amount"] for t in income_transactions)
         monthly_income = total_income / months if income_transactions else 0
@@ -742,36 +731,14 @@ async def update_budget_spent_amounts(
 
             budget_currency = budget.get("currency", "usd")
 
-            # 2. AGGREGATION PIPELINE (The Fix)
-            # Instead of fetching all transactions, we ask Mongo to sum them up by category
-            pipeline = [
-                {
-                    "$match": {
-                        "user_id": user_id,
-                        "type": "outflow",
-                        "currency": budget_currency,
-                        "date": {
-                            "$gte": budget["start_date"],
-                            "$lte": budget["end_date"]
-                        },
-                        # Excludes legacy NaN/inf amounts (one would make every sum NaN).
-                        **finite_amount_filter(),
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": {
-                            "main": "$main_category",
-                            "sub": "$sub_category"
-                        },
-                        "total_amount": {"$sum": "$amount"}
-                    }
-                }
+            # 2. Spend per (main, sub) category in the budget window, summed in the database
+            agg_results = [
+                {"_id": {"main": r["main_category"], "sub": r["sub_category"]}, "total_amount": r["total"]}
+                for r in await transactions_db.category_totals(
+                    user_id, type_="outflow", currency=budget_currency,
+                    date_from=budget["start_date"], date_to=budget["end_date"],
+                )
             ]
-
-            # Execute aggregation
-            cursor = transactions_collection.aggregate(pipeline)
-            agg_results = await cursor.to_list(length=None)
 
             # 3. Process Results in Memory
             # Create a lookup set for categories actually in the budget
@@ -1317,15 +1284,10 @@ async def _generate_ai_category_budgets(
     parent_start = parent_budget["start_date"]
     parent_end = parent_budget["end_date"]
 
-    # [FIX] Async find
-    cursor = transactions_collection.find({
-        "user_id": user_id,
-        "type": "outflow",
-        "currency": parent_budget.get("currency", "usd"),
-        "date": {"$gte": parent_start, "$lte": parent_end},
-        **finite_amount_filter(),
-    })
-    transactions = await cursor.to_list(length=None)
+    transactions = await transactions_db.find_transactions(
+        user_id, type_="outflow", currency=parent_budget.get("currency", "usd"),
+        date_from=parent_start, date_to=parent_end,
+    )
 
     if not transactions:
         # No data, use parent budget allocations (no AI call)

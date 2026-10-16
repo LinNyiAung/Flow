@@ -28,4 +28,4 @@ elif cmd == "add-admin":
     print("admin added", email, role)
 elif cmd == "user":
     u = d.users.find_one({"email": sys.argv[2]})
-    print({k: u.get(k) for k in ("subscription_type", "subscription_expires_at", "language", "fcm_token", "balances")})
+    print({k: u.get(k) for k in ("subscription_type", "subscription_expires_at", "language", "fcm_token")})

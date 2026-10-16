@@ -14,10 +14,9 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
 from budget_service import get_running_budgets
-from database import transactions_collection, budgets_collection
+from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import users as users_db
-from finite_utils import finite_amount_filter
 from tz_utils import app_today, app_wall_clock_now, days_until, stored_calendar_date
 from dotenv import load_dotenv
 
@@ -235,20 +234,11 @@ class FinancialDataProcessor:
         Get recent user transactions.
         Defaults to last 90 days or max 500 items to prevent OOM.
         """
-        # Legacy NaN/inf amounts are excluded (they'd poison every sum / average).
-        query = {"user_id": self.user_id, **finite_amount_filter()}
-
         # 1. Apply Date Filter (Default 90 days)
-        if days_back:
-            cutoff_date = app_wall_clock_now() - timedelta(days=days_back)
-            query["date"] = {"$gte": cutoff_date}
+        cutoff_date = app_wall_clock_now() - timedelta(days=days_back) if days_back else None
 
         try:
-            # [FIX] Async find
-            cursor = transactions_collection.find(query)\
-                .sort("date", -1)\
-                .limit(limit)
-            transactions = await cursor.to_list(length=limit)
+            transactions = await transactions_db.find_transactions(self.user_id, date_from=cutoff_date, limit=limit)
 
             print(f"Found {len(transactions)} transactions for user {self.user_id} (Limit: {limit}, Days: {days_back})")
             return transactions
@@ -286,43 +276,21 @@ class FinancialDataProcessor:
 
     async def get_financial_summary(self) -> Dict[str, Any]:
         """
-        Generate comprehensive financial summary using optimized MongoDB Aggregation.
+        Generate comprehensive financial summary (sums computed in the database).
         """
         try:
-            pipeline = [
-                {"$match": {"user_id": self.user_id, **finite_amount_filter()}},
-                {"$facet": {
-                    # 1. General stats per currency
-                    "currency_stats": [
-                        {"$group": {
-                            "_id": "$currency",
-                            "total_inflow": {"$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}},
-                            "total_outflow": {"$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}},
-                            "count": {"$sum": 1},
-                            "total_amount_sum": {"$sum": "$amount"},
-                            "min_date": {"$min": "$date"},
-                            "max_date": {"$max": "$date"}
-                        }}
-                    ],
-                    # 2. Category breakdowns per currency and type
-                    "category_stats": [
-                        {"$group": {
-                            "_id": {
-                                "currency": "$currency",
-                                "type": "$type",
-                                "category": {"$concat": ["$main_category", " > ", "$sub_category"]}
-                            },
-                            "total": {"$sum": "$amount"}
-                        }},
-                        {"$sort": {"total": -1}}
-                    ]
-                }}
-            ]
-
-            # [FIX] Async aggregation
-            cursor = transactions_collection.aggregate(pipeline)
-            results = await cursor.to_list(length=1)
-            result = results[0] if results else {}
+            result = {
+                "currency_stats": [
+                    {**s, "_id": s["currency"], "total_amount_sum": s["amount_sum"]}
+                    for s in await transactions_db.currency_totals(self.user_id)
+                ],
+                "category_stats": [
+                    {"_id": {"currency": c["currency"], "type": c["type"],
+                             "category": f"{c['main_category']} > {c['sub_category']}"},
+                     "total": c["total"]}
+                    for c in await transactions_db.category_totals(self.user_id)
+                ],
+            }
 
             # Process results into expected structure
             currency_summaries = {}
@@ -364,7 +332,7 @@ class FinancialDataProcessor:
                 if len(target_dict) < 10:
                     target_dict[cat_name] = amount
 
-            print(f"✅ Generated summary for user {self.user_id} using Aggregation Pipeline")
+            print(f"✅ Generated summary for user {self.user_id}")
 
             return {
                 "currencies": currency_summaries,

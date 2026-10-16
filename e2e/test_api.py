@@ -335,7 +335,6 @@ def t_transactions():
     bug("...and the transaction list 500s too", lst.status_code == 500, lst.status_code)
     for t in nan_docs:
         db.transactions.delete_one({"_id": t["_id"]})
-    db.users.update_one({"_id": S["A_id"]}, {"$unset": {"balances": ""}})
 
     r = tx(A, main_category="Not A Category", sub_category="Nope")
     bug("arbitrary category names accepted", r.status_code == 200, r.status_code)

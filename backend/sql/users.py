@@ -178,19 +178,3 @@ async def set_device_token(user_id: str, token: str) -> int:
 
 async def clear_device_token(user_id: str) -> None:
     await update_user(user_id, fcm_token=None)
-
-
-# ------------------------------------------------------------------ temporary balance cache
-async def invalidate_balance_cache(user_id: str, mark_ai_stale: bool = False) -> None:
-    fields: Dict[str, Any] = {"balances": None,
-                              "balances_version": func.coalesce(users.c.balances_version, 0) + 1}
-    if mark_ai_stale:
-        fields["ai_data_stale"] = True
-    await update_user(user_id, **fields)
-
-
-async def write_balance_cache(user_id: str, balances: Dict[str, Any], version_read: Optional[int]) -> bool:
-    """Store computed balances only if no invalidation happened since version_read was read."""
-    condition = (users.c.balances_version.is_(None) if version_read is None
-                 else users.c.balances_version == version_read)
-    return await update_user(user_id, condition, balances=balances) > 0
