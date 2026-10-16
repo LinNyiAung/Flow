@@ -41,7 +41,6 @@ from models import (
 )
 from config import settings
 from sql import users as users_db
-from database import budgets_collection
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -507,9 +506,7 @@ async def delete_account(
     try:
         user_id = current_user["_id"]
 
-        await budgets_collection.delete_many({"user_id": user_id})
-
-        # PostgreSQL tables cascade from users; Mongo collections are cleared above.
+        # Every table cascades from users (ON DELETE CASCADE): one atomic delete.
         if await users_db.delete_user(user_id) == 0:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

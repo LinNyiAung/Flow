@@ -25,7 +25,7 @@ from pymongo import MongoClient
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 from sql import docs as D  # noqa: E402
 from sql import tables as T  # noqa: E402
-from migration.convert import CONVERTERS, Quarantine, quarantine_row  # noqa: E402  (same rules as the production data migration)
+from migration.convert import CONVERTERS, MULTI_CONVERTERS, Quarantine, quarantine_row  # noqa: E402  (same rules as the production data migration)
 
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 MONGO_URL = os.environ.get("E2E_MONGO", "mongodb://127.0.0.1:27999")
@@ -36,7 +36,7 @@ ALL = {"users", "transactions", "goals", "budgets", "notifications", "notificati
 # Collections the backend code already stores in PostgreSQL. Updated with each migration
 # step so the suites follow the code; E2E_PG_COLLECTIONS (comma list or "all") overrides.
 MIGRATED = {"categories", "admins", "admin_action_logs", "app_versions", "users", "feedback", "ai_usage",
-            "notification_preferences", "notifications", "insights", "chat_sessions", "goals", "transactions"}
+            "notification_preferences", "notifications", "insights", "chat_sessions", "goals", "transactions", "budgets"}
 
 
 def migrated() -> set:
@@ -173,8 +173,6 @@ class PgCollection:
             row = D.transaction_row(doc)
         elif self.name == "insights":
             row = D.insight_row(doc)
-        elif self.name == "budgets":
-            row = D.budget_row(doc)
         else:
             row = {(self.pk if k == "_id" else k): v for k, v in doc.items()}
         unknown = [k for k in row if k not in self.cols]
@@ -227,7 +225,29 @@ class PgCollection:
         return sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
             sql.Identifier(self.name), sql.SQL(", ").join(map(sql.Identifier, row)), sql.SQL(", ").join(sql.Placeholder() * len(row)))
 
+    def _insert_allocations(self, cur, allocations):
+        for a in allocations:
+            a = {k: (Decimal(str(v)) if isinstance(v, float) else v) for k, v in a.items()}
+            cur.execute("INSERT INTO budget_allocations (budget_id, position, main_category, allocated_amount, spent_amount,"
+                        " percentage_used, is_exceeded) VALUES (%(budget_id)s, %(position)s, %(main_category)s, %(allocated_amount)s,"
+                        " %(spent_amount)s, %(percentage_used)s, %(is_exceeded)s)", a)
+
+    def _insert_budget(self, doc):
+        """Budgets go through the migration converter too (budget row + allocation rows)."""
+        try:
+            converted = MULTI_CONVERTERS["budgets"](doc)
+        except Quarantine as e:
+            self._quarantine(doc, str(e))
+            return Result(inserted_id=doc.get("_id"))
+        row = {k: self._value(k, v) for k, v in converted["budget"].items()}
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            cur.execute(self._insert_sql(row), list(row.values()))
+            self._insert_allocations(cur, converted["allocations"])
+        return Result(inserted_id=doc.get("_id"))
+
     def insert_one(self, doc):
+        if self.name == "budgets":
+            return self._insert_budget(doc)
         try:
             row = self._to_row(doc)
         except Quarantine as e:
@@ -235,11 +255,6 @@ class PgCollection:
             return Result(inserted_id=doc.get("_id"))
         with self.conn.cursor() as cur:
             cur.execute(self._insert_sql(row), list(row.values()))
-            if self.name == "budgets":
-                for a in D.allocation_rows(row["id"], doc.get("category_budgets") or []):
-                    cur.execute("INSERT INTO budget_allocations (budget_id, position, main_category, allocated_amount, spent_amount,"
-                                " percentage_used, is_exceeded) VALUES (%(budget_id)s, %(position)s, %(main_category)s, %(allocated_amount)s,"
-                                " %(spent_amount)s, %(percentage_used)s, %(is_exceeded)s)", a)
         return Result(inserted_id=doc.get("_id"))
 
     def insert_many(self, docs, ordered=True):
@@ -261,13 +276,15 @@ class PgCollection:
 
     def _update(self, flt, update, many: bool) -> Result:
         assignments, params = [], []
+        categories = None
         for field, value in (update.get("$set") or {}).items():
             if self.name == "transactions" and field == "recurrence":
                 for col, v in D.recurrence_columns(value).items():
                     assignments.append(sql.Identifier(col) + sql.SQL(" = %s")); params.append(v)
                 continue
             if self.name == "budgets" and field == "category_budgets":
-                raise NotImplementedError("pgcompat: $set category_budgets")
+                categories = value
+                continue
             col = self._col(field)
             assignments.append(sql.Identifier(col) + sql.SQL(" = %s")); params.append(self._value(col, value))
         for field in (update.get("$unset") or {}):
@@ -281,15 +298,21 @@ class PgCollection:
             col = self._col(field)
             assignments.append(sql.Identifier(col) + sql.SQL(" = COALESCE({}, 0) + %s").format(sql.Identifier(col)))
             params.append(inc)
+        if not assignments and categories is not None:
+            assignments.append(sql.SQL("updated_at = updated_at"))  # only the allocations change
         if not assignments:
             raise NotImplementedError(f"pgcompat: update {update}")
         where, wparams = self._where(flt)
         target = sql.SQL("SELECT ctid FROM {} WHERE ").format(sql.Identifier(self.name)) + where + (sql.SQL("") if many else sql.SQL(" LIMIT 1"))
         q = (sql.SQL("UPDATE {} SET ").format(sql.Identifier(self.name)) + sql.SQL(", ").join(assignments)
-             + sql.SQL(" WHERE ctid IN (") + target + sql.SQL(")"))
+             + sql.SQL(" WHERE ctid IN (") + target + sql.SQL(")") + sql.SQL(" RETURNING id" if categories is not None else ""))
         with self.conn.cursor() as cur:
             cur.execute(q, params + wparams)
             n = cur.rowcount
+            if categories is not None:
+                for (budget_id,) in cur.fetchall():
+                    cur.execute("DELETE FROM budget_allocations WHERE budget_id = %s", (budget_id,))
+                    self._insert_allocations(cur, D.allocation_rows(budget_id, categories))
         return Result(matched=n, modified=n)
 
     def update_one(self, flt, update, upsert=False):

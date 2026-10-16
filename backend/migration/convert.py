@@ -348,9 +348,97 @@ def convert_transaction(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _finite(value: Any, default: float = 0.0) -> float:
+    number = finite_amount(value)
+    return default if number is None else number
+
+
+def _total_excluding_subcategories(allocations) -> float:
+    """budget_service.calculate_total_budget_excluding_subcategories (legacy budgets without a
+    total): "Main - Sub" allocations count only when "Main" itself is not budgeted."""
+    mains = {a["main_category"] for a in allocations if " - " not in a["main_category"]}
+    total = 0.0
+    for a in allocations:
+        name = a["main_category"]
+        if " - " not in name or name.split(" - ", 1)[0] not in mains:
+            total += a["allocated_amount"]
+    return round(total, 2)
+
+
+def convert_budget(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """-> {"budget": row, "allocations": [rows]}. Allocation numbers the old code could not
+    show (NaN/inf/negative) become 0 (the API showed them as 0 and the next recompute
+    rewrites spend anyway); entries without a category name are dropped."""
+    if not doc.get("_id") or not doc.get("user_id"):
+        raise Quarantine("budget without id or user")
+    start, end = as_datetime(doc.get("start_date")), as_datetime(doc.get("end_date"))
+    if start is None or end is None:
+        raise Quarantine("budget without readable start/end dates")
+    if end < start:
+        raise Quarantine("budget ends before it starts")
+    currency = doc.get("currency") or "usd"
+    if currency not in CURRENCIES:
+        raise Quarantine(f"unknown currency {doc.get('currency')!r}")
+    budget_id = str(doc["_id"])
+    allocations = []
+    for cat in doc.get("category_budgets") or []:
+        if not isinstance(cat, dict) or not isinstance(cat.get("main_category"), str) or not cat["main_category"]:
+            continue
+        pct = _finite(cat.get("percentage_used"))
+        allocations.append({
+            "budget_id": budget_id,
+            "position": len(allocations),
+            "main_category": cat["main_category"],
+            "allocated_amount": max(_finite(cat.get("allocated_amount")), 0.0),
+            "spent_amount": _finite(cat.get("spent_amount")),
+            "percentage_used": pct if abs(pct) < 1e7 else 0.0,
+            "is_exceeded": bool(cat.get("is_exceeded", False)),
+        })
+    total = finite_amount(doc.get("total_budget"))
+    if total is None or total < 0:
+        total = _total_excluding_subcategories(allocations)  # the code's fallback for a missing total
+    spent = _finite(doc.get("total_spent"))
+    remaining = finite_amount(doc.get("remaining_budget"))
+    pct = _finite(doc.get("percentage_used"))
+    created = as_datetime(doc.get("created_at")) or MIGRATION_TIME
+    name = doc.get("name")
+    return {
+        "budget": {
+            "id": budget_id,
+            "user_id": str(doc["user_id"]),
+            "name": name if isinstance(name, str) and name.strip() else "Budget",
+            "description": doc.get("description") if isinstance(doc.get("description"), str) else None,
+            "period": _choice(doc.get("period"), {"weekly", "monthly", "yearly", "custom"}, "custom"),
+            "currency": currency,
+            "start_date": start,
+            "end_date": end,
+            "total_budget": total,
+            "total_spent": spent,
+            "remaining_budget": round(total - spent, 2) if remaining is None else remaining,
+            "percentage_used": pct if abs(pct) < 1e7 else 0.0,
+            # Stored status is refreshed from the dates on first read when stale.
+            "status": _choice(doc.get("status"), {"upcoming", "active", "completed", "exceeded"}, "active"),
+            "is_active": bool(doc.get("is_active", False)),
+            "auto_create_enabled": bool(doc.get("auto_create_enabled", False)),
+            "auto_create_with_ai": bool(doc.get("auto_create_with_ai", False)),
+            "parent_budget_id": str(doc["parent_budget_id"]) if doc.get("parent_budget_id") else None,
+            "rolled_over_to": str(doc["rolled_over_to"]) if doc.get("rolled_over_to") else None,
+            "auto_create_claimed_at": as_datetime(doc.get("auto_create_claimed_at")),
+            # Missing flags meant "not yet" to the code ({"$ne": True}).
+            "started_notified": doc.get("started_notified") is True,
+            "started_notified_at": as_datetime(doc.get("started_notified_at")),
+            "ending_soon_notified": doc.get("ending_soon_notified") is True,
+            "ending_soon_notified_at": as_datetime(doc.get("ending_soon_notified_at")),
+            "created_at": created,
+            "updated_at": as_datetime(doc.get("updated_at")) or created,
+        },
+        "allocations": allocations,
+    }
+
+
 # Single-row converters (collection -> one table). Multi-table ones are listed separately.
 CONVERTERS = {"users": convert_user, "feedback": convert_feedback, "ai_usage": convert_ai_usage,
               "notification_preferences": convert_notification_preferences, "notifications": convert_notification,
               "insights": convert_insight, "goals": convert_goal,
               "transactions": convert_transaction}
-MULTI_CONVERTERS = {"chat_sessions": convert_chat_session}
+MULTI_CONVERTERS = {"chat_sessions": convert_chat_session, "budgets": convert_budget}

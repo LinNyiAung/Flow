@@ -56,9 +56,7 @@ from sql import notifications as notifications_db
 from sql import chat as chat_db
 from sql import goals as goals_db
 from sql import transactions as transactions_db
-from database import (
-    budgets_collection,
-)
+from sql import budgets as budgets_db
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
 from config import settings
 
@@ -594,7 +592,7 @@ async def get_user_detail(
 
     transaction_count = await transactions_db.count_transactions(user_id)
     goals_count = await goals_db.count_goals(user_id)
-    budgets_count = await budgets_collection.count_documents({"user_id": user_id})
+    budgets_count = await budgets_db.count_budgets(user_id)
     chat_sessions_count = await chat_db.count_sessions(user_id)
 
     last_tx_at = await transactions_db.latest_created_at(user_id)
@@ -701,9 +699,7 @@ async def delete_user(
             detail="User not found"
         )
 
-    await budgets_collection.delete_many({"user_id": user_id})
-
-    # PostgreSQL tables cascade from users; Mongo collections are cleared above.
+    # Every table cascades from users (ON DELETE CASCADE): one atomic delete.
     if await users_db.delete_user(user_id) == 0:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -786,7 +782,7 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
 
     total_transactions = await transactions_db.count_transactions()
     total_goals = await goals_db.count_goals()
-    total_budgets = await budgets_collection.count_documents({})
+    total_budgets = await budgets_db.count_budgets()
     total_chat_sessions = await chat_db.count_sessions()
     total_notifications = await notifications_db.count_all()
 

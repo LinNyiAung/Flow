@@ -117,6 +117,8 @@ def budget_row(doc: Dict[str, Any]) -> Dict[str, Any]:
     for key in _BUDGET_MONEY:
         if key in row:
             row[key] = money(row[key])
+    if row.get("percentage_used") is not None:
+        row["percentage_used"] = Decimal(str(round(float(row["percentage_used"]), 2)))
     return row
 
 

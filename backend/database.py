@@ -1,5 +1,4 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING
 from config import settings
 import uuid
 from datetime import datetime, UTC
@@ -12,7 +11,6 @@ def get_database():
     return database
 
 # ==================== COLLECTIONS ====================
-budgets_collection = database.budgets
 
 # Admin collections
 
@@ -162,34 +160,7 @@ async def initialize_categories():
 async def create_db_indexes():
     """Create indexes - Must be async now"""
     try:
-        await budgets_collection.create_index(
-            [("user_id", ASCENDING), ("parent_budget_id", ASCENDING), ("start_date", ASCENDING)],
-            unique=True,
-            background=True,
-            partialFilterExpression={
-                "parent_budget_id": {"$type": "string"} 
-            }
-        )
-
-        # Child lookups ("does budget X already have a next-period budget?") for the nightly
-        # rollover job and auto-create. Deliberately NOT partial: the planner can't prove
-        # that {"parent_budget_id": "<id>"} satisfies a {"$type": "string"} partial filter,
-        # so the partial unique index above is never used for these queries.
-        try:
-            await budgets_collection.create_index(
-                [("parent_budget_id", ASCENDING)],
-                name="parent_budget_id_lookup",
-                background=True,
-            )
-            # Nightly rollover candidates: auto-create budgets whose period ended.
-            await budgets_collection.create_index(
-                [("auto_create_enabled", ASCENDING), ("end_date", ASCENDING)],
-                name="rollover_candidates",
-                background=True,
-                partialFilterExpression={"auto_create_enabled": True},
-            )
-        except Exception as e:
-            print(f"⚠️ Could not create budget rollover indexes: {e}")
+        # (Budget indexes: PostgreSQL uq_budgets_rollover_child, ix_budgets_*.)
 
         # (Transaction indexes: PostgreSQL ix_transactions_*; case-insensitive unique e-mails:
         # PostgreSQL index uq_users_lower_email.)

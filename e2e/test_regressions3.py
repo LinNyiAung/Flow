@@ -10,7 +10,7 @@ import stubenv  # noqa: E402
 os.chdir(stubenv.BACKEND)
 import httpx  # noqa: E402
 import notification_service as ns  # noqa: E402
-from database import budgets_collection as B  # noqa: E402
+B = __import__("pgcompat").async_collection("budgets")  # budgets live in PostgreSQL
 N = __import__("pgcompat").async_collection("notifications")  # notifications live in PostgreSQL
 U = __import__("pgcompat").async_collection("users")  # users live in PostgreSQL
 

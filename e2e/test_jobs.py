@@ -18,7 +18,7 @@ warnings.simplefilter("always", RuntimeWarning)
 import recurring_transaction_service as rts  # noqa: E402
 import notification_service as ns  # noqa: E402
 import insights_service as ins  # noqa: E402
-from database import budgets_collection as B  # noqa: E402
+B = __import__("pgcompat").async_collection("budgets")  # budgets live in PostgreSQL
 from utils import get_user_balance  # noqa: E402
 T = __import__("pgcompat").async_collection("transactions")  # transactions live in PostgreSQL
 I = __import__("pgcompat").async_collection("insights")  # insights live in PostgreSQL

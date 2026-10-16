@@ -8,7 +8,7 @@ import uuid
 
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once
 from tz_utils import app_wall_clock_now
-from database import budgets_collection
+from sql import budgets as budgets_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql.categories import get_categories_doc
@@ -17,7 +17,7 @@ from budget_models import (
 )
 from config import settings
 from finite_utils import is_finite_number
-from pymongo.errors import DuplicateKeyError
+from sqlalchemy.exc import IntegrityError
 import logging
 
 
@@ -628,7 +628,7 @@ async def refresh_budget_state_if_stale(budget: Dict) -> Dict:
         return budget
     try:
         await update_budget_spent_amounts(budget["user_id"], budget["_id"], budget_doc=dict(budget))
-        fresh = await budgets_collection.find_one({"_id": budget["_id"]})
+        fresh = await budgets_db.get_budget(budget["_id"])
         if fresh:
             return fresh
     except Exception as e:
@@ -636,7 +636,7 @@ async def refresh_budget_state_if_stale(budget: Dict) -> Dict:
     # Fallback: at least return (and try to persist) the date-derived state.
     patched = {**budget, **derived}
     try:
-        await budgets_collection.update_one({"_id": budget["_id"]}, {"$set": derived})
+        await budgets_db.update_budget(budget["_id"], derived)
     except Exception:
         pass
     return patched
@@ -668,17 +668,14 @@ async def get_running_budgets(
     otherwise only budgets whose stored status/is_active are stale are recomputed.
     """
     wall_now = app_wall_clock_now()
-    query = {"user_id": user_id, "start_date": {"$lte": wall_now}, "end_date": {"$gte": wall_now}}
-    if currency:
-        query["currency"] = currency
-    candidates = await budgets_collection.find(query).sort("created_at", -1).to_list(length=None)
+    candidates = await budgets_db.budgets_overlapping(user_id, wall_now, wall_now, currency)
 
     running: List[Dict] = []
     for budget in candidates:
         try:
             if recompute:
                 await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=dict(budget))
-                budget = await budgets_collection.find_one({"_id": budget["_id"]}) or budget
+                budget = await budgets_db.get_budget(budget["_id"]) or budget
             else:
                 budget = await refresh_budget_state_if_stale(budget)
         except Exception as e:
@@ -695,8 +692,8 @@ async def update_budget_spent_amounts(
     trigger_auto_create: bool = True,
 ):
     """
-    Recalculate spent amounts for a budget using MongoDB Aggregation for O(1) memory usage.
-    Uses Optimistic Locking to prevent race conditions.
+    Recalculate spent amounts for a budget (spend is summed in the database).
+    Uses optimistic locking (updated_at must be unchanged) to prevent race conditions.
 
     trigger_auto_create: when the recompute finds the budget COMPLETED and auto-create is
     enabled, schedule auto_create_next_budget in the background. The daily rollover job
@@ -711,7 +708,7 @@ async def update_budget_spent_amounts(
             if attempt == 0 and budget_doc:
                 budget = budget_doc
             else:
-                budget = await budgets_collection.find_one({"_id": budget_id, "user_id": user_id})
+                budget = await budgets_db.get_budget(budget_id, user_id)
 
             if not budget:
                 return
@@ -783,11 +780,12 @@ async def update_budget_spent_amounts(
             for cat_budget in budget["category_budgets"]:
                 budget_category = cat_budget["main_category"]
 
-                spent = category_spent_map.get(budget_category, 0.0)
+                spent = round(category_spent_map.get(budget_category, 0.0), 2)
                 allocated = cat_budget["allocated_amount"]
 
-                # Calculate percentage
-                new_cat_percentage = (spent / allocated * 100) if allocated > 0 else 0
+                # Percentages are stored with 2 decimals; round here so the threshold checks
+                # compare exactly what is stored (79.996% is stored, shown and alerted as 80%).
+                new_cat_percentage = round(spent / allocated * 100, 2) if allocated > 0 else 0
 
                 cat_budget["spent_amount"] = spent
                 cat_budget["percentage_used"] = new_cat_percentage
@@ -801,8 +799,9 @@ async def update_budget_spent_amounts(
             total_budget = budget.get("total_budget")
             if total_budget is None:
                 total_budget = calculate_total_budget_excluding_subcategories(budget["category_budgets"])
+            total_spent_accum = round(total_spent_accum, 2)
             remaining = total_budget - total_spent_accum
-            new_total_percentage = (total_spent_accum / total_budget * 100) if total_budget > 0 else 0
+            new_total_percentage = round(total_spent_accum / total_budget * 100, 2) if total_budget > 0 else 0
 
             # Recalculate status from the FRESH totals (not the stale stored ones), so removing
             # an overspend flips the budget back to active immediately.
@@ -814,26 +813,18 @@ async def update_budget_spent_amounts(
 
             # 4. Attempt Atomic Update with Optimistic Lock
             #
-            result = await budgets_collection.update_one(
-                {
-                    "_id": budget_id,
-                    "updated_at": current_version_timestamp
-                },
-                {
-                    "$set": {
-                        "category_budgets": budget["category_budgets"],
-                        "total_budget": total_budget,
-                        "total_spent": total_spent_accum,
-                        "remaining_budget": remaining,
-                        "percentage_used": new_total_percentage,
-                        "status": status_enum.value,
-                        "is_active": is_active,
-                        "updated_at": datetime.now(timezone.utc)
-                    }
-                }
-            )
+            updated = await budgets_db.update_budget(budget_id, {
+                "category_budgets": budget["category_budgets"],
+                "total_budget": total_budget,
+                "total_spent": total_spent_accum,
+                "remaining_budget": remaining,
+                "percentage_used": new_total_percentage,
+                "status": status_enum.value,
+                "is_active": is_active,
+                "updated_at": datetime.now(timezone.utc)
+            }, expected_updated_at=current_version_timestamp)
 
-            if result.modified_count == 1:
+            if updated == 1:
                 # === SUCCESS ===
 
                 # Check notifications (Async - fire and forget if needed, but here we await)
@@ -882,7 +873,7 @@ async def update_budget_spent_amounts(
                     and status_enum == BudgetStatus.COMPLETED
                     and budget.get("auto_create_enabled")
                 ):
-                    updated_budget = await budgets_collection.find_one({"_id": budget_id})
+                    updated_budget = await budgets_db.get_budget(budget_id)
                     try:
                         if updated_budget:
                             task = asyncio.get_running_loop().create_task(auto_create_next_budget(updated_budget))
@@ -917,15 +908,13 @@ async def _find_child_budget(budget: Dict) -> Optional[Dict]:
     Any budget auto-created from `budget` ({_id} only, or None). Queries by (user_id,
     parent_budget_id) so it is served by the budgets indexes, not a collection scan.
     """
-    return await budgets_collection.find_one(
-        {"user_id": budget["user_id"], "parent_budget_id": budget["_id"]}, {"_id": 1}
-    )
+    return await budgets_db.find_child(budget["user_id"], budget["_id"])
 
 
 async def _mark_rolled_over(budget_id: str, child_id: str) -> None:
     """Remember that budget_id already has its next-period child (skipped by the nightly job)."""
     try:
-        await budgets_collection.update_one({"_id": budget_id}, {"$set": {"rolled_over_to": child_id}})
+        await budgets_db.set_rolled_over(budget_id, child_id)
     except Exception as e:
         logger.warning(f"Could not mark budget {budget_id} as rolled over: {e}")
 
@@ -951,11 +940,7 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
     stats = {"candidates": 0, "created": 0, "skipped": 0, "not_created": 0, "failed": 0, "already_rolled_over": 0}
 
     try:
-        unmarked = await budgets_collection.find({
-            "auto_create_enabled": True,
-            "end_date": {"$lt": wall_now},
-            "rolled_over_to": {"$exists": False},
-        }).to_list(length=None)
+        unmarked = await budgets_db.rollover_candidates(wall_now)
     except Exception as e:
         logger.error(f"Budget rollover job: failed to load candidates: {e}")
         return stats
@@ -985,7 +970,7 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
                 await update_budget_spent_amounts(
                     budget["user_id"], budget_id, budget_doc=dict(budget), trigger_auto_create=False
                 )
-                budget = await budgets_collection.find_one({"_id": budget_id}) or budget
+                budget = await budgets_db.get_budget(budget_id) or budget
             if budget.get("status") != BudgetStatus.COMPLETED.value or not budget.get("auto_create_enabled"):
                 stats["skipped"] += 1
                 continue
@@ -1012,16 +997,9 @@ async def update_relevant_budgets(user_id: str, transaction_date: datetime, tran
     if transaction_date.tzinfo is None:
         transaction_date = transaction_date.replace(tzinfo=timezone.utc)
 
-    query = {
-        "user_id": user_id,
-        "currency": transaction_currency,
-        "start_date": {"$lte": transaction_date},
-        "end_date": {"$gte": transaction_date}
-    }
-
-    # [FIX] Async find
-    cursor = budgets_collection.find(query)
-    relevant_budgets = await cursor.to_list(length=None)
+    relevant_budgets = await budgets_db.budgets_overlapping(
+        user_id, transaction_date, transaction_date, transaction_currency
+    )
 
     for budget in relevant_budgets:
         # [FIX] Added await
@@ -1033,13 +1011,7 @@ async def update_budgets_in_range(user_id: str, start: datetime, end: datetime, 
     start, end = _aware(start), _aware(end)
     if end < start:
         start, end = end, start
-    cursor = budgets_collection.find({
-        "user_id": user_id,
-        "currency": currency,
-        "start_date": {"$lte": end},
-        "end_date": {"$gte": start},
-    })
-    for budget in await cursor.to_list(length=None):
+    for budget in await budgets_db.budgets_overlapping(user_id, start, end, currency):
         await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)
 
 
@@ -1123,18 +1095,9 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     # Duplicate check BEFORE calling OpenAI: any child of this parent, or a budget of the
     # same name/period/currency starting on the same day, means it was already created.
     day_start = new_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    existing = await budgets_collection.find_one({
-        "user_id": user_id,
-        "$or": [
-            {"parent_budget_id": budget_id},
-            {
-                "name": budget["name"],
-                "period": budget["period"],
-                "currency": currency,
-                "start_date": {"$gte": day_start, "$lt": day_start + timedelta(days=1)},
-            },
-        ],
-    })
+    existing = await budgets_db.find_existing_next(
+        user_id, budget_id, budget["name"], budget["period"], currency, day_start, day_start + timedelta(days=1)
+    )
     if existing:
         if existing.get("parent_budget_id") == budget_id:
             await _mark_rolled_over(budget_id, existing["_id"])
@@ -1143,18 +1106,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     # Claim the parent so concurrent triggers (every recompute of a completed budget calls
     # this) can't both generate (and both pay for an OpenAI call). Stale claims expire.
     now = datetime.now(timezone.utc)
-    claim = await budgets_collection.update_one(
-        {
-            "_id": budget_id,
-            "$or": [
-                {"auto_create_claimed_at": {"$exists": False}},
-                {"auto_create_claimed_at": None},
-                {"auto_create_claimed_at": {"$lt": now - timedelta(minutes=10)}},
-            ],
-        },
-        {"$set": {"auto_create_claimed_at": now}},
-    )
-    if claim.modified_count == 0:
+    if not await budgets_db.claim_auto_create(budget_id, now, now - timedelta(minutes=10)):
         return None
 
     try:
@@ -1218,7 +1170,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
             "updated_at": now
         }
 
-        await budgets_collection.insert_one(new_budget)
+        await budgets_db.insert_budget(new_budget)
         # The parent is done: the nightly rollover job skips it from now on.
         await _mark_rolled_over(budget_id, new_budget_id)
 
@@ -1234,15 +1186,13 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
 
         return new_budget_id
 
-    except DuplicateKeyError:
+    except IntegrityError:  # its child for this period already exists (uq_budgets_rollover_child)
         return None
     except Exception as e:
         print(f"❌ Error auto-creating budget: {str(e)}")
         # Release the claim so a later trigger can retry.
         try:
-            await budgets_collection.update_one(
-                {"_id": budget_id}, {"$unset": {"auto_create_claimed_at": ""}}
-            )
+            await budgets_db.release_auto_create(budget_id)
         except Exception:
             pass
         return None
@@ -1478,9 +1428,7 @@ def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List
 
 async def update_all_user_budgets(user_id: str):
     """Update all budgets for a user (called after transaction changes)"""
-    # [FIX] Async find
-    cursor = budgets_collection.find({"user_id": user_id})
-    budgets = await cursor.to_list(length=None)
+    budgets = await budgets_db.list_budgets(user_id)
 
     for budget in budgets:
         # [FIX] Added await

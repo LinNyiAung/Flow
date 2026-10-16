@@ -3,7 +3,7 @@ import uuid
 import os
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
-from database import budgets_collection
+from sql import budgets as budgets_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import insights as insights_db
@@ -168,9 +168,7 @@ async def user_has_insight_data(user_id: str, insight_type: str = "weekly") -> b
         return True
     # Cheap pre-check (any budget whose window contains now) before the refreshing lookup.
     wall_now = app_wall_clock_now()
-    if not await budgets_collection.count_documents(
-        {"user_id": user_id, "start_date": {"$lte": wall_now}, "end_date": {"$gte": wall_now}}, limit=1
-    ):
+    if not await budgets_db.has_budget_containing(user_id, wall_now):
         return False
     return len(await get_running_budgets(user_id)) > 0
 

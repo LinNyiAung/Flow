@@ -4,7 +4,7 @@ import threading
 from typing import Dict, List, Optional
 import uuid
 from firebase_service import send_fcm_notification
-from database import budgets_collection
+from sql import budgets as budgets_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import notifications as notifications_db
@@ -399,8 +399,7 @@ async def check_approaching_target_dates():
 async def check_budget_notifications(user_id: str, budget_id: str, old_percentage: float, new_percentage: float, budget_name: str, category_name: str = None):
     """Check and create budget threshold/exceeded notifications"""
     # [FIX] Added await
-    budget = await budgets_collection.find_one({"_id": budget_id})
-    currency = budget.get("currency", "usd") if budget else "usd"
+    currency = await budgets_db.budget_currency(budget_id) or "usd"
     # [FIX] Added await
     lang = await get_user_language(user_id)
 
@@ -451,13 +450,7 @@ async def check_budget_period_notifications():
     try:
         window_start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=UTC)
         window_end = datetime.combine(today + timedelta(days=BUDGET_ENDING_SOON_DAYS + 1), datetime.max.time(), tzinfo=UTC)
-        cursor_ending = budgets_collection.find({
-            "status": {"$in": ["upcoming", "active", "exceeded"]},
-            "start_date": {"$lte": wall_now},
-            "end_date": {"$gte": window_start, "$lte": window_end},
-            "ending_soon_notified": {"$ne": True},
-        })
-        budgets_ending = await cursor_ending.to_list(length=None)
+        budgets_ending = await budgets_db.ending_soon_candidates(wall_now, window_start, window_end)
     except Exception as e:
         print(f"❌ Error loading budgets ending soon: {e}")
         budgets_ending = []
@@ -480,11 +473,7 @@ async def check_budget_period_notifications():
             # Budget ids are per period, so one "ending soon" per budget ever. The flag is
             # claimed atomically (overlapping runs can't both send); budgets notified
             # before the flag existed are detected by their notification and just flagged.
-            claim = await budgets_collection.update_one(
-                {"_id": budget_id, "ending_soon_notified": {"$ne": True}},
-                {"$set": {"ending_soon_notified": True, "ending_soon_notified_at": now}},
-            )
-            if claim.modified_count == 0:
+            if not await budgets_db.claim_flag(budget_id, "ending_soon_notified", now):
                 continue
             existing = await notifications_db.exists(user_id, "budget_ending_soon", goal_id=budget_id)
             if existing:
@@ -513,9 +502,7 @@ async def check_budget_period_notifications():
                 )
             except Exception:
                 # Release the claim so the next run can retry.
-                await budgets_collection.update_one(
-                    {"_id": budget_id}, {"$unset": {"ending_soon_notified": "", "ending_soon_notified_at": ""}}
-                )
+                await budgets_db.release_flag(budget_id, "ending_soon_notified")
                 raise
         except Exception as e:
             print(f"❌ Error checking budget end for {budget.get('_id')}: {e}")
@@ -527,13 +514,7 @@ async def check_budget_period_notifications():
         lookback_start = datetime.combine(
             today - timedelta(days=BUDGET_NOW_ACTIVE_LOOKBACK_DAYS), datetime.min.time(), tzinfo=UTC
         )
-        cursor_active = budgets_collection.find({
-            "status": {"$in": ["upcoming", "active", "exceeded"]},
-            "started_notified": {"$ne": True},
-            "start_date": {"$gte": lookback_start, "$lte": wall_now},
-            "end_date": {"$gte": wall_now},
-        })
-        budgets_now_active = await cursor_active.to_list(length=None)
+        budgets_now_active = await budgets_db.now_active_candidates(lookback_start, wall_now)
     except Exception as e:
         print(f"❌ Error loading started budgets: {e}")
         budgets_now_active = []
@@ -559,11 +540,7 @@ async def notify_budget_now_active_once(budget: Dict) -> bool:
     """
     budget_id = budget["_id"]
     user_id = budget["user_id"]
-    claim = await budgets_collection.update_one(
-        {"_id": budget_id, "started_notified": {"$ne": True}},
-        {"$set": {"started_notified": True, "started_notified_at": datetime.now(UTC)}},
-    )
-    if claim.modified_count == 0:
+    if not await budgets_db.claim_flag(budget_id, "started_notified", datetime.now(UTC)):
         return False
 
     existing = await notifications_db.exists(user_id, ["budget_now_active", "budget_started"], goal_id=budget_id)
@@ -591,8 +568,7 @@ async def notify_budget_now_active_once(budget: Dict) -> bool:
 async def notify_budget_started(user_id: str, budget_id: str, budget_name: str, total_budget: float, period: str):
     """Notify when a new budget is created and started"""
     # [FIX] Added await
-    budget = await budgets_collection.find_one({"_id": budget_id})
-    currency = budget.get("currency", "usd") if budget else "usd"
+    currency = await budgets_db.budget_currency(budget_id) or "usd"
     # [FIX] Added await
     lang = await get_user_language(user_id)
     formatted_budget = format_currency_amount(total_budget, currency)
@@ -615,8 +591,7 @@ async def notify_budget_started(user_id: str, budget_id: str, budget_name: str, 
 async def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: str, was_ai: bool):
     """Notify when a budget is auto-created"""
     # [FIX] Added await
-    budget = await budgets_collection.find_one({"_id": budget_id})
-    currency = budget.get("currency", "usd") if budget else "usd"
+    currency = await budgets_db.budget_currency(budget_id) or "usd"
     # [FIX] Added await
     lang = await get_user_language(user_id)
 

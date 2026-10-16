@@ -25,7 +25,7 @@ from budget_service import (
 from notification_service import notify_budget_started
 
 
-from database import budgets_collection
+from sql import budgets as budgets_db
 from sql import users as users_db
 
 
@@ -202,7 +202,7 @@ async def create_budget(
             "updated_at": now
         }
 
-        await budgets_collection.insert_one(new_budget)
+        await budgets_db.insert_budget(new_budget)
 
         await update_budget_spent_amounts(current_user["_id"], budget_id)
 
@@ -219,7 +219,7 @@ async def create_budget(
         await users_db.mark_ai_data_stale(current_user["_id"])
 
         # Get updated budget
-        updated_budget = await budgets_collection.find_one({"_id": budget_id})
+        updated_budget = await budgets_db.get_budget(budget_id)
 
         return _budget_response(updated_budget)
 
@@ -244,16 +244,11 @@ async def get_budgets(
 ):
     """Get all user budgets"""
     try:
-        query = {"user_id": current_user["_id"]}
-
-        if period:
-            query["period"] = period.value
-
-        if currency:
-            query["currency"] = currency.value
-
-        cursor = budgets_collection.find(query).sort("created_at", -1)
-        budgets = await cursor.to_list(length=None)
+        budgets = await budgets_db.list_budgets(
+            current_user["_id"],
+            period=period.value if period else None,
+            currency=currency.value if currency else None,
+        )
 
         # Status / is_active are derived from the dates (+ spend) and persisted if stale,
         # so expired budgets don't stay "active" forever.
@@ -279,16 +274,11 @@ async def get_budgets_summary(
 ):
     """Get summary of budgets for specific currency"""
     try:
-        query = {"user_id": current_user["_id"]}
-
         # If currency not specified, use user's default currency
         if currency is None:
             currency = Currency(current_user.get("default_currency", "usd"))
 
-        query["currency"] = currency.value
-
-        cursor = budgets_collection.find(query)
-        budgets = await cursor.to_list(length=None)
+        budgets = await budgets_db.list_budgets(current_user["_id"], currency=currency.value)
 
         return BudgetSummary(**_summarize(budgets), currency=currency)
 
@@ -306,8 +296,7 @@ async def get_multi_currency_budgets_summary(
 ):
     """Get summary of all budgets with per-currency breakdown"""
     try:
-        cursor = budgets_collection.find({"user_id": current_user["_id"]})
-        all_budgets = await cursor.to_list(length=None)
+        all_budgets = await budgets_db.list_budgets(current_user["_id"])
 
         overall = _summarize(all_budgets)
 
@@ -345,10 +334,7 @@ async def get_budget(
 ):
     """Get a specific budget"""
     try:
-        budget = await budgets_collection.find_one({
-            "_id": budget_id,
-            "user_id": current_user["_id"]
-        })
+        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
 
         if not budget:
             raise HTTPException(
@@ -384,10 +370,7 @@ async def update_budget(
     when "Main" itself is budgeted). Spent-amount recalculation never changes it.
     """
     try:
-        budget = await budgets_collection.find_one({
-            "_id": budget_id,
-            "user_id": current_user["_id"]
-        })
+        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
 
         if not budget:
             raise HTTPException(
@@ -449,10 +432,7 @@ async def update_budget(
         if budget_data.auto_create_with_ai is not None:
             update_data["auto_create_with_ai"] = budget_data.auto_create_with_ai
 
-        await budgets_collection.update_one(
-            {"_id": budget_id},
-            {"$set": update_data}
-        )
+        await budgets_db.update_budget(budget_id, update_data)
 
         # Recalculate spent amounts / status (does not touch total_budget)
         await update_budget_spent_amounts(current_user["_id"], budget_id)
@@ -460,7 +440,7 @@ async def update_budget(
         # Mark AI data as stale
         await users_db.mark_ai_data_stale(current_user["_id"])
 
-        updated_budget = await budgets_collection.find_one({"_id": budget_id})
+        updated_budget = await budgets_db.get_budget(budget_id)
 
         return _budget_response(updated_budget)
 
@@ -483,10 +463,7 @@ async def delete_budget(
 ):
     """Delete a budget"""
     try:
-        budget = await budgets_collection.find_one({
-            "_id": budget_id,
-            "user_id": current_user["_id"]
-        })
+        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
 
         if not budget:
             raise HTTPException(
@@ -494,27 +471,13 @@ async def delete_budget(
                 detail="Budget not found"
             )
 
-        result = await budgets_collection.delete_one({
-            "_id": budget_id,
-            "user_id": current_user["_id"]
-        })
-
-        if result.deleted_count == 0:
+        # Deleting an auto-created child also clears its parent's rolled_over_to (foreign key
+        # ON DELETE SET NULL), which re-opens the parent for the nightly rollover job.
+        if await budgets_db.delete_budget(budget_id, current_user["_id"]) == 0:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to delete budget"
             )
-
-        # Deleting an auto-created child re-opens its parent for the nightly rollover job
-        # (same behaviour as before the rolled_over_to marker existed).
-        if budget.get("parent_budget_id"):
-            try:
-                await budgets_collection.update_one(
-                    {"_id": budget["parent_budget_id"], "user_id": current_user["_id"], "rolled_over_to": budget_id},
-                    {"$unset": {"rolled_over_to": ""}},
-                )
-            except Exception as e:
-                print(f"⚠️ Failed to clear rollover marker of parent budget {budget['parent_budget_id']}: {e}")
 
         # Mark AI data as stale
         await users_db.mark_ai_data_stale(current_user["_id"])
@@ -538,10 +501,7 @@ async def refresh_budget(
 ):
     """Manually refresh a budget's spent amounts"""
     try:
-        budget = await budgets_collection.find_one({
-            "_id": budget_id,
-            "user_id": current_user["_id"]
-        })
+        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
 
         if not budget:
             raise HTTPException(
