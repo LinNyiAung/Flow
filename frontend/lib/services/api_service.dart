@@ -15,6 +15,7 @@ import 'package:frontend/models/notification_preferences.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/report.dart';
 import 'package:frontend/models/voice_image_models.dart';
+import 'package:frontend/platform/streaming_client.dart';
 import 'package:frontend/utils/date_parsing.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -1031,7 +1032,7 @@ class ApiService {
 
     // A dedicated client per stream so that [cancelChatStream] can abort the
     // underlying connection (cancelling the Dart subscription alone does not).
-    final client = http.Client();
+    final client = createStreamingClient();
     _activeChatClient?.close();
     _activeChatClient = client;
 
@@ -1045,6 +1046,8 @@ class ApiService {
         throw ApiException(timeoutMessage);
       } on SocketException {
         throw ApiException(networkErrorMessage);
+      } on http.ClientException catch (e) {
+        throw ApiException('$networkErrorMessage (${e.message})');
       }
 
       if (streamedResponse.statusCode != 200) {
