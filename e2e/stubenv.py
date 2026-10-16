@@ -5,6 +5,7 @@ Import this BEFORE any backend module. It:
   * points the app at a local throwaway PostgreSQL
   * replaces OpenAI / Gemini clients, SMTP and Firebase messaging with recorders that never touch the network
 """
+import asyncio
 import json
 import os
 import sys
@@ -99,7 +100,12 @@ class _FakeCompletions:
             return _ns(choices=[_ns(message=_ns(content=FAKE_REPLY), finish_reason="stop")], usage=usage, model="fake")
 
         async def gen():
+            # E2E_FAKE_AI_DELAY (seconds, default 0) slows the stream so a client
+            # can be checked mid-stream (e.g. the web chat's Cancel button).
+            delay = float(os.environ.get("E2E_FAKE_AI_DELAY") or 0)
             for part in ("## Fake answer\n", "You spent ", "money on groceries."):
+                if delay:
+                    await asyncio.sleep(delay)
                 yield _ns(choices=[_ns(delta=_ns(content=part), finish_reason=None)], usage=None, model="fake")
             yield _ns(choices=[], usage=usage, model="fake")
         return gen()
