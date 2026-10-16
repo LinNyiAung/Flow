@@ -44,6 +44,8 @@ PUBLIC = {
     ("GET", "/api/auth/verify-email"), ("POST", "/api/auth/forgot-password/request-otp"),
     ("POST", "/api/auth/forgot-password/verify-otp"), ("POST", "/api/auth/forgot-password/reset-password"),
     ("POST", "/api/auth/resend-verification"), ("POST", "/api/admin/login"),
+    # Intentionally public: the website's "Get the Android app" link (see test_app_download.py).
+    ("GET", "/api/app/latest-android"),
 }
 
 
