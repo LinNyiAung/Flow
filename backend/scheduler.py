@@ -8,7 +8,7 @@ from notification_service import (
     check_budget_period_notifications, 
     detect_and_notify_recurring_payments
 )
-from database import users_collection
+from sql import users as users_db
 from budget_service import process_due_budget_rollovers
 from insights_service import generate_weekly_insights_for_all_users, generate_monthly_insights_for_all_users
 from subscription_service import expire_premium_subscriptions
@@ -33,12 +33,11 @@ def start_scheduler():
     # Special handling for user iteration (Async Cursor)
     async def analyze_all_users_spending():
         # [FIX] This now works because it runs on the main loop
-        cursor = users_collection.find({})
-        async for user in cursor:
+        for user_id in await users_db.user_ids():
             try:
-                await analyze_unusual_spending(user["_id"])
+                await analyze_unusual_spending(user_id)
             except Exception as e:
-                print(f"Error analyzing spending for user {user['_id']}: {e}")
+                print(f"Error analyzing spending for user {user_id}: {e}")
 
     # --- ADD JOBS ---
 

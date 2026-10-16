@@ -1,7 +1,7 @@
 """Timezone / calendar-date helpers shared by the scheduler, insights and notifications.
 
 Conventions used across the backend:
-- Datetimes are stored in Mongo as UTC. User-entered dates (transaction date, goal
+- Datetimes are stored as UTC (timestamptz). User-entered dates (transaction date, goal
   target_date, budget start/end) arrive from the app as naive wall-clock values and are
   stored labelled as UTC, so their *calendar date* is simply the UTC date component.
 - "Today" for the user-facing schedule is the calendar date in the app timezone

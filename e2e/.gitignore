@@ -3,3 +3,6 @@ seed_accounts.json
 .data/
 logs/
 __pycache__/
+api_results.json
+logs_*.txt
+regressions*.txt

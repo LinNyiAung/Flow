@@ -7,7 +7,7 @@ import jwt  # PyJWT (replaces python-jose; same HS256 tokens)
 from passlib.context import CryptContext
 
 from config import settings
-from database import admins_collection
+from sql import admins as admins_db
 
 security_admin = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -96,7 +96,7 @@ async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(
     payload = verify_admin_token_payload(credentials.credentials)
     email = payload["sub"]
 
-    admin = await admins_collection.find_one({"email": email})
+    admin = await admins_db.get_admin_by_email(email)
 
     if not admin:
         raise HTTPException(
@@ -171,22 +171,7 @@ async def log_admin_action(
     details: Optional[str] = None
 ):
     """Log admin actions for audit trail"""
-    from database import admin_action_logs_collection
-    import uuid
-    
-    log_entry = {
-        "_id": str(uuid.uuid4()),
-        "admin_id": admin_id,
-        "admin_email": admin_email,
-        "action": action,
-        "target_user_id": target_user_id,
-        "target_user_email": target_user_email,
-        "details": details,
-        "timestamp": datetime.now(UTC)
-    }
-    
     try:
-        # [FIX] Added await for async database insertion
-        await admin_action_logs_collection.insert_one(log_entry)
+        await admins_db.log_action(admin_id, admin_email, action, target_user_id, target_user_email, details)
     except Exception as e:
         print(f"Error logging admin action: {e}")

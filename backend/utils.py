@@ -1,29 +1,20 @@
+import asyncio
+import weakref
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import AsyncIterator, Optional
 from fastapi import Depends, HTTPException , status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_chatbot import financial_chatbot
-from database import users_collection, transactions_collection, goals_collection
+from sql import goals as goals_db
+from sql import transactions as transactions_db
+from sql import users as users_db
 import jwt  # PyJWT (replaces python-jose; same HS256 tokens)
 from passlib.context import CryptContext
 
 
 from config import settings
-from finite_utils import FINITE_NUMBER_RANGE, finite_amount_filter, is_finite_number
-
-
-def _balances_are_finite(balances) -> bool:
-    """True if every number in a cached users.balances map is finite."""
-    if not isinstance(balances, dict):
-        return False
-    for entry in balances.values():
-        if not isinstance(entry, dict):
-            return False
-        for value in entry.values():
-            if isinstance(value, (int, float)) and not isinstance(value, bool) and not is_finite_number(value):
-                return False
-    return True
 
 
 security = HTTPBearer()
@@ -96,7 +87,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     """Get current authenticated (and e-mail verified) user"""
     payload = _decode_user_token(credentials.credentials)
     email = payload["sub"]
-    user = await users_collection.find_one({"email": email})
+    user = await users_db.get_user_by_email(email)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
@@ -140,101 +131,43 @@ def ensure_utc_datetime(dt) -> datetime:
     """Ensure datetime is timezone-aware UTC"""
     if dt is None:
         return None
-    
+
     # If it's a string, parse it
     if isinstance(dt, str):
         dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-    
+
     # If naive (no timezone), make it UTC
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     # If has timezone but not UTC, convert to UTC
     elif dt.tzinfo != UTC:
         dt = dt.astimezone(UTC)
-    
+
     return dt
 
 
 async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict:
     """
-    Get balance with Read-Through Caching to fix scalability.
+    Per-currency balance, computed live (exact SQL sums over indexed rows; nothing cached,
+    so it can never be stale): balance = inflow - outflow, available = balance - goals.
     """
-    # 1. FAST PATH: Check cache
-    # balances_version is bumped by every invalidation (see invalidate_user_balance_cache);
-    # we only write our freshly computed cache back if no invalidation happened meanwhile.
-    user = await users_collection.find_one(
-        {"_id": user_id}, {"balances": 1, "default_currency": 1, "balances_version": 1}
-    )
-    
-    # Handle case where user might be None (rare but possible)
+    user = await users_db.get_user(user_id)
     if not user:
-         return {"balances": {}}
-         
-    cached_balances = user.get("balances")
+        return {"balances": {}}
 
-    # A cache computed before non-finite amounts were excluded may hold NaN/inf, which
-    # can't be JSON-encoded: ignore it and recompute.
-    if cached_balances and not _balances_are_finite(cached_balances):
-        print(f"⚠️ Ignoring cached balances with non-finite values for user {user_id}")
-        cached_balances = None
+    tx_map = {res["currency"]: res for res in await transactions_db.currency_totals(user_id)}
+    allocated_map = {g["_id"]: g["total_allocated"] for g in await goals_db.allocated_by_currency(user_id)}
 
-    # If we have a cache, use it immediately
-    if cached_balances:
-        if currency:
-            data = cached_balances.get(currency, {
-                "balance": 0, "available_balance": 0, 
-                "allocated_to_goals": 0, "total_inflow": 0, "total_outflow": 0,
-                "currency": currency
-            })
-            return data
-        else:
-            return {"balances": cached_balances}
-
-    # 2. SLOW PATH: Aggregation (Run only if cache is missing/invalidated)
-    tx_pipeline = [
-        # Legacy NaN/inf amounts are excluded: one of them would make the whole
-        # currency's balance NaN (and every balance response a 500).
-        {"$match": {"user_id": user_id, **finite_amount_filter()}},
-        {
-            "$group": {
-                "_id": "$currency",
-                "total_inflow": {
-                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
-                },
-                "total_outflow": {
-                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
-                }
-            }
-        }
-    ]
-    goals_pipeline = [
-        {"$match": {"user_id": user_id, "current_amount": dict(FINITE_NUMBER_RANGE)}},
-        {"$group": {"_id": "$currency", "total_allocated": {"$sum": "$current_amount"}}}
-    ]
-    
-    # [FIX] Async Aggregation
-    tx_cursor = transactions_collection.aggregate(tx_pipeline)
-    tx_results = await tx_cursor.to_list(length=None)
-    
-    goal_cursor = goals_collection.aggregate(goals_pipeline)
-    goal_results = await goal_cursor.to_list(length=None)
-    
-    tx_map = {res["_id"]: res for res in tx_results if res["_id"]}
-    all_currencies = set(tx_map.keys()) | {g["_id"] for g in goal_results if g["_id"]}
-    
+    all_currencies = set(tx_map) | set(allocated_map)
     if not all_currencies:
         all_currencies = {user.get("default_currency", "usd")}
-    
+
     balances = {}
     for curr in all_currencies:
         tx_data = tx_map.get(curr, {"total_inflow": 0, "total_outflow": 0})
-        # Safe generator expression for goals
-        allocated = next((g["total_allocated"] for g in goal_results if g["_id"] == curr), 0)
-        
-        # Ensure values are floats/ints, not None
-        total_inflow = tx_data.get("total_inflow", 0) or 0
-        total_outflow = tx_data.get("total_outflow", 0) or 0
-        
+        allocated = allocated_map.get(curr, 0)
+        total_inflow = tx_data["total_inflow"]
+        total_outflow = tx_data["total_outflow"]
         balance = total_inflow - total_outflow
         balances[curr] = {
             "currency": curr,
@@ -245,15 +178,6 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
             "total_outflow": total_outflow
         }
 
-    # 3. CACHE UPDATE: Save the result so next time is O(1).
-    # Conditional on the version we read: if anyone invalidated the cache while we were
-    # aggregating (balances_version was $inc'ed), this write is skipped so a stale
-    # aggregate can never overwrite a newer invalidation. A missing field matches None.
-    await users_collection.update_one(
-        {"_id": user_id, "balances_version": user.get("balances_version")},
-        {"$set": {"balances": balances}}
-    )
-
     if currency:
         return balances.get(currency, {
             "currency": currency, "balance": 0, "available_balance": 0,
@@ -262,45 +186,31 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     return {"balances": balances}
 
 
-def balance_cache_invalidation_update(extra_set: Optional[dict] = None) -> dict:
-    """Mongo update document that invalidates users.balances (and bumps balances_version)."""
-    update = {"$unset": {"balances": ""}, "$inc": {"balances_version": 1}}
-    if extra_set:
-        update["$set"] = dict(extra_set)
-    return update
-
-
-async def invalidate_user_balance_cache(user_id: str, mark_ai_stale: bool = False) -> None:
-    """Invalidate the cached balances for a user (race-safe with get_user_balance)."""
-    await users_collection.update_one(
-        {"_id": user_id},
-        balance_cache_invalidation_update({"ai_data_stale": True} if mark_ai_stale else None),
-    )
-
-
 # Per-user lock serializing operations that move money between "available balance"
 # and goals (goal contributions, goal creation with initial contribution, editing /
-# deleting inflows). Only effective within a single worker process.
-_user_money_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = None  # initialised lazily
+# deleting inflows). The database row lock works across all server processes; the
+# in-process lock in front of it just queues same-user requests of one process in
+# memory instead of each holding a pooled connection while it waits.
+_user_money_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = weakref.WeakValueDictionary()
 
 
-def get_user_money_lock(user_id: str) -> "asyncio.Lock":
-    import asyncio
-    import weakref
-    global _user_money_locks
-    if _user_money_locks is None:
-        _user_money_locks = weakref.WeakValueDictionary()
+@asynccontextmanager
+async def get_user_money_lock(user_id: str) -> AsyncIterator[None]:
+    """`async with get_user_money_lock(uid):` - the block is serialized per user and its
+    database writes commit (or roll back) together."""
     lock = _user_money_locks.get(user_id)
     if lock is None:
         lock = asyncio.Lock()
         _user_money_locks[user_id] = lock
-    return lock
+    async with lock:
+        async with users_db.money_lock(user_id):
+            yield
 
 
 async def require_premium(current_user: dict = Depends(get_current_user)):
     """Middleware to check if user has premium subscription"""
     subscription_type = current_user.get("subscription_type", "free")
-    
+
     if subscription_type == "premium":
         # Check if subscription hasn't expired
         expires_at = current_user.get("subscription_expires_at")
@@ -311,10 +221,10 @@ async def require_premium(current_user: dict = Depends(get_current_user)):
                 return current_user
         elif not expires_at:  # Lifetime premium (no expiration date)
             return current_user
-    
+
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="This feature requires a premium subscription"
     )
-    
-    
+
+

@@ -1,254 +1,149 @@
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING
+"""Startup data initialization (default categories, bootstrap admin). Storage: PostgreSQL (sql/)."""
 from config import settings
 import uuid
 from datetime import datetime, UTC
-
-# Initialize Async Client
-client = AsyncIOMotorClient(settings.MONGODB_URL, tz_aware=True)
-database = client[settings.DATABASE_NAME]
-
-def get_database():
-    return database
-
-# ==================== COLLECTIONS ====================
-users_collection = database.users
-transactions_collection = database.transactions
-categories_collection = database.categories
-chat_sessions_collection = database.chat_sessions
-goals_collection = database.goals 
-insights_collection = database.insights
-budgets_collection = database.budgets
-notifications_collection = database.notifications
-notification_preferences_collection = database.notification_preferences
-ai_usage_collection = database.ai_usage
-feedback_collection = database.feedback
-
-# Admin collections
-admins_collection = database.admins
-admin_action_logs_collection = database.admin_action_logs
-
-# App version collection
-app_versions_collection = database.app_versions  # NEW
 
 
 # ==================== INITIALIZATION FUNCTIONS ====================
 
 async def initialize_categories():
     """Initialize default categories if they don't exist"""
-    if await categories_collection.count_documents({}) == 0:
-        default_categories = [
-            {
-                "_id": "inflow",
-                "categories": [
-                    {
-                        "main_category": "Employment Income",
-                        "sub_categories": [
-                            "Salary", "Overtime Pay", "Bonus", "Commission", "Allowances", "Pension"
-                        ]
-                    },
-                    {
-                        "main_category": "Self-Employment & Business",
-                        "sub_categories": [
-                            "Freelance Income", "Business Income", 
-                            "Side Hustle", "Royalties"
-                        ]
-                    },
-                    {
-                        "main_category": "Investment Income",
-                        "sub_categories": [
-                            "Dividends", "Interest Income", "Capital Gains",
-                            "Crypto Gains", "Rental Income"
-                        ]
-                    },
-                    {
-                        "main_category": "Gifts & Support",
-                        "sub_categories": [
-                            "Gifts Received", "Family Support",
-                            "Wedding / Events", "Inheritance"
-                        ]
-                    },
-                    {
-                        "main_category": "Refunds & Reimbursements",
-                        "sub_categories": [
-                            "Tax Refund", "Expense Reimbursement",
-                            "Purchase Refund", "Insurance Claim", "Cashback / Rewards"
-                        ]
-                    },
-                    {
-                        "main_category": "Other Income",
-                        "sub_categories": [
-                            "Asset Sale", "Prize / Lottery",
-                            "Other Income"
-                        ]
-                    }
-                ]
-            },
-            {
-                "_id": "outflow",
-                "categories": [
-                    {
-                        "main_category": "Food & Daily Living",
-                        "sub_categories": [
-                            "Groceries", "Restaurants", "Fast Food",
-                            "Coffee & Snacks", "Alcohol"
-                        ]
-                    },
-                    {
-                        "main_category": "Housing & Utilities",
-                        "sub_categories": [
-                            "Rent", "Mortgage", "Electricity", "Water",
-                            "Gas", "Internet", "Mobile Phone", "Home Maintenance"
-                        ]
-                    },
-                    {
-                        "main_category": "Transportation",
-                        "sub_categories": [
-                            "Fuel", "Public Transport", "Taxi",
-                            "Vehicle Maintenance", "Vehicle Insurance",
-                            "Parking", "Toll Fees"
-                        ]
-                    },
-                    {
-                        "main_category": "Shopping & Lifestyle",
-                        "sub_categories": [
-                            "Clothing", "Footwear", "Accessories",
-                            "Electronics", "Home Supplies", "Furniture"
-                        ]
-                    },
-                    {
-                        "main_category": "Entertainment & Leisure",
-                        "sub_categories": [
-                            "Movies & Streaming", "Games", "Music",
-                            "Events & Concerts", "Hobbies", "Subscriptions"
-                        ]
-                    },
-                    {
-                        "main_category": "Health & Insurance",
-                        "sub_categories": [
-                            "Doctor Visits", "Dental", "Pharmacy",
-                            "Health Insurance", "Mental Health", "Fitness & Gym"
-                        ]
-                    },
-                    {
-                        "main_category": "Education & Self-Improvement",
-                        "sub_categories": [
-                            "Tuition Fees", "Online Courses", "Books",
-                            "Professional Development", "Workshops", "Learning Subscriptions"
-                        ]
-                    },
-                    {
-                        "main_category": "Travel & Vacation",
-                        "sub_categories": [
-                            "Flights", "Accommodation", "Transport (Travel)",
-                            "Food (Travel)", "Activities", "Travel Insurance"
-                        ]
-                    },
-                    {
-                        "main_category": "Financial Expenses",
-                        "sub_categories": [
-                            "Bank Fees", "Loan Repayment",
-                            "Credit Card Payment", "Interest Paid",
-                            "Taxes", "Investment Fees"
-                        ]
-                    },
-                    {
-                        "main_category": "Business Expenses",
-                        "sub_categories": [
-                            "Software & Tools", "Marketing & Ads",
-                            "Office Supplies", "Hosting & Domains",
-                            "Business Travel", "Contractor Payments"
-                        ]
-                    },
-                    {
-                        "main_category": "Other & Adjustments",
-                        "sub_categories": [
-                            "Cash Withdrawal", "Currency Exchange Loss",
-                            "Correction / Adjustment", "Miscellaneous", "Emergency Expenses", "Other Expenses"
-                        ]
-                    }
-                ]
-            }
-        ]
-        await categories_collection.insert_many(default_categories)
+    from sql.categories import seed_default_categories
+    default_categories = [
+        {
+            "_id": "inflow",
+            "categories": [
+                {
+                    "main_category": "Employment Income",
+                    "sub_categories": [
+                        "Salary", "Overtime Pay", "Bonus", "Commission", "Allowances", "Pension"
+                    ]
+                },
+                {
+                    "main_category": "Self-Employment & Business",
+                    "sub_categories": [
+                        "Freelance Income", "Business Income", 
+                        "Side Hustle", "Royalties"
+                    ]
+                },
+                {
+                    "main_category": "Investment Income",
+                    "sub_categories": [
+                        "Dividends", "Interest Income", "Capital Gains",
+                        "Crypto Gains", "Rental Income"
+                    ]
+                },
+                {
+                    "main_category": "Gifts & Support",
+                    "sub_categories": [
+                        "Gifts Received", "Family Support",
+                        "Wedding / Events", "Inheritance"
+                    ]
+                },
+                {
+                    "main_category": "Refunds & Reimbursements",
+                    "sub_categories": [
+                        "Tax Refund", "Expense Reimbursement",
+                        "Purchase Refund", "Insurance Claim", "Cashback / Rewards"
+                    ]
+                },
+                {
+                    "main_category": "Other Income",
+                    "sub_categories": [
+                        "Asset Sale", "Prize / Lottery",
+                        "Other Income"
+                    ]
+                }
+            ]
+        },
+        {
+            "_id": "outflow",
+            "categories": [
+                {
+                    "main_category": "Food & Daily Living",
+                    "sub_categories": [
+                        "Groceries", "Restaurants", "Fast Food",
+                        "Coffee & Snacks", "Alcohol"
+                    ]
+                },
+                {
+                    "main_category": "Housing & Utilities",
+                    "sub_categories": [
+                        "Rent", "Mortgage", "Electricity", "Water",
+                        "Gas", "Internet", "Mobile Phone", "Home Maintenance"
+                    ]
+                },
+                {
+                    "main_category": "Transportation",
+                    "sub_categories": [
+                        "Fuel", "Public Transport", "Taxi",
+                        "Vehicle Maintenance", "Vehicle Insurance",
+                        "Parking", "Toll Fees"
+                    ]
+                },
+                {
+                    "main_category": "Shopping & Lifestyle",
+                    "sub_categories": [
+                        "Clothing", "Footwear", "Accessories",
+                        "Electronics", "Home Supplies", "Furniture"
+                    ]
+                },
+                {
+                    "main_category": "Entertainment & Leisure",
+                    "sub_categories": [
+                        "Movies & Streaming", "Games", "Music",
+                        "Events & Concerts", "Hobbies", "Subscriptions"
+                    ]
+                },
+                {
+                    "main_category": "Health & Insurance",
+                    "sub_categories": [
+                        "Doctor Visits", "Dental", "Pharmacy",
+                        "Health Insurance", "Mental Health", "Fitness & Gym"
+                    ]
+                },
+                {
+                    "main_category": "Education & Self-Improvement",
+                    "sub_categories": [
+                        "Tuition Fees", "Online Courses", "Books",
+                        "Professional Development", "Workshops", "Learning Subscriptions"
+                    ]
+                },
+                {
+                    "main_category": "Travel & Vacation",
+                    "sub_categories": [
+                        "Flights", "Accommodation", "Transport (Travel)",
+                        "Food (Travel)", "Activities", "Travel Insurance"
+                    ]
+                },
+                {
+                    "main_category": "Financial Expenses",
+                    "sub_categories": [
+                        "Bank Fees", "Loan Repayment",
+                        "Credit Card Payment", "Interest Paid",
+                        "Taxes", "Investment Fees"
+                    ]
+                },
+                {
+                    "main_category": "Business Expenses",
+                    "sub_categories": [
+                        "Software & Tools", "Marketing & Ads",
+                        "Office Supplies", "Hosting & Domains",
+                        "Business Travel", "Contractor Payments"
+                    ]
+                },
+                {
+                    "main_category": "Other & Adjustments",
+                    "sub_categories": [
+                        "Cash Withdrawal", "Currency Exchange Loss",
+                        "Correction / Adjustment", "Miscellaneous", "Emergency Expenses", "Other Expenses"
+                    ]
+                }
+            ]
+        }
+    ]
+    if await seed_default_categories(default_categories):
         print("✅ Default categories initialized")
-
-
-async def create_db_indexes():
-    """Create indexes - Must be async now"""
-    try:
-        await budgets_collection.create_index(
-            [("user_id", ASCENDING), ("parent_budget_id", ASCENDING), ("start_date", ASCENDING)],
-            unique=True,
-            background=True,
-            partialFilterExpression={
-                "parent_budget_id": {"$type": "string"} 
-            }
-        )
-
-        # Child lookups ("does budget X already have a next-period budget?") for the nightly
-        # rollover job and auto-create. Deliberately NOT partial: the planner can't prove
-        # that {"parent_budget_id": "<id>"} satisfies a {"$type": "string"} partial filter,
-        # so the partial unique index above is never used for these queries.
-        try:
-            await budgets_collection.create_index(
-                [("parent_budget_id", ASCENDING)],
-                name="parent_budget_id_lookup",
-                background=True,
-            )
-            # Nightly rollover candidates: auto-create budgets whose period ended.
-            await budgets_collection.create_index(
-                [("auto_create_enabled", ASCENDING), ("end_date", ASCENDING)],
-                name="rollover_candidates",
-                background=True,
-                partialFilterExpression={"auto_create_enabled": True},
-            )
-        except Exception as e:
-            print(f"⚠️ Could not create budget rollover indexes: {e}")
-
-        # NEW: Index for fast version lookups
-        await app_versions_collection.create_index(
-            [("platform", ASCENDING), ("is_active", ASCENDING), ("created_at", ASCENDING)],
-            background=True,
-        )
-
-        # transactions_collection had no indexes at all — every query
-        # (transaction list, dashboard "recent", budget spent-amount
-        # recalculation, and especially the analytics screens' up-to-10,000
-        # row fetches) was a full collection scan across every user's
-        # transactions, then an in-memory sort. These cover the two actual
-        # query shapes used throughout the app: user_id (+ optional date
-        # range, always sorted by date) is the base case everywhere, and
-        # user_id + type (+ date) is the analytics/inflow-outflow case.
-        await transactions_collection.create_index(
-            [("user_id", ASCENDING), ("date", ASCENDING)],
-            background=True,
-        )
-
-        # Case-insensitive unique emails, so two simultaneous registrations
-        # (or Foo@x.com vs foo@x.com) can't both create an account.
-        try:
-            await users_collection.create_index(
-                [("email", ASCENDING)],
-                unique=True,
-                collation={"locale": "en", "strength": 2},
-                name="email_unique_ci",
-            )
-        except Exception as e:
-            print(f"⚠️ Could not create unique email index (existing duplicate emails?): {e}")
-        await transactions_collection.create_index(
-            [("user_id", ASCENDING), ("type", ASCENDING), ("date", ASCENDING)],
-            background=True,
-        )
-
-        print("✅ Database indexes verified/created")
-    except Exception as e:
-        print(f"⚠️ Failed to create indexes: {e}")
-
-
-async def initialize_notification_preferences():
-    """Initialize default notification preferences for users who don't have them"""
-    pass
 
 
 async def initialize_admin():
@@ -260,7 +155,9 @@ async def initialize_admin():
     import asyncio
     from admin_utils import get_password_hash, initial_admin_password_version, verify_password
 
-    if await admins_collection.count_documents({}) == 0:
+    from sql import admins as admins_db
+
+    if await admins_db.count_admins() == 0:
         bootstrap_email = (settings.ADMIN_BOOTSTRAP_EMAIL or "").strip().lower()
         bootstrap_password = settings.ADMIN_BOOTSTRAP_PASSWORD or ""
 
@@ -286,13 +183,13 @@ async def initialize_admin():
             "last_login": None
         }
 
-        await admins_collection.insert_one(bootstrap_admin)
+        await admins_db.insert_admin(bootstrap_admin)
         print(f"✅ Bootstrap super admin created for {bootstrap_email}. "
               "Remove ADMIN_BOOTSTRAP_PASSWORD from the environment now.")
         return
 
     # Warn loudly if the legacy hard-coded default admin still exists with its default password.
-    legacy = await admins_collection.find_one({"email": "admin@toepwar.com"})
+    legacy = await admins_db.get_admin_by_email("admin@toepwar.com")
     if legacy and legacy.get("password"):
         try:
             if await asyncio.to_thread(verify_password, "admin123", legacy["password"]):

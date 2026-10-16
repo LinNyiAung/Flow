@@ -15,16 +15,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Mongo range filter on a numeric field that matches only finite numbers: NaN compares
-# false against everything and +-inf fall outside the bounds. Non-numeric values (strings,
-# null, missing) don't match either (comparison operators are type-bracketed).
-FINITE_NUMBER_RANGE = {"$gt": -1e300, "$lt": 1e300}
-
-
-def finite_amount_filter() -> dict:
-    """Fresh {"amount": {...}} query fragment matching only finite numeric amounts."""
-    return {"amount": dict(FINITE_NUMBER_RANGE)}
-
 
 def is_finite_number(value: Any) -> bool:
     """True for real (non-bool) ints/floats/Decimals that are finite."""

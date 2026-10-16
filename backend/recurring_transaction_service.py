@@ -5,11 +5,10 @@ from datetime import date, datetime, time, timedelta, UTC
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 from pydantic import ValidationError
-from pymongo.errors import DuplicateKeyError
 
 from recurrence_models import RecurrenceConfig, RecurrenceFrequency
-from database import transactions_collection, users_collection
-from finite_utils import finite_amount_filter
+from sql import transactions as transactions_db
+from sql import users as users_db
 from notification_service import create_notification
 from tz_utils import app_today
 
@@ -210,18 +209,12 @@ async def _child_exists_on_date(transaction: dict, occ_date: datetime) -> bool:
     """True if an auto-created child of this parent already exists on occ_date's calendar date
     (older children have uuid _ids, so the deterministic _id alone can't dedupe them)."""
     day = occ_date.date()
-    existing = await transactions_collection.find_one(
-        {
-            "user_id": transaction["user_id"],
-            "recurrence.parent_transaction_id": transaction["_id"],
-            "date": {
-                "$gte": datetime.combine(day, time.min, tzinfo=UTC),
-                "$lte": datetime.combine(day, time.max, tzinfo=UTC),
-            },
-        },
-        {"_id": 1},
+    return await transactions_db.child_exists_between(
+        transaction["user_id"],
+        transaction["_id"],
+        datetime.combine(day, time.min, tzinfo=UTC),
+        datetime.combine(day, time.max, tzinfo=UTC),
     )
-    return existing is not None
 
 
 async def _process_recurring_transaction(
@@ -243,9 +236,7 @@ async def _process_recurring_transaction(
 
     if not is_config_complete(config):
         logger.warning(f"Recurring tx {transaction['_id']}: incomplete config, disabling recurrence")
-        await transactions_collection.update_one(
-            {"_id": transaction["_id"]}, {"$set": {"recurrence.enabled": False}}
-        )
+        await transactions_db.disable_recurrence(transaction["_id"])
         return 0
 
     # A key that exists with value None must also fall back to the transaction date.
@@ -261,10 +252,7 @@ async def _process_recurring_transaction(
             f"Recurring tx {transaction['_id']}: skipped {plan.skipped} missed occurrence(s) older than "
             f"{CATCHUP_WINDOW_DAYS} days (through {plan.last_skipped:%Y-%m-%d})"
         )
-        await transactions_collection.update_one(
-            {"_id": transaction["_id"]},
-            {"$set": {"recurrence.last_created_date": plan.last_skipped}}
-        )
+        await transactions_db.set_recurrence_pointer(transaction["_id"], plan.last_skipped)
 
     created = 0
     last_new_id = None
@@ -274,10 +262,7 @@ async def _process_recurring_transaction(
             # Already created (possibly by an older run with a uuid _id) - just advance the pointer.
             # Still refresh caches/budgets: a crashed run may have skipped that.
             affected[transaction["user_id"]][transaction.get("currency", "usd")].append(occ_date)
-            await transactions_collection.update_one(
-                {"_id": transaction["_id"]},
-                {"$set": {"recurrence.last_created_date": occ_date}}
-            )
+            await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date)
             continue
         new_transaction = {
             "_id": new_id,
@@ -298,22 +283,16 @@ async def _process_recurring_transaction(
                 "parent_transaction_id": transaction["_id"]
             }
         }
-        try:
-            await transactions_collection.insert_one(new_transaction)
+        # False = already created by a previous (possibly crashed) run: just advance the pointer.
+        if await transactions_db.insert_transaction(new_transaction):
             created += 1
             last_new_id = new_id
-        except DuplicateKeyError:
-            # Already created by a previous (possibly crashed) run - just advance the pointer.
-            pass
         # Track even duplicates: a crashed run may have skipped the cache/budget refresh.
         affected[transaction["user_id"]][new_transaction["currency"]].append(occ_date)
 
         # Advance the pointer after every occurrence so a crash never re-creates (and the
         # deterministic _id makes a retry harmless anyway).
-        await transactions_collection.update_one(
-            {"_id": transaction["_id"]},
-            {"$set": {"recurrence.last_created_date": occ_date}}
-        )
+        await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date)
 
     label = transaction.get("description") or transaction["sub_category"]
 
@@ -343,10 +322,7 @@ async def _process_recurring_transaction(
             logger.error(f"Failed to notify recurring creation for {transaction['_id']}: {e}")
 
     if ended:
-        await transactions_collection.update_one(
-            {"_id": transaction["_id"]},
-            {"$set": {"recurrence.enabled": False}}
-        )
+        await transactions_db.disable_recurrence(transaction["_id"])
         try:
             await create_notification(
                 user_id=transaction["user_id"],
@@ -363,17 +339,10 @@ async def _process_recurring_transaction(
 
 
 async def _refresh_user_after_recurring(user_id: str, per_currency: Dict[str, List[datetime]]) -> None:
-    """Invalidate balance cache, mark AI data stale and recompute affected budgets."""
+    """Mark AI data stale and recompute affected budgets."""
     from budget_service import update_budgets_in_range  # local import: avoid import cycles
 
-    await users_collection.update_one(
-        {"_id": user_id},
-        {
-            "$unset": {"balances": ""},
-            "$inc": {"balances_version": 1},
-            "$set": {"ai_data_stale": True},
-        }
-    )
+    await users_db.mark_ai_data_stale(user_id)
     for currency, dates in per_currency.items():
         if not dates:
             continue
@@ -387,15 +356,13 @@ async def check_and_create_recurring_transactions():
     """Check all recurring transactions and create every due occurrence (catch-up)."""
     now = datetime.now(UTC)
 
-    # Parents with a legacy NaN/inf amount are skipped: copying them would only create
-    # more unusable rows.
-    cursor = transactions_collection.find({"recurrence.enabled": True, **finite_amount_filter()})
+    parents = await transactions_db.recurring_parents()
 
     created_count = 0
     # user_id -> currency -> [occurrence dates]
     affected: Dict[str, Dict[str, List[datetime]]] = defaultdict(lambda: defaultdict(list))
 
-    async for transaction in cursor:
+    for transaction in parents:
         try:
             created_count += await _process_recurring_transaction(transaction, now, affected)
         except Exception as e:
@@ -416,22 +383,15 @@ async def check_and_create_recurring_transactions():
 
 async def disable_recurrence_for_transaction(transaction_id: str, user_id: str) -> bool:
     """Disable recurrence for a specific transaction"""
-    result = await transactions_collection.update_one(
-        {"_id": transaction_id, "user_id": user_id},
-        {"$set": {"recurrence.enabled": False}}
-    )
-    return result.modified_count > 0
+    return await transactions_db.disable_recurrence(transaction_id, user_id)
 
 
 async def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str) -> bool:
     """Disable recurrence for a parent transaction (when editing an auto-created one)"""
-    result = await transactions_collection.update_one(
-        {"_id": parent_transaction_id, "user_id": user_id},
-        {"$set": {"recurrence.enabled": False}}
-    )
+    disabled = await transactions_db.disable_recurrence(parent_transaction_id, user_id)
 
-    if result.modified_count > 0:
-        parent_tx = await transactions_collection.find_one({"_id": parent_transaction_id})
+    if disabled:
+        parent_tx = await transactions_db.get_transaction(parent_transaction_id)
         if parent_tx:
             label = parent_tx.get("description") or parent_tx["sub_category"]
             await create_notification(
@@ -443,7 +403,7 @@ async def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str
                 goal_name=label
             )
 
-    return result.modified_count > 0
+    return disabled
 
 
 def get_recurring_transaction_preview(

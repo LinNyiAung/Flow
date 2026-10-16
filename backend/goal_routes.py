@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Path
 
 from models import Currency
-from utils import get_current_user, get_user_balance, get_user_money_lock, invalidate_user_balance_cache
+from utils import get_current_user, get_user_balance, get_user_money_lock
 from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
@@ -14,7 +14,8 @@ from notification_service import (
     check_milestone_amount,
 )
 
-from database import goals_collection, users_collection
+from sql import goals as goals_db
+from sql import users as users_db
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
@@ -84,16 +85,10 @@ async def create_goal(
             "achieved_at": achieved_at
         }
 
-        result = await goals_collection.insert_one(new_goal)
+        await goals_db.insert_goal(new_goal)
 
-        if not result.inserted_id:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create goal"
-            )
-
-        # Cache invalidation (+ AI data stale) before releasing the lock
-        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+        # AI data stale (same transaction as the goal)
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
     progress = (current_amount / new_goal["target_amount"] * 100) if new_goal["target_amount"] > 0 else 0
 
@@ -121,18 +116,12 @@ async def get_goals(
     currency: Optional[Currency] = None  # enum -> unknown values are a 422, not a 500
 ):
     """Get all user goals"""
-    query = {"user_id": current_user["_id"]}
+    goals = await goals_db.list_goals(
+        current_user["_id"],
+        status=status_filter.value if status_filter else None,
+        currency=currency.value if currency else None,
+    )
 
-    if status_filter:
-        query["status"] = status_filter.value
-
-    if currency:
-        query["currency"] = currency.value
-    
-    # [FIX] Async find with sort
-    cursor = goals_collection.find(query).sort("created_at", -1)
-    goals = await cursor.to_list(length=None)
-    
     return [
         GoalResponse(
             id=g["_id"],
@@ -159,21 +148,15 @@ async def get_goals_summary(
     currency: Optional[Currency] = None  # enum -> unknown values are a 422, not a 500
 ):
     """Get summary of all goals"""
-    query = {"user_id": current_user["_id"]}
-    if currency:
-        query["currency"] = currency.value
-    
-    # [FIX] Async find
-    cursor = goals_collection.find(query)
-    goals = await cursor.to_list(length=None)
-    
+    goals = await goals_db.list_goals(current_user["_id"], currency=currency.value if currency else None)
+
     total_goals = len(goals)
     active_goals = len([g for g in goals if g["status"] == "active"])
     achieved_goals = len([g for g in goals if g["status"] == "achieved"])
     total_allocated = sum(g["current_amount"] for g in goals if g["status"] == "active")
     total_target = sum(g["target_amount"] for g in goals if g["status"] == "active")
     overall_progress = (total_allocated / total_target * 100) if total_target > 0 else 0
-    
+
     return GoalsSummary(
         total_goals=total_goals,
         active_goals=active_goals,
@@ -191,18 +174,14 @@ async def get_goal(
     current_user: dict = Depends(get_current_user)
 ):
     """Get a specific goal"""
-    # [FIX] Added await
-    goal = await goals_collection.find_one({
-        "_id": goal_id,
-        "user_id": current_user["_id"]
-    })
-    
+    goal = await goals_db.get_goal(goal_id, current_user["_id"])
+
     if not goal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Goal not found"
         )
-    
+
     return GoalResponse(
         id=goal["_id"],
         user_id=goal["user_id"],
@@ -227,20 +206,16 @@ async def update_goal(
     current_user: dict = Depends(get_current_user)
 ):
     """Update a goal's details"""
-    # [FIX] Added await
-    goal = await goals_collection.find_one({
-        "_id": goal_id,
-        "user_id": current_user["_id"]
-    })
-    
+    goal = await goals_db.get_goal(goal_id, current_user["_id"])
+
     if not goal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Goal not found"
         )
-    
+
     update_data = {"updated_at": datetime.now(UTC)}
-    
+
     if goal_data.name is not None:
         update_data["name"] = goal_data.name
     if goal_data.target_amount is not None:
@@ -259,16 +234,10 @@ async def update_goal(
         update_data["target_date"] = goal_data.target_date
     if goal_data.goal_type is not None:
         update_data["goal_type"] = goal_data.goal_type.value
-    
-    # [FIX] Added await
-    await goals_collection.update_one(
-        {"_id": goal_id},
-        {"$set": update_data}
-    )
-    
-    updated_goal = await goals_collection.find_one({"_id": goal_id})
 
-    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+    updated_goal = await goals_db.update_goal(goal_id, update_data)
+
+    await users_db.mark_ai_data_stale(current_user["_id"])
 
     return GoalResponse(
         id=updated_goal["_id"],
@@ -298,14 +267,11 @@ async def contribute_to_goal(
     if amount == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contribution amount must not be zero")
 
-    # Serialize all balance-moving operations of this user (single worker), so two
-    # concurrent contributions can't both spend the same available balance.
+    # Serialize all balance-moving operations of this user (database row lock, so across
+    # workers too): two concurrent contributions can't both spend the same available balance.
     async with get_user_money_lock(current_user["_id"]):
         # 1. READ (inside the lock): Fetch the goal state
-        goal = await goals_collection.find_one({
-            "_id": goal_id,
-            "user_id": current_user["_id"]
-        })
+        goal = await goals_db.get_goal(goal_id, current_user["_id"])
 
         if not goal:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
@@ -362,30 +328,22 @@ async def contribute_to_goal(
             new_status = GoalStatus.ACTIVE.value
             achieved_at = None
 
-        # --- ATOMIC WRITE (guard kept for multi-worker deployments) ---
-        result = await goals_collection.update_one(
-            {
-                "_id": goal_id,
-                "current_amount": original_amount  # <--- THE GUARD CONDITION
-            },
-            {
-                "$set": {
-                    "current_amount": new_amount,
-                    "status": new_status,
-                    "updated_at": now,
-                    "achieved_at": achieved_at
-                }
-            }
-        )
+        # --- ATOMIC WRITE (optimistic guard kept as a second line of defence) ---
+        updated = await goals_db.update_amount_if_unchanged(goal_id, original_amount, {
+            "current_amount": new_amount,
+            "status": new_status,
+            "updated_at": now,
+            "achieved_at": achieved_at,
+        })
 
-        if result.modified_count == 0:
+        if updated == 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Transaction failed due to concurrent modification. Please try again."
             )
 
-        # Invalidate cached balances before releasing the lock
-        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+        # AI data stale (same transaction as the contribution)
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
     # --- POST-UPDATE ACTIONS ---
     new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
@@ -406,7 +364,7 @@ async def contribute_to_goal(
             goal_name=goal["name"]
         )
 
-    updated_goal = await goals_collection.find_one({"_id": goal_id})
+    updated_goal = await goals_db.get_goal(goal_id)
 
     return GoalResponse(
         id=updated_goal["_id"],
@@ -430,53 +388,41 @@ async def delete_goal(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete a goal and return its amount to balance"""
-    # [FIX] Added await
-    goal = await goals_collection.find_one({
-        "_id": goal_id,
-        "user_id": current_user["_id"]
-    })
-    
+    goal = await goals_db.get_goal(goal_id, current_user["_id"])
+
     if not goal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Goal not found"
         )
-    
+
     returned_amount = goal["current_amount"]
-    
-    # [FIX] Added await
-    result = await goals_collection.delete_one({
-        "_id": goal_id,
-        "user_id": current_user["_id"]
-    })
-    
-    if result.deleted_count == 0:
+
+    if await goals_db.delete_goal(goal_id, current_user["_id"]) == 0:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete goal"
         )
-    
-    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+
+    await users_db.mark_ai_data_stale(current_user["_id"])
 
     return {
         "message": "Goal deleted successfully",
         "returned_amount": returned_amount
     }
-    
-    
+
+
 @router.get("/summary/all-currencies", response_model=MultiCurrencyGoalsSummary)
 async def get_multi_currency_goals_summary(
     current_user: dict = Depends(get_current_user)
 ):
     """Get summary of all goals with per-currency breakdown"""
-    # [FIX] Async find
-    cursor = goals_collection.find({"user_id": current_user["_id"]})
-    all_goals = await cursor.to_list(length=None)
-    
+    all_goals = await goals_db.list_goals(current_user["_id"])
+
     total_goals = len(all_goals)
     active_goals = len([g for g in all_goals if g["status"] == "active"])
     achieved_goals = len([g for g in all_goals if g["status"] == "achieved"])
-    
+
     # Group goals by currency
     currency_groups = {}
     for goal in all_goals:
@@ -484,7 +430,7 @@ async def get_multi_currency_goals_summary(
         if currency not in currency_groups:
             currency_groups[currency] = []
         currency_groups[currency].append(goal)
-    
+
     # Calculate summary for each currency
     currency_summaries = []
     for currency, goals in currency_groups.items():
@@ -495,11 +441,11 @@ async def get_multi_currency_goals_summary(
             continue
         active = [g for g in goals if g["status"] == "active"]
         achieved = [g for g in goals if g["status"] == "achieved"]
-        
+
         total_allocated = sum(g["current_amount"] for g in active)
         total_target = sum(g["target_amount"] for g in active)
         overall_progress = (total_allocated / total_target * 100) if total_target > 0 else 0
-        
+
         currency_summaries.append(CurrencySummary(
             currency=currency_enum,
             active_goals=len(active),
@@ -508,7 +454,7 @@ async def get_multi_currency_goals_summary(
             total_target=total_target,
             overall_progress=overall_progress
         ))
-    
+
     return MultiCurrencyGoalsSummary(
         total_goals=total_goals,
         active_goals=active_goals,

@@ -17,14 +17,10 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status, Depends, Query, Path, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
-from pymongo.errors import BulkWriteError  # <--- PRO FIX IMPORT
 
 from ai_usage_models import AIFeatureType, AIProviderType
 from ai_usage_service import track_ai_usage
-from utils import (
-    get_current_user, get_user_balance, get_user_money_lock,
-    invalidate_user_balance_cache, require_premium,
-)
+from utils import get_current_user, get_user_balance, get_user_money_lock, require_premium
 from goal_routes import to_cents
 from recurring_transaction_service import (
     disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview,
@@ -40,12 +36,14 @@ from models import (
 
 from notification_service import check_large_transaction
 
-from database import transactions_collection, categories_collection, users_collection
+from sql import transactions as transactions_db
+from sql import users as users_db
+from sql.categories import get_categories_doc
 
 from config import settings
 from category_matching import normalize_type, parse_positive_amount, snap_category
 from tz_utils import app_today
-from finite_utils import finite_amount_filter, finite_amount_or_none, is_finite_number
+from finite_utils import finite_amount_or_none, is_finite_number
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +70,7 @@ async def _get_category_map(tx_type: str) -> Optional[Dict[str, List[str]]]:
     cached = _category_cache.get(tx_type)
     if cached and now - cached[0] < _CATEGORY_CACHE_TTL_SECONDS:
         return cached[1]
-    doc = await categories_collection.find_one({"_id": tx_type})
+    doc = await get_categories_doc(tx_type)
     cmap = None
     if doc:
         cmap = {
@@ -327,30 +325,21 @@ async def create_transaction(
         "recurrence": _new_recurrence_doc(transaction_data.recurrence, tx_date),
     }
 
-    result = await transactions_collection.insert_one(new_transaction)
+    await transactions_db.insert_transaction(new_transaction)
+    await users_db.mark_ai_data_stale(current_user["_id"])
 
-    # Cache invalidation (versioned, race-safe) + mark AI data stale.
-    await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
-
-    if not result.inserted_id:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create transaction")
-    
     # Check for large transaction
     try:
-        cursor = transactions_collection.find({
-            "user_id": current_user["_id"],
-            "type": "outflow",
-            "currency": transaction_data.currency.value,
-            **finite_amount_filter(),
-        }).limit(50)
-        user_transactions = await cursor.to_list(length=50)
-        
+        user_transactions = await transactions_db.find_transactions(
+            current_user["_id"], type_="outflow", currency=transaction_data.currency.value, limit=50
+        )
+
         if user_transactions:
             avg_amount = sum(t["amount"] for t in user_transactions) / len(user_transactions)
             user_profile = {"avg_transaction": avg_amount}
         else:
             user_profile = None
-        
+
         background_tasks.add_task(
             check_large_transaction,
             user_id=current_user["_id"],
@@ -359,7 +348,7 @@ async def create_transaction(
         )
     except Exception as e:
         print(f"Error checking large transaction: {e}")
-    
+
     background_tasks.add_task(
         update_relevant_budgets,
         current_user["_id"],
@@ -381,36 +370,26 @@ async def get_transactions(
     currency: Optional[Currency] = None
 ):
     """Get user transactions with filters"""
-    query = {"user_id": current_user["_id"]}
-    
-    if transaction_type:
-        query["type"] = transaction_type.value
-    
-    if currency:
-        query["currency"] = currency.value
-    
-    if start_date or end_date:
-        date_filter = {}
-        if start_date:
-            date_filter["$gte"] = _as_utc(start_date)
-        if end_date:
-            end_date = _as_utc(end_date)
-            # Date-only semantics only when the client sent exactly midnight (e.g. "2025-01-31");
-            # precise timestamps are respected as-is.
-            if (end_date.hour, end_date.minute, end_date.second, end_date.microsecond) == (0, 0, 0, 0):
-                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-            date_filter["$lte"] = end_date
-        query["date"] = date_filter
+    if start_date:
+        start_date = _as_utc(start_date)
+    if end_date:
+        end_date = _as_utc(end_date)
+        # Date-only semantics only when the client sent exactly midnight (e.g. "2025-01-31");
+        # precise timestamps are respected as-is.
+        if (end_date.hour, end_date.minute, end_date.second, end_date.microsecond) == (0, 0, 0, 0):
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-    # _id as final tiebreaker gives a stable order for skip/limit pagination.
-    cursor = transactions_collection.find(query)\
-        .sort([("date", -1), ("created_at", -1), ("_id", -1)])\
-        .skip(skip)\
-        .limit(limit)
+    # Newest first; the id tiebreaker gives a stable order for skip/limit pagination.
+    transactions = await transactions_db.find_transactions(
+        current_user["_id"],
+        type_=transaction_type.value if transaction_type else None,
+        currency=currency.value if currency else None,
+        date_from=start_date,
+        date_to=end_date,
+        skip=skip,
+        limit=limit,
+    )
 
-    transactions = await cursor.to_list(length=limit)
-
-    # One legacy row with a NaN/inf amount must not 500 the whole list.
     return _transaction_responses(transactions)
 
 
@@ -421,30 +400,24 @@ async def disable_transaction_recurrence(
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for a transaction"""
-    transaction = await transactions_collection.find_one({
-        "_id": transaction_id,
-        "user_id": current_user["_id"]
-    })
-    
+    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
-    
+
     success = await disable_recurrence_for_transaction(transaction_id, current_user["_id"])
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found or recurrence not enabled"
         )
 
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
-    
+    await users_db.mark_ai_data_stale(current_user["_id"])
+
     return {"message": "Recurrence disabled successfully"}
 
 
@@ -455,38 +428,32 @@ async def disable_parent_transaction_recurrence(
     current_user: dict = Depends(get_current_user)
 ):
     """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
-    transaction = await transactions_collection.find_one({
-        "_id": transaction_id,
-        "user_id": current_user["_id"]
-    })
-    
+    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
-    
+
     parent_id = (transaction.get("recurrence") or {}).get("parent_transaction_id")
-    
+
     if not parent_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This transaction is not auto-created from a recurring transaction"
         )
-    
+
     success = await disable_recurrence_for_parent(parent_id, current_user["_id"])
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Parent transaction not found"
         )
-    
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"ai_data_stale": True}}
-    )
-    
+
+    await users_db.mark_ai_data_stale(current_user["_id"])
+
     return {"message": "Parent transaction recurrence disabled successfully"}
 
 
@@ -497,7 +464,7 @@ async def preview_transaction_recurrence(
     current_user: dict = Depends(get_current_user)
 ):
     """Preview upcoming occurrences of a recurring transaction"""
-    
+
     # Bounds (day_of_week 0-6, day_of_month 1-31, month 1-12, day_of_year 1-31) are
     # enforced by RecurrencePreviewRequest -> 422 on bad input.
     try:
@@ -516,7 +483,7 @@ async def preview_transaction_recurrence(
         )
     except (ValidationError, ValueError) as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid recurrence: {e}")
-    
+
     return {
         "occurrences": [date.isoformat() for date in occurrences],
         "count": len(occurrences)
@@ -529,10 +496,7 @@ async def get_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Get single transaction"""
-    transaction = await transactions_collection.find_one({
-        "_id": transaction_id,
-        "user_id": current_user["_id"]
-    })
+    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
 
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
@@ -548,11 +512,8 @@ async def update_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Update transaction"""
-    transaction = await transactions_collection.find_one({
-        "_id": transaction_id,
-        "user_id": current_user["_id"]
-    })
-    
+    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
@@ -638,15 +599,11 @@ async def update_transaction(
                 {"type": new_type, "amount": new_amount, "currency": new_currency},
             )
 
-        await transactions_collection.update_one(
-            {"_id": transaction_id, "user_id": current_user["_id"]},
-            {"$set": update_data}
-        )
+        updated_transaction = await transactions_db.update_transaction(transaction_id, current_user["_id"], update_data)
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
-        # Versioned cache invalidation + AI data stale
-        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
-
-    updated_transaction = await transactions_collection.find_one({"_id": transaction_id})
+    if not updated_transaction:  # deleted meanwhile
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
     # Recalculate budgets for BOTH the old and the new (date, currency).
     old_key = (_as_utc(transaction["date"]), transaction.get("currency", "usd"))
@@ -669,11 +626,8 @@ async def delete_transaction(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete transaction"""
-    transaction = await transactions_collection.find_one({
-        "_id": transaction_id, 
-        "user_id": current_user["_id"]
-    })
-    
+    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+
     if not transaction:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
@@ -684,14 +638,10 @@ async def delete_transaction(
         # Deleting an inflow must not leave money "allocated to goals" that no longer exists.
         await _ensure_goal_allocations_covered(current_user["_id"], transaction, None)
 
-        result = await transactions_collection.delete_one({
-            "_id": transaction_id,
-            "user_id": current_user["_id"]
-        })
+        deleted = await transactions_db.delete_transaction(transaction_id, current_user["_id"])
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
-        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
-
-    if result.deleted_count == 0:
+    if deleted == 0:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete transaction"
@@ -739,7 +689,7 @@ async def transcribe_audio(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="OpenAI API key not configured"
             )
-        
+
         MAX_AUDIO_SIZE = 25 * 1024 * 1024 
         content_length = audio.headers.get('content-length')
         if content_length and int(content_length) > MAX_AUDIO_SIZE:
@@ -751,15 +701,15 @@ async def transcribe_audio(
         file_ext = os.path.splitext(audio.filename)[1] if audio.filename else ".wav"
         if not file_ext:
             file_ext = ".wav"
-            
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
             shutil.copyfileobj(audio.file, temp_audio)
             temp_path = temp_audio.name
-        
+
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            
+
             whisper_kwargs = {"model": "whisper-1"}
             if whisper_language:
                 whisper_kwargs["language"] = whisper_language  # omitted -> auto-detect
@@ -768,19 +718,19 @@ async def transcribe_audio(
                     file=audio_file,
                     **whisper_kwargs
                 )
-            
+
             transcription_length = len(transcript.text)
             estimated_input_tokens = int(transcription_length / 4) 
             estimated_output_tokens = int(transcription_length / 4)
             estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
-            
+
             logger.info(f"🎤 [OPENAI TOKEN USAGE - Audio Transcription] User: {current_user['_id']}")
             logger.info(f"   📥 Estimated input tokens: {estimated_input_tokens:,}")
             logger.info(f"   📤 Estimated output tokens: {estimated_output_tokens:,}")
             logger.info(f"   📊 Estimated total tokens: {estimated_total_tokens:,}")
             logger.info(f"   🤖 Model: whisper-1")
             logger.info(f"   📝 Transcription length: {transcription_length} characters")
-            
+
             await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION,
@@ -790,7 +740,7 @@ async def transcribe_audio(
                 output_tokens=estimated_output_tokens,
                 total_tokens=estimated_total_tokens
             )
-            
+
             return {"transcription": transcript.text}
 
         except Exception as e:
@@ -799,7 +749,7 @@ async def transcribe_audio(
                 status_code=status.HTTP_502_BAD_GATEWAY, 
                 detail=f"AI Service Provider Error: {str(e)}"
             )
-            
+
     except HTTPException:
         raise
     except Exception as e:
@@ -828,22 +778,22 @@ async def extract_transaction_from_text(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="OpenAI API key not configured"
             )
-        
-        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
-        
+
+        inflow_cats = await get_categories_doc("inflow")
+        outflow_cats = await get_categories_doc("outflow")
+
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
             for cat in inflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-        
+
         categories_text += "\nOUTFLOW:\n"
         if outflow_cats:
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-        
+
         user_default_currency = current_user.get("default_currency", "usd")
-        
+
         system_prompt = f"""You are a financial transaction extraction assistant. Extract transaction details from user text.
 
 {categories_text}
@@ -883,7 +833,7 @@ Respond in JSON format:
 
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        
+
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -898,19 +848,19 @@ Respond in JSON format:
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
             import logging
-            
-            
-            
+
+
+
             input_tokens = response.usage.prompt_tokens
             output_tokens = response.usage.completion_tokens
             total_tokens = response.usage.total_tokens
-            
+
             logger.info(f"📝 [OPENAI TOKEN USAGE - Text Extraction] User: {current_user['_id']}")
             logger.info(f"   📥 Input tokens: {input_tokens:,}")
             logger.info(f"   📤 Output tokens: {output_tokens:,}")
             logger.info(f"   📊 Total tokens: {total_tokens:,}")
             logger.info(f"   🤖 Model: gpt-4o-mini")
-            
+
             await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
@@ -920,7 +870,7 @@ Respond in JSON format:
                 output_tokens=output_tokens,
                 total_tokens=total_tokens
             )
-        
+
         result = json.loads(response.choices[0].message.content)
 
         extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True)
@@ -936,8 +886,8 @@ Respond in JSON format:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to extract transaction: {str(e)}"
         )
-        
-        
+
+
 @router.post("/extract-multiple-from-text", response_model=MultipleTransactionExtraction)
 async def extract_multiple_transactions_from_text(
     request: TextExtractionRequest,
@@ -950,22 +900,22 @@ async def extract_multiple_transactions_from_text(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="OpenAI API key not configured"
             )
-        
-        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
-        
+
+        inflow_cats = await get_categories_doc("inflow")
+        outflow_cats = await get_categories_doc("outflow")
+
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
             for cat in inflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-        
+
         categories_text += "\nOUTFLOW:\n"
         if outflow_cats:
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-        
+
         user_default_currency = current_user.get("default_currency", "usd")
-        
+
         system_prompt = f"""You are a financial transaction extraction assistant. Extract ALL transaction details from user text, even if there are multiple transactions mentioned.
 
 {categories_text}
@@ -1019,7 +969,7 @@ Respond in JSON format:
 
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        
+
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -1035,19 +985,19 @@ Respond in JSON format:
             from ai_usage_service import track_ai_usage
             from ai_usage_models import AIFeatureType, AIProviderType
             import logging
-            
-            
-            
+
+
+
             input_tokens = response.usage.prompt_tokens
             output_tokens = response.usage.completion_tokens
             total_tokens = response.usage.total_tokens
-            
+
             logger.info(f"📝 [OPENAI TOKEN USAGE - Multiple Text Extraction] User: {current_user['_id']}")
             logger.info(f"   📥 Input tokens: {input_tokens:,}")
             logger.info(f"   📤 Output tokens: {output_tokens:,}")
             logger.info(f"   📊 Total tokens: {total_tokens:,}")
             logger.info(f"   🤖 Model: gpt-4o-mini")
-            
+
             await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
@@ -1057,9 +1007,9 @@ Respond in JSON format:
                 output_tokens=output_tokens,
                 total_tokens=total_tokens
             )
-        
+
         result = json.loads(response.choices[0].message.content)
-        
+
         transactions = []
         raw_items = result.get("transactions") or []
         if not isinstance(raw_items, list):
@@ -1098,7 +1048,7 @@ async def batch_create_transactions(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_premium)
 ):
-    """Create multiple transactions at once (Optimized with BulkWriteError handling)"""
+    """Create multiple transactions at once (one all-or-nothing insert)"""
     new_transactions = []
     response_models = []
 
@@ -1139,39 +1089,13 @@ async def batch_create_transactions(
         new_transactions.append(doc)
         response_models.append(_transaction_response(doc))
 
-    # 2. Bulk Insert with "Pro" Error Handling
+    # 2. One all-or-nothing insert
     if new_transactions:
-        try:
-            # ordered=False continues inserting even if one fails
-            await transactions_collection.insert_many(new_transactions, ordered=False)
-            
-        except BulkWriteError as bwe:
-            # === PRO FIX: Handle partial failures ===
-            # This catches cases where some inserts failed but others succeeded.
-            # bwe.details['nInserted'] tells you how many worked.
-            inserted_count = bwe.details['nInserted']
-            logger.warning(f"Batch insert partial failure. {inserted_count}/{len(new_transactions)} inserted. Errors: {bwe.details['writeErrors']}")
-            
-            # If at least ONE succeeded, we proceed with post-processing.
-            if inserted_count == 0:
-                 raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="All batch transactions failed to insert."
-                )
-        
-        except Exception as e:
-            # Catch other unexpected errors
-            logger.error(f"Batch insert critical failure: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Batch insert failed: {str(e)}"
-            )
+        await transactions_db.insert_many(new_transactions)
 
-        # 3. Post-processing (Background tasks & Cache invalidation)
-        # We run this if at least one transaction succeeded (either normal flow or partial BulkWriteError)
+        # 3. Post-processing (budgets in the background, AI data stale)
         background_tasks.add_task(update_all_user_budgets, current_user["_id"])
-
-        await invalidate_user_balance_cache(current_user["_id"], mark_ai_stale=True)
+        await users_db.mark_ai_data_stale(current_user["_id"])
 
     return response_models
 
@@ -1190,14 +1114,14 @@ def process_and_resize_image(image_data: bytes) -> str:
             # 1. Convert to RGB (Handy for PNGs with transparency)
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
-            
+
             # 2. Resize if the image is too large (maintains aspect ratio)
             img.thumbnail(TARGET_IMAGE_SIZE)
-            
+
             # 3. Save to optimized JPEG buffer
             buffer = io.BytesIO()
             img.save(buffer, format="JPEG", quality=85, optimize=True)
-            
+
             # 4. Encode to Base64
             return base64.b64encode(buffer.getvalue()).decode('utf-8')
     except Exception as e:
@@ -1234,7 +1158,7 @@ async def extract_transaction_from_image(
         # Prevent reading massive files into RAM if Content-Length was missing/faked
         image_data = bytearray()
         chunk_size = 1024 * 1024  # 1MB chunks
-        
+
         while True:
             chunk = await image.read(chunk_size)
             if not chunk:
@@ -1257,21 +1181,21 @@ async def extract_transaction_from_image(
             )
 
         # 5. Prepare Categories for Prompt
-        inflow_cats = await categories_collection.find_one({"_id": "inflow"})
-        outflow_cats = await categories_collection.find_one({"_id": "outflow"})
-        
+        inflow_cats = await get_categories_doc("inflow")
+        outflow_cats = await get_categories_doc("outflow")
+
         categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
         if inflow_cats:
             for cat in inflow_cats.get("categories", []):
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-        
+
         categories_text += "\nOUTFLOW:\n"
         if outflow_cats:
             for cat in outflow_cats.get("categories", []):
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-        
+
         user_default_currency = current_user.get("default_currency", "usd")
-        
+
         # 6. Construct System Prompt
         system_prompt = f"""You are a financial receipt analyzer. Extract transaction details from receipt images.
 
@@ -1313,7 +1237,7 @@ Respond in JSON format:
         # 7. Call OpenAI API
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        
+
         response = await client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -1347,13 +1271,13 @@ Respond in JSON format:
             input_tokens = response.usage.prompt_tokens
             output_tokens = response.usage.completion_tokens
             total_tokens = response.usage.total_tokens
-            
+
             logger.info(f"📸 [OPENAI TOKEN USAGE - Image Extraction] User: {current_user['_id']}")
             logger.info(f"   📥 Input tokens: {input_tokens:,}")
             logger.info(f"   📤 Output tokens: {output_tokens:,}")
             logger.info(f"   📊 Total tokens: {total_tokens:,}")
             logger.info(f"   🤖 Model: gpt-4o")
-            
+
             await track_ai_usage(
                 user_id=current_user["_id"],
                 feature_type=AIFeatureType.TRANSACTION_IMAGE_EXTRACTION,
@@ -1363,7 +1287,7 @@ Respond in JSON format:
                 output_tokens=output_tokens,
                 total_tokens=total_tokens
             )
-        
+
         # 9. Parse Response
         result = json.loads(response.choices[0].message.content)
 

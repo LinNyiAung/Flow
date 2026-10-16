@@ -1,4 +1,4 @@
-"""Run the Flow backend against the local throwaway mongod with all externals stubbed."""
+"""Run the Flow backend against the local throwaway PostgreSQL with all externals stubbed."""
 import os
 import sys
 

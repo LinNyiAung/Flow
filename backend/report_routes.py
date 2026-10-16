@@ -13,8 +13,8 @@ from report_models import (
 )
 from models import Currency
 
-from database import transactions_collection, goals_collection
-from finite_utils import finite_amount_filter
+from sql import transactions as transactions_db
+from sql import goals as goals_db
 
 router = APIRouter(prefix="/api/reports", tags=["transactions"])
 
@@ -60,7 +60,7 @@ def calculate_report_dates(
             start = start_date.replace(tzinfo=UTC, hour=0, minute=0, second=0, microsecond=0)
         else:
             start = start_date.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-            
+
         if end_date.tzinfo is None:
             end = end_date.replace(tzinfo=UTC, hour=23, minute=59, second=59, microsecond=999999)
         else:
@@ -79,10 +79,10 @@ def generate_currency_report(transactions, currency, start_date, end_date):
     """Generate report for a specific currency"""
     inflows = [t for t in transactions if t["type"] == "inflow"]
     outflows = [t for t in transactions if t["type"] == "outflow"]
-    
+
     total_inflow = sum(t["amount"] for t in inflows)
     total_outflow = sum(t["amount"] for t in outflows)
-    
+
     # Calculate category breakdowns for inflows - CHANGED to use sub_category
     inflow_categories = {}
     for t in inflows:
@@ -96,7 +96,7 @@ def generate_currency_report(transactions, currency, start_date, end_date):
             }
         inflow_categories[cat_key]["amount"] += t["amount"]
         inflow_categories[cat_key]["count"] += 1
-    
+
     inflow_by_category = [
         CategoryBreakdown(
             category=cat,
@@ -108,7 +108,7 @@ def generate_currency_report(transactions, currency, start_date, end_date):
         for cat, data in inflow_categories.items()
     ]
     inflow_by_category.sort(key=lambda x: x.amount, reverse=True)
-    
+
     # Calculate category breakdowns for outflows - CHANGED to use sub_category
     outflow_categories = {}
     for t in outflows:
@@ -122,7 +122,7 @@ def generate_currency_report(transactions, currency, start_date, end_date):
             }
         outflow_categories[cat_key]["amount"] += t["amount"]
         outflow_categories[cat_key]["count"] += 1
-    
+
     outflow_by_category = [
         CategoryBreakdown(
             category=cat,
@@ -134,12 +134,12 @@ def generate_currency_report(transactions, currency, start_date, end_date):
         for cat, data in outflow_categories.items()
     ]
     outflow_by_category.sort(key=lambda x: x.amount, reverse=True)
-    
+
     # Calculate daily averages
     days_in_period = (end_date - start_date).days + 1
     avg_daily_inflow = total_inflow / days_in_period if days_in_period > 0 else 0
     avg_daily_outflow = total_outflow / days_in_period if days_in_period > 0 else 0
-    
+
     return CurrencyReport(
         currency=currency,
         total_inflow=total_inflow,
@@ -168,93 +168,36 @@ async def generate_report(
             report_request.end_date,
             report_request.timezone_offset or 0,
         )
-        
+
         # Determine currency - use requested or user's default
         currency = report_request.currency
         if currency is None:
             currency = Currency(current_user.get("default_currency", "usd"))
-        
-        # ✅ OPTIMIZED: Use MongoDB aggregation pipeline instead of loading all data
-        pipeline = [
-            {
-                "$match": {
-                    "user_id": current_user["_id"],
-                    "currency": currency.value,
-                    "date": {"$gte": start_date, "$lte": end_date},
-                    # Legacy NaN/inf amounts are excluded (they'd make every total NaN).
-                    **finite_amount_filter(),
-                }
+
+        # Totals and per-category sums are computed in the database.
+        window = dict(currency=currency.value, date_from=start_date, date_to=end_date)
+        totals = await transactions_db.currency_totals(current_user["_id"], **window)
+        categories = await transactions_db.category_totals(current_user["_id"], **window)
+        result = [{
+            "totals": [
+                {"total_inflow": s["total_inflow"], "total_outflow": s["total_outflow"],
+                 "inflow_count": s["inflow_count"], "outflow_count": s["outflow_count"], "total_count": s["count"]}
+                for s in totals
+            ],
+            **{
+                f"{kind}_categories": [
+                    {"_id": {"main": c["main_category"], "sub": c["sub_category"]}, "amount": c["total"], "count": c["count"]}
+                    for c in categories if c["type"] == kind
+                ]
+                for kind in ("inflow", "outflow")
             },
-            {
-                "$facet": {
-                    # Calculate totals
-                    "totals": [
-                        {
-                            "$group": {
-                                "_id": None,
-                                "total_inflow": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, "$amount", 0]}
-                                },
-                                "total_outflow": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, "$amount", 0]}
-                                },
-                                "inflow_count": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "inflow"]}, 1, 0]}
-                                },
-                                "outflow_count": {
-                                    "$sum": {"$cond": [{"$eq": ["$type", "outflow"]}, 1, 0]}
-                                },
-                                "total_count": {"$sum": 1}
-                            }
-                        }
-                    ],
-                    # Group by category for inflows
-                    "inflow_categories": [
-                        {"$match": {"type": "inflow"}},
-                        {
-                            "$group": {
-                                "_id": {
-                                    "main": "$main_category",
-                                    "sub": "$sub_category"
-                                },
-                                "amount": {"$sum": "$amount"},
-                                "count": {"$sum": 1}
-                            }
-                        },
-                        {"$sort": {"amount": -1}}
-                    ],
-                    # Group by category for outflows
-                    "outflow_categories": [
-                        {"$match": {"type": "outflow"}},
-                        {
-                            "$group": {
-                                "_id": {
-                                    "main": "$main_category",
-                                    "sub": "$sub_category"
-                                },
-                                "amount": {"$sum": "$amount"},
-                                "count": {"$sum": 1}
-                            }
-                        },
-                        {"$sort": {"amount": -1}}
-                    ]
-                }
-            }
-        ]
-        
-        # [FIX] Async Aggregation
-        cursor = transactions_collection.aggregate(pipeline)
-        result = await cursor.to_list(length=None)
-        
+        }]
+
         # Handle empty result
         if not result or not result[0]["totals"]:
             # [FIX] Async find
-            cursor = goals_collection.find({
-                "user_id": current_user["_id"],
-                "currency": currency.value
-            })
-            goals = await cursor.to_list(length=None)
-            
+            goals = await goals_db.list_goals(current_user["_id"], currency=currency.value)
+
             goals_progress = [
                 GoalProgress(
                     goal_id=g["_id"],
@@ -267,9 +210,9 @@ async def generate_report(
                 )
                 for g in goals
             ]
-            
+
             total_allocated = sum(g["current_amount"] for g in goals)
-            
+
             return FinancialReport(
                 period=report_request.period,
                 start_date=start_date,
@@ -291,17 +234,17 @@ async def generate_report(
                 currency=currency,
                 generated_at=datetime.now(UTC)
             )
-        
+
         # Extract aggregated data
         data = result[0]
         totals = data["totals"][0]
-        
+
         total_inflow = totals["total_inflow"]
         total_outflow = totals["total_outflow"]
         inflow_count = totals["inflow_count"]
         outflow_count = totals["outflow_count"]
         total_transactions = totals["total_count"]
-        
+
         # Process inflow categories
         inflow_by_category = [
             CategoryBreakdown(
@@ -313,7 +256,7 @@ async def generate_report(
             )
             for cat in data["inflow_categories"]
         ]
-        
+
         # Process outflow categories
         outflow_by_category = [
             CategoryBreakdown(
@@ -325,19 +268,15 @@ async def generate_report(
             )
             for cat in data["outflow_categories"]
         ]
-        
+
         # Calculate daily averages
         days_in_period = (end_date - start_date).days + 1
         avg_daily_inflow = total_inflow / days_in_period if days_in_period > 0 else 0
         avg_daily_outflow = total_outflow / days_in_period if days_in_period > 0 else 0
-        
+
         # [FIX] Async find for goals (second occurrence)
-        cursor = goals_collection.find({
-            "user_id": current_user["_id"],
-            "currency": currency.value
-        })
-        goals = await cursor.to_list(length=None)
-        
+        goals = await goals_db.list_goals(current_user["_id"], currency=currency.value)
+
         goals_progress = [
             GoalProgress(
                 goal_id=g["_id"],
@@ -350,13 +289,13 @@ async def generate_report(
             )
             for g in goals
         ]
-        
+
         total_allocated = sum(g["current_amount"] for g in goals)
-        
+
         # Top categories
         top_income = inflow_by_category[0].category if inflow_by_category else None
         top_expense = outflow_by_category[0].category if outflow_by_category else None
-        
+
         report = FinancialReport(
             period=report_request.period,
             start_date=start_date,
@@ -378,9 +317,9 @@ async def generate_report(
             currency=currency,
             generated_at=datetime.now(UTC)
         )
-        
+
         return report
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -406,15 +345,11 @@ async def generate_multi_currency_report(
             report_request.end_date,
             report_request.timezone_offset or 0,
         )
-        
-        # [FIX] Async fetch all transactions
-        cursor = transactions_collection.find({
-            "user_id": current_user["_id"],
-            "date": {"$gte": start_date, "$lte": end_date},
-            **finite_amount_filter(),
-        })
-        all_transactions = await cursor.to_list(length=None)
-        
+
+        all_transactions = await transactions_db.find_transactions(
+            current_user["_id"], date_from=start_date, date_to=end_date
+        )
+
         # Group by currency
         transactions_by_currency = {}
         for t in all_transactions:
@@ -422,7 +357,7 @@ async def generate_multi_currency_report(
             if currency not in transactions_by_currency:
                 transactions_by_currency[currency] = []
             transactions_by_currency[currency].append(t)
-        
+
         # Generate report for each currency
         currency_reports = []
         for currency_str, transactions in transactions_by_currency.items():
@@ -433,10 +368,9 @@ async def generate_multi_currency_report(
                 continue
             report = generate_currency_report(transactions, currency, start_date, end_date)
             currency_reports.append(report)
-        
+
         # [FIX] Async fetch all goals
-        cursor = goals_collection.find({"user_id": current_user["_id"]})
-        all_goals = await cursor.to_list(length=None)
+        all_goals = await goals_db.list_goals(current_user["_id"])
 
         goals_progress = [
             GoalProgress(
@@ -450,7 +384,7 @@ async def generate_multi_currency_report(
             )
             for g in all_goals
         ]
-        
+
         report = MultiCurrencyFinancialReport(
             period=report_request.period,
             start_date=start_date,
@@ -460,9 +394,9 @@ async def generate_multi_currency_report(
             total_transactions=len(all_transactions),
             generated_at=datetime.now(UTC)
         )
-        
+
         return report
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -486,7 +420,7 @@ async def download_report_pdf(
         currency = report_request.currency
         if currency is None:
             currency = Currency(current_user.get("default_currency", "usd"))
-        
+
         # Generate the report (reuse the generate_report logic)
         start_date, end_date = calculate_report_dates(
             report_request.period,
@@ -494,25 +428,16 @@ async def download_report_pdf(
             report_request.end_date,
             report_request.timezone_offset or 0,
         )
-        
-        # [FIX] Async fetch transactions
-        cursor = transactions_collection.find({
-            "user_id": current_user["_id"],
-            "currency": currency.value,
-            "date": {"$gte": start_date, "$lte": end_date},
-            **finite_amount_filter(),
-        })
-        transactions = await cursor.to_list(length=None)
-        
+
+        transactions = await transactions_db.find_transactions(
+            current_user["_id"], currency=currency.value, date_from=start_date, date_to=end_date
+        )
+
         currency_report = generate_currency_report(transactions, currency, start_date, end_date)
-        
+
         # [FIX] Async fetch goals
-        cursor = goals_collection.find({
-            "user_id": current_user["_id"],
-            "currency": currency.value
-        })
-        goals = await cursor.to_list(length=None)
-        
+        goals = await goals_db.list_goals(current_user["_id"], currency=currency.value)
+
         goals_progress = [
             GoalProgress(
                 goal_id=g["_id"],
@@ -525,12 +450,12 @@ async def download_report_pdf(
             )
             for g in goals
         ]
-        
+
         total_allocated = sum(g["current_amount"] for g in goals)
-        
+
         top_income = currency_report.inflow_by_category[0].category if currency_report.inflow_by_category else None
         top_expense = currency_report.outflow_by_category[0].category if currency_report.outflow_by_category else None
-        
+
         report = FinancialReport(
             period=report_request.period,
             start_date=start_date,
@@ -552,7 +477,7 @@ async def download_report_pdf(
             currency=currency,
             generated_at=datetime.now(UTC)
         )
-        
+
         # Generate PDF with user's timezone offset
         user_timezone_offset = report_request.timezone_offset or 0  # bounded to +/-840 by ReportRequest
         pdf_buffer = await asyncio.to_thread(
@@ -562,17 +487,17 @@ async def download_report_pdf(
             user_timezone_offset, 
             currency
         )
-        
+
         # Create filename with currency
         period_name = report_request.period.value
         filename = f"financial_report_{currency.value}_{period_name}_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.pdf"
-        
+
         return StreamingResponse(
             pdf_buffer,
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:

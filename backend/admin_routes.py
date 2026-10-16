@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Request, status, Depends, Query, Path
 from starlette.concurrency import run_in_threadpool
 
-from pymongo import ReturnDocument
 
 from admin_utils import (
     ADMIN_TOKEN_TTL,
@@ -47,20 +46,16 @@ from firebase_service import send_fcm_data_message, send_fcm_to_multiple
 from notification_service import should_send_notification
 from subscription_service import active_premium_filter, effectively_free_filter
 from models import Currency, SubscriptionType
-from database import (
-    admins_collection,
-    admin_action_logs_collection,
-    users_collection,
-    transactions_collection,
-    goals_collection,
-    budgets_collection,
-    chat_sessions_collection,
-    notifications_collection,
-    ai_usage_collection,
-    feedback_collection,
-    insights_collection,
-    notification_preferences_collection,
-)
+from sqlalchemy.exc import IntegrityError
+from sql import admins as admins_db
+from sql import users as users_db
+from sql import feedback as feedback_db
+from sql import ai_usage as ai_usage_db
+from sql import notifications as notifications_db
+from sql import chat as chat_db
+from sql import goals as goals_db
+from sql import transactions as transactions_db
+from sql import budgets as budgets_db
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
 from config import settings
 
@@ -79,16 +74,8 @@ def _to_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 async def _find_admin_by_email(email: str) -> Optional[dict]:
-    """Case-insensitive admin lookup (exact match first, then anchored escaped regex)."""
-    normalized = (email or "").strip().lower()
-    if not normalized:
-        return None
-    admin = await admins_collection.find_one({"email": normalized})
-    if admin:
-        return admin
-    return await admins_collection.find_one(
-        {"email": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}}
-    )
+    """Case-insensitive admin lookup (e-mails are unique on lower(email))."""
+    return await admins_db.get_admin_by_email(email)
 
 
 # In-memory admin login lockout (single uvicorn worker assumed):
@@ -295,10 +282,7 @@ async def admin_login(credentials: AdminLogin, request: Request):
     _admin_clear_failures(lock_key)
 
     login_time = datetime.now(UTC)
-    await admins_collection.update_one(
-        {"_id": admin["_id"]},
-        {"$set": {"last_login": login_time}}
-    )
+    await admins_db.set_last_login(admin["_id"], login_time)
 
     access_token = create_admin_access_token(
         data=admin_token_claims(admin),
@@ -343,30 +327,23 @@ async def admin_change_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect"
         )
-    
+
     if len(password_data.new_password) < 8:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must be at least 8 characters"
         )
-    
+
     if password_data.new_password != password_data.confirm_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New passwords do not match"
         )
-    
+
     hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
     # Bumping password_version revokes every token issued before the change (tokens
     # carry it as "pwv"; get_current_admin rejects mismatches).
-    updated_admin = await admins_collection.find_one_and_update(
-        {"_id": current_admin["_id"]},
-        {
-            "$set": {"password": hashed_password, "password_changed_at": datetime.now(UTC)},
-            "$inc": {"password_version": 1},
-        },
-        return_document=ReturnDocument.AFTER,
-    )
+    updated_admin = await admins_db.change_password(current_admin["_id"], hashed_password)
     if not updated_admin:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin not found")
 
@@ -395,10 +372,10 @@ async def update_admin_profile(
 ):
     """Update current admin profile"""
     update_fields = {}
-    
+
     if update_data.name and update_data.name != current_admin["name"]:
         update_fields["name"] = update_data.name
-        
+
     new_email = (update_data.email or "").strip().lower()
     if new_email and new_email != (current_admin.get("email") or "").strip().lower():
         # Same normalisation + case-insensitive duplicate check as create-admin.
@@ -409,7 +386,7 @@ async def update_admin_profile(
                 detail="Email already in use"
             )
         update_fields["email"] = new_email
-        
+
     if not update_fields:
         return AdminResponse(
             id=current_admin["_id"],
@@ -420,16 +397,9 @@ async def update_admin_profile(
             last_login=current_admin.get("last_login")
         )
 
-    update_doc = {"$set": update_fields}
-    if "email" in update_fields:
-        # Changing the sign-in e-mail revokes every existing token of this admin
-        # (including the current session: the admin signs in again with the new e-mail).
-        update_doc["$inc"] = {"password_version": 1}
-
-    await admins_collection.update_one(
-        {"_id": current_admin["_id"]},
-        update_doc
-    )
+    # Changing the sign-in e-mail revokes every existing token of this admin
+    # (including the current session: the admin signs in again with the new e-mail).
+    await admins_db.update_profile(current_admin["_id"], update_fields, bump_version="email" in update_fields)
 
     await log_admin_action(
         admin_id=current_admin["_id"],
@@ -437,9 +407,9 @@ async def update_admin_profile(
         action="updated_profile",
         details=f"Updated profile fields: {', '.join(update_fields.keys())}"
     )
-    
-    updated_admin = await admins_collection.find_one({"_id": current_admin["_id"]})
-    
+
+    updated_admin = await admins_db.get_admin_by_id(current_admin["_id"])
+
     return AdminResponse(
         id=updated_admin["_id"],
         name=updated_admin["name"],
@@ -478,16 +448,20 @@ async def create_admin(
         "created_at": datetime.now(UTC),
         "last_login": None
     }
-    
-    await admins_collection.insert_one(new_admin)
-    
+
+    try:
+        await admins_db.insert_admin(new_admin)
+    except IntegrityError:
+        # Unique lower(email): a concurrent request created the same admin first.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
     await log_admin_action(
         admin_id=current_admin["_id"],
         admin_email=current_admin["email"],
         action="created_admin",
         details=f"Created admin: {admin_data.email} with role {admin_data.role.value}"
     )
-    
+
     return AdminResponse(
         id=admin_id,
         name=new_admin["name"],
@@ -501,9 +475,8 @@ async def create_admin(
 @router.get("/admins", response_model=List[AdminResponse])
 async def get_all_admins(current_admin: dict = Depends(require_super_admin)):
     """Get all admins (super admin only)"""
-    cursor = admins_collection.find()
-    admins = await cursor.to_list(length=None)
-    
+    admins = await admins_db.list_admins()
+
     return [
         AdminResponse(
             id=admin["_id"],
@@ -528,29 +501,27 @@ async def delete_admin(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete yourself"
         )
-    
-    admin_to_delete = await admins_collection.find_one({"_id": admin_id})
+
+    admin_to_delete = await admins_db.get_admin_by_id(admin_id)
     if not admin_to_delete:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Admin not found"
         )
-    
-    result = await admins_collection.delete_one({"_id": admin_id})
-    
-    if result.deleted_count == 0:
+
+    if await admins_db.delete_admin(admin_id) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Admin not found"
         )
-    
+
     await log_admin_action(
         admin_id=current_admin["_id"],
         admin_email=current_admin["email"],
         action="deleted_admin",
         details=f"Deleted admin: {admin_to_delete['email']}"
     )
-    
+
     return {"message": "Admin deleted successfully"}
 
 
@@ -565,35 +536,18 @@ async def get_all_users(
     subscription_type: Optional[SubscriptionType] = Query(None)
 ):
     """Get all users with pagination and filters"""
-    query = {}
+    users = await users_db.admin_list(search, subscription_type.value if subscription_type else None, skip, limit)
 
-    if search and search.strip():
-        pattern = re.escape(search.strip())
-        query["$or"] = [
-            {"name": {"$regex": pattern, "$options": "i"}},
-            {"email": {"$regex": pattern, "$options": "i"}}
-        ]
-    
-    if subscription_type:
-        query["subscription_type"] = subscription_type.value
-    
-    cursor = users_collection.find(query).skip(skip).limit(limit).sort("created_at", -1)
-    users = await cursor.to_list(length=limit)
-    
     user_list = []
     for user in users:
-        transaction_count = await transactions_collection.count_documents({"user_id": user["_id"]})
-        goals_count = await goals_collection.count_documents({"user_id": user["_id"]})
-        
-        last_transaction = await transactions_collection.find_one(
-            {"user_id": user["_id"]},
-            sort=[("created_at", -1)]
-        )
-        last_chat = await chat_sessions_collection.find_one(
-            {"user_id": user["_id"]},
-            sort=[("updated_at", -1)]
-        )
-        
+        transaction_count = await transactions_db.count_transactions(user["_id"])
+        goals_count = await goals_db.count_goals(user["_id"])
+
+        last_tx_at = await transactions_db.latest_created_at(user["_id"])
+        last_transaction = {"created_at": last_tx_at} if last_tx_at else None
+        last_chat_at = await chat_db.latest_activity(user["_id"])
+        last_chat = {"updated_at": last_chat_at} if last_chat_at else None
+
         last_active = None
         if last_transaction and last_chat:
             last_active = max(
@@ -604,7 +558,7 @@ async def get_all_users(
             last_active = last_transaction.get("created_at")
         elif last_chat:
             last_active = last_chat.get("updated_at")
-        
+
         user_list.append(UserListResponse(
             id=user["_id"],
             name=user["name"],
@@ -617,7 +571,7 @@ async def get_all_users(
             total_goals=goals_count,
             last_active=last_active
         ))
-    
+
     return user_list
 
 
@@ -627,28 +581,24 @@ async def get_user_detail(
     current_admin: dict = Depends(require_moderator_or_above)
 ):
     """Get detailed user information"""
-    user = await users_collection.find_one({"_id": user_id})
-    
+    user = await users_db.get_user(user_id)
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
-    transaction_count = await transactions_collection.count_documents({"user_id": user_id})
-    goals_count = await goals_collection.count_documents({"user_id": user_id})
-    budgets_count = await budgets_collection.count_documents({"user_id": user_id})
-    chat_sessions_count = await chat_sessions_collection.count_documents({"user_id": user_id})
-    
-    last_transaction = await transactions_collection.find_one(
-        {"user_id": user_id},
-        sort=[("created_at", -1)]
-    )
-    last_chat = await chat_sessions_collection.find_one(
-        {"user_id": user_id},
-        sort=[("updated_at", -1)]
-    )
-    
+
+    transaction_count = await transactions_db.count_transactions(user_id)
+    goals_count = await goals_db.count_goals(user_id)
+    budgets_count = await budgets_db.count_budgets(user_id)
+    chat_sessions_count = await chat_db.count_sessions(user_id)
+
+    last_tx_at = await transactions_db.latest_created_at(user_id)
+    last_transaction = {"created_at": last_tx_at} if last_tx_at else None
+    last_chat_at = await chat_db.latest_activity(user_id)
+    last_chat = {"updated_at": last_chat_at} if last_chat_at else None
+
     last_active = None
     if last_transaction and last_chat:
         last_active = max(
@@ -659,7 +609,7 @@ async def get_user_detail(
         last_active = last_transaction.get("created_at")
     elif last_chat:
         last_active = last_chat.get("updated_at")
-    
+
     return UserDetailResponse(
         id=user["_id"],
         name=user["name"],
@@ -684,24 +634,21 @@ async def update_user_subscription(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update user subscription and instantly notify their device to refresh"""
-    user = await users_collection.find_one({"_id": user_id})
-    
+    user = await users_db.get_user(user_id)
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
     update_data = {
         "subscription_type": subscription_data.subscription_type.value,
         # Always store timezone-aware UTC
         "subscription_expires_at": _to_aware_utc(subscription_data.subscription_expires_at)
     }
 
-    await users_collection.update_one(
-        {"_id": user_id},
-        {"$set": update_data}
-    )
+    await users_db.update_user(user_id, **update_data)
 
     # Send a silent FCM data-only message so the app refreshes instantly.
     # Blocking firebase call runs in a threadpool so the event loop isn't blocked.
@@ -730,7 +677,7 @@ async def update_user_subscription(
         target_user_email=user["email"],
         details=f"Updated subscription to {subscription_data.subscription_type.value}"
     )
-    
+
     return {
         "message": "User subscription updated successfully",
         "fcm_refresh_sent": fcm_sent
@@ -743,32 +690,21 @@ async def delete_user(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Delete user and all associated data (super admin only)"""
-    user = await users_collection.find_one({"_id": user_id})
-    
+    user = await users_db.get_user(user_id)
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
-    await transactions_collection.delete_many({"user_id": user_id})
-    await goals_collection.delete_many({"user_id": user_id})
-    await budgets_collection.delete_many({"user_id": user_id})
-    await chat_sessions_collection.delete_many({"user_id": user_id})
-    await notifications_collection.delete_many({"user_id": user_id})
-    await insights_collection.delete_many({"user_id": user_id})
-    await notification_preferences_collection.delete_many({"user_id": user_id})
-    await ai_usage_collection.delete_many({"user_id": user_id})
-    await feedback_collection.delete_many({"user_id": user_id})
 
-    result = await users_collection.delete_one({"_id": user_id})
-    
-    if result.deleted_count == 0:
+    # Every table cascades from users (ON DELETE CASCADE): one atomic delete.
+    if await users_db.delete_user(user_id) == 0:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete user"
         )
-    
+
     await log_admin_action(
         admin_id=current_admin["_id"],
         admin_email=current_admin["email"],
@@ -777,7 +713,7 @@ async def delete_user(
         target_user_email=user["email"],
         details="Deleted user and all associated data"
     )
-    
+
     return {"message": "User deleted successfully"}
 
 
@@ -786,36 +722,26 @@ async def delete_user(
 @router.get("/stats/users", response_model=UserStatsResponse)
 async def get_user_stats(current_admin: dict = Depends(require_moderator_or_above)):
     """Get user statistics"""
-    total_users = await users_collection.count_documents({})
+    total_users = await users_db.count_users()
     # Expired premium counts as free (subscription_service has the one definition).
-    free_users = await users_collection.count_documents(effectively_free_filter())
-    premium_users = await users_collection.count_documents(active_premium_filter())
+    free_users = await users_db.count_users(effectively_free_filter())
+    premium_users = await users_db.count_users(active_premium_filter())
 
     thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
-    new_users_last_30_days = await users_collection.count_documents({
-        "created_at": {"$gte": thirty_days_ago}
-    })
-    
+    new_users_last_30_days = await users_db.count_users(users_db.users.c.created_at >= thirty_days_ago)
+
     seven_days_ago = datetime.now(UTC) - timedelta(days=7)
     active_user_ids = set()
-    
-    cursor_tx = transactions_collection.find({
-        "created_at": {"$gte": seven_days_ago}
-    }, {"user_id": 1})
-    async for t in cursor_tx:
-        active_user_ids.add(t["user_id"])
-    
-    cursor_chat = chat_sessions_collection.find({
-        "updated_at": {"$gte": seven_days_ago}
-    }, {"user_id": 1})
-    async for c in cursor_chat:
-        active_user_ids.add(c["user_id"])
-    
+
+    active_user_ids.update(await transactions_db.active_user_ids(seven_days_ago))
+
+    active_user_ids.update(await chat_db.active_user_ids(seven_days_ago))
+
     active_users_last_7_days = len(active_user_ids)
-    
-    total_transactions = await transactions_collection.count_documents({})
-    total_goals = await goals_collection.count_documents({})
-    
+
+    total_transactions = await transactions_db.count_transactions()
+    total_goals = await goals_db.count_goals()
+
     return UserStatsResponse(
         total_users=total_users,
         free_users=free_users,
@@ -834,36 +760,31 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = now - timedelta(days=7)
     month_start = now - timedelta(days=30)
-    
-    total_users = await users_collection.count_documents({})
-    free_users = await users_collection.count_documents(effectively_free_filter(now))
-    premium_users = await users_collection.count_documents(active_premium_filter(now))
 
-    new_users_today = await users_collection.count_documents({"created_at": {"$gte": today_start}})
-    new_users_this_week = await users_collection.count_documents({"created_at": {"$gte": week_start}})
-    new_users_this_month = await users_collection.count_documents({"created_at": {"$gte": month_start}})
-    
+    total_users = await users_db.count_users()
+    free_users = await users_db.count_users(effectively_free_filter(now))
+    premium_users = await users_db.count_users(active_premium_filter(now))
+
+    created = users_db.users.c.created_at
+    new_users_today = await users_db.count_users(created >= today_start)
+    new_users_this_week = await users_db.count_users(created >= week_start)
+    new_users_this_month = await users_db.count_users(created >= month_start)
+
     active_today = set()
     active_week = set()
-    
-    async for t in transactions_collection.find({"created_at": {"$gte": today_start}}, {"user_id": 1}):
-        active_today.add(t["user_id"])
-    
-    async for t in transactions_collection.find({"created_at": {"$gte": week_start}}, {"user_id": 1}):
-        active_week.add(t["user_id"])
-    
-    async for c in chat_sessions_collection.find({"updated_at": {"$gte": today_start}}, {"user_id": 1}):
-        active_today.add(c["user_id"])
-    
-    async for c in chat_sessions_collection.find({"updated_at": {"$gte": week_start}}, {"user_id": 1}):
-        active_week.add(c["user_id"])
-    
-    total_transactions = await transactions_collection.count_documents({})
-    total_goals = await goals_collection.count_documents({})
-    total_budgets = await budgets_collection.count_documents({})
-    total_chat_sessions = await chat_sessions_collection.count_documents({})
-    total_notifications = await notifications_collection.count_documents({})
-    
+
+    active_today.update(await transactions_db.active_user_ids(today_start))
+    active_week.update(await transactions_db.active_user_ids(week_start))
+
+    active_today.update(await chat_db.active_user_ids(today_start))
+    active_week.update(await chat_db.active_user_ids(week_start))
+
+    total_transactions = await transactions_db.count_transactions()
+    total_goals = await goals_db.count_goals()
+    total_budgets = await budgets_db.count_budgets()
+    total_chat_sessions = await chat_db.count_sessions()
+    total_notifications = await notifications_db.count_all()
+
     return SystemStatsResponse(
         total_users=total_users,
         free_users=free_users,
@@ -879,8 +800,8 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
         active_users_today=len(active_today),
         active_users_this_week=len(active_week)
     )
-    
-    
+
+
 
 # ==================== NOTIFICATION BROADCAST ====================
 
@@ -893,15 +814,14 @@ async def broadcast_notification(
     try:
         notification_type = broadcast_data.notification_type.value
 
-        query = {}
+        conditions = []
         # Expired premium users are effectively free: target them with the free group.
         if broadcast_data.target_users == "free":
-            query = effectively_free_filter()
+            conditions.append(effectively_free_filter())
         elif broadcast_data.target_users == "premium":
-            query = active_premium_filter()
+            conditions.append(active_premium_filter())
 
-        cursor = users_collection.find(query, {"_id": 1, "fcm_token": 1})
-        users = await cursor.to_list(length=None)
+        users = await users_db.list_fields(["fcm_token"], *conditions)
         total_users = len(users)
 
         if total_users == 0:
@@ -938,13 +858,11 @@ async def broadcast_notification(
                 fcm_tokens.append(user["fcm_token"])
 
             if len(pending_docs) >= 500:
-                await notifications_collection.insert_many(pending_docs, ordered=False)
-                notifications_sent += len(pending_docs)
+                notifications_sent += await notifications_db.insert_many(pending_docs)
                 pending_docs = []
 
         if pending_docs:
-            await notifications_collection.insert_many(pending_docs, ordered=False)
-            notifications_sent += len(pending_docs)
+            notifications_sent += await notifications_db.insert_many(pending_docs)
 
         fcm_result = {"success": 0, "failure": 0}
         if fcm_tokens:
@@ -960,14 +878,14 @@ async def broadcast_notification(
                 body=broadcast_data.message,
                 data=fcm_data
             )
-        
+
         await log_admin_action(
             admin_id=current_admin["_id"],
             admin_email=current_admin["email"],
             action="broadcast_notification",
             details=f"Sent '{broadcast_data.title}' to {broadcast_data.target_users} users ({notifications_sent} notifications, {fcm_result['success']} FCM sent)"
         )
-        
+
         return BroadcastNotificationResponse(
             message=f"Broadcast notification sent successfully",
             total_users=total_users,
@@ -975,7 +893,7 @@ async def broadcast_notification(
             fcm_sent=fcm_result["success"],
             fcm_failed=fcm_result["failure"]
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -995,15 +913,15 @@ async def get_broadcast_stats(
     """Get statistics for potential broadcast reach"""
     try:
         now = datetime.now(UTC)
-        has_fcm = {"fcm_token": {"$exists": True, "$ne": None}}
-        total_users = await users_collection.count_documents({})
-        free_users = await users_collection.count_documents(effectively_free_filter(now))
-        premium_users = await users_collection.count_documents(active_premium_filter(now))
+        has_fcm = users_db.HAS_DEVICE
+        total_users = await users_db.count_users()
+        free_users = await users_db.count_users(effectively_free_filter(now))
+        premium_users = await users_db.count_users(active_premium_filter(now))
 
-        users_with_fcm = await users_collection.count_documents(has_fcm)
-        free_with_fcm = await users_collection.count_documents({**effectively_free_filter(now), **has_fcm})
-        premium_with_fcm = await users_collection.count_documents({**active_premium_filter(now), **has_fcm})
-        
+        users_with_fcm = await users_db.count_users(has_fcm)
+        free_with_fcm = await users_db.count_users(effectively_free_filter(now), has_fcm)
+        premium_with_fcm = await users_db.count_users(active_premium_filter(now), has_fcm)
+
         return {
             "total_users": total_users,
             "free_users": free_users,
@@ -1012,14 +930,14 @@ async def get_broadcast_stats(
             "free_with_push": free_with_fcm,
             "premium_with_push": premium_with_fcm
         }
-        
+
     except Exception as e:
         print(f"Error getting broadcast stats: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get broadcast statistics"
         )
-    
+
 
 
 # ==================== AI USAGE MONITORING ====================
@@ -1032,76 +950,9 @@ async def get_ai_usage_stats(
 ):
     """Get overall AI usage statistics"""
     try:
-        query = {}
-        if start_date or end_date:
-            query["created_at"] = {}
-            if start_date:
-                query["created_at"]["$gte"] = start_date
-            if end_date:
-                query["created_at"]["$lte"] = end_date
-        
-        pipeline = [
-            {"$match": query} if query else {"$match": {}},
-            {
-                "$group": {
-                    "_id": None,
-                    "total_requests": {"$sum": 1},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "openai_cost": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$provider", "openai"]}, "$estimated_cost_usd", 0]
-                        }
-                    },
-                    "gemini_cost": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$provider", "gemini"]}, "$estimated_cost_usd", 0]
-                        }
-                    },
-                    "weekly_insights": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "weekly_insight"]}, 1, 0]
-                        }
-                    },
-                    "monthly_insights": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "monthly_insight"]}, 1, 0]
-                        }
-                    },
-                    "chat_requests": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "chat"]}, 1, 0]
-                        }
-                    },
-                    "translations": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$feature_type", "translation"]}, 1, 0]
-                        }
-                    }
-                }
-            }
-        ]
-        
-        cursor = ai_usage_collection.aggregate(pipeline)
-        result = await cursor.to_list(length=None)
-        
-        if not result:
-            return AIUsageStatsResponse(
-                total_users=0,
-                total_requests=0,
-                total_tokens=0,
-                total_cost_usd=0.0,
-                openai_total_cost=0.0,
-                gemini_total_cost=0.0,
-                weekly_insights_requests=0,
-                monthly_insights_requests=0,
-                chat_requests=0,
-                translation_requests=0
-            )
-        
-        stats = result[0]
-        unique_users = len(await ai_usage_collection.distinct("user_id", query))
-        
+        stats = await ai_usage_db.overall_stats(start_date, end_date)
+        unique_users = stats["unique_users"]
+
         return AIUsageStatsResponse(
             total_users=unique_users,
             total_requests=stats["total_requests"],
@@ -1114,7 +965,7 @@ async def get_ai_usage_stats(
             chat_requests=stats["chat_requests"],
             translation_requests=stats["translations"]
         )
-        
+
     except Exception as e:
         print(f"Error getting AI usage stats: {str(e)}")
         import traceback
@@ -1136,75 +987,30 @@ async def get_users_ai_usage(
 ):
     """Get AI usage statistics per user (optionally within [start_date, end_date])"""
     try:
-        match: dict = {}
-        if start_date or end_date:
-            match["created_at"] = {}
-            if start_date:
-                match["created_at"]["$gte"] = start_date
-            if end_date:
-                match["created_at"]["$lte"] = end_date
+        results = await ai_usage_db.per_user_stats(start_date, end_date, sort_by, skip, limit)
 
-        pipeline = [
-            {"$match": match},
-            {
-                "$group": {
-                    "_id": "$user_id",
-                    "total_requests": {"$sum": 1},
-                    "total_input_tokens": {"$sum": "$input_tokens"},
-                    "total_output_tokens": {"$sum": "$output_tokens"},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "weekly_insights": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "weekly_insight"]}, 1, 0]}
-                    },
-                    "monthly_insights": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "monthly_insight"]}, 1, 0]}
-                    },
-                    "chat_requests": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "chat"]}, 1, 0]}
-                    },
-                    "translations": {
-                        "$sum": {"$cond": [{"$eq": ["$feature_type", "translation"]}, 1, 0]}
-                    },
-                    "openai_cost": {
-                        "$sum": {"$cond": [{"$eq": ["$provider", "openai"]}, "$estimated_cost_usd", 0]}
-                    },
-                    "gemini_cost": {
-                        "$sum": {"$cond": [{"$eq": ["$provider", "gemini"]}, "$estimated_cost_usd", 0]}
-                    }
-                }
-            },
-            {"$sort": {sort_by: -1, "_id": 1}},
-            {"$skip": skip},
-            {"$limit": limit}
+        user_stats = [
+            UserAIUsageStats(
+                user_id=result["user_id"],
+                user_name=result["user_name"],
+                user_email=result["user_email"],
+                total_requests=result["total_requests"],
+                total_input_tokens=result["total_input_tokens"],
+                total_output_tokens=result["total_output_tokens"],
+                total_tokens=result["total_tokens"],
+                total_cost_usd=round(result["total_cost"], 4),
+                weekly_insights_count=result["weekly_insights"],
+                monthly_insights_count=result["monthly_insights"],
+                chat_requests_count=result["chat_requests"],
+                translation_count=result["translations"],
+                openai_cost=round(result["openai_cost"], 4),
+                gemini_cost=round(result["gemini_cost"], 4)
+            )
+            for result in results
         ]
-        
-        cursor = ai_usage_collection.aggregate(pipeline)
-        results = await cursor.to_list(length=limit)
-        
-        user_stats = []
-        for result in results:
-            user = await users_collection.find_one({"_id": result["_id"]})
-            if user:
-                user_stats.append(UserAIUsageStats(
-                    user_id=result["_id"],
-                    user_name=user["name"],
-                    user_email=user["email"],
-                    total_requests=result["total_requests"],
-                    total_input_tokens=result["total_input_tokens"],
-                    total_output_tokens=result["total_output_tokens"],
-                    total_tokens=result["total_tokens"],
-                    total_cost_usd=round(result["total_cost"], 4),
-                    weekly_insights_count=result["weekly_insights"],
-                    monthly_insights_count=result["monthly_insights"],
-                    chat_requests_count=result["chat_requests"],
-                    translation_count=result["translations"],
-                    openai_cost=round(result["openai_cost"], 4),
-                    gemini_cost=round(result["gemini_cost"], 4)
-                ))
-        
+
         return user_stats
-        
+
     except Exception as e:
         print(f"Error getting users AI usage: {str(e)}")
         import traceback
@@ -1224,13 +1030,8 @@ async def get_user_ai_usage_detail(
 ):
     """Get detailed AI usage for a specific user"""
     try:
-        query = {"user_id": user_id}
-        if feature_type:
-            query["feature_type"] = feature_type.value
-        
-        cursor = ai_usage_collection.find(query).sort("created_at", -1).limit(limit)
-        usage_records = await cursor.to_list(length=limit)
-        
+        usage_records = await ai_usage_db.user_detail(user_id, feature_type.value if feature_type else None, limit)
+
         return [
             AIUsageResponse(
                 id=record["_id"],
@@ -1246,14 +1047,14 @@ async def get_user_ai_usage_detail(
             )
             for record in usage_records
         ]
-        
+
     except Exception as e:
         print(f"Error getting user AI usage detail: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get user AI usage detail"
         )
-    
+
 
 
 @router.get("/ai-usage/stats/budgets", response_model=Dict)
@@ -1264,56 +1065,31 @@ async def get_budget_ai_usage_stats(
 ):
     """Get AI usage statistics specifically for budget features"""
     try:
-        query = {
-            "feature_type": {"$in": ["budget_suggestion", "budget_auto_create"]}
-        }
-        
-        if start_date or end_date:
-            query["created_at"] = {}
-            if start_date:
-                query["created_at"]["$gte"] = start_date
-            if end_date:
-                query["created_at"]["$lte"] = end_date
-        
-        pipeline = [
-            {"$match": query},
-            {
-                "$group": {
-                    "_id": "$feature_type",
-                    "total_requests": {"$sum": 1},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "unique_users": {"$addToSet": "$user_id"}
-                }
-            }
-        ]
-        
-        cursor = ai_usage_collection.aggregate(pipeline)
-        results = await cursor.to_list(length=None)
-        
+        results = await ai_usage_db.feature_stats(["budget_suggestion", "budget_auto_create"], start_date, end_date)
+
         stats = {
             "budget_suggestion": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
             "budget_auto_create": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
             "total": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": set()}
         }
-        
+
         for result in results:
-            feature = result["_id"]
+            feature = result["feature_type"]
             stats[feature]["requests"] = result["total_requests"]
             stats[feature]["tokens"] = result["total_tokens"]
             stats[feature]["cost"] = round(result["total_cost"], 4)
-            stats[feature]["unique_users"] = len(result["unique_users"])
-            
+            stats[feature]["unique_users"] = len(result["user_ids"])
+
             stats["total"]["requests"] += result["total_requests"]
             stats["total"]["tokens"] += result["total_tokens"]
             stats["total"]["cost"] += result["total_cost"]
-            stats["total"]["unique_users"].update(result["unique_users"])
-        
+            stats["total"]["unique_users"].update(result["user_ids"])
+
         stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
         stats["total"]["cost"] = round(stats["total"]["cost"], 4)
-        
+
         return stats
-        
+
     except Exception as e:
         print(f"Error getting budget AI usage stats: {str(e)}")
         import traceback
@@ -1322,7 +1098,7 @@ async def get_budget_ai_usage_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get budget AI usage statistics"
         )
-    
+
 
 
 @router.get("/ai-usage/stats/transactions", response_model=Dict)
@@ -1333,63 +1109,35 @@ async def get_transaction_extraction_ai_usage_stats(
 ):
     """Get AI usage statistics specifically for transaction extraction features"""
     try:
-        query = {
-            "feature_type": {
-                "$in": [
-                    "transaction_text_extraction",
-                    "transaction_image_extraction",
-                    "transaction_audio_transcription"
-                ]
-            }
-        }
-        
-        if start_date or end_date:
-            query["created_at"] = {}
-            if start_date:
-                query["created_at"]["$gte"] = start_date
-            if end_date:
-                query["created_at"]["$lte"] = end_date
-        
-        pipeline = [
-            {"$match": query},
-            {
-                "$group": {
-                    "_id": "$feature_type",
-                    "total_requests": {"$sum": 1},
-                    "total_tokens": {"$sum": "$total_tokens"},
-                    "total_cost": {"$sum": "$estimated_cost_usd"},
-                    "unique_users": {"$addToSet": "$user_id"}
-                }
-            }
-        ]
-        
-        cursor = ai_usage_collection.aggregate(pipeline)
-        results = await cursor.to_list(length=None)
-        
+        results = await ai_usage_db.feature_stats(
+            ["transaction_text_extraction", "transaction_image_extraction", "transaction_audio_transcription"],
+            start_date, end_date,
+        )
+
         stats = {
             "transaction_text_extraction": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
             "transaction_image_extraction": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
             "transaction_audio_transcription": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
             "total": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": set()}
         }
-        
+
         for result in results:
-            feature = result["_id"]
+            feature = result["feature_type"]
             stats[feature]["requests"] = result["total_requests"]
             stats[feature]["tokens"] = result["total_tokens"]
             stats[feature]["cost"] = round(result["total_cost"], 4)
-            stats[feature]["unique_users"] = len(result["unique_users"])
-            
+            stats[feature]["unique_users"] = len(result["user_ids"])
+
             stats["total"]["requests"] += result["total_requests"]
             stats["total"]["tokens"] += result["total_tokens"]
             stats["total"]["cost"] += result["total_cost"]
-            stats["total"]["unique_users"].update(result["unique_users"])
-        
+            stats["total"]["unique_users"].update(result["user_ids"])
+
         stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
         stats["total"]["cost"] = round(stats["total"]["cost"], 4)
-        
+
         return stats
-        
+
     except Exception as e:
         print(f"Error getting transaction extraction AI usage stats: {str(e)}")
         import traceback
@@ -1409,9 +1157,8 @@ async def get_admin_logs(
     limit: int = Query(50, ge=1, le=100)
 ):
     """Get admin action logs (super admin only)"""
-    cursor = admin_action_logs_collection.find().sort("timestamp", -1).skip(skip).limit(limit)
-    logs = await cursor.to_list(length=limit)
-    
+    logs = await admins_db.list_logs(skip, limit)
+
     return [
         AdminActionLog(
             id=log["_id"],
@@ -1425,8 +1172,8 @@ async def get_admin_logs(
         )
         for log in logs
     ]
-    
-    
+
+
 # ==================== FEEDBACK MANAGEMENT ====================
 
 @router.get("/feedback/stats", response_model=FeedbackStatsResponse)
@@ -1434,28 +1181,7 @@ async def get_feedback_stats(
     current_admin: dict = Depends(require_moderator_or_above),
 ):
     """Aggregate statistics over ALL feedback (not just the current page)"""
-    def _count_status(value: str) -> dict:
-        return {"$sum": {"$cond": [{"$eq": [{"$ifNull": ["$status", "pending"]}, value]}, 1, 0]}}
-
-    pipeline = [
-        {
-            "$group": {
-                "_id": None,
-                "total": {"$sum": 1},
-                "pending": _count_status("pending"),
-                "reviewed": _count_status("reviewed"),
-                "resolved": _count_status("resolved"),
-                # $avg ignores null / missing / non-numeric ratings
-                "average_rating": {"$avg": "$rating"},
-            }
-        }
-    ]
-    result = await feedback_collection.aggregate(pipeline).to_list(length=1)
-
-    if not result:
-        return FeedbackStatsResponse(total=0, pending=0, reviewed=0, resolved=0, average_rating=None)
-
-    stats = result[0]
+    stats = await feedback_db.stats()
     avg = stats.get("average_rating")
     return FeedbackStatsResponse(
         total=stats["total"],
@@ -1475,16 +1201,8 @@ async def get_all_feedback(
     status: Optional[str] = Query(None, pattern="^(pending|reviewed|resolved)$"),
 ):
     """Get all user feedback"""
-    query = {}
-    if category:
-        query["category"] = category
-    if status:
-        # Older feedback documents may have no status field; treat them as pending.
-        query["status"] = {"$in": ["pending", None]} if status == "pending" else status
-        
-    cursor = feedback_collection.find(query).sort("created_at", -1).skip(skip).limit(limit)
-    feedbacks = await cursor.to_list(length=limit)
-    
+    feedbacks = await feedback_db.list_feedback(category, status, skip, limit)
+
     return [
         AdminFeedbackListResponse(
             id=fb["_id"],
@@ -1507,18 +1225,13 @@ async def update_feedback_status(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update feedback status"""
-    result = await feedback_collection.update_one(
-        {"_id": feedback_id},
-        {"$set": {"status": status_update}}
-    )
-
-    # matched_count: setting the same status again is a no-op, not a 404
-    if result.matched_count == 0:
+    # Matched rows: setting the same status again is a no-op, not a 404
+    if await feedback_db.set_status(feedback_id, status_update) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found"
         )
-        
+
     return {"message": "Feedback status updated"}
 
 @router.delete("/feedback/{feedback_id}")
@@ -1527,12 +1240,10 @@ async def delete_feedback(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Delete feedback (Super Admin only)"""
-    result = await feedback_collection.delete_one({"_id": feedback_id})
-    
-    if result.deleted_count == 0:
+    if await feedback_db.delete_feedback(feedback_id) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found"
         )
-        
+
     return {"message": "Feedback deleted successfully"}
