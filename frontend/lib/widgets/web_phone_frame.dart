@@ -15,8 +15,11 @@ class WebPhoneFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    // Wider than the breakpoint -> phone column; at the breakpoint or narrower
+    // -> full width.
+    if (size.width <= breakpoint) return child;
     final mq = MediaQuery.of(context);
-    if (mq.size.width < breakpoint) return child;
 
     return ColoredBox(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,

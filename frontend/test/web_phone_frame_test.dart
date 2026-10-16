@@ -32,14 +32,31 @@ void main() {
     expect(tester.getSize(find.byKey(k)).width, 390);
   });
 
+  testWidgets('breakpoint: exactly 520 px is full width', (tester) async {
+    _setSurface(tester, const Size(520, 800));
+    final k = GlobalKey();
+    await tester.pumpWidget(_app(k));
+
+    expect(tester.getSize(find.byKey(k)).width, 520);
+  });
+
+  testWidgets('breakpoint: 521 px is the 440 px column', (tester) async {
+    _setSurface(tester, const Size(521, 800));
+    final k = GlobalKey();
+    await tester.pumpWidget(_app(k));
+
+    expect(tester.getSize(find.byKey(k)).width, 440);
+  });
+
   testWidgets('wide screen: dialogs stay inside the column', (tester) async {
     _setSurface(tester, const Size(1280, 800));
     final k = GlobalKey();
     await tester.pumpWidget(_app(k));
 
+    // Wider than the column, so it only fits inside if the frame constrains it.
     showDialog<void>(
       context: k.currentContext!,
-      builder: (_) => const Dialog(child: SizedBox(height: 100, width: 200)),
+      builder: (_) => const Dialog(child: SizedBox(height: 100, width: 2000)),
     );
     await tester.pumpAndSettle();
 
