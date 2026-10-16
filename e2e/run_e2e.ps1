@@ -80,7 +80,8 @@ try {
   if ("$hasDb".Trim() -ne "1") { & (PgTool "psql") -h 127.0.0.1 -p 54329 -U flow -d postgres -c "create database flow_e2e" | Out-Null }
   $env:DATABASE_URL = "postgresql://flow@127.0.0.1:54329/flow_e2e"
   Push-Location (Join-Path $Repo "backend")
-  & $Python -m alembic upgrade head
+  # alembic logs INFO lines to stderr; turn them into plain text instead of PowerShell errors.
+  & $Python -m alembic upgrade head 2>&1 | ForEach-Object { "$_" }
   $alembicExit = $LASTEXITCODE
   Pop-Location
   if ($alembicExit -ne 0) { throw "alembic upgrade failed" }
