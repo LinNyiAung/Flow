@@ -30,7 +30,7 @@ Full output is in `e2e/logs/flutter.log`.
 ## Files
 
 - `stubenv.py`: isolation and fakes; import before any backend module.
-- `pgcompat.py`: lets the suites read and write the PostgreSQL tables with pymongo-style calls; direct inserts go through the production migration converters.
+- `pgcompat.py`: lets the suites read and write the PostgreSQL tables with pymongo-style calls (the suites were written against MongoDB).
 - `run_backend_suite.py`: runs every backend API/job suite against the running server and prints a summary.
 - `run_server.py`: backend on 127.0.0.1:8765 (`E2E_FAKE_AI=1` makes OpenAI calls succeed with canned replies; Gemini always fails).
 - `seed_rich.py`: resets user data and creates the test accounts (premium, free, Myanmar-language, empty, delete-me) with transactions, budgets, goals, insights and notifications.

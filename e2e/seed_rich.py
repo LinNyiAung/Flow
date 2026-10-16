@@ -18,7 +18,7 @@ random.seed(7)
 
 # wipe user data, keep categories/admins
 for col in ("users", "transactions", "budgets", "goals", "notifications", "insights", "chat_sessions", "feedback",
-            "notification_preferences", "ai_usage", "app_versions", "quarantined_records"):
+            "notification_preferences", "ai_usage", "app_versions"):
     db[col].delete_many({})
 
 ACCOUNTS = {

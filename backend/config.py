@@ -7,10 +7,6 @@ load_dotenv()
 class Settings:
     # PostgreSQL (postgres:// or postgresql:// URL). Read directly by sql.db as well.
     DATABASE_URL = os.getenv("DATABASE_URL")
-    # Legacy MongoDB: no longer used by the app; only read by the one-time data migration
-    # (migration/) and scripts/data_cleanup.py. Remove after the production cutover.
-    MONGODB_URL = os.getenv("MONGODB_URL")
-    DATABASE_NAME = os.getenv("DATABASE_NAME")
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = "HS256"
     # 30 days

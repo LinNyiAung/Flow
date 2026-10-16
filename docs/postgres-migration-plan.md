@@ -1,7 +1,8 @@
 # MongoDB → PostgreSQL migration plan
 
-Status: **proposal for review** (branch `postgres-migration`). Nothing in the backend has
-been changed yet.
+Status: **implemented** on branch `postgres-migration`. The backend runs on PostgreSQL only;
+MongoDB (Motor/pymongo) is gone. The app had no production users yet, so no data is
+carried over (see "Data migration").
 
 ## Goals and non-goals
 
@@ -132,7 +133,6 @@ Index `(user_id, created_at DESC)`, `(user_id, is_read)`, `(user_id, type, creat
 | feedback | `id`, `user_id` → CASCADE, `user_email`, `user_name`, `category` CHECK, `message`, `rating` CHECK 1–5, `screenshot_url`, `status` NOT NULL default 'pending', `created_at` |
 | categories | `type`, `main_category`, `sub_category`, `position`; unique `(type, main_category, sub_category)` |
 | app_versions | as today + unique `(version, platform)` (fixes today's check-then-insert) |
-| quarantined_records | raw JSON of documents rejected by the data checks, with source collection and reason (audit only) |
 
 ## Code changes
 
@@ -150,45 +150,31 @@ SQL via a small repository layer per area, keeping each route's behaviour identi
 8. Admin panel endpoints, app versions, feedback, reports.
 9. Remove Motor/pymongo.
 
-## Data migration (one-time)
+## Data migration
 
-A rerunnable script copies MongoDB → PostgreSQL:
+Not needed: the app was not in production, so there is no user data to carry over. The new
+database starts empty; on first start the backend seeds the default categories and the
+bootstrap super admin (`ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD`).
 
-- Reads every collection, applies the same cleanup rules as `scripts/data_cleanup.py`
-  (lowercase emails, legacy defaults, string dates parsed), and writes in dependency order.
-- Rows that can't satisfy the constraints (e.g. NaN amounts) go to
-  `quarantined_records` with the reason, never silently dropped.
+## Deploying on Render
 
-Implemented in `backend/migration/` (`run.py`, `convert.py`); the step-by-step rehearsal
-and cutover runbook is `backend/migration/README.md`.
-- **Verification report**: row counts per table, and per user and currency the inflow /
-  outflow totals, goal allocations and budget totals computed in both databases — must
-  match exactly.
+1. Create the Render PostgreSQL database (a paid plan includes backups).
+2. On the backend web service:
+   - set `DATABASE_URL` to the database's **Internal** URL (`postgres://…` is accepted);
+   - set the **Pre-Deploy Command** to `alembic upgrade head` (or
+     `cd backend && alembic upgrade head` if the service's Root Directory isn't `backend`),
+     so every deploy applies schema changes before the new version starts;
+   - remove `MONGODB_URL` and `DATABASE_NAME`.
+3. Deploy, then smoke test: register and verify an account, log in, add a transaction,
+   contribute to a goal, create a budget, send an AI chat message, open the admin panel.
+4. Delete the MongoDB Atlas cluster once you are happy.
 
-Rehearsal: run it against a **copy** of production (a `mongodump` restored locally, or a
-read-only connection you run yourself), review the report, fix, repeat.
-
-## Cutover (production)
-
-1. Create the Render PostgreSQL database; run Alembic migrations.
-2. Final rehearsal on a fresh production copy.
-3. Maintenance window (expected minutes): put the backend in read-only/maintenance mode,
-   run the migration, check the verification report, deploy the PostgreSQL backend
-   (`DATABASE_URL`), smoke-test login / transactions / budgets / AI.
-4. **Rollback**: MongoDB is left untouched and read-only for a few weeks; rolling back is
-   redeploying the previous version.
+Later schema changes: edit `backend/sql/tables.py`, then
+`alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
 
 ## Testing
 
-- Local PostgreSQL (portable binaries) replaces the local `mongod` in the test harness.
-- Backend suite (640 checks), Flutter end-to-end suite (43 tests incl. large-text tours)
-  and the admin panel checks must all pass unchanged before cutover; plus new tests for
-  the constraints (e.g. negative amount rejected by the database, cascade delete, unique
-  device token) and the migration script's verification.
-
-## Open questions
-
-1. Confirm decisions 1–7 above.
-2. Render PostgreSQL plan/size (a paid plan is needed for production backups).
-3. Who runs the production rehearsal: you (with a read-only connection), or by giving me a
-   `mongodump` of production to restore locally?
+- Local PostgreSQL (portable binaries) replaced the local `mongod` in the test harness.
+- Result on the branch: backend suite 655/655 (incl. new checks for the database
+  constraints, cascade delete and the cross-process money lock), Flutter end-to-end suite
+  43/43 (incl. large-text tours), admin panel checked screen by screen.

@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: 1f3ecdb3237e
+Revision ID: 799d29a14d00
 Revises: 
-Create Date: 2026-10-16 09:38:02.749384
+Create Date: 2026-10-16 11:00:04.025571
 """
 from typing import Sequence, Union
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = '1f3ecdb3237e'
+revision: str = '799d29a14d00'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -69,15 +69,6 @@ def upgrade() -> None:
     sa.Column('sub_position', sa.SmallInteger(), nullable=False),
     sa.CheckConstraint("type IN ('inflow','outflow')", name=op.f('ck_categories_type')),
     sa.PrimaryKeyConstraint('type', 'main_category', 'sub_category', name=op.f('pk_categories'))
-    )
-    op.create_table('quarantined_records',
-    sa.Column('source', sa.Text(), nullable=False),
-    sa.Column('id', sa.Text(), nullable=False),
-    sa.Column('user_id', sa.Text(), nullable=True),
-    sa.Column('reason', sa.Text(), nullable=False),
-    sa.Column('original', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('quarantined_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.PrimaryKeyConstraint('source', 'id', name=op.f('pk_quarantined_records'))
     )
     op.create_table('users',
     sa.Column('id', sa.Text(), nullable=False),
@@ -398,7 +389,6 @@ def downgrade() -> None:
     op.drop_index('ix_users_premium', table_name='users')
     op.drop_index('ix_users_created_at', table_name='users')
     op.drop_table('users')
-    op.drop_table('quarantined_records')
     op.drop_table('categories')
     op.drop_index('ix_app_versions_platform_active', table_name='app_versions')
     op.drop_table('app_versions')

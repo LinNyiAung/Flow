@@ -4,7 +4,7 @@ The E2E suites poke the database directly (make a user premium, insert a legacy
 transaction, read an OTP hash, ...). They were written against MongoDB; `get_db()`
 returns an object whose attributes are `PgCollection`s accepting the subset of Mongo
 calls and operators the suites use, so the suites barely changed in the move. Direct
-inserts go through the production migration converters (migration/convert.py).
+inserts are mapped to rows with the backend's own sql.docs helpers.
 """
 import json
 import os
@@ -21,12 +21,10 @@ from psycopg.types.json import Jsonb
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 from sql import docs as D  # noqa: E402
 from sql import tables as T  # noqa: E402
-from migration.convert import CONVERTERS, MULTI_CONVERTERS, Quarantine, quarantine_row  # noqa: E402  (same rules as the production data migration)
 
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 TABLES = {"users", "transactions", "goals", "budgets", "notifications", "notification_preferences", "insights",
-          "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories", "app_versions",
-          "quarantined_records"}
+          "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories", "app_versions"}
 
 
 # Mongo field path -> column, per table (only the non-obvious ones).
@@ -147,15 +145,12 @@ class PgCollection:
         return D.row_to_doc(row)
 
     def _to_row(self, doc: Dict[str, Any]) -> Dict[str, Any]:
-        if self.name in CONVERTERS:
-            # Test inserts go through the migration converter, so legacy-shaped test
-            # documents are stored exactly as the production migration would store them.
-            row = CONVERTERS[self.name](doc)
-            return {k: self._value(k, v) for k, v in row.items()}
         if self.name == "transactions":
             row = D.transaction_row(doc)
         elif self.name == "insights":
             row = D.insight_row(doc)
+        elif self.name == "budgets":
+            row = D.budget_row(doc)
         else:
             row = {(self.pk if k == "_id" else k): v for k, v in doc.items()}
         unknown = [k for k in row if k not in self.cols]
@@ -193,14 +188,6 @@ class PgCollection:
         return sorted({d.get(field) for d in self.find(flt)})
 
     # ----------------------------------------------------------- writes
-    def _quarantine(self, doc, reason):
-        """What the production migration does with a document it can't store: set it aside."""
-        row = quarantine_row(self.name, doc, reason)
-        with self.conn.cursor() as cur:
-            cur.execute("INSERT INTO quarantined_records (source, id, user_id, reason, original) VALUES (%s, %s, %s, %s, %s)"
-                        " ON CONFLICT (source, id) DO NOTHING",
-                        (row["source"], row["id"], row["user_id"], row["reason"], Jsonb(row["original"])))
-
     def _insert_sql(self, row):
         return sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
             sql.Identifier(self.name), sql.SQL(", ").join(map(sql.Identifier, row)), sql.SQL(", ").join(sql.Placeholder() * len(row)))
@@ -213,26 +200,17 @@ class PgCollection:
                         " %(spent_amount)s, %(percentage_used)s, %(is_exceeded)s)", a)
 
     def _insert_budget(self, doc):
-        """Budgets go through the migration converter too (budget row + allocation rows)."""
-        try:
-            converted = MULTI_CONVERTERS["budgets"](doc)
-        except Quarantine as e:
-            self._quarantine(doc, str(e))
-            return Result(inserted_id=doc.get("_id"))
-        row = {k: self._value(k, v) for k, v in converted["budget"].items()}
+        """Budget row + one allocation row per entry of category_budgets."""
+        row = self._to_row(doc)
         with self.conn.transaction(), self.conn.cursor() as cur:
             cur.execute(self._insert_sql(row), list(row.values()))
-            self._insert_allocations(cur, converted["allocations"])
+            self._insert_allocations(cur, D.allocation_rows(row["id"], doc.get("category_budgets") or []))
         return Result(inserted_id=doc.get("_id"))
 
     def insert_one(self, doc):
         if self.name == "budgets":
             return self._insert_budget(doc)
-        try:
-            row = self._to_row(doc)
-        except Quarantine as e:
-            self._quarantine(doc, str(e))
-            return Result(inserted_id=doc.get("_id"))
+        row = self._to_row(doc)
         with self.conn.cursor() as cur:
             cur.execute(self._insert_sql(row), list(row.values()))
         return Result(inserted_id=doc.get("_id"))
@@ -240,12 +218,7 @@ class PgCollection:
     def insert_many(self, docs, ordered=True):
         if self.name == "budgets":
             return Result(inserted_ids=[self.insert_one(d).inserted_id for d in docs])
-        rows = []
-        for d in docs:
-            try:
-                rows.append(self._to_row(d))
-            except Quarantine as e:
-                self._quarantine(d, str(e))
+        rows = [self._to_row(d) for d in docs]
         by_shape = {}
         for row in rows:
             by_shape.setdefault(tuple(row), []).append(list(row.values()))

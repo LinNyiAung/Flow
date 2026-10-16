@@ -1201,7 +1201,6 @@ async def get_all_feedback(
     status: Optional[str] = Query(None, pattern="^(pending|reviewed|resolved)$"),
 ):
     """Get all user feedback"""
-    # (Legacy feedback without a status is stored as "pending" by the data migration.)
     feedbacks = await feedback_db.list_feedback(category, status, skip, limit)
 
     return [

@@ -353,15 +353,3 @@ app_versions = Table(
     CheckConstraint("platform IN ('android','ios','all')", name="platform"),
 )
 Index("ix_app_versions_platform_active", app_versions.c.platform, app_versions.c.is_active, app_versions.c.created_at)
-
-# Audit-only copy of MongoDB documents the data migration could not store as valid rows
-# (e.g. a NaN amount), with the reason. Never read by the app.
-quarantined_records = Table(
-    "quarantined_records", metadata,
-    Column("source", Text, primary_key=True),  # MongoDB collection, e.g. "transactions"
-    Column("id", Text, primary_key=True),
-    Column("user_id", Text),
-    Column("reason", Text, nullable=False),
-    Column("original", JSONB, nullable=False),
-    Column("quarantined_at", TS, nullable=False, server_default=func.now()),
-)
