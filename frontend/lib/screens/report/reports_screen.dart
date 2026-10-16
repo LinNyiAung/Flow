@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/platform/file_saver.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -117,23 +118,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
     setState(() => _isDownloading = true);
 
     try {
-      final filePath = await ApiService.downloadReportPdf(
+      final pdf = await ApiService.downloadReportPdf(
         period: _selectedPeriod,
         startDate: _customStartDate,
         endDate: _customEndDate,
         currency: _selectedCurrency,
       );
+      final path = await saveReportPdf(pdf);
 
       if (!mounted) return;
       setState(() => _isDownloading = false);
 
+      // On the web the browser handles the download: there is no path to open.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(localizations.reportDownloadedSuccessfully),
-          action: SnackBarAction(
-            label: localizations.open,
-            onPressed: () => OpenFilex.open(filePath),
-          ),
+          action: path == null
+              ? null
+              : SnackBarAction(
+                  label: localizations.open,
+                  onPressed: () => OpenFilex.open(path),
+                ),
         ),
       );
     } catch (e) {

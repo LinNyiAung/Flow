@@ -18,10 +18,29 @@ import 'package:frontend/models/voice_image_models.dart';
 import 'package:frontend/utils/date_parsing.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../models/transaction.dart';
+
+/// A downloaded PDF report: the raw bytes plus the filename the server chose.
+class ReportPdf {
+  final Uint8List bytes;
+  final String filename;
+
+  const ReportPdf({required this.bytes, required this.filename});
+}
+
+/// Extracts the filename from a `Content-Disposition` header, falling back to
+/// `financial_report.pdf` when the header is missing or carries no filename.
+String reportFilenameFromContentDisposition(String? header) {
+  if (header != null) {
+    final match = RegExp(r'filename="?([^"]+)"?').firstMatch(header);
+    if (match != null) {
+      return match.group(1)!;
+    }
+  }
+  return 'financial_report.pdf';
+}
 
 /// Error raised for any failed API call. [toString] keeps the historical
 /// `Exception: message` shape so existing `replaceAll('Exception: ', '')`
@@ -1458,7 +1477,7 @@ class ApiService {
     }
   }
 
-  static Future<String> downloadReportPdf({
+  static Future<ReportPdf> downloadReportPdf({
     required ReportPeriod period,
     DateTime? startDate,
     DateTime? endDate,
@@ -1511,23 +1530,12 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      final directory = await getApplicationDocumentsDirectory();
-
-      String filename = 'financial_report.pdf';
-      final contentDisposition = response.headers['content-disposition'];
-      if (contentDisposition != null) {
-        final filenameMatch = RegExp(
-          r'filename="?([^"]+)"?',
-        ).firstMatch(contentDisposition);
-        if (filenameMatch != null) {
-          filename = filenameMatch.group(1)!;
-        }
-      }
-
-      final file = File('${directory.path}/$filename');
-      await file.writeAsBytes(response.bodyBytes);
-
-      return file.path;
+      return ReportPdf(
+        bytes: response.bodyBytes,
+        filename: reportFilenameFromContentDisposition(
+          response.headers['content-disposition'],
+        ),
+      );
     } else {
       throw apiError(response, 'Failed to download report');
     }
