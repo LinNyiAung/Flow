@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -23,7 +24,8 @@ class ImageInputScreen extends StatefulWidget {
 
 class _ImageInputScreenState extends State<ImageInputScreen> {
   final ImagePicker _imagePicker = ImagePicker();
-  File? _selectedImage;
+  XFile? _selectedImage;
+  Uint8List? _imageBytes;
   bool _isProcessing = false;
   bool _isSaving = false;
   ExtractedTransactionData? _extractedData;
@@ -37,6 +39,8 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
   }
 
   Future<void> _requestPermissions() async {
+    // The browser handles camera/file access itself.
+    if (PlatformInfo.isWeb) return;
     await Permission.camera.request();
     await Permission.photos.request();
   }
@@ -48,10 +52,12 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         source: ImageSource.camera,
         imageQuality: 85,
       );
+      final Uint8List? bytes = image == null ? null : await image.readAsBytes();
 
-      if (image != null && mounted) {
+      if (image != null && bytes != null && mounted) {
         setState(() {
-          _selectedImage = File(image.path);
+          _selectedImage = image;
+          _imageBytes = bytes;
           _error = null;
           _extractedData = null;
         });
@@ -72,10 +78,12 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         source: ImageSource.gallery,
         imageQuality: 85,
       );
+      final Uint8List? bytes = image == null ? null : await image.readAsBytes();
 
-      if (image != null && mounted) {
+      if (image != null && bytes != null && mounted) {
         setState(() {
-          _selectedImage = File(image.path);
+          _selectedImage = image;
+          _imageBytes = bytes;
           _error = null;
           _extractedData = null;
         });
@@ -95,7 +103,8 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
 
   Future<void> _processImage() async {
     final image = _selectedImage;
-    if (image == null) return;
+    final bytes = _imageBytes;
+    if (image == null || bytes == null) return;
     final requestId = ++_extractionId;
 
     setState(() {
@@ -105,7 +114,10 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
 
     try {
       // Can take up to 90 s.
-      final extractedData = await ApiService.extractTransactionFromImage(image);
+      final extractedData = await ApiService.extractTransactionFromImage(
+        bytes,
+        filename: image.name,
+      );
       if (!mounted || requestId != _extractionId) return;
       setState(() {
         _extractedData = extractedData;
@@ -252,8 +264,8 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
               if (!authProvider.isPremium) _buildPremiumUpsell(localizations),
 
               if (authProvider.isPremium) ...[
-                if (_selectedImage == null) _buildEmptyCapture(localizations),
-                if (_selectedImage != null) _buildImagePreview(localizations),
+                if (_imageBytes == null) _buildEmptyCapture(localizations),
+                if (_imageBytes != null) _buildImagePreview(localizations),
 
                 if (_isProcessing) _buildScanningPlaceholder(localizations),
 
@@ -377,7 +389,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
         SizedBox(height: 16),
         ClipRRect(
           borderRadius: BorderRadius.circular(20),
-          child: Image.file(_selectedImage!, width: double.infinity, height: 220, fit: BoxFit.cover),
+          child: Image.memory(_imageBytes!, width: double.infinity, height: 220, fit: BoxFit.cover),
         ),
         SizedBox(height: 14),
         OutlinedButton.icon(

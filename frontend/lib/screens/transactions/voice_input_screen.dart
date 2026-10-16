@@ -1,6 +1,8 @@
-import 'dart:io';
+import 'dart:typed_data';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -31,6 +33,9 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   List<bool> _selected = [];
   String? _error;
 
+  /// Name sent with the upload; the extension tells the backend the format.
+  String _recordingFilename = 'recording.wav';
+
   /// Spoken language picked by the user: null = Auto (backend detects),
   /// 'en' or 'my'. Deliberately independent of the UI language.
   String? _spokenLanguage;
@@ -53,6 +58,8 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   }
 
   Future<void> _requestPermissions() async {
+    // The browser prompts for the microphone itself when recording starts.
+    if (PlatformInfo.isWeb) return;
     await Permission.microphone.request();
   }
 
@@ -60,12 +67,26 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     final localizations = AppLocalizations.of(context);
     try {
       if (await _audioRecorder.hasPermission()) {
-        final directory = await getTemporaryDirectory();
-        final path = '${directory.path}/recording_${DateTime.now().millisecondsSinceEpoch}.wav';
+        final AudioEncoder encoder;
+        final String path;
+        if (PlatformInfo.isWeb) {
+          // Records in the browser; stop() returns a blob URL.
+          encoder = await _audioRecorder.isEncoderSupported(AudioEncoder.wav)
+              ? AudioEncoder.wav
+              : AudioEncoder.opus;
+          path = '';
+          _recordingFilename =
+              encoder == AudioEncoder.wav ? 'recording.wav' : 'recording.webm';
+        } else {
+          final directory = await getTemporaryDirectory();
+          encoder = AudioEncoder.wav;
+          path = '${directory.path}/recording_${DateTime.now().millisecondsSinceEpoch}.wav';
+          _recordingFilename = 'recording.wav';
+        }
 
         await _audioRecorder.start(
-          const RecordConfig(
-            encoder: AudioEncoder.wav,
+          RecordConfig(
+            encoder: encoder,
             sampleRate: 16000,
             numChannels: 1,
           ),
@@ -122,8 +143,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
     try {
       // Step 1: Transcribe audio
+      // XFile reads both an Android file path and a web blob URL.
+      final Uint8List bytes = await XFile(path).readAsBytes();
       final transcription = await ApiService.transcribeAudio(
-        File(path),
+        bytes,
+        filename: _recordingFilename,
         language: language,
       );
       if (!mounted) return;

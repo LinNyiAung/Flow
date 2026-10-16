@@ -42,6 +42,32 @@ String reportFilenameFromContentDisposition(String? header) {
   return 'financial_report.pdf';
 }
 
+/// The multipart content type for an uploaded recording or photo, chosen from
+/// the filename's extension (case-insensitive).
+MediaType uploadContentType(String filename) {
+  final dot = filename.lastIndexOf('.');
+  final ext = dot < 0 ? '' : filename.substring(dot + 1).toLowerCase();
+  switch (ext) {
+    case 'wav':
+      return MediaType('audio', 'wav');
+    case 'webm':
+      return MediaType('audio', 'webm');
+    case 'm4a':
+      return MediaType('audio', 'mp4');
+    case 'png':
+      return MediaType('image', 'png');
+    case 'jpg':
+    case 'jpeg':
+      return MediaType('image', 'jpeg');
+    case 'webp':
+      return MediaType('image', 'webp');
+    case 'heic':
+      return MediaType('image', 'heic');
+    default:
+      return MediaType('application', 'octet-stream');
+  }
+}
+
 /// Error raised for any failed API call. [toString] keeps the historical
 /// `Exception: message` shape so existing `replaceAll('Exception: ', '')`
 /// call sites keep producing a clean message.
@@ -1594,7 +1620,8 @@ class ApiService {
   /// [language] ('en' | 'my') is sent only when the user explicitly chose
   /// it; null lets the backend auto-detect the spoken language.
   static Future<String> transcribeAudio(
-    File audioFile, {
+    Uint8List bytes, {
+    required String filename,
     String? language,
   }) async {
     try {
@@ -1607,10 +1634,11 @@ class ApiService {
       request.headers.addAll(headers);
 
       request.files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'audio',
-          audioFile.path,
-          contentType: MediaType('audio', 'wav'),
+          bytes,
+          filename: filename,
+          contentType: uploadContentType(filename),
         ),
       );
 
@@ -1660,8 +1688,9 @@ class ApiService {
   }
 
   static Future<ExtractedTransactionData> extractTransactionFromImage(
-    File imageFile,
-  ) async {
+    Uint8List bytes, {
+    required String filename,
+  }) async {
     try {
       var request = http.MultipartRequest(
         'POST',
@@ -1672,10 +1701,11 @@ class ApiService {
       request.headers.addAll(headers);
 
       request.files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'image',
-          imageFile.path,
-          contentType: MediaType('image', 'jpeg'),
+          bytes,
+          filename: filename,
+          contentType: uploadContentType(filename),
         ),
       );
 
