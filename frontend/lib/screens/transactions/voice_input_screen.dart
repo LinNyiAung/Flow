@@ -375,7 +375,14 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           children: options.map((option) {
             final (code, label) = option;
             return ChoiceChip(
-              label: Text(label),
+              // On the web the Myanmar glyphs come from a fallback font whose
+              // line box is taller than the chip, so the label was cut off and
+              // faded at the bottom. An explicit line height fixes the box.
+              // Left alone on Android, which renders it fine.
+              label: Text(
+                label,
+                style: PlatformInfo.isWeb ? const TextStyle(height: 1.2) : null,
+              ),
               selected: _spokenLanguage == code,
               onSelected: enabled ? (_) => setState(() => _spokenLanguage = code) : null,
             );
