@@ -26,10 +26,17 @@ The website cannot work until the backend is live and updated, so do this in ord
    going on.
 2. **Then create the website on Render** (section 3 below).
 3. **Last, allow the website to call the backend.** Open the backend service on Render, then
-   Environment, and set `CORS_ALLOWED_ORIGINS` to the website address, for example
-   `https://toepwar.onrender.com` (no slash at the end, and if the admin panel has its own
-   address, add it after a comma). Save; Render redeploys the backend. Until this is set the
-   backend allows every address, which also works but is looser.
+   Environment, and look at the current value of `CORS_ALLOWED_ORIGINS`.
+   - If it is **set** (for example to the admin panel address), the website's address **must
+     be added** to it, otherwise the browser blocks every request from the website and the
+     site cannot log in. Keep the existing addresses and add the website after a comma, e.g.
+     `https://admin.example.com,https://toepwar.onrender.com` (no slash at the end of any
+     address).
+   - If it is **not set**, the backend allows every address and the website works as it is;
+     setting it to the website address (plus the admin panel's, if it has one) is optional
+     and makes the backend stricter.
+
+   Save; Render redeploys the backend.
 
 ## 3. Create the website on Render (Static Site)
 
@@ -44,11 +51,15 @@ You do these clicks in the Render dashboard:
    - **Build Command:** paste this as one line:
 
      ```
-     git clone https://github.com/flutter/flutter.git -b 3.32.1 --depth 1 "$HOME/flutter" && export PATH="$HOME/flutter/bin:$PATH" && cd frontend && flutter build web --release --dart-define=API_BASE_URL=https://flowfinance.onrender.com
+     [ -d "$HOME/flutter" ] || git clone https://github.com/flutter/flutter.git -b 3.32.1 --depth 1 "$HOME/flutter" && export PATH="$HOME/flutter/bin:$PATH" && cd frontend && flutter build web --release --dart-define=API_BASE_URL=https://flowfinance.onrender.com
      ```
 
      The version number `3.32.1` is pinned on purpose so the site is built with the same
-     Flutter as the app. Change it only when you deliberately upgrade Flutter.
+     Flutter as the app. Change it only when you deliberately upgrade Flutter. The
+     `[ -d "$HOME/flutter" ] ||` part skips the download when the Flutter folder is still
+     there from an earlier build (a plain `git clone` would fail then). If the log shows a
+     "running as root" warning from Flutter, it is harmless. Watch the first build log to
+     the end to confirm it finishes.
    - **Publish Directory:** `frontend/build/web`
 4. Open **Redirects/Rewrites** (on the Static Site's settings page, or in the form) and add
    one rule:
@@ -71,10 +82,21 @@ Notes:
 
 ## 4. Browser checklist
 
-Run this before telling people the site is ready. It was run locally against
+Run this before telling people the site is ready. Most items were exercised locally against
 `e2e/run_server.py` (a stubbed backend, started by the e2e scripts) with a local web build
-served from `build/web` by `python -m http.server`; on the real site run the same items
-against the live address with a test account.
+served from `build/web` by `python -m http.server`. A local run cannot cover everything, so
+these items **still need a human pass on real devices and browsers** (and, on the real site,
+every item below should be repeated against the live address with a test account):
+
+- Voice recording in Chrome and in Safari (microphone permission prompt, recording, result).
+- Camera capture for a receipt photo.
+- A real switch to another browser tab and back (premium status and unread badge refresh).
+- The PDF report landing in the Downloads folder with a sensible name.
+- iPhone Safari: the "Get the Android app" link is hidden.
+- An iPad in its default desktop mode: the link is hidden.
+- A screenshot check of the Myanmar language chip on the voice input screen (it was cut off
+  at the bottom in desktop Chrome before a fix; confirm it now reads fully, including in
+  Safari).
 
 - Register, verify through the e-mail link, log in.
 - Reload while signed in: you stay signed in.
