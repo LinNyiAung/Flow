@@ -79,10 +79,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/icon/flow.png"
+  image_path: "assets/icon/toepwar.png"
   # Adaptive Icon settings for Android
-  adaptive_icon_background: "assets/icon/flowb.png"
-  adaptive_icon_foreground: "assets/icon/flowf.png"
+  adaptive_icon_background: "#0B6B54"
+  adaptive_icon_foreground: "assets/icon/toepwar_foreground.png"
 
 
 # For information on the generic Dart part of this file, see the
