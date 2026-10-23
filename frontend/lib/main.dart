@@ -34,6 +34,7 @@ import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_logo.dart';
 import 'package:frontend/widgets/web_phone_frame.dart';
 import 'package:frontend/providers/theme_provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -378,6 +379,8 @@ class _StartupSpinnerState extends State<_StartupSpinner> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const AppLogo(size: 96),
+              const SizedBox(height: 32),
               CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
               ),

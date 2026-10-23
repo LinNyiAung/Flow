@@ -4,6 +4,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_list_row.dart';
+import 'package:frontend/widgets/app_logo.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -397,11 +398,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
-              child: Icon(Icons.savings_rounded, color: scheme.onPrimaryContainer, size: 24),
-            ),
+            const AppLogo(size: 40),
             const SizedBox(width: 12),
             Text(localizations.toePwar),
           ],
