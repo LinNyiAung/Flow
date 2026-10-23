@@ -1,6 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/services/api_service.dart';
 
 import 'package:frontend/services/notification_event_bus.dart';
@@ -18,7 +19,8 @@ class FCMService {
   factory FCMService() => _instance;
   FCMService._internal();
 
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+  // Lazy: FirebaseMessaging.instance throws when no Firebase app exists (web).
+  FirebaseMessaging get _fcm => FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
@@ -28,6 +30,7 @@ class FCMService {
   String? get fcmToken => _fcmToken;
 
   Future<void> initialize() async {
+    if (PlatformInfo.isWeb) return;
     if (_isInitialized) return;
 
     try {
@@ -100,6 +103,7 @@ class FCMService {
 
   /// Call this after the user logs in so their FCM token is registered.
   Future<void> sendTokenToBackend() async {
+    if (PlatformInfo.isWeb) return;
     if (_fcmToken != null) {
       await _sendTokenToBackend(_fcmToken!);
     }
@@ -229,11 +233,13 @@ class FCMService {
   }
 
   Future<void> subscribeToTopic(String topic) async {
+    if (PlatformInfo.isWeb) return;
     await _fcm.subscribeToTopic(topic);
     print('✅ Subscribed to topic: $topic');
   }
 
   Future<void> unsubscribeFromTopic(String topic) async {
+    if (PlatformInfo.isWeb) return;
     await _fcm.unsubscribeFromTopic(topic);
     print('✅ Unsubscribed from topic: $topic');
   }

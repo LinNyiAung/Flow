@@ -248,6 +248,18 @@ void main() {
     });
   });
 
+  group('refreshUserSilently', () {
+    test('is a no-op that does not throw or notify when signed out', () async {
+      SharedPreferences.setMockInitialValues({});
+      final auth = AuthProvider();
+      var notified = 0;
+      auth.addListener(() => notified++);
+      await auth.refreshUserSilently();
+      expect(auth.isAuthenticated, isFalse);
+      expect(notified, 0);
+    });
+  });
+
   group('pending FCM unregister', () {
     test('round-trips and is only cleared by its own auth token', () async {
       SharedPreferences.setMockInitialValues({});

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
@@ -81,7 +82,7 @@ class AuthProvider with ChangeNotifier {
     // reflects premium access the moment admin grants it — no sign-out needed.
     _subscriptionUpdateSub = NotificationEventBus()
         .onSubscriptionUpdated
-        .listen((_) => _silentRefreshUser());
+        .listen((_) => refreshUserSilently());
   }
 
   @override
@@ -116,6 +117,7 @@ class AuthProvider with ChangeNotifier {
   /// (or cancels) a persisted pending unregister, so neither can remove the
   /// token registered here.
   Future<void> _registerFcmFor(String userId) async {
+    if (PlatformInfo.isWeb) return;
     final inFlight = _fcmDeleteInFlight;
     if (inFlight != null) await inFlight;
     await _flushPendingFcmUnregister(signedInUserId: userId);
@@ -126,6 +128,7 @@ class AuthProvider with ChangeNotifier {
   /// same account that logged out, the delete is cancelled instead (its
   /// token is re-sent right after by [_registerFcmFor]).
   Future<void> _flushPendingFcmUnregister({String? signedInUserId}) {
+    if (PlatformInfo.isWeb) return Future<void>.value();
     return _pendingFcmFlush ??= () async {
       try {
         final pending = await PendingFcmUnregister.load();
@@ -256,8 +259,9 @@ class AuthProvider with ChangeNotifier {
   }
 
   /// Silently re-fetches the user from /api/auth/me and updates state.
-  /// Called automatically when a subscription_updated FCM message arrives.
-  Future<void> _silentRefreshUser() async {
+  /// Called when a subscription_updated FCM message arrives and (web) when the
+  /// browser tab becomes visible again. Does nothing when signed out; never throws.
+  Future<void> refreshUserSilently() async {
     if (_user == null) return;
     try {
       final refreshed = await ApiService.getCurrentUser();
@@ -484,6 +488,9 @@ class AuthProvider with ChangeNotifier {
   /// entry again. The request itself stays tracked in [_fcmDeleteInFlight]
   /// so a quick re-login registers its token only after it has landed.
   Future<void> _unregisterFcm({required String token, String? userId}) async {
+    // Never on the web: the DELETE would unregister the push token of the
+    // same account's phone.
+    if (PlatformInfo.isWeb) return;
     String? fcmToken;
     try {
       fcmToken = FCMService().fcmToken;

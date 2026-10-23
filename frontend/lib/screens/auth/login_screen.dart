@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
+import '../../widgets/android_download_link.dart';
+import '../../widgets/app_logo.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -45,15 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      color: scheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(26),
-                    ),
-                    child: Icon(Icons.trending_up_rounded, size: 44, color: scheme.primary),
-                  ),
+                  const AppLogo(size: 88),
                   const SizedBox(height: 18),
                   Text(localizations.toePwar, style: headingStyle),
                   const SizedBox(height: 4),
@@ -230,6 +224,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+
+                  // Web only: link to the latest Android APK (renders nothing,
+                  // spacing included, anywhere else).
+                  const AndroidDownloadLink(),
                 ],
               ),
             ),

@@ -236,6 +236,7 @@ class AppLocalizations {
       'tapToRecordStatus': 'Tap to start recording\nYou can describe multiple transactions',
       'transcriptionTitle': 'Transcription',
       'errorStartRecording': 'Failed to start recording:',
+      'microphoneAccessDenied': 'Microphone access is blocked. Allow it in your browser settings and try again.',
       'errorStopRecording': 'Failed to stop recording:',
       'analyzingTransactions': 'Analyzing transactions...',
 
@@ -788,6 +789,8 @@ class AppLocalizations {
       'passwordLabel': 'Password',
       'enterPasswordError': 'Please enter your password',
       'forgotPasswordQuestion': 'Forgot password?',
+      'getAndroidApp': 'Get the Android app',
+      'androidAppVersion': 'Version {version}',
       'signIn': 'Sign in',
       'newHerePrefix': 'New here? ',
       'createAnAccount': 'Create an account',
@@ -1242,6 +1245,7 @@ class AppLocalizations {
       'tapToRecordStatus': 'အသံသွင်းခြင်း စတင်ရန် နှိပ်ပါ\nငွေစာရင်းသွင်းမှုများစွာကို ဖော်ပြနိုင်သည်',
       'transcriptionTitle': 'ကူးယူဖော်ပြချက်',
       'errorStartRecording': 'အသံသွင်းခြင်း စတင်ရန် မအောင်မြင်ပါ:',
+      'microphoneAccessDenied': 'မိုက်ခရိုဖုန်း အသုံးပြုခွင့်ကို ပိတ်ထားပါသည်။ ဘရောက်ဇာဆက်တင်တွင် ခွင့်ပြုပြီး ထပ်မံကြိုးစားပါ။',
       'errorStopRecording': 'အသံသွင်းခြင်း ရပ်ရန် မအောင်မြင်ပါ:',
       'analyzingTransactions': 'ငွေစာရင်းသွင်းမှုများကို ခွဲခြမ်းစိတ်ဖြာနေသည်...',
 
@@ -1780,6 +1784,8 @@ class AppLocalizations {
       'passwordLabel': 'စကားဝှက်',
       'enterPasswordError': 'ကျေးဇူးပြု၍ သင့်စကားဝှက်ကို ထည့်ပါ',
       'forgotPasswordQuestion': 'စကားဝှက် မေ့နေပါသလား?',
+      'getAndroidApp': 'Android အက်ပ်ကို ရယူပါ',
+      'androidAppVersion': 'ဗားရှင်း {version}',
       'signIn': 'အကောင့်ဝင်ရန်',
       'newHerePrefix': 'ဒီနေရာမှာ အသစ်လား? ',
       'createAnAccount': 'အကောင့်တစ်ခု ဖန်တီးရန်',
@@ -2246,6 +2252,7 @@ class AppLocalizations {
   String get tapToRecordStatus => translate('tapToRecordStatus');
   String get transcriptionTitle => translate('transcriptionTitle');
   String get errorStartRecording => translate('errorStartRecording');
+  String get microphoneAccessDenied => translate('microphoneAccessDenied');
   String get errorStopRecording => translate('errorStopRecording');
   String get analyzingTransactions => translate('analyzingTransactions');
 
@@ -2822,6 +2829,8 @@ class AppLocalizations {
   String get passwordLabel => translate('passwordLabel');
   String get enterPasswordError => translate('enterPasswordError');
   String get forgotPasswordQuestion => translate('forgotPasswordQuestion');
+  String get getAndroidApp => translate('getAndroidApp');
+  String get androidAppVersion => translate('androidAppVersion');
   String get signIn => translate('signIn');
   String get newHerePrefix => translate('newHerePrefix');
   String get createAnAccount => translate('createAnAccount');

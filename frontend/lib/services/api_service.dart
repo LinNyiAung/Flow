@@ -15,13 +15,67 @@ import 'package:frontend/models/notification_preferences.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/report.dart';
 import 'package:frontend/models/voice_image_models.dart';
+import 'package:frontend/platform/streaming_client.dart';
 import 'package:frontend/utils/date_parsing.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../models/transaction.dart';
+
+/// A downloaded PDF report: the raw bytes plus the filename the server chose.
+class ReportPdf {
+  final Uint8List bytes;
+  final String filename;
+
+  const ReportPdf({required this.bytes, required this.filename});
+}
+
+/// The newest published Android build, for the web "Get the Android app" link.
+class AndroidDownload {
+  final String version;
+  final String url;
+
+  const AndroidDownload({required this.version, required this.url});
+}
+
+/// Extracts the filename from a `Content-Disposition` header, falling back to
+/// `financial_report.pdf` when the header is missing or carries no filename.
+String reportFilenameFromContentDisposition(String? header) {
+  if (header != null) {
+    final match = RegExp(r'filename="?([^"]+)"?').firstMatch(header);
+    if (match != null) {
+      return match.group(1)!;
+    }
+  }
+  return 'financial_report.pdf';
+}
+
+/// The multipart content type for an uploaded recording or photo, chosen from
+/// the filename's extension (case-insensitive).
+MediaType uploadContentType(String filename) {
+  final dot = filename.lastIndexOf('.');
+  final ext = dot < 0 ? '' : filename.substring(dot + 1).toLowerCase();
+  switch (ext) {
+    case 'wav':
+      return MediaType('audio', 'wav');
+    case 'webm':
+      return MediaType('audio', 'webm');
+    case 'm4a':
+      return MediaType('audio', 'mp4');
+    case 'png':
+      return MediaType('image', 'png');
+    case 'jpg':
+    case 'jpeg':
+      return MediaType('image', 'jpeg');
+    case 'webp':
+      return MediaType('image', 'webp');
+    case 'heic':
+      return MediaType('image', 'heic');
+    default:
+      return MediaType('application', 'octet-stream');
+  }
+}
 
 /// Error raised for any failed API call. [toString] keeps the historical
 /// `Exception: message` shape so existing `replaceAll('Exception: ', '')`
@@ -60,6 +114,8 @@ class _ApiClient extends http.BaseClient {
   static const List<String> _coldStartPrefixes = [
     '/api/auth/',
     '/api/app/check-version',
+    // Fetched by the web login screen, often as the very first request.
+    '/api/app/latest-android',
   ];
 
   /// Endpoints that run AI generation, uploads or report rendering.
@@ -368,6 +424,25 @@ class ApiService {
     }
   }
 
+  /// The newest published Android build, or null when none is published or
+  /// the request fails for any reason. Public endpoint: sends no auth header.
+  static Future<AndroidDownload?> getLatestAndroidDownload() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/api/app/latest-android'),
+      );
+      if (response.statusCode != 200) return null;
+      final json = jsonDecode(response.body);
+      if (json is! Map) return null;
+      final version = json['version'];
+      final url = json['download_url'];
+      if (version is! String || url is! String) return null;
+      return AndroidDownload(version: version, url: url);
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ==================== FCM ====================
 
   static Future<void> updateFCMToken(String fcmToken) async {
@@ -382,9 +457,18 @@ class ApiService {
     }
   }
 
+  /// Test seam: when set, [deleteFCMToken] calls it instead of the request.
+  @visibleForTesting
+  static Future<void> Function(String authToken)? deleteFcmTokenOverride;
+
   /// Unregisters this device's FCM token so the previous user stops
   /// receiving pushes after logout. Must be called while the token is valid.
   static Future<void> deleteFCMToken({String? authToken}) async {
+    final override = deleteFcmTokenOverride;
+    if (override != null && authToken != null) {
+      await override(authToken);
+      return;
+    }
     final headers = await _getHeaders();
     if (authToken != null) headers['Authorization'] = 'Bearer $authToken';
     final response = await _client.delete(
@@ -977,7 +1061,7 @@ class ApiService {
 
     // A dedicated client per stream so that [cancelChatStream] can abort the
     // underlying connection (cancelling the Dart subscription alone does not).
-    final client = http.Client();
+    final client = createStreamingClient();
     _activeChatClient?.close();
     _activeChatClient = client;
 
@@ -991,6 +1075,8 @@ class ApiService {
         throw ApiException(timeoutMessage);
       } on SocketException {
         throw ApiException(networkErrorMessage);
+      } on http.ClientException catch (e) {
+        throw ApiException('$networkErrorMessage (${e.message})');
       }
 
       if (streamedResponse.statusCode != 200) {
@@ -1449,7 +1535,7 @@ class ApiService {
     }
   }
 
-  static Future<String> downloadReportPdf({
+  static Future<ReportPdf> downloadReportPdf({
     required ReportPeriod period,
     DateTime? startDate,
     DateTime? endDate,
@@ -1502,23 +1588,12 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      final directory = await getApplicationDocumentsDirectory();
-
-      String filename = 'financial_report.pdf';
-      final contentDisposition = response.headers['content-disposition'];
-      if (contentDisposition != null) {
-        final filenameMatch = RegExp(
-          r'filename="?([^"]+)"?',
-        ).firstMatch(contentDisposition);
-        if (filenameMatch != null) {
-          filename = filenameMatch.group(1)!;
-        }
-      }
-
-      final file = File('${directory.path}/$filename');
-      await file.writeAsBytes(response.bodyBytes);
-
-      return file.path;
+      return ReportPdf(
+        bytes: response.bodyBytes,
+        filename: reportFilenameFromContentDisposition(
+          response.headers['content-disposition'],
+        ),
+      );
     } else {
       throw apiError(response, 'Failed to download report');
     }
@@ -1577,7 +1652,8 @@ class ApiService {
   /// [language] ('en' | 'my') is sent only when the user explicitly chose
   /// it; null lets the backend auto-detect the spoken language.
   static Future<String> transcribeAudio(
-    File audioFile, {
+    Uint8List bytes, {
+    required String filename,
     String? language,
   }) async {
     try {
@@ -1590,10 +1666,11 @@ class ApiService {
       request.headers.addAll(headers);
 
       request.files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'audio',
-          audioFile.path,
-          contentType: MediaType('audio', 'wav'),
+          bytes,
+          filename: filename,
+          contentType: uploadContentType(filename),
         ),
       );
 
@@ -1643,8 +1720,9 @@ class ApiService {
   }
 
   static Future<ExtractedTransactionData> extractTransactionFromImage(
-    File imageFile,
-  ) async {
+    Uint8List bytes, {
+    required String filename,
+  }) async {
     try {
       var request = http.MultipartRequest(
         'POST',
@@ -1655,10 +1733,11 @@ class ApiService {
       request.headers.addAll(headers);
 
       request.files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'image',
-          imageFile.path,
-          contentType: MediaType('image', 'jpeg'),
+          bytes,
+          filename: filename,
+          contentType: uploadContentType(filename),
         ),
       );
 

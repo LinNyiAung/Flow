@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/notification.dart';
 import 'package:frontend/models/notification_preferences.dart';
+import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -27,7 +28,13 @@ class _NotificationSettingsScreenState
   }
 
   Future<void> _initialize() async {
-    await _checkPermissionStatus();
+    if (PlatformInfo.isWeb) {
+      // No OS notification permission on the web: only the per-type
+      // preferences (used for the notifications list) apply.
+      _notificationsEnabled = true;
+    } else {
+      await _checkPermissionStatus();
+    }
     if (_notificationsEnabled) {
       await _loadPreferences();
     }
@@ -235,7 +242,9 @@ class _NotificationSettingsScreenState
           : ListView(
               padding: const EdgeInsets.all(20),
               children: [
-                // Master Toggle Card
+                // Master Toggle Card (system permission + test notification:
+                // not on the web)
+                if (!PlatformInfo.isWeb)
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -300,7 +309,7 @@ class _NotificationSettingsScreenState
                 ),
 
                 if (_notificationsEnabled && _preferences != null) ...[
-                  const SizedBox(height: 20),
+                  if (!PlatformInfo.isWeb) const SizedBox(height: 20),
 
                   // Info Card
                   Container(

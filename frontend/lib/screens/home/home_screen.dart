@@ -16,6 +16,7 @@ import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/app_logo.dart';
 import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/hero_card.dart';
@@ -170,7 +171,16 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () => _scaffoldKey.currentState
               ?.openDrawer(), // Use the key to open the drawer
         ),
-        title: Text(localizations.toePwar),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AppLogo(size: 28),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(localizations.toePwar, overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
         actions: [
           Consumer<NotificationProvider>(
             builder: (context, notificationProvider, child) {

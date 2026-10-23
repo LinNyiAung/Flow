@@ -111,6 +111,8 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Lets the web app read the PDF filename from a cross-origin download response.
+    expose_headers=["Content-Disposition"],
 )
 
 

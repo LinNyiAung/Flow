@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/platform/platform_info.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/app_version_provider.dart';
 import 'package:frontend/providers/budget_provider.dart';
@@ -33,6 +34,8 @@ import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_logo.dart';
+import 'package:frontend/widgets/web_phone_frame.dart';
 import 'package:frontend/providers/theme_provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -61,9 +64,12 @@ void main() async {
   final languageCode = await LocalizationService.getSelectedLanguage();
   ApiService.currentLanguage = languageCode;
 
-  await Firebase.initializeApp();
-  await FCMService().initialize();
-  await NotificationService().initialize();
+  // No Firebase / push / local notifications on the web.
+  if (!PlatformInfo.isWeb) {
+    await Firebase.initializeApp();
+    await FCMService().initialize();
+    await NotificationService().initialize();
+  }
 
   runApp(MyApp(initialLocale: Locale(languageCode)));
 }
@@ -93,13 +99,27 @@ class _MyAppState extends State<MyApp> {
   final FeedbackProvider _feedbackProvider = FeedbackProvider();
   final ThemeProvider _themeProvider = ThemeProvider()..loadThemeMode();
 
+  /// Web only: there is no push, so refresh when the browser tab becomes
+  /// visible again (premium granted elsewhere, new notifications).
+  AppLifecycleListener? _lifecycleListener;
+
   @override
   void initState() {
     super.initState();
+    if (PlatformInfo.isWeb) {
+      _lifecycleListener = AppLifecycleListener(onResume: _refreshOnResume);
+    }
     _authProvider.onSessionReset = _resetUserState;
     _authProvider.onLanguagePreference =
         (code) => _changeLanguage(Locale(code));
     ApiService.onSessionExpired = _handleSessionExpired;
+  }
+
+  void _refreshOnResume() {
+    if (_authProvider.isAuthenticated) {
+      _authProvider.refreshUserSilently();
+      _notificationProvider.fetchUnreadCount();
+    }
   }
 
   void _resetUserState() {
@@ -135,6 +155,7 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
+    _lifecycleListener?.dispose();
     ApiService.onSessionExpired = null;
     super.dispose();
   }
@@ -159,6 +180,8 @@ class _MyAppState extends State<MyApp> {
           navigatorKey: navigatorKey,
           title: 'Toe Pwar',
           debugShowCheckedModeBanner: false,
+          builder: (context, child) =>
+              PlatformInfo.isWeb ? WebPhoneFrame(child: child!) : child!,
           locale: _locale,
           supportedLocales: const [Locale('en', ''), Locale('my', '')],
           localizationsDelegates: const [
@@ -235,9 +258,15 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<void> _checkVersion() async {
+    // The web version is always current: no force-update check.
+    if (PlatformInfo.isWeb) {
+      if (mounted) setState(() => _versionCheckDone = true);
+      return;
+    }
     try {
       final info = await PackageInfo.fromPlatform();
-      final platform = Platform.isIOS ? 'ios' : 'android';
+      final platform =
+          defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
       if (!mounted) return;
       await Provider.of<AppVersionProvider>(
         context,
@@ -350,6 +379,8 @@ class _StartupSpinnerState extends State<_StartupSpinner> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const AppLogo(size: 96),
+              const SizedBox(height: 32),
               CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
               ),
