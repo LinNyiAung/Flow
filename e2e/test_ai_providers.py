@@ -3232,6 +3232,103 @@ async def _transaction_inprocess_checks(uid):
         settings._env_units.update(saved[1])
 
 
+async def usage_stats_checks():
+    """Task 12: the admin AI-usage endpoints report cost per provider (Claude included) and fallback_from."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    from sqlalchemy import delete
+
+    from sql.db import execute
+    from sql.tables import users
+
+    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
+    db = __import__("pgcompat").get_db()
+    made = make_admins(c, db, "t12", ("admin",))
+    email, pw = f"t12-usage-{uuid.uuid4().hex[:6]}@example.com", "T12UsagePass123"
+    uid = None
+    AD = {}
+    try:
+        AD = admin_login(c, made["admin"])
+        admin_reset(c, AD)
+        c.post("/api/auth/register", json={"name": "T12 Usage", "email": email, "password": pw})
+        db.users.update_one({"email": email}, {"$set": {
+            "is_verified": True, "subscription_type": "premium",
+            "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
+        uid = db.users.find_one({"email": email})["_id"]
+        U = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}
+
+        def stats():
+            return c.get("/api/admin/ai-usage/stats", headers=AD)
+
+        def mine():
+            r = c.get("/api/admin/ai-usage/users", headers=AD, params={"limit": 100})
+            return next((u for u in r.json() if u["user_id"] == uid), None) if r.status_code == 200 else None
+
+        def chat():
+            return c.post("/api/chat/stream", headers=U, json={"message": "hi"})
+
+        before = stats()
+        b = before.json().get("cost_by_provider", {}) if before.status_code == 200 else {}
+        check(before.status_code == 200 and isinstance(b, dict) and "openai_total_cost" not in before.json()
+              and "gemini_total_cost" not in before.json(),
+              "usage_stats_include_claude: stats has cost_by_provider and no fixed openai/gemini fields",
+              f"{before.status_code} {before.text[:200]}")
+
+        # --- a claude-answered request
+        put = c.put("/api/admin/ai/settings/chat", headers=AD,
+                    json={"main": {"provider": "claude", "model": "claude-sonnet-5-5"}, "backups": None})
+        check(put.status_code == 200, "usage_stats_include_claude: PUT chat = claude", f"{put.status_code} {put.text[:200]}")
+        r = chat()
+        check(r.status_code == 200 and "Fake answer" in r.text, "usage_stats_include_claude: the claude chat answered",
+              f"{r.status_code} {r.text[:200]}")
+        after = stats().json()
+        a = after.get("cost_by_provider", {})
+        check(a.get("claude", 0) > 0 and a.get("claude", 0) > b.get("claude", 0),
+              "usage_stats_include_claude: cost_by_provider['claude'] > 0 and grew", (b, a))
+        check(all(isinstance(v, (int, float)) for v in a.values()) and abs(sum(a.values()) - after["total_cost_usd"]) < 0.001,
+              "usage_stats: the provider costs add up to the total", (a, after["total_cost_usd"]))
+
+        u = mine() or {}
+        uc = u.get("cost_by_provider", {})
+        check(uc.get("claude", 0) > 0 and "openai_cost" not in u and "gemini_cost" not in u
+              and abs(sum(uc.values()) - u.get("total_cost_usd", -1)) < 0.001,
+              "usage_stats_include_claude: the per-user row has cost_by_provider with claude", u)
+
+        # --- records carry fallback_from; a backup answer names the provider that failed
+        recs = c.get(f"/api/admin/ai-usage/user/{uid}", headers=AD).json()
+        check(isinstance(recs, list) and len(recs) == 1 and "fallback_from" in recs[0] and recs[0]["fallback_from"] is None
+              and recs[0]["provider"] == "claude",
+              "usage_records_include_fallback_from: a first-choice answer has fallback_from null", recs)
+        admin_reset(c, AD)
+        c.put("/api/admin/ai/settings/chat", headers=AD,
+              json={"main": {"provider": "claude", "model": "claude-sonnet-5-5"}, "backups": None})
+        stubenv.set_fake_ai(claude="billing")
+        r = chat()
+        check(r.status_code == 200 and "Fake answer" in r.text, "usage_records_include_fallback_from: the backup answered",
+              f"{r.status_code} {r.text[:200]}")
+        recs = c.get(f"/api/admin/ai-usage/user/{uid}", headers=AD).json()
+        got = sorted((x["provider"], x["fallback_from"]) for x in recs)
+        check(len(recs) == 2 and ("openai", "claude") in got and ("claude", None) in got,
+              "usage_records_include_fallback_from: the backup's record names fallback_from claude", got)
+        u = mine() or {}
+        # (the fake's openai cost rounds to 0.0 at 4 places, so check the key is listed, not its size)
+        check("openai" in u.get("cost_by_provider", {}) and u.get("cost_by_provider", {}).get("claude", 0) > 0,
+              "usage_stats: the per-user row has both the claude and the backup's provider", u)
+    finally:
+        try:
+            if AD:
+                admin_reset(c, AD)
+        finally:
+            try:
+                if uid:
+                    await execute(delete(users).where(users.c.id == uid))  # cascades to its ai_usage rows
+            finally:
+                db.admins.delete_many({"email": {"$in": list(made.values())}})
+                c.close()
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -3279,6 +3376,12 @@ async def all_async_checks():
         import traceback
         traceback.print_exc()
         check(False, "transaction_checks ran to completion", repr(e))
+    try:
+        await usage_stats_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "usage_stats_checks ran to completion", repr(e))
 
 
 def stub_mode_checks():

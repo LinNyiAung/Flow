@@ -50,15 +50,17 @@ async def overall_stats(start: Optional[datetime], end: Optional[datetime]) -> D
         func.count().label("total_requests"),
         func.coalesce(func.sum(c.total_tokens), 0).label("total_tokens"),
         func.coalesce(func.sum(c.estimated_cost_usd), 0).label("total_cost"),
-        _sum_if(c.provider == "openai", c.estimated_cost_usd).label("openai_cost"),
-        _sum_if(c.provider == "gemini", c.estimated_cost_usd).label("gemini_cost"),
         _count_if(c.feature_type == "weekly_insight").label("weekly_insights"),
         _count_if(c.feature_type == "monthly_insight").label("monthly_insights"),
         _count_if(c.feature_type == "chat").label("chat_requests"),
         _count_if(c.feature_type == "translation").label("translations"),
         func.count(distinct(c.user_id)).label("unique_users"),
     ), start, end)
-    return _f(await fetch_one(stmt))
+    out = _f(await fetch_one(stmt))
+    by_provider = await fetch_all(_window(
+        select(c.provider, func.coalesce(func.sum(c.estimated_cost_usd), 0).label("cost")), start, end).group_by(c.provider))
+    out["cost_by_provider"] = {r["provider"]: float(r["cost"]) for r in by_provider}
+    return out
 
 
 async def per_user_stats(start: Optional[datetime], end: Optional[datetime], sort_by: str,
@@ -79,12 +81,20 @@ async def per_user_stats(start: Optional[datetime], end: Optional[datetime], sor
         _count_if(c.feature_type == "monthly_insight").label("monthly_insights"),
         _count_if(c.feature_type == "chat").label("chat_requests"),
         _count_if(c.feature_type == "translation").label("translations"),
-        _sum_if(c.provider == "openai", c.estimated_cost_usd).label("openai_cost"),
-        _sum_if(c.provider == "gemini", c.estimated_cost_usd).label("gemini_cost"),
     ).select_from(ai_usage.join(users, users.c.id == c.user_id)), start, end)
     stmt = (stmt.group_by(c.user_id, users.c.name, users.c.email)
             .order_by(metrics[sort_by].desc(), c.user_id).offset(skip).limit(limit))
-    return [_f(r) for r in await fetch_all(stmt)]
+    rows = [_f(r) for r in await fetch_all(stmt)]
+    if rows:  # cost per provider for just the users on this page
+        by_provider = await fetch_all(_window(
+            select(c.user_id, c.provider, func.coalesce(func.sum(c.estimated_cost_usd), 0).label("cost"))
+            .where(c.user_id.in_([r["user_id"] for r in rows])), start, end).group_by(c.user_id, c.provider))
+        for r in rows:
+            r["cost_by_provider"] = {}
+        index = {r["user_id"]: r for r in rows}
+        for p in by_provider:
+            index[p["user_id"]]["cost_by_provider"][p["provider"]] = float(p["cost"])
+    return rows
 
 
 async def user_detail(user_id: str, feature_type: Optional[str], limit: int) -> List[Dict[str, Any]]:

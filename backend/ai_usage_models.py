@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Dict, Optional
 from datetime import datetime
 from enum import Enum
 
@@ -43,6 +43,7 @@ class AIUsageResponse(BaseModel):
     output_tokens: int
     total_tokens: int
     estimated_cost_usd: float
+    fallback_from: Optional[AIProviderType] = None  # set when this answer came from a backup after that provider failed
     created_at: datetime
 
 
@@ -59,8 +60,7 @@ class UserAIUsageStats(BaseModel):
     monthly_insights_count: int
     chat_requests_count: int
     translation_count: int
-    openai_cost: float
-    gemini_cost: float
+    cost_by_provider: Dict[str, float]
 
 
 class AIUsageStatsResponse(BaseModel):
@@ -68,8 +68,7 @@ class AIUsageStatsResponse(BaseModel):
     total_requests: int
     total_tokens: int
     total_cost_usd: float
-    openai_total_cost: float
-    gemini_total_cost: float
+    cost_by_provider: Dict[str, float]
     weekly_insights_requests: int
     monthly_insights_requests: int
     chat_requests: int

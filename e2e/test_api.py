@@ -953,6 +953,9 @@ def t_regression():
         ok("feedback list filters by status", r.status_code == 200 and all(f["status"] == "reviewed" for f in r.json()), f"{r.status_code} {r.text[:150]}")
         r = c.get("/api/admin/ai-usage/stats", headers=H(AD))
         ok("AI usage recorded from fake chats/insights", r.status_code == 200 and (r.json().get("total_requests") or 0) > 0, f"{r.status_code} {r.text[:150]}")
+        cbp = r.json().get("cost_by_provider") if r.status_code == 200 else None
+        ok("AI usage stats report cost per provider", isinstance(cbp, dict) and cbp and "openai_total_cost" not in r.json()
+           and all(k in ("openai", "gemini", "claude") for k in cbp), f"{cbp}")
         r = c.get("/api/admin/users", headers=H(AD), params={"search": "bob+flow"})
         ok("admin search finds literal 'bob+flow'", r.status_code == 200 and len(r.json()) == 1, r.text[:150])
 

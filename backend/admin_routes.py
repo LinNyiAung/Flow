@@ -958,8 +958,7 @@ async def get_ai_usage_stats(
             total_requests=stats["total_requests"],
             total_tokens=stats["total_tokens"],
             total_cost_usd=round(stats["total_cost"], 4),
-            openai_total_cost=round(stats["openai_cost"], 4),
-            gemini_total_cost=round(stats["gemini_cost"], 4),
+            cost_by_provider={p: round(v, 4) for p, v in stats["cost_by_provider"].items()},
             weekly_insights_requests=stats["weekly_insights"],
             monthly_insights_requests=stats["monthly_insights"],
             chat_requests=stats["chat_requests"],
@@ -1003,8 +1002,7 @@ async def get_users_ai_usage(
                 monthly_insights_count=result["monthly_insights"],
                 chat_requests_count=result["chat_requests"],
                 translation_count=result["translations"],
-                openai_cost=round(result["openai_cost"], 4),
-                gemini_cost=round(result["gemini_cost"], 4)
+                cost_by_provider={p: round(v, 4) for p, v in result["cost_by_provider"].items()}
             )
             for result in results
         ]
@@ -1043,6 +1041,7 @@ async def get_user_ai_usage_detail(
                 output_tokens=record["output_tokens"],
                 total_tokens=record["total_tokens"],
                 estimated_cost_usd=record["estimated_cost_usd"],
+                fallback_from=record.get("fallback_from"),
                 created_at=record["created_at"]
             )
             for record in usage_records
