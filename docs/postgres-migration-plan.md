@@ -169,6 +169,29 @@ bootstrap super admin (`ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD`).
    contribute to a goal, create a budget, send an AI chat message, open the admin panel.
 4. Delete the MongoDB Atlas cluster once you are happy.
 
+### AI providers
+
+The backend can use OpenAI, Gemini or Claude for each AI feature. This release's deploy runs
+the Alembic migration `20261029_a3f1c7d92b64` (via the Pre-Deploy Command above), which adds
+the tables `ai_feature_settings` and `ai_provider_status`.
+
+- API keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY` (Gemini) and the new `ANTHROPIC_API_KEY`
+  (Claude). A provider without a key is skipped.
+- Default models: `OPENAI_MODEL`, `GEMINI_MODEL` and the new `CLAUDE_MODEL`
+  (default `claude-sonnet-5-5`).
+- Per feature (optional): `AI_<FEATURE>_PROVIDER` (`openai`, `gemini` or `claude`),
+  `AI_<FEATURE>_MODEL` and `AI_<FEATURE>_BACKUPS`. `_BACKUPS` is a comma-separated list of
+  `provider[:model]`, or `none` for no backups; left unset, every other configured provider
+  is a backup. `_MODEL` and `_BACKUPS` are ignored unless `_PROVIDER` is set.
+  `<FEATURE>` is one of `CHAT`, `INSIGHT_WEEKLY`, `INSIGHT_MONTHLY`, `INSIGHT_TRANSLATION`,
+  `BUDGET_SUGGESTION`, `BUDGET_AUTO_CREATE`, `TRANSACTION_TEXT`, `TRANSACTION_IMAGE`,
+  `TRANSACTION_AUDIO`. Example: `AI_CHAT_PROVIDER=claude`, `AI_CHAT_BACKUPS=gemini,openai`.
+- `TRANSACTION_AUDIO` (voice input) cannot use Claude, because Claude has no audio input.
+- Order of precedence: the admin panel's **AI Providers** page, then these environment
+  variables, then the built-in default (chat and insights on Gemini, budgets and transaction
+  text/photo/voice on OpenAI). Panel changes apply right away (within about a minute across
+  instances); changing an environment variable needs a restart (Render redeploys on save).
+
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
 
