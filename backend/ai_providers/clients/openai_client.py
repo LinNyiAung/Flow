@@ -26,7 +26,8 @@ def _messages(prompt: Prompt) -> list[dict]:
         mime = prompt.image_mime or "image/jpeg"
         user = [{"type": "text", "text": prompt.user},
                 {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}]
-    return [{"role": "system", "content": prompt.system}, {"role": "user", "content": user}]
+    messages = [{"role": "system", "content": prompt.system}] if prompt.system else []
+    return messages + [{"role": "user", "content": user}]
 
 
 def _silent_wav() -> bytes:
@@ -57,6 +58,8 @@ class OpenAIClient:
 
     def _kwargs(self, model: str, prompt: Prompt) -> dict:
         kwargs = {"model": model, "messages": _messages(prompt), "max_tokens": prompt.max_tokens}
+        if prompt.temperature is not None:
+            kwargs["temperature"] = prompt.temperature
         if prompt.json_schema is not None:
             kwargs["response_format"] = {"type": "json_object"}
         return kwargs

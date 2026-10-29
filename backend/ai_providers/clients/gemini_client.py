@@ -17,6 +17,18 @@ _AUDIO_MIME = {
     ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".flac": "audio/flac", ".webm": "audio/webm",
     ".aiff": "audio/aiff", ".aif": "audio/aiff", ".3gp": "audio/3gpp", ".amr": "audio/amr",
 }
+# Callers pass ISO 639-1 codes; the model needs a language name ("my" would read as English "my").
+_LANGUAGES = {"en": "English", "my": "Burmese (Myanmar)", "th": "Thai", "zh": "Chinese", "ja": "Japanese",
+              "ko": "Korean", "vi": "Vietnamese", "id": "Indonesian", "ms": "Malay", "hi": "Hindi",
+              "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese", "ru": "Russian", "ar": "Arabic"}
+
+
+def _language_phrase(code: str) -> str:
+    code = code.strip()
+    name = _LANGUAGES.get(code.lower().split("-")[0])
+    return name or f"the language with ISO 639-1 code '{code}'"
+
+
 _TRANSCRIBE = "Transcribe this audio exactly. Reply with only the transcript."
 
 
@@ -68,7 +80,8 @@ class GeminiClient:
         config = types.GenerateContentConfig(
             system_instruction=prompt.system or None,
             response_mime_type="application/json" if prompt.json_schema is not None else None,
-            max_output_tokens=prompt.max_tokens)
+            max_output_tokens=prompt.max_tokens,
+            temperature=prompt.temperature)
         contents = prompt.user
         if prompt.image:
             contents = [types.Part.from_bytes(data=prompt.image, mime_type=prompt.image_mime or "image/jpeg"),
@@ -100,7 +113,7 @@ class GeminiClient:
 
     async def transcribe(self, model: str, audio: bytes, filename: str, language: str | None) -> Completion:
         mime = _AUDIO_MIME.get(os.path.splitext(filename or "")[1].lower(), "audio/mpeg")
-        instruction = _TRANSCRIBE + (f" The spoken language is {language}." if language else "")
+        instruction = _TRANSCRIBE + (f" The spoken language is {_language_phrase(language)}." if language else "")
         r = await self._models().generate_content(
             model=model,
             contents=[types.Part.from_bytes(data=audio, mime_type=mime), instruction])

@@ -1,7 +1,7 @@
 """Claude through the official anthropic SDK (async, `client.beta.messages`).
 
 SDK errors are deliberately not caught here: the runner classifies them.
-Never send temperature, top_p or top_k (they return a 400), and do not send `thinking` (adaptive is the default
+Never send temperature, top_p or top_k (they return a 400; Prompt.temperature is ignored here), and do not send `thinking` (adaptive is the default
 and Sonnet 5.5 / Opus 5.5 reject "disabled").
 """
 import base64
@@ -28,6 +28,27 @@ def map_finish(raw) -> str:
 def text_of(message) -> str:
     """The concatenated `text` blocks; thinking and fallback blocks are ignored; empty content gives ''."""
     return "".join(b.text for b in (getattr(message, "content", None) or []) if getattr(b, "type", None) == "text")
+
+
+def strict_schema(schema):
+    """A deep copy of `schema` with `additionalProperties: false` on every object node that does not set it
+    (Claude structured outputs reject open objects). The caller's dict is not modified."""
+    if isinstance(schema, list):
+        return [strict_schema(x) for x in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for key, value in schema.items():
+        if key in ("properties", "$defs", "definitions"):  # maps of name -> schema
+            out[key] = {n: strict_schema(s) for n, s in value.items()} if isinstance(value, dict) else value
+        elif key in ("items", "prefixItems", "anyOf", "oneOf", "allOf", "additionalProperties", "not"):
+            out[key] = strict_schema(value)
+        else:
+            out[key] = value  # enum / const / default / required ...: data, not schemas
+    kind = schema.get("type")
+    if (kind == "object" or (isinstance(kind, list) and "object" in kind)) and "additionalProperties" not in out:
+        out["additionalProperties"] = False
+    return out
 
 
 def _completion(message) -> Completion:
@@ -65,7 +86,7 @@ class ClaudeClient:
             kwargs["system"] = prompt.system
         output_config: dict = {}
         if prompt.json_schema is not None:
-            output_config["format"] = {"type": "json_schema", "schema": prompt.json_schema}
+            output_config["format"] = {"type": "json_schema", "schema": strict_schema(prompt.json_schema)}
         if effort:
             output_config["effort"] = effort
         if output_config:

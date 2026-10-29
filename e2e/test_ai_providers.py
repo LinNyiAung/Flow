@@ -3,9 +3,12 @@
 Print-only suite: every check prints [PASS] or [BUG]; the exit code is non-zero if any check failed.
 """
 import asyncio
+import base64
+import copy
 import json
 import os
 import sys
+from types import SimpleNamespace as NS
 
 # The in-process fakes only answer in fake mode (the stubbed server runs with the same flag).
 os.environ.setdefault("E2E_FAKE_AI", "1")
@@ -930,7 +933,7 @@ async def client_checks():
           and k["betas"] == ["server-side-fallback-2026-07-01"], "claude_no_sampling_params: none sent, fallbacks default", sorted(k))
     check(k["system"] == "be brief" and k["max_tokens"] == 321 and k["model"] == "claude-sonnet-5-5"
           and k["messages"] == [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
-          and k["output_config"] == {"format": {"type": "json_schema", "schema": {"type": "object"}}, "effort": "low"},
+          and k["output_config"] == {"format": {"type": "json_schema", "schema": {"type": "object", "additionalProperties": False}}, "effort": "low"},
           "claude: system, max_tokens, messages and output_config shape", k)
     for model in ("claude-opus-5-5", "claude-fable-5-1"):
         await get_client("claude").complete(model, Prompt("s", "hi"))
@@ -964,7 +967,6 @@ async def client_checks():
     for p, m in models.items():
         r = await get_client(p).complete(m, img)
         check(r.text.strip(), f"client_image: {p} answers")
-    import base64
     b64 = base64.b64encode(b"\x89PNGdata").decode()
     content = stubenv.LAST_KWARGS["claude"]["messages"][0]["content"]
     check(content == [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
@@ -979,7 +981,7 @@ async def client_checks():
     check(isinstance(parts, list) and parts[0].inline_data.data == b"\x89PNGdata"
           and parts[0].inline_data.mime_type == "image/png" and parts[1] == "what is this",
           "gemini: image sent as Part.from_bytes", parts)
-    check(_field(gk["config"], "system_instruction") == "s", "gemini: system goes in system_instruction")
+    check(stubenv._field(gk["config"], "system_instruction") == "s", "gemini: system goes in system_instruction")
 
     # openai and gemini request shapes
     await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi", json_schema={"type": "object"}, max_tokens=77))
@@ -994,11 +996,51 @@ async def client_checks():
     check(k["stream"] is True and k["stream_options"] == {"include_usage": True}, "openai: stream asks for usage", k)
     await get_client("gemini").complete("gemini-2.5-flash", Prompt("s", "hi", json_schema={"type": "object"}, max_tokens=55))
     cfg = stubenv.LAST_KWARGS["gemini"]["config"]
-    check(_field(cfg, "response_mime_type") == "application/json" and _field(cfg, "max_output_tokens") == 55
+    check(stubenv._field(cfg, "response_mime_type") == "application/json" and stubenv._field(cfg, "max_output_tokens") == 55
           and stubenv.LAST_KWARGS["gemini"]["contents"] == "hi", "gemini: json_schema -> response_mime_type", cfg)
     await get_client("gemini").complete("gemini-2.5-flash", Prompt("s", "hi"))
-    check(_field(stubenv.LAST_KWARGS["gemini"]["config"], "response_mime_type") is None,
+    check(stubenv._field(stubenv.LAST_KWARGS["gemini"]["config"], "response_mime_type") is None,
           "gemini: no mime type without json_schema")
+
+    # temperature (R8): OpenAI and Gemini get it when set; Claude never does
+    await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi", temperature=0.3))
+    check(stubenv.LAST_KWARGS["openai"]["temperature"] == 0.3, "temperature: openai receives it", stubenv.LAST_KWARGS["openai"])
+    await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi"))
+    check("temperature" not in stubenv.LAST_KWARGS["openai"], "temperature: openai omits it when None")
+    await get_client("openai").complete("gpt-4o-mini", Prompt("", "hi"))
+    check(stubenv.LAST_KWARGS["openai"]["messages"] == [{"role": "user", "content": "hi"}],
+          "openai: empty system is omitted", stubenv.LAST_KWARGS["openai"]["messages"])
+    await get_client("gemini").complete("gemini-2.5-flash", Prompt("s", "hi", temperature=0.7))
+    check(stubenv._field(stubenv.LAST_KWARGS["gemini"]["config"], "temperature") == 0.7, "temperature: gemini receives it")
+    await get_client("gemini").complete("gemini-2.5-flash", Prompt("s", "hi"))
+    check(stubenv._field(stubenv.LAST_KWARGS["gemini"]["config"], "temperature") is None, "temperature: gemini omits it when None")
+    await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "hi", temperature=0.5), effort="low")
+    async for _ in get_client("claude").stream("claude-sonnet-5-5", Prompt("s", "hi", temperature=0.5)):
+        pass
+    check("temperature" not in stubenv.LAST_KWARGS["claude"] and "temperature" not in str(stubenv.LAST_KWARGS["claude"]),
+          "temperature: claude never sends it even when set (complete and stream)", stubenv.LAST_KWARGS["claude"])
+    await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "hi", temperature=0.5))
+    check("temperature" not in stubenv.LAST_KWARGS["claude"], "temperature: claude complete omits it")
+
+    # R9: Claude gets a strict copy of the schema; the caller's dict is untouched
+    schema = {"type": "object", "properties": {
+        "a": {"type": "array", "items": {"type": "object", "properties": {"n": {"type": "number"}}}},
+        "b": {"anyOf": [{"type": "object", "properties": {}}, {"type": "null"}]},
+        "c": {"type": "object", "properties": {}, "additionalProperties": True},
+        "d": {"$ref": "#/$defs/D"}, "e": {"enum": ["object"]}},
+        "required": ["a"], "$defs": {"D": {"type": "object", "properties": {"x": {"type": "string"}}}}}
+    original = copy.deepcopy(schema)
+    await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "hi", json_schema=schema))
+    sent = stubenv.LAST_KWARGS["claude"]["output_config"]["format"]["schema"]
+    check(schema == original, "claude_schema_strict: the caller's schema is not mutated")
+    check(sent["additionalProperties"] is False
+          and sent["properties"]["a"]["items"]["additionalProperties"] is False
+          and sent["properties"]["b"]["anyOf"][0]["additionalProperties"] is False
+          and "additionalProperties" not in sent["properties"]["b"]["anyOf"][1]
+          and sent["properties"]["c"]["additionalProperties"] is True
+          and sent["$defs"]["D"]["additionalProperties"] is False
+          and sent["properties"]["e"] == {"enum": ["object"]} and sent["required"] == ["a"],
+          "claude_schema_strict: additionalProperties:false on every object node lacking it", sent)
 
     # transcription
     r = await get_client("gemini").transcribe("gemini-2.5-flash", b"RIFFxxxx", "note.m4a", "my")
@@ -1006,7 +1048,13 @@ async def client_checks():
     check(r.text == "fake transcript" and r.finish == "stop", "gemini_transcribe: returns the transcript", r)
     check(gk["contents"][0].inline_data.mime_type == "audio/mp4" and gk["contents"][0].inline_data.data == b"RIFFxxxx"
           and "Transcribe this audio exactly. Reply with only the transcript." in gk["contents"][1]
-          and "my" in gk["contents"][1], "gemini_transcribe: audio part, mime from extension, instruction and language", gk["contents"])
+          and "Burmese" in gk["contents"][1] and "The spoken language is my" not in gk["contents"][1],
+          "gemini_transcribe: audio part, mime from extension, instruction and the language name", gk["contents"])
+    await get_client("gemini").transcribe("gemini-2.5-flash", b"x", "a.mp3", "xx")
+    check("ISO 639-1 code 'xx'" in stubenv.LAST_KWARGS["gemini"]["contents"][1],
+          "gemini_transcribe: unknown language code is phrased as an ISO code", stubenv.LAST_KWARGS["gemini"]["contents"][1])
+    await get_client("gemini").transcribe("gemini-2.5-flash", b"x", "a.mp3", "en")
+    check("English" in stubenv.LAST_KWARGS["gemini"]["contents"][1], "gemini_transcribe: en -> English")
     await get_client("gemini").transcribe("gemini-2.5-flash", b"x", "a.unknownext", None)
     gk = stubenv.LAST_KWARGS["gemini"]
     check(gk["contents"][0].inline_data.mime_type.startswith("audio/") and len(gk["contents"]) == 2
@@ -1104,15 +1152,10 @@ async def client_checks():
     # gemini usage falls back to len // 4 when usage_metadata is missing; text blocks only for claude
     check(gemini_client.usage_of(None, 40, "x" * 80) == (10, 20) and gemini_client.usage_of(None, 3, "") == (0, 0),
           "gemini: usage falls back to len // 4")
-    from types import SimpleNamespace as NS
     msg = NS(content=[NS(type="thinking", thinking="hmm"), NS(type="fallback"), NS(type="text", text="a"),
                       NS(type="text", text="b")], stop_reason="end_turn", usage=NS(input_tokens=3, output_tokens=4))
     check(claude_client.text_of(msg) == "ab" and claude_client.text_of(NS(content=[])) == "",
           "claude: text is the concatenation of text blocks only")
-
-
-def _field(obj, name):
-    return stubenv._field(obj, name)
 
 
 async def all_async_checks():

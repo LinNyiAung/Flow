@@ -25,6 +25,7 @@ class Prompt:
     image_mime: str | None = None
     json_schema: dict | None = None
     max_tokens: int = 2000
+    temperature: float | None = None   # sent to OpenAI and Gemini when set; never sent to Claude
 
 
 @dataclass
