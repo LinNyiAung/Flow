@@ -19,6 +19,7 @@ class AIFeatureType(str, Enum):
 class AIProviderType(str, Enum):
     OPENAI = "openai"
     GEMINI = "gemini"
+    CLAUDE = "claude"
 
 
 class AIUsageCreate(BaseModel):

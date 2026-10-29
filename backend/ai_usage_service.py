@@ -17,7 +17,12 @@ PRICING = {
         "gemini-2.0-flash-exp": {"input": 0.00, "output": 0.00},
         "gemini-2.5-flash": {"input": 0.075, "output": 0.30},
         "gemini-2.5-pro": {"input": 1.25, "output": 5.00},
-    }
+    },
+    "claude": {
+        "claude-sonnet-5-5": {"input": 2.00, "output": 10.00},
+        "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
+        "claude-opus-5-5": {"input": 4.00, "output": 20.00},
+    },
 }
 
 
@@ -48,9 +53,10 @@ async def track_ai_usage(
     model_name: str,
     input_tokens: int,
     output_tokens: int,
-    total_tokens: int
+    total_tokens: int,
+    fallback_from: str | None = None,
 ):
-    """Track AI API usage and cost"""
+    """Track AI API usage and cost. `fallback_from` names the provider that failed before this one answered."""
     try:
         # SDK usage fields can be None; normalize so cost math/logging never fails
         input_tokens = int(input_tokens or 0)
@@ -76,7 +82,8 @@ async def track_ai_usage(
             "output_tokens": output_tokens,
             "total_tokens": total_tokens,
             "estimated_cost_usd": estimated_cost,
-            "created_at": datetime.now(UTC)
+            "created_at": datetime.now(UTC),
+            "fallback_from": fallback_from,
         }
 
         await ai_usage_db.insert_usage(usage_record)

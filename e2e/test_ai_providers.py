@@ -1158,6 +1158,373 @@ async def client_checks():
           "claude: text is the concatenation of text blocks only")
 
 
+def control_format_checks():
+    """Task 6: the control file accepts provider@model keys and {"kind", "times"} values, and rejects typos."""
+    for bad in ({"claud": "billing"}, {"claude": "billng"}, {"claude@": "billing"}, {"@x": "billing"},
+                {"claude": {"kind": "billing", "times": 0}}, {"claude": {"kind": "nope", "times": 1}},
+                {"claude": {"times": 1}}, {"claude": {"kind": "billing", "times": "2"}}, {"claude": 3}):
+        try:
+            stubenv.set_fake_ai(**bad)
+            check(False, f"set_fake_ai_validates: {bad!r} rejected", "no error")
+        except ValueError:
+            check(True, f"set_fake_ai_validates: {bad!r} rejected")
+    try:
+        stubenv.set_fake_ai(**{"claude@claude-typo": "model_not_found", "openai": {"kind": "rate_limit", "times": 1},
+                               "gemini": {"kind": "server"}})
+        check(True, "set_fake_ai_validates: model keys and kind/times values accepted")
+    except ValueError as e:
+        check(False, "set_fake_ai_validates: model keys and kind/times values accepted", repr(e))
+    stubenv.clear_fake_ai()
+
+    # provider@model applies to that model only; a model entry wins over the provider entry
+    stubenv.set_fake_ai(**{"claude@claude-typo": "model_not_found", "claude": "server"})
+    try:
+        stubenv._begin("claude", "test", "claude-typo")
+        got = "no error"
+    except stubenv.FakeAPIError as e:
+        got = e.status_code
+    check(got == 404, "control_model_key: claude@claude-typo -> 404", got)
+    try:
+        stubenv._begin("claude", "test", "claude-sonnet-5-5")
+        got = "no error"
+    except stubenv.FakeAPIError as e:
+        got = e.status_code
+    check(got == 529, "control_model_key: other claude models use the provider entry", got)
+
+    # {"kind", "times"}: fails `times` calls, then succeeds
+    stubenv.set_fake_ai(claude={"kind": "rate_limit", "times": 2})
+    got = []
+    for _ in range(3):
+        try:
+            got.append(stubenv._begin("claude", "test", "claude-sonnet-5-5"))
+        except stubenv.FakeAPIError as e:
+            got.append(e.status_code)
+    check(got == [429, 429, None], "control_times: two failures then success", got)
+    stubenv.clear_fake_ai()
+
+
+def _outbox_ai_calls(before):
+    return [x for x in outbox_lines()[before:] if x.get("kind") == "ai_call"]
+
+
+async def runner_checks():
+    """Task 6: the runner (fallback, cool-off, usage tracking, status), in-process against the fakes."""
+    from sqlalchemy import delete, insert, select
+
+    from ai_providers import health, settings
+    from sql import ai_settings
+    from sql.db import execute, fetch_all
+    from sql.tables import ai_provider_status, ai_usage, users
+
+    saved = (settings._env, dict(settings._env_units), settings._panel)
+    uid = "t6-runner-user"
+    await execute(delete(users).where(users.c.id == uid))
+    await execute(insert(users).values(id=uid, name="t6", email="t6-runner@x.test", password="x"))
+    health.reset()
+    try:
+        settings.set_panel_cache({})
+        settings.reload_env({})
+        await _runner_checks(uid)
+    finally:
+        stubenv.clear_fake_ai()
+        health.reset()
+        try:
+            for f in ("chat", "insight_weekly"):
+                await ai_settings.delete_feature_setting(f)
+            await execute(ai_provider_status.delete())
+            await execute(delete(users).where(users.c.id == uid))  # cascades to its ai_usage rows
+        finally:
+            settings._env, settings._panel = saved[0], saved[2]
+            settings._env_units.clear()
+            settings._env_units.update(saved[1])
+
+    rows = await fetch_all(select(ai_usage.c.id).where(ai_usage.c.user_id == uid))
+    check(rows == [], "runner: test usage rows cleaned up", rows)
+
+
+async def _runner_checks(uid):
+    from sqlalchemy import select
+
+    from ai_providers import health, runner, settings
+    from ai_providers.errors import AllProvidersFailed, UnusableAnswer
+    from ai_providers.types import FeatureSetting, Prompt, Target
+    from ai_usage_models import AIProviderType
+    from ai_usage_service import PRICING
+    from sql import ai_settings
+    from sql.db import fetch_all
+    from sql.tables import ai_usage
+
+    T = Target
+    claude_main = FeatureSetting(T("claude", "claude-sonnet-5-5"), None, "panel")
+
+    async def usage_rows():
+        return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid).order_by(ai_usage.c.created_at))
+
+    async def go(setting=claude_main, feature="chat", prompt=None, parse=None, background=False, **fakes):
+        """Save the panel setting, configure the fakes, run once. Returns (result or exception, providers called)."""
+        await settings.save_panel(feature, setting, "t6@x")
+        stubenv.set_fake_ai(**fakes) if fakes else stubenv.clear_fake_ai()
+        before = len(outbox_lines())
+        kw = {"parse": parse} if parse else {}
+        try:
+            out = await runner.run(feature, user_id=uid, call=runner.default_call(prompt or Prompt("s", "u"), feature),
+                                   background=background, **kw)
+        except Exception as e:  # noqa: BLE001
+            out = e
+        return out, [x.get("provider") for x in _outbox_ai_calls(before)]
+
+    def parse_json(c):
+        try:
+            return json.loads(c.text)
+        except ValueError as e:
+            raise UnusableAnswer("bad json") from e
+
+    # enum and pricing
+    check(AIProviderType("claude") == AIProviderType.CLAUDE and AIProviderType.CLAUDE.value == "claude",
+          "usage: AIProviderType.CLAUDE")
+    check(PRICING.get("claude") == {"claude-sonnet-5-5": {"input": 2.00, "output": 10.00},
+                                    "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
+                                    "claude-opus-5-5": {"input": 4.00, "output": 20.00}},
+          "usage: PRICING['claude']", PRICING.get("claude"))
+
+    # the happy path: the main provider answers, effort goes to claude, usage is tracked without fallback
+    health.reset()
+    n0 = len(await usage_rows())
+    r, called = await go()
+    ok = isinstance(r, runner.RunResult)
+    check(ok and r.target == T("claude", "claude-sonnet-5-5") and r.fallback_from is None and called == ["claude"]
+          and r.value.text == stubenv.FAKE_REPLY and r.completion.input_tokens == 10,
+          "run: the main provider answers", (r, called))
+    check(stubenv.LAST_KWARGS["claude"].get("output_config", {}).get("effort") == "low",
+          "default_call: passes CLAUDE_EFFORT to claude", stubenv.LAST_KWARGS["claude"].get("output_config"))
+    rows = await usage_rows()
+    check(len(rows) == n0 + 1 and rows[-1]["provider"] == "claude" and rows[-1]["fallback_from"] is None
+          and rows[-1]["feature_type"] == "chat" and rows[-1]["total_tokens"] == 15
+          and float(rows[-1]["estimated_cost_usd"]) > 0, "run: usage row for claude, no fallback", rows[-1:])
+
+    # fallback_on_billing
+    health.reset()
+    r, called = await go(claude="billing")
+    check(isinstance(r, runner.RunResult) and r.target.provider == "openai" and r.fallback_from == "claude"
+          and called == ["claude", "openai"], "fallback_on_billing: openai answers, fallback_from claude", (r, called))
+    rows = await usage_rows()
+    check(rows and rows[-1]["provider"] == "openai" and rows[-1]["fallback_from"] == "claude"
+          and rows[-1]["model_name"] == "gpt-4o-mini", "fallback_on_billing: usage row openai, fallback_from claude", rows[-1:])
+    check(not health.is_available(T("claude", "claude-haiku-5-5")), "fallback_on_billing: claude cools off provider-wide")
+
+    # fallback_each_kind
+    for kind in ("auth", "rate_limit", "server", "timeout", "model_not_found", "refusal", "empty", "bad_json"):
+        health.reset()
+        extra = {"parse": parse_json, "prompt": Prompt("s", "u", json_schema={"type": "object"})} if kind == "bad_json" else {}
+        r, called = await go(claude=kind, **extra)
+        check(isinstance(r, runner.RunResult) and r.target.provider == "openai" and r.fallback_from == "claude"
+              and called == ["claude", "openai"], f"fallback_each_kind: {kind}", (r, called))
+    rows = await usage_rows()
+    check(rows[-1]["fallback_from"] == "claude" and rows[-1]["provider"] == "openai", "fallback_each_kind: usage rows")
+
+    # a refusal is recorded as kind "refusal", an empty answer as "unusable"
+    health.reset()
+    r, _ = await go(setting=FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"), claude="refusal")
+    check(isinstance(r, AllProvidersFailed) and [f.kind for f in r.failures] == ["refusal"],
+          "run: refusal failure kind", r)
+    r, _ = await go(setting=FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"), claude="empty")
+    check(isinstance(r, AllProvidersFailed) and [f.kind for f in r.failures] == ["unusable"],
+          "run: empty answer failure kind unusable", r)
+
+    # no_fallback_on_bad_request: the request itself is wrong, so no other provider is tried and nothing cools
+    health.reset()
+    n0 = len(await usage_rows())
+    r, called = await go(claude="bad_request")
+    check(isinstance(r, stubenv.FakeAPIError) and r.status_code == 400 and called == ["claude"],
+          "no_fallback_on_bad_request: the error propagates, no openai or gemini call", (r, called))
+    check(health.is_available(T("claude", "claude-sonnet-5-5")) and len(await usage_rows()) == n0,
+          "no_fallback_on_bad_request: no cool-off and no usage row")
+
+    # a parse error that is not UnusableAnswer is a bug in our code: it propagates
+    health.reset()
+
+    def parse_crash(c):
+        raise KeyError("oops")
+    r, called = await go(parse=parse_crash)
+    check(isinstance(r, KeyError) and called == ["claude"], "run: a parse crash propagates without fallback", (r, called))
+
+    # no_backups_fails
+    health.reset()
+    n0 = len(await usage_rows())
+    r, called = await go(setting=FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"), claude="billing")
+    check(isinstance(r, AllProvidersFailed) and len(r.failures) == 1 and r.failures[0].kind == "billing"
+          and r.failures[0].provider == "claude" and called == ["claude"], "no_backups_fails: one billing failure", (r, called))
+    check(len(await usage_rows()) == n0, "no_backups_fails: no usage row")
+
+    # every provider failing raises AllProvidersFailed with one failure each, in chain order
+    health.reset()
+    r, called = await go(claude="rate_limit", openai="rate_limit", gemini="rate_limit")
+    check(isinstance(r, AllProvidersFailed) and [f.provider for f in r.failures] == ["claude", "openai", "gemini"]
+          and r.all_rate_limited, "run: all providers failing -> AllProvidersFailed in chain order", r)
+
+    # all targets cooling: still tried in order
+    r, called = await go()
+    check(isinstance(r, runner.RunResult) and r.target.provider == "claude" and called == ["claude"],
+          "run: when every target is cooling, the chain is still tried in order", (r, called))
+
+    # not_configured_main_skipped
+    health.reset()
+    old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        r, called = await go()
+    finally:
+        if old_key is not None:
+            os.environ["ANTHROPIC_API_KEY"] = old_key
+    check(isinstance(r, runner.RunResult) and r.target.provider == "openai" and r.fallback_from == "claude"
+          and called == ["openai"], "not_configured_main_skipped: answers from openai, claude never called", (r, called))
+    health.reset()
+    old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        r, called = await go(setting=FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"))
+    finally:
+        if old_key is not None:
+            os.environ["ANTHROPIC_API_KEY"] = old_key
+    check(isinstance(r, AllProvidersFailed) and [f.kind for f in r.failures] == ["not_configured"] and called == [],
+          "not_configured: with no backups the feature fails", r)
+
+    # cooled_target_skipped_next_time (the fakes are cleared: claude would answer if it were called)
+    health.reset()
+    await go(claude="billing")
+    r, called = await go()
+    check(isinstance(r, runner.RunResult) and r.target.provider == "openai" and "claude" not in called,
+          "cooled_target_skipped_next_time: claude is not called while cooling", (r, called))
+
+    # model_typo_scoped
+    health.reset()
+    r, called = await go(setting=FeatureSetting(T("claude", "claude-typo"), None, "panel"),
+                         **{"claude@claude-typo": "model_not_found"})
+    check(isinstance(r, runner.RunResult) and r.target.provider == "openai" and r.fallback_from == "claude"
+          and called == ["claude", "openai"], "model_typo_scoped: chat falls back from the typo'd model", (r, called))
+    # the control file keeps the typo entry: it must not affect claude-sonnet-5-5
+    r, called = await go(setting=FeatureSetting(T("claude", "claude-sonnet-5-5"), None, "panel"), feature="insight_weekly",
+                         **{"claude@claude-typo": "model_not_found"})
+    check(isinstance(r, runner.RunResult) and r.target == T("claude", "claude-sonnet-5-5") and r.fallback_from is None
+          and called == ["claude"], "model_typo_scoped: insight_weekly on claude-sonnet-5-5 still answers from claude",
+          (r, called))
+    check(not health.is_available(T("claude", "claude-typo")) and health.is_available(T("claude", "claude-sonnet-5-5")),
+          "model_typo_scoped: only the typo'd pair cools off")
+    await settings.clear_panel("insight_weekly")
+
+    # background_retries_rate_limit (asyncio.sleep is patched to a no-op that records the delays)
+    health.reset()
+    sleeps = []
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(delay, *a, **k):
+        sleeps.append(delay)
+        await real_sleep(0)
+    asyncio.sleep = fake_sleep
+    try:
+        r, called = await go(background=True, claude={"kind": "rate_limit", "times": 2})
+    finally:
+        asyncio.sleep = real_sleep
+    check(isinstance(r, runner.RunResult) and r.target.provider == "claude" and r.fallback_from is None
+          and called == ["claude", "claude", "claude"] and sleeps == [5, 10],
+          "background_retries_rate_limit: claude answers on the third try", (r, called, sleeps))
+    check(health.is_available(T("claude", "claude-sonnet-5-5")), "background_retries_rate_limit: no cool-off after success")
+    health.reset()
+    r, called = await go(claude={"kind": "rate_limit", "times": 1})
+    check(isinstance(r, runner.RunResult) and r.target.provider == "openai" and called == ["claude", "openai"],
+          "run: without background a rate limit falls back at once", (r, called))
+    health.reset()
+    asyncio.sleep = fake_sleep
+    sleeps.clear()
+    try:
+        r, called = await go(background=True, claude="rate_limit")
+    finally:
+        asyncio.sleep = real_sleep
+    check(isinstance(r, runner.RunResult) and r.target.provider == "openai" and r.fallback_from == "claude"
+          and called == ["claude", "claude", "claude", "openai"] and sleeps == [5, 10],
+          "background: three rate limits, then the next target", (r, called, sleeps))
+
+    # streams
+    async def go_stream(**fakes):
+        await settings.save_panel("chat", claude_main, "t6@x")
+        stubenv.set_fake_ai(**fakes) if fakes else stubenv.clear_fake_ai()
+        before = len(outbox_lines())
+        items, err = [], None
+        try:
+            async for x in runner.run_stream("chat", user_id=uid, prompt=Prompt("s", "u")):
+                items.append(x)
+        except Exception as e:  # noqa: BLE001
+            err = e
+        return items, err, [x.get("provider") for x in _outbox_ai_calls(before)]
+
+    health.reset()
+    items, err, called = await go_stream()
+    chunks, last = items[:-1], items[-1] if items else None
+    check(err is None and len(chunks) >= 2 and all(isinstance(c, str) for c in chunks)
+          and isinstance(last, runner.RunResult) and last.value == stubenv.FAKE_REPLY == "".join(chunks)
+          and last.target.provider == "claude" and last.fallback_from is None and last.completion.input_tokens == 10,
+          "run_stream: chunks then one RunResult", (items, err))
+
+    health.reset()
+    n0 = len(await usage_rows())
+    items, err, called = await go_stream(claude="server")
+    last = items[-1] if items else None
+    check(err is None and isinstance(last, runner.RunResult) and last.target.provider == "openai"
+          and last.fallback_from == "claude" and "".join(items[:-1]) == stubenv.FAKE_REPLY
+          and called == ["claude", "openai"], "stream_fallback_before_first_chunk", (items, err, called))
+    rows = await usage_rows()
+    check(len(rows) == n0 + 1 and rows[-1]["provider"] == "openai" and rows[-1]["fallback_from"] == "claude",
+          "run_stream: tracks usage with fallback_from", rows[-1:])
+
+    for kind in ("refusal", "empty"):
+        health.reset()
+        items, err, called = await go_stream(claude=kind)
+        last = items[-1] if items else None
+        check(err is None and isinstance(last, runner.RunResult) and last.target.provider == "openai"
+              and last.fallback_from == "claude" and called == ["claude", "openai"],
+              f"run_stream: {kind} before any chunk falls back", (items, err, called))
+
+    health.reset()
+    n0 = len(await usage_rows())
+    items, err, called = await go_stream(claude="fail_mid_stream")
+    check(isinstance(err, stubenv.FakeAPIError) and len(items) == 1 and isinstance(items[0], str)
+          and called == ["claude"], "stream_no_fallback_after_chunk: one chunk, then the error; no openai call",
+          (items, err, called))
+    check(len(await usage_rows()) == n0, "stream_no_fallback_after_chunk: no usage row")
+
+    health.reset()
+    items, err, called = await go_stream(claude="bad_request")
+    check(isinstance(err, stubenv.FakeAPIError) and items == [] and called == ["claude"],
+          "run_stream: a request-level error propagates without fallback", (items, err, called))
+
+    # status_persisted_redacted
+    health.reset()
+    await execute_status_delete()
+    r, called = await go(claude="echo_key")
+    st = await ai_settings.get_provider_status()
+    err_text = (st.get("claude") or {}).get("last_error")
+    check(isinstance(r, runner.RunResult) and err_text and "sk-e2e" not in err_text and "[redacted]" in err_text,
+          "status_persisted_redacted: claude last_error has no key", err_text)
+    check((st.get("openai") or {}).get("last_success_at") is not None, "status: openai last_success_at recorded", st)
+
+    # no user: no usage row
+    health.reset()
+    stubenv.clear_fake_ai()
+    n0 = len(await usage_rows())
+    r = await runner.run("chat", user_id=None, call=runner.default_call(Prompt("s", "u"), "chat"))
+    check(isinstance(r, runner.RunResult) and len(await usage_rows()) == n0, "run: user_id None tracks nothing")
+
+    # the package exports the runner
+    import ai_providers
+    check(all(hasattr(ai_providers, n) for n in ("run", "run_stream", "Prompt", "Completion", "Target",
+                                                  "AllProvidersFailed", "UnusableAnswer", "RunResult")),
+          "ai_providers re-exports the runner API")
+
+
+async def execute_status_delete():
+    from sql.db import execute
+    from sql.tables import ai_provider_status
+    await execute(ai_provider_status.delete())
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -1167,6 +1534,13 @@ async def all_async_checks():
     error_checks()
     await health_checks()
     await client_checks()
+    control_format_checks()
+    try:
+        await runner_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "runner_checks ran to completion", repr(e))
 
 
 def stub_mode_checks():

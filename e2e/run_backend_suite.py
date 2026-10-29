@@ -17,6 +17,12 @@ PY = sys.executable
 SUITES = ["test_api", "test_jobs", "test_jobs2", "test_regressions_all", "test_regressions2", "test_regressions3",
           "test_round3", "test_backend_r4", "test_round5", "test_sweep", "test_load", "test_burst_pooled", "test_premium_expiry", "test_money_lock", "test_app_download", "test_ai_providers"]
 
+# A run killed mid-check can leave the fake-AI failure control behind (stubenv.FAKE_CONTROL); the stubbed
+# server re-reads it on every fake call, so clear it before any suite starts.
+FAKE_CONTROL = os.path.join(HERE, ".data", "fake_ai.json")
+if os.path.exists(FAKE_CONTROL):
+    os.remove(FAKE_CONTROL)
+
 res_path = os.path.join(HERE, "api_results.json")
 if os.path.exists(res_path):
     os.remove(res_path)

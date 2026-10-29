@@ -86,8 +86,13 @@ def _ns(**k):
 # ---- failure control (shared by the in-process fakes and a separately running server) ----
 FAKE_CONTROL = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".data", "fake_ai.json")
 
-# provider id -> failure kind. See _raise_for / _begin for what each kind does.
+# Control file: {key: value}. A key is a provider id ("claude") or "provider@model" ("claude@claude-typo"); a model
+# key wins over the provider key for that model. A value is a kind ("billing") or {"kind": "billing", "times": N}
+# (the next N calls fail that way, then the entry is removed). See _raise_for / _begin for what each kind does.
+FAKE_PROVIDERS = ("openai", "gemini", "claude")
 _RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_not_found", "bad_request", "echo_key")
+_ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream")  # an odd successful answer, not an error
+FAKE_KINDS = _RAISING_KINDS + _ANSWER_KINDS  # later tasks add kinds here
 
 
 class FakeAPIError(Exception):
@@ -100,18 +105,48 @@ class FakeAPIError(Exception):
         self.message = message
 
 
+def _check_control(kinds):
+    """Raise ValueError for an unknown provider, an empty model, an unknown kind or a bad `times`."""
+    for key, value in kinds.items():
+        provider, at, model = str(key).partition("@")
+        if provider not in FAKE_PROVIDERS or (at and not model.strip()):
+            raise ValueError(f"fake AI control key {key!r}: expected one of {FAKE_PROVIDERS}, optionally @model")
+        if isinstance(value, dict):
+            times = value.get("times")
+            if set(value) - {"kind", "times"} or value.get("kind") not in FAKE_KINDS or (
+                    "times" in value and (type(times) is not int or times < 1)):
+                raise ValueError(f"fake AI control value {value!r} for {key!r}: expected "
+                                 f'{{"kind": one of {FAKE_KINDS}, "times": a positive int}}')
+        elif value not in FAKE_KINDS:
+            raise ValueError(f"fake AI control kind {value!r} for {key!r}: expected one of {FAKE_KINDS}")
+
+
+def _write_control(data):
+    os.makedirs(os.path.dirname(FAKE_CONTROL), exist_ok=True)
+    tmp = f"{FAKE_CONTROL}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    for attempt in range(20):  # atomic replace; on Windows a concurrent reader can briefly lock the target
+        try:
+            os.replace(tmp, FAKE_CONTROL)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            __import__("time").sleep(0.01)
+
+
 def set_fake_ai(**kinds):
     """Make fake providers fail on demand, e.g. set_fake_ai(claude="billing", openai="timeout").
 
     Replaces the whole control file, so providers not named succeed. Kinds: billing, auth, rate_limit, server,
     timeout, model_not_found, bad_request, echo_key (raise); refusal (claude), empty, bad_json (odd successful
-    answer); fail_mid_stream (streaming calls only).
+    answer); fail_mid_stream (streaming calls only). Model-scoped keys need dict unpacking:
+    set_fake_ai(**{"claude@claude-typo": "model_not_found"}); a count limits a failure:
+    set_fake_ai(claude={"kind": "rate_limit", "times": 2}). Typos raise ValueError.
     """
-    os.makedirs(os.path.dirname(FAKE_CONTROL), exist_ok=True)
-    tmp = FAKE_CONTROL + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(kinds, f)
-    os.replace(tmp, FAKE_CONTROL)  # atomic: a server reading mid-write never sees half a file
+    _check_control(kinds)
+    _write_control(kinds)
 
 
 def clear_fake_ai():
@@ -155,10 +190,29 @@ def _raise_for(provider, kind):
 LAST_KWARGS = {}  # provider id -> the keyword arguments of its latest fake SDK call (in-process checks read this)
 
 
+def _take_kind(provider, model):
+    """The kind configured for this call ("provider@model" first, then "provider"), consuming one of its `times`."""
+    data = _control()
+    key = next((k for k in (f"{provider}@{model}", provider) if k in data), None)
+    if key is None:
+        return None
+    value = data[key]
+    if not isinstance(value, dict):
+        return value
+    times = value.get("times")
+    if isinstance(times, int):
+        if times <= 1:
+            del data[key]
+        else:
+            data[key] = {**value, "times": times - 1}
+        _write_control(data)
+    return value.get("kind")
+
+
 def _begin(provider, target, model, streaming=False, **extra):
     """Record the call, raise the configured failure, else return the configured odd-answer kind (or None)."""
     record("ai_call", provider=provider, target=target, model=model, **extra)
-    kind = _control().get(provider)
+    kind = _take_kind(provider, model)
     if kind in _RAISING_KINDS:
         _raise_for(provider, kind)
     if kind == "fail_mid_stream" and not streaming:
