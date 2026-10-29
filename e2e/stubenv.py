@@ -3,7 +3,11 @@
 Import this BEFORE any backend module. It:
   * blocks .env loading (so production database URLs/API keys/Firebase creds are never read)
   * points the app at a local throwaway PostgreSQL
-  * replaces OpenAI / Gemini clients, SMTP and Firebase messaging with recorders that never touch the network
+  * replaces OpenAI / Gemini / Claude clients, SMTP and Firebase messaging with recorders that never touch the network
+
+With E2E_FAKE_AI=1 the three AI clients answer with canned replies and can be made to fail on demand:
+set_fake_ai(claude="billing") writes FAKE_CONTROL, which every fake call re-reads (so it also steers a
+separately running server). Without E2E_FAKE_AI every AI call raises AIStubError.
 """
 import asyncio
 import json
@@ -26,6 +30,7 @@ os.environ.update({
     "SECRET_KEY": "e2e-local-secret-not-production",
     "OPENAI_API_KEY": "sk-e2e-stub",
     "GOOGLE_API_KEY": "e2e-stub",
+    "ANTHROPIC_API_KEY": "sk-ant-e2e-stub",
     "EMAIL_SENDER": "e2e@localhost",
     "EMAIL_PASSWORD": "stub",
     "FIREBASE_CREDENTIALS_PATH": os.path.join(os.path.dirname(OUTBOX), "no-such-firebase.json"),
@@ -69,6 +74,8 @@ class StubAsyncOpenAI:
 
 FAKE_AI = os.environ.get("E2E_FAKE_AI") == "1"
 FAKE_REPLY = "## Fake answer\nYou spent money on groceries."
+FAKE_STREAM_PARTS = ("## Fake answer\n", "You spent ", "money on groceries.")
+FAKE_USAGE = (10, 5, 15)  # prompt, completion, total tokens
 
 
 def _ns(**k):
@@ -76,51 +83,211 @@ def _ns(**k):
     return SimpleNamespace(**k)
 
 
+# ---- failure control (shared by the in-process fakes and a separately running server) ----
+FAKE_CONTROL = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".data", "fake_ai.json")
+
+# provider id -> failure kind. See _raise_for / _begin for what each kind does.
+_RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_not_found", "bad_request", "echo_key")
+
+
+class FakeAPIError(Exception):
+    """What a fake provider SDK raises: an HTTP-style error with a status, a provider code and a message."""
+
+    def __init__(self, status_code, code, message):
+        super().__init__(f"Error code: {status_code} - {message}")
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+
+
+def set_fake_ai(**kinds):
+    """Make fake providers fail on demand, e.g. set_fake_ai(claude="billing", openai="timeout").
+
+    Replaces the whole control file, so providers not named succeed. Kinds: billing, auth, rate_limit, server,
+    timeout, model_not_found, bad_request, echo_key (raise); refusal (claude), empty, bad_json (odd successful
+    answer); fail_mid_stream (streaming calls only).
+    """
+    os.makedirs(os.path.dirname(FAKE_CONTROL), exist_ok=True)
+    tmp = FAKE_CONTROL + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(kinds, f)
+    os.replace(tmp, FAKE_CONTROL)  # atomic: a server reading mid-write never sees half a file
+
+
+def clear_fake_ai():
+    try:
+        os.remove(FAKE_CONTROL)
+    except FileNotFoundError:
+        pass
+
+
+def _control():
+    try:
+        with open(FAKE_CONTROL, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _raise_for(provider, kind):
+    claude = provider == "claude"
+    if kind == "timeout":
+        raise TimeoutError("fake request timed out")
+    if kind == "billing":
+        if claude:
+            raise FakeAPIError(400, None, "Your credit balance is too low to access the Anthropic API")
+        raise FakeAPIError(402, "insufficient_quota", "You exceeded your current quota")
+    if kind == "auth":
+        raise FakeAPIError(401, "invalid_api_key", "Invalid API key")
+    if kind == "rate_limit":
+        raise FakeAPIError(429, "rate_limit_exceeded", "Rate limit reached")
+    if kind == "server":
+        raise FakeAPIError(529 if claude else 503, None, "The service is overloaded" if claude else "The service is unavailable")
+    if kind == "model_not_found":
+        raise FakeAPIError(404, "model_not_found", "The model does not exist")
+    if kind == "bad_request":
+        raise FakeAPIError(400, None, "invalid image")
+    if kind == "echo_key":
+        raise FakeAPIError(401, "invalid_api_key", "Incorrect API key provided: sk-e2eSECRETabcdef123")
+
+
+def _begin(provider, target, model, streaming=False, **extra):
+    """Record the call, raise the configured failure, else return the configured odd-answer kind (or None)."""
+    record("ai_call", provider=provider, target=target, model=model, **extra)
+    kind = _control().get(provider)
+    if kind in _RAISING_KINDS:
+        _raise_for(provider, kind)
+    if kind == "fail_mid_stream" and not streaming:
+        return None
+    return kind
+
+
+def _stream_delay():
+    # E2E_FAKE_AI_DELAY (seconds, default 0) slows the stream so a client
+    # can be checked mid-stream (e.g. the web chat's Cancel button).
+    return float(os.environ.get("E2E_FAKE_AI_DELAY") or 0)
+
+
+def _canned_json(prompt):
+    """The JSON the fakes answer a transaction-extraction prompt with: one transaction, or several."""
+    today = __import__("datetime").date.today().isoformat()
+    if '\\"transactions\\"' in prompt or "multiple" in prompt.lower():
+        body = {"transactions": [
+            {"type": "expense", "main_category": "Food & Drinks", "sub_category": "Lunch", "date": today,
+             "description": "lunch", "amount": 4.5, "currency": "usd", "confidence": 0.9},
+            {"type": "outflow", "main_category": "Transport", "sub_category": "Taxi Ride", "date": today,
+             "description": "grab ride", "amount": 3, "currency": "usd", "confidence": 0.8},
+            {"type": "outflow", "main_category": "Shopping", "sub_category": "Clothes", "date": today,
+             "description": "unreadable", "amount": 0, "currency": "usd", "confidence": 0.3}],
+            "total_count": 3, "overall_confidence": 0.7, "analysis": "3 items"}
+    else:
+        body = {"type": "expense", "main_category": "Food & Drinks", "sub_category": "Coffee", "date": today,
+                "description": "coffee", "amount": 2.5, "currency": "usd", "confidence": 0.9, "reasoning": "fake"}
+    return json.dumps(body)
+
+
+def _answer_text(kind, prompt, wants_json):
+    if kind == "empty":
+        return ""
+    if kind == "bad_json":
+        return "not json"
+    return _canned_json(prompt) if wants_json else FAKE_REPLY
+
+
+def _stream_parts(text):
+    return FAKE_STREAM_PARTS if text == FAKE_REPLY else (text,)
+
+
+def _field(obj, name):
+    """obj[name] for a dict, obj.name for an SDK config object."""
+    return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
+
+
+# ---- OpenAI ----
 class _FakeCompletions:
     async def create(self, *a, stream=False, **k):
-        record("ai_call", target="openai.chat.completions.create(fake)", stream=stream)
-        usage = _ns(prompt_tokens=10, completion_tokens=5, total_tokens=15)
-        if (k.get("response_format") or {}).get("type") == "json_object":
-            prompt = json.dumps(k.get("messages", []))
-            today = __import__("datetime").date.today().isoformat()
-            if '\\"transactions\\"' in prompt or "multiple" in prompt.lower():
-                body = {"transactions": [
-                    {"type": "expense", "main_category": "Food & Drinks", "sub_category": "Lunch", "date": today,
-                     "description": "lunch", "amount": 4.5, "currency": "usd", "confidence": 0.9},
-                    {"type": "outflow", "main_category": "Transport", "sub_category": "Taxi Ride", "date": today,
-                     "description": "grab ride", "amount": 3, "currency": "usd", "confidence": 0.8},
-                    {"type": "outflow", "main_category": "Shopping", "sub_category": "Clothes", "date": today,
-                     "description": "unreadable", "amount": 0, "currency": "usd", "confidence": 0.3}],
-                    "total_count": 3, "overall_confidence": 0.7, "analysis": "3 items"}
-            else:
-                body = {"type": "expense", "main_category": "Food & Drinks", "sub_category": "Coffee", "date": today,
-                        "description": "coffee", "amount": 2.5, "currency": "usd", "confidence": 0.9, "reasoning": "fake"}
-            return _ns(choices=[_ns(message=_ns(content=json.dumps(body)), finish_reason="stop")], usage=usage, model="fake")
+        kind = _begin("openai", "chat.completions.create", k.get("model"), streaming=stream, stream=stream)
+        usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
+        wants_json = (k.get("response_format") or {}).get("type") == "json_object"
+        text = _answer_text(kind, json.dumps(k.get("messages", [])), wants_json)
         if not stream:
-            return _ns(choices=[_ns(message=_ns(content=FAKE_REPLY), finish_reason="stop")], usage=usage, model="fake")
+            return _ns(choices=[_ns(message=_ns(content=text), finish_reason="stop")], usage=usage, model="fake")
 
         async def gen():
-            # E2E_FAKE_AI_DELAY (seconds, default 0) slows the stream so a client
-            # can be checked mid-stream (e.g. the web chat's Cancel button).
-            delay = float(os.environ.get("E2E_FAKE_AI_DELAY") or 0)
-            for part in ("## Fake answer\n", "You spent ", "money on groceries."):
+            delay = _stream_delay()
+            for part in _stream_parts(text):
                 if delay:
                     await asyncio.sleep(delay)
                 yield _ns(choices=[_ns(delta=_ns(content=part), finish_reason=None)], usage=None, model="fake")
+                if kind == "fail_mid_stream":
+                    raise FakeAPIError(503, None, "The service is unavailable")
             yield _ns(choices=[], usage=usage, model="fake")
         return gen()
+
+
+class _FakeTranscriptions:
+    async def create(self, *a, **k):
+        kind = _begin("openai", "audio.transcriptions.create", k.get("model"))
+        return _ns(text={"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"))
 
 
 class FakeAsyncOpenAI:
     def __init__(self, *a, **k):
         self.chat = _ns(completions=_FakeCompletions())
-        self.audio = _Raiser("openai.audio")
+        self.audio = _ns(transcriptions=_FakeTranscriptions())
         self.embeddings = _Raiser("openai.embeddings")
         self.responses = _Raiser("openai.responses")
 
 
 openai.AsyncOpenAI = FakeAsyncOpenAI if FAKE_AI else StubAsyncOpenAI
 openai.OpenAI = StubAsyncOpenAI
+
+
+# ---- Gemini (google.genai) ----
+def _gemini_response(text, finish_reason="STOP"):
+    return _ns(text=text, candidates=[_ns(finish_reason=finish_reason)],
+               usage_metadata=_ns(prompt_token_count=FAKE_USAGE[0], candidates_token_count=FAKE_USAGE[1]))
+
+
+def _gemini_wants_json(config):
+    return config is not None and _field(config, "response_mime_type") == "application/json"
+
+
+class _FakeGeminiModels:
+    async def generate_content(self, *, model=None, contents=None, config=None, **k):
+        kind = _begin("gemini", "aio.models.generate_content", model)
+        wants_json = _gemini_wants_json(config)
+        text = _answer_text(kind, json.dumps([contents, str(config)], default=str), wants_json)
+        return _gemini_response(text)
+
+    async def generate_content_stream(self, *, model=None, contents=None, config=None, **k):
+        kind = _begin("gemini", "aio.models.generate_content_stream", model, streaming=True)
+        wants_json = _gemini_wants_json(config)
+        text = _answer_text(kind, json.dumps([contents, str(config)], default=str), wants_json)
+        parts = _stream_parts(text)
+
+        async def gen():
+            delay = _stream_delay()
+            for i, part in enumerate(parts):
+                if delay:
+                    await asyncio.sleep(delay)
+                last = i == len(parts) - 1
+                chunk = _gemini_response(part, finish_reason="STOP" if last else None)
+                if not last:
+                    chunk.usage_metadata = None
+                yield chunk
+                if kind == "fail_mid_stream":
+                    raise FakeAPIError(503, None, "The service is unavailable")
+        return gen()
+
+
+class FakeGenaiClient:
+    def __init__(self, *a, **k):
+        self.aio = _ns(models=_FakeGeminiModels())
+        self.models = _Raiser("gemini.models")
+        self.files = _Raiser("gemini.files")
+
 
 try:
     from google import genai
@@ -131,9 +298,93 @@ try:
             self.aio = _Raiser("gemini.aio")
             self.files = _Raiser("gemini.files")
 
-    genai.Client = StubGenaiClient
+    genai.Client = FakeGenaiClient if FAKE_AI else StubGenaiClient
 except Exception:
     pass
+
+
+# ---- Claude (anthropic) ----
+import anthropic  # noqa: E402
+
+
+def _claude_message(text, stop_reason, model):
+    content = [_ns(type="text", text=text)] if text else []
+    return _ns(id="msg_fake", type="message", role="assistant", model=model, content=content, stop_reason=stop_reason,
+               usage=_ns(input_tokens=FAKE_USAGE[0], output_tokens=FAKE_USAGE[1]))
+
+
+def _claude_answer(kind, k):
+    """(text, stop_reason) a Claude call answers with."""
+    # Structured output is requested through output_format or output_config={"format": ...}.
+    wants_json = bool(k.get("output_format")) or "format" in (k.get("output_config") or {})
+    prompt = json.dumps([k.get("system"), k.get("messages", [])], default=str)
+    if kind == "refusal":
+        return "", "refusal"
+    return _answer_text(kind, prompt, wants_json), "end_turn"
+
+
+class _FakeClaudeStream:
+    """Async context manager like anthropic's message stream: async text_stream plus get_final_message()."""
+
+    def __init__(self, kind, k, error=None):
+        self._kind = kind
+        self._error = error
+        self._model = k.get("model")
+        self._text, self._stop = _claude_answer(kind, k)
+        self._parts = _stream_parts(self._text) if self._text else ()
+
+    async def __aenter__(self):
+        if self._error:  # like the real SDK, the request (and so its failure) happens on entering
+            raise self._error
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    @property
+    def text_stream(self):
+        async def gen():
+            delay = _stream_delay()
+            for part in self._parts:
+                if delay:
+                    await asyncio.sleep(delay)
+                yield part
+                if self._kind == "fail_mid_stream":
+                    raise FakeAPIError(503, None, "The service is unavailable")
+        return gen()
+
+    async def get_final_message(self):
+        return _claude_message(self._text, self._stop, self._model)
+
+
+class _FakeClaudeMessages:
+    async def create(self, **k):
+        kind = _begin("claude", "beta.messages.create", k.get("model"))
+        text, stop = _claude_answer(kind, k)
+        return _claude_message(text, stop, k.get("model"))
+
+    def stream(self, **k):
+        try:
+            kind = _begin("claude", "beta.messages.stream", k.get("model"), streaming=True)
+        except Exception as e:  # noqa: BLE001
+            return _FakeClaudeStream(None, k, error=e)
+        return _FakeClaudeStream(kind, k)
+
+
+class FakeAsyncAnthropic:
+    def __init__(self, *a, **k):
+        self.beta = _ns(messages=_FakeClaudeMessages())
+        self.messages = _Raiser("claude.messages")
+
+
+class StubAsyncAnthropic:
+    def __init__(self, *a, **k):
+        self.beta = _Raiser("claude.beta")
+        self.messages = _Raiser("claude.messages")
+
+
+anthropic.AsyncAnthropic = FakeAsyncAnthropic if FAKE_AI else StubAsyncAnthropic
+anthropic.Anthropic = StubAsyncAnthropic
 
 try:
     import langchain_openai
