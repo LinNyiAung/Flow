@@ -2398,6 +2398,13 @@ async def insight_checks():
         check(r.status_code == 200 and n_rows(uid) == rows0 + 1 and len(calls(before)) == 1,
               "insights: POST generate-weekly generates one insight (no loop over providers)",
               f"{r.status_code} {r.text[:200]} rows {rows0}->{n_rows(uid)} calls={calls(before)}")
+        check(r.status_code == 200 and r.json().get("results") == {newest(uid)["ai_provider"]: "success"},
+              "insights: generate-weekly results stay keyed by provider (the one that answered)", r.text[:200])
+        stubenv.set_fake_ai(openai="rate_limit", gemini="rate_limit", claude="rate_limit")
+        r = c.post("/api/insights/generate-weekly", headers=U)
+        check(r.status_code == 200 and r.json().get("results") == {"gemini": "rate_limited"},
+              "insights: generate-weekly, every provider rate limited -> {main provider: rate_limited}", r.text[:200])
+        admin_reset(c, AD)
 
         await _insight_inprocess_checks(uid)
     finally:
@@ -2419,7 +2426,7 @@ async def _insight_inprocess_checks(uid):
     import insights_service as ins
     from ai_providers import health, runner, settings
     from ai_providers.types import FeatureSetting, Target
-    from sql.db import fetch_value
+    from sql.db import fetch_all, fetch_value
     from sql.tables import insights as insights_t
     from sqlalchemy import func, select
 
@@ -2498,15 +2505,60 @@ async def _insight_inprocess_checks(uid):
               (kw.get("max_tokens"), kw.get("temperature")))
         check(not hasattr(ins, "TRANSLATION_GEMINI_MODEL"), "translation: the hard-coded TRANSLATION_GEMINI_MODEL is gone")
 
-        # the chunked retry also fails: an InsightAIError, nothing cached (as before)
+        # cut off once on claude: the chunked retry runs on claude too; usage is tracked once, tokens summed
+        from sql.tables import ai_usage
+
+        async def translation_usage():
+            return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid,
+                                                          ai_usage.c.feature_type == "translation"))
+
+        async def new_usage(seen):
+            return [r for r in await translation_usage() if r["id"] not in seen]
+
+        health.reset()
+        seen = {r["id"] for r in await translation_usage()}
+        stubenv.set_fake_ai(claude="length_once")
+        before = len(outbox_lines())
+        mm = await ins.translate_insight_to_myanmar(LONG_INSIGHT, user_id=uid, is_placeholder=False)
+        called = [x.get("provider") for x in _outbox_ai_calls(before)]
+        new = await new_usage(seen)
+        check(called == ["claude"] * 5 and mm.count("Fake answer") == 4,
+              "translation: the cut-off retry runs on the same provider (one attempt + 4 chunks)", (called, mm[:80]))
+        check(len(new) == 1 and new[0]["provider"] == "claude" and new[0]["input_tokens"] == 50
+              and new[0]["output_tokens"] == 25,
+              "translation: one usage row for the whole retry, tokens summed over the 5 requests",
+              [(r["provider"], r["input_tokens"], r["output_tokens"]) for r in new])
+
+        # a chunk still cut off: the next provider translates the whole text (never mixing providers)
+        seen = {r["id"] for r in await translation_usage()}
+        stubenv.set_fake_ai(claude={"kind": "length_once", "times": 10})
+        before = len(outbox_lines())
+        try:
+            mm = await ins.translate_insight_to_myanmar(LONG_INSIGHT, user_id=uid, is_placeholder=False)
+            err = None
+        except Exception as e:  # noqa: BLE001
+            mm, err = "", e
+        called = [x.get("provider") for x in _outbox_ai_calls(before)]
+        check(err is None and called == ["claude", "claude", "openai"] and mm == stubenv.FAKE_REPLY,
+              "translation: a chunk still cut off moves to the backup, which answers the whole text alone",
+              (called, repr(err), mm[:80]))
+        rows = await new_usage(seen)
+        check([(r["provider"], r["fallback_from"]) for r in rows] == [("openai", "claude")],
+              "translation: the backup's usage row names fallback_from=claude",
+              [(r["provider"], r["fallback_from"]) for r in rows])
+
+        # ... and with no backups it still fails as InsightAIError (nothing cached, as before)
+        settings.set_panel_cache({"insight_translation": FeatureSetting(Target("claude", "claude-sonnet-5-5"), (), "panel")})
+        health.reset()
         stubenv.set_fake_ai(claude={"kind": "length_once", "times": 10})
         try:
             await ins.translate_insight_to_myanmar(LONG_INSIGHT, user_id=uid, is_placeholder=False)
             err = None
         except Exception as e:  # noqa: BLE001
             err = e
-        check(isinstance(err, ins.InsightAIError) and not ins.is_rate_limit_error(err),
-              "translation: a cut-off chunk in the retry still fails with InsightAIError", repr(err))
+        check(isinstance(err, ins.InsightAIError) and err.provider == "claude" and not ins.is_rate_limit_error(err)
+              and not ins.is_billing_error(err),
+              "translation: no backups and a chunk still cut off -> InsightAIError", repr(err))
         stubenv.clear_fake_ai()
 
         # AllProvidersFailed -> InsightAIError(rate_limited=all_rate_limited, provider=<main provider>)

@@ -667,14 +667,18 @@ async def manually_generate_weekly_insights(
     try:
         from insights_service import generate_weekly_insight, is_rate_limit_error
 
+        # Same shape as before ({provider: outcome}), keyed by the provider that answered, or by the
+        # feature's main provider when nothing was generated.
+        provider = ai_provider_settings.resolve("insight_weekly").main.provider
         try:
             insight = await generate_weekly_insight(current_user["_id"])
             outcome = "success" if insight else "failed"
+            provider = (insight or {}).get("ai_provider") or provider
         except Exception as e:
             print(f"❌ Manual weekly insight failed: {type(e).__name__}: {e}")
             # No raw exception text in the response.
             outcome = "rate_limited" if is_rate_limit_error(e) else "error"
-        results = {"weekly": outcome}
+        results = {provider: outcome}
 
         return {
             "message": "Weekly insights generation completed",

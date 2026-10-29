@@ -19,8 +19,8 @@ from typing import Optional
 from ai_providers import errors as _errors
 from ai_providers import runner as _runner
 from ai_providers import settings as _ai_settings
-from ai_providers.errors import AllProvidersFailed
-from ai_providers.types import Prompt
+from ai_providers.errors import AllProvidersFailed, UnusableAnswer
+from ai_providers.types import Completion, Prompt
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class InsightAIError(Exception):
 
 def _runner_verdict(exc: Optional[BaseException]) -> Optional[InsightAIError]:
     """The first InsightAIError on the exception chain built from the runner's failures, if any."""
-    for e in _errors._chain(exc):
+    for e in _errors.exception_chain(exc):
         if isinstance(e, InsightAIError) and e.billing is not None:
             return e
     return None
@@ -390,7 +390,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
     except InsightAIError as e:
         # Propagate so routes can map it (429 for provider rate limits, 502/503 otherwise);
-        # the scheduled job gathers with return_exceptions=True.
+        # the scheduled job catches it per user and moves on.
         logger.error(f"AI error generating weekly insight for user {user_id}: {e}")
         raise
     except Exception as e:
@@ -809,10 +809,6 @@ TRANSLATION_TEMPERATURE = 0.3  # sent to OpenAI and Gemini as before; the Claude
 TRANSLATION_CHUNK_CHARS = 2500
 
 
-class TranslationTruncatedError(Exception):
-    """The model hit its output limit, so the translation is incomplete (must not be cached)."""
-
-
 def _is_placeholder_text(english_content: str) -> bool:
     """Legacy fallback for insights stored before is_placeholder was reliable (incl. the old 'Tow Pwar' typo)."""
     text = english_content or ""
@@ -843,21 +839,43 @@ def _split_markdown_sections(text: str, max_chars: int = TRANSLATION_CHUNK_CHARS
     return chunks
 
 
-async def _translate_once(english_content: str, user_id: str = None):
-    """Translate one piece of text on the insight_translation provider chain. Returns (myanmar_text, truncated).
+def _translation_call(english_content: str):
+    """A runner `call` that translates `english_content` on ONE target, cut-off retry included.
 
-    The runner tracks usage and moves to the next provider on an empty or refused answer.
+    The single-shot attempt and, when it is cut off at the output limit (completion finish "length",
+    whichever provider), the section-by-section retry all run on the same target, so a translation never
+    mixes providers. A chunk that is still cut off (or refused, filtered or empty) raises UnusableAnswer:
+    the runner then tries the next provider with the whole text. The returned Completion sums the tokens
+    of every request, so the runner tracks the usage once for the answering target.
     """
     feature = "insight_translation"
-    call = _feature_prompt_call(feature, _TRANSLATION_SYSTEM_PROMPT,
-                                f"Translate this to Myanmar:\n\n{english_content}",
-                                TRANSLATION_MAX_TOKENS, TRANSLATION_TEMPERATURE)
-    try:
-        result = await _runner.run(feature, user_id=user_id, call=call)
-    except AllProvidersFailed as e:
-        raise _ai_error(e, feature, "Translation") from e
-    # The cut-off signal is the same for every provider (OpenAI "length", Gemini MAX_TOKENS, Claude max_tokens).
-    return result.completion.text, result.completion.finish == "length"
+
+    async def translate(client, t, text):
+        prompt = Prompt(system=_TRANSLATION_SYSTEM_PROMPT, user=f"Translate this to Myanmar:\n\n{text}",
+                        max_tokens=TRANSLATION_MAX_TOKENS[t.provider], temperature=TRANSLATION_TEMPERATURE)
+        return await _runner.default_call(prompt, feature)(client, t)
+
+    async def call(client, t):
+        first = await translate(client, t, english_content)
+        if first.finish != "length":
+            return first  # the runner checks refusal / filtered / empty
+        chunks = _split_markdown_sections(english_content)
+        logger.warning(f"⚠️ Myanmar translation truncated on {t.provider}/{t.model}; "
+                       f"retrying in {len(chunks)} section chunk(s)")
+        if len(chunks) <= 1:
+            raise UnusableAnswer("translation cut off at the output limit")
+        tokens_in, tokens_out, parts = first.input_tokens, first.output_tokens, []
+        for chunk in chunks:
+            c = await translate(client, t, chunk)
+            tokens_in, tokens_out = tokens_in + c.input_tokens, tokens_out + c.output_tokens
+            if c.finish == "refusal":
+                raise UnusableAnswer("refusal")
+            if c.finish != "stop" or not _has_content(c.text):
+                raise UnusableAnswer(f"translation chunk {c.finish if c.finish != 'stop' else 'empty'}")
+            parts.append(c.text.strip())
+        return Completion("\n\n".join(parts), tokens_in, tokens_out, "stop")
+
+    return call
 
 
 async def translate_insight_to_myanmar(
@@ -869,10 +887,10 @@ async def translate_insight_to_myanmar(
     Translate English insights to Myanmar, on the "insight_translation" provider chain.
 
     Pass the insight's stored is_placeholder flag: placeholders get a canned translation
-    and are never sent to the paid translation API. If the model output is truncated
-    (completion finish "length", whichever provider answered) the content is re-translated
-    section by section; if that is still truncated an exception is raised so callers
-    never cache an incomplete content_mm.
+    and are never sent to the paid translation API. If the model output is truncated the
+    content is re-translated section by section on the same provider (see _translation_call);
+    if that is still truncated the next provider in the chain tries, and when none can, an
+    InsightAIError is raised so callers never cache an incomplete content_mm.
     """
     try:
         if is_placeholder or (is_placeholder is None and _is_placeholder_text(english_content)):
@@ -882,22 +900,12 @@ async def translate_insight_to_myanmar(
         if not _has_content(english_content):
             raise Exception("No content to translate")
 
-        myanmar_content, truncated = await _translate_once(english_content, user_id)
-        if not truncated:
-            return myanmar_content
-
-        chunks = _split_markdown_sections(english_content)
-        logger.warning(f"⚠️ Myanmar translation truncated; retrying in {len(chunks)} section chunk(s)")
-        if len(chunks) <= 1:
-            raise TranslationTruncatedError("Translation output was truncated")
-
-        translated_parts = []
-        for chunk in chunks:
-            part, part_truncated = await _translate_once(chunk, user_id)
-            if part_truncated:
-                raise TranslationTruncatedError("Translation output was truncated")
-            translated_parts.append(part.strip())
-        return "\n\n".join(translated_parts)
+        feature = "insight_translation"
+        try:
+            result = await _runner.run(feature, user_id=user_id, call=_translation_call(english_content))
+        except AllProvidersFailed as e:
+            raise _ai_error(e, feature, "Translation") from e
+        return result.completion.text
 
     except InsightAIError as e:
         logger.error(f"Translation error: {e}")

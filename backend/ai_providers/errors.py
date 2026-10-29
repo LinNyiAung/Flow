@@ -107,13 +107,16 @@ def _openai_rate_limit_type():
         return None
 
 
-def _chain(exc: Optional[BaseException]):
+def exception_chain(exc: Optional[BaseException]):
     """exc, then its __cause__ / __context__ links, each once."""
     seen = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
         yield exc
         exc = exc.__cause__ or exc.__context__
+
+
+_chain = exception_chain  # internal short name
 
 
 def _statuses(exc: BaseException) -> set[int]:
