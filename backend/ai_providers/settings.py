@@ -3,13 +3,17 @@ import logging
 import os
 from collections.abc import Callable, Mapping
 
-from .features import FEATURES, PROVIDERS, default_model
+from .features import FEATURES, MODEL_ENV_VARS, PROVIDERS, builtin_default, default_model
 from .types import FeatureSetting, Target
 
 logger = logging.getLogger(__name__)
 
-# Snapshot of the process environment, so a restart (or reload_env) is what picks up changes.
-_env: dict[str, str] = dict(os.environ)
+# Snapshot of the settings-relevant environment (AI_* and the *_MODEL defaults only, never API keys).
+# Taken lazily on first use, so a .env loaded after this module is imported is still seen; a restart
+# (or reload_env) is what picks up later changes.
+_env: dict[str, str] | None = None
+# Parsed environment unit per feature (None = unset or invalid), so a bad unit warns once per snapshot.
+_env_units: dict[str, FeatureSetting | None] = {}
 # Admin-panel layer: feature -> FeatureSetting. Filled by the panel layer (set_panel_cache).
 _panel: dict[str, FeatureSetting] = {}
 
@@ -17,7 +21,22 @@ _panel: dict[str, FeatureSetting] = {}
 def reload_env(environ: Mapping[str, str] | None = None) -> None:
     """Refresh the environment snapshot (from os.environ unless an explicit mapping is given)."""
     global _env
-    _env = dict(os.environ if environ is None else environ)
+    source = os.environ if environ is None else environ
+    _env = {k: v for k, v in source.items() if k.startswith("AI_") or k in MODEL_ENV_VARS}
+    _env_units.clear()
+
+
+def _snapshot() -> dict[str, str]:
+    if _env is None:
+        reload_env()
+    return _env  # type: ignore[return-value]
+
+
+def _env_unit(feature: str) -> FeatureSetting | None:
+    env = _snapshot()
+    if feature not in _env_units:
+        _env_units[feature] = parse_env(feature, env)
+    return _env_units[feature]
 
 
 def set_panel_cache(rows: dict[str, FeatureSetting]) -> None:
@@ -99,10 +118,10 @@ def resolve(feature: str) -> FeatureSetting:
     panel = _panel.get(feature)
     if panel is not None:
         return panel
-    env = parse_env(feature, _env)
+    env = _env_unit(feature)
     if env is not None:
         return env
-    return FeatureSetting(FEATURES[feature].default, None, "default")
+    return FeatureSetting(builtin_default(feature, _snapshot()), None, "default")
 
 
 def chain(feature: str, configured: Callable[[str], bool]) -> list[Target]:
@@ -111,6 +130,7 @@ def chain(feature: str, configured: Callable[[str], bool]) -> list[Target]:
     if s.backups is not None:
         return [s.main, *s.backups]
     spec = FEATURES[feature]
-    defaults = [Target(p, default_model(feature, p, _env)) for p in PROVIDERS
+    env = _snapshot()
+    defaults = [Target(p, default_model(feature, p, env)) for p in PROVIDERS
                 if p in spec.allowed and p != s.main.provider and configured(p)]
     return [s.main, *defaults]

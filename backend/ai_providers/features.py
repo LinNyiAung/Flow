@@ -65,6 +65,22 @@ CLAUDE_EFFORT: dict[str, str] = {
 }
 
 
+# Features whose built-in main model follows GEMINI_MODEL / OPENAI_MODEL, as the code did before
+# provider switching. The other features have hard-coded built-in models.
+_ENV_MODEL_FEATURES = frozenset({"chat", "insight_weekly", "insight_monthly"})
+
+# The environment variables the settings layer reads besides AI_<FEATURE>_*.
+MODEL_ENV_VARS = tuple(_MODEL_ENV.values())
+
+
+def builtin_default(feature: str, environ: Mapping[str, str] | None = None) -> Target:
+    """The built-in main target for `feature` (used when neither the panel nor the environment sets one)."""
+    spec = FEATURES[feature]
+    if feature in _ENV_MODEL_FEATURES:
+        return Target(spec.default.provider, default_model(feature, spec.default.provider, environ))
+    return spec.default
+
+
 def default_model(feature: str, provider: str, environ: Mapping[str, str] | None = None) -> str:
     """The model used when `provider` is named for `feature` without a model.
 

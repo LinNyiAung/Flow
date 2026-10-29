@@ -227,7 +227,22 @@ async def kind_checks():
 
 
 def resolution_checks():
-    """Task 2: feature catalogue and setting resolution (environment and built-in). Pure Python."""
+    """Task 2: feature catalogue and setting resolution (environment and built-in). Pure Python.
+
+    Restores the settings module's env snapshot, parsed-unit cache and panel cache afterwards.
+    """
+    from ai_providers import settings
+
+    saved = (settings._env, dict(settings._env_units), settings._panel)
+    try:
+        _resolution_checks()
+    finally:
+        settings._env, settings._panel = saved[0], saved[2]
+        settings._env_units.clear()
+        settings._env_units.update(saved[1])
+
+
+def _resolution_checks():
     import logging
 
     from ai_providers import features, settings
@@ -329,6 +344,70 @@ def resolution_checks():
     settings.set_panel_cache({"chat": panel})
     check(settings.resolve("chat") == panel and settings.resolve("insight_weekly").source == "default",
           "resolve: panel beats env, other features untouched")
+    settings.set_panel_cache({})
+    settings.reload_env({})
+
+    # R5: chat and the insights follow GEMINI_MODEL / OPENAI_MODEL; the other built-ins are literal
+    settings.reload_env({"GEMINI_MODEL": "gemini-2.5-pro", "OPENAI_MODEL": "gpt-4o"})
+    check(all(settings.resolve(k).main == T("gemini", "gemini-2.5-pro") and settings.resolve(k).source == "default"
+              for k in ("chat", "insight_weekly", "insight_monthly")),
+          "builtin: chat and insights honour GEMINI_MODEL", settings.resolve("chat"))
+    check(settings.resolve("budget_suggestion").main == T("openai", "gpt-4o-mini")
+          and settings.resolve("budget_auto_create").main == T("openai", "gpt-4o-mini")
+          and settings.resolve("transaction_text").main == T("openai", "gpt-4o-mini")
+          and settings.resolve("transaction_image").main == T("openai", "gpt-4o")
+          and settings.resolve("transaction_audio").main == T("openai", "whisper-1")
+          and settings.resolve("insight_translation").main == T("gemini", "gemini-2.5-pro"),
+          "builtin: other features keep literal models even with OPENAI_MODEL set")
+    settings.reload_env({"OPENAI_MODEL": "gpt-4o"})
+    check(settings.resolve("budget_suggestion").main.model == "gpt-4o-mini"
+          and settings.resolve("chat").main == T("gemini", "gemini-2.5-flash"),
+          "builtin: OPENAI_MODEL does not change budget_suggestion; chat stays on the gemini default")
+    c = settings.chain("chat", lambda p: p == "openai")
+    check(c == [T("gemini", "gemini-2.5-flash"), T("openai", "gpt-4o")], "chain: default backup picks up OPENAI_MODEL", c)
+
+    # the environment is read lazily, after import: no snapshot yet, then AI_CHAT_PROVIDER appears in os.environ
+    old = {k: os.environ.get(k) for k in ("AI_CHAT_PROVIDER", "OPENAI_API_KEY")}
+    settings._env = None
+    settings._env_units.clear()
+    os.environ["AI_CHAT_PROVIDER"] = "claude"
+    os.environ["OPENAI_API_KEY"] = "sk-e2eLAZYsnapshot123456"
+    try:
+        r = settings.resolve("chat")
+        check(r.main.provider == "claude" and r.source == "server", "env snapshot is taken lazily on first use", r)
+        check(settings._env is not None and not any("KEY" in k for k in settings._env)
+              and all(k.startswith("AI_") or k.endswith("_MODEL") for k in settings._env),
+              "env snapshot keeps only AI_* and *_MODEL keys (no API keys)", sorted(settings._env or {}))
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    settings.reload_env({})
+
+    # an invalid env unit warns once per snapshot, not on every resolve
+    class Count(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.n = 0
+
+        def emit(self, record):
+            if record.levelno == logging.WARNING:
+                self.n += 1
+
+    cnt = Count()
+    logging.getLogger().addHandler(cnt)
+    try:
+        settings.reload_env({"AI_CHAT_PROVIDER": "bogus"})
+        for _ in range(3):
+            r = settings.resolve("chat")
+        check(cnt.n == 1 and r.source == "default", "invalid env unit warns once per snapshot", f"{cnt.n} {r}")
+        settings.reload_env({"AI_CHAT_PROVIDER": "bogus"})
+        settings.resolve("chat")
+        check(cnt.n == 2, "reload_env re-parses (and warns again)", cnt.n)
+    finally:
+        logging.getLogger().removeHandler(cnt)
     settings.set_panel_cache({})
     settings.reload_env({})
 
