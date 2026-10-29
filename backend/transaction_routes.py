@@ -1,9 +1,6 @@
-import base64
 import io
 import json
 import os
-import shutil
-import tempfile
 from PIL import Image
 import uuid
 import time
@@ -18,8 +15,9 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status, De
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
-from ai_usage_models import AIFeatureType, AIProviderType
-from ai_usage_service import track_ai_usage
+from ai_providers import runner as _runner
+from ai_providers.errors import AllProvidersFailed, UnusableAnswer, exception_chain, redact
+from ai_providers.types import Completion, Prompt
 from utils import get_current_user, get_user_balance, get_user_money_lock, require_premium
 from goal_routes import to_cents
 from recurring_transaction_service import (
@@ -40,7 +38,6 @@ from sql import transactions as transactions_db
 from sql import users as users_db
 from sql.categories import get_categories_doc
 
-from config import settings
 from category_matching import normalize_type, parse_positive_amount, snap_category
 from tz_utils import app_today
 from finite_utils import finite_amount_or_none, is_finite_number
@@ -178,6 +175,119 @@ async def _build_extraction(
         currency=_extraction_currency(data.get("currency"), default_currency),
         confidence=confidence,
         reasoning=reasoning,
+    )
+
+
+# --- AI calls (the transaction_text / transaction_image / transaction_audio provider chains) ---
+_AI_UNAVAILABLE = "AI is temporarily unavailable"
+_AI_BAD_REQUEST = "The AI service could not process this request. Please check it and try again."
+
+# One extracted transaction, as the prompts ask for it. Explicit and closed (additionalProperties false) so
+# the structured-output modes of every provider accept it.
+_TX_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string"},
+        "main_category": {"type": "string"},
+        "sub_category": {"type": "string"},
+        "date": {"type": "string"},
+        "description": {"type": "string"},
+        "amount": {"type": "number"},
+        "currency": {"type": "string"},
+        "confidence": {"type": "number"},
+        "reasoning": {"type": "string"},
+    },
+    "required": ["type", "main_category", "sub_category", "date", "description", "amount", "currency",
+                 "confidence", "reasoning"],
+    "additionalProperties": False,
+}
+_MULTI_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "transactions": {"type": "array", "items": _TX_ITEM_SCHEMA},
+        "total_count": {"type": "integer"},
+        "overall_confidence": {"type": "number"},
+        "analysis": {"type": "string"},
+    },
+    "required": ["transactions", "total_count", "overall_confidence", "analysis"],
+    "additionalProperties": False,
+}
+
+# Output limits per answering provider. OpenAI keeps what the routes sent before (the receipt route 1000; the text
+# routes had no limit, so these are far above any answer). Gemini's thinking tokens and Claude's thinking both
+# count toward the limit, so they get more room.
+_TEXT_MAX_TOKENS = {"openai": 2000, "gemini": 8192, "claude": 8000}
+_MULTI_MAX_TOKENS = {"openai": 4096, "gemini": 8192, "claude": 8000}
+_IMAGE_MAX_TOKENS = {"openai": 1000, "gemini": 8192, "claude": 8000}
+_TX_TEMPERATURE = 0.3  # as before; sent to OpenAI and Gemini, never to Claude
+
+
+def _tx_call(feature: str, system: str, user: str, schema: dict, max_tokens: Dict[str, int],
+             image: Optional[bytes] = None, image_mime: Optional[str] = None):
+    """A runner `call` that builds the JSON prompt for the answering target (its token limit depends on the provider)."""
+    async def call(client, t):
+        prompt = Prompt(system=system, user=user, image=image, image_mime=image_mime, json_schema=schema,
+                        max_tokens=max_tokens[t.provider], temperature=_TX_TEMPERATURE)
+        return await _runner.default_call(prompt, feature)(client, t)
+    return call
+
+
+def _parse_extraction_json(c: Completion) -> dict:
+    """A runner `parse`: the answer's JSON object.
+
+    Raises UnusableAnswer (the runner then tries the next provider) only when the text is not a JSON object,
+    which the routes could not use at all. Everything else (a zero or odd amount, low confidence, an unknown
+    category, missing fields, an empty transaction list) is accepted and handled by _build_extraction and the
+    routes, exactly as before the provider runner.
+    """
+    try:
+        data = json.loads(c.text)
+    except ValueError as e:
+        raise UnusableAnswer("answer is not JSON") from e
+    if not isinstance(data, dict):
+        raise UnusableAnswer("answer is not a JSON object")
+    return data
+
+
+def _is_provider_error(e: BaseException) -> bool:
+    """True for an error raised by a provider SDK (it carries an HTTP-style status or code)."""
+    return any(isinstance(getattr(x, attr, None), int) and not isinstance(getattr(x, attr, None), bool)
+               for x in exception_chain(e) for attr in ("status_code", "code"))
+
+
+async def _run_ai(feature: str, user_id: str, call, parse=lambda c: c):
+    """_runner.run for the transaction routes, with their error mapping.
+
+    AllProvidersFailed -> 503 with a fixed message; a request-level provider error (the request itself was refused,
+    e.g. an invalid image: no fallback) -> 400 with a fixed message. Provider text is only logged, redacted.
+    Anything else propagates.
+    """
+    try:
+        return await _runner.run(feature, user_id=user_id, call=call, parse=parse)
+    except AllProvidersFailed as e:
+        logger.warning(f"{feature} unavailable for user {user_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_AI_UNAVAILABLE) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        if not _is_provider_error(e):
+            raise
+        logger.warning(f"{feature} request rejected for user {user_id}: {redact(f'{type(e).__name__}: {e}')}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_AI_BAD_REQUEST) from e
+
+
+def _only_empty_answers(e: Optional[BaseException]) -> bool:
+    """True for an AllProvidersFailed whose every provider answered, but with nothing."""
+    return isinstance(e, AllProvidersFailed) and bool(e.failures) and all(
+        f.kind == "unusable" and f.message == "empty" for f in e.failures)
+
+
+def _log_ai_usage(label: str, user_id: str, result) -> None:
+    c, t = result.completion, result.target
+    logger.info(
+        f"📝 [{t.provider.upper()} TOKEN USAGE - {label}] User: {user_id} | "
+        f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
+        + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
     )
 
 
@@ -668,10 +778,10 @@ async def transcribe_audio(
     current_user: dict = Depends(require_premium)
 ):
     """
-    Transcribe audio to text using OpenAI Whisper (Memory Optimized).
+    Transcribe audio to text with the transaction_audio provider chain (OpenAI Whisper by default).
 
     Optional multipart form field `language`: "en" or "my" (Burmese; "mm" accepted as an
-    alias). When omitted, Whisper auto-detects the language.
+    alias). When omitted, the language is auto-detected.
     """
     whisper_language = None
     if language is not None and language.strip():
@@ -682,73 +792,37 @@ async def transcribe_audio(
                 detail="Unsupported language. Use 'en' or 'my', or omit it for auto-detection."
             )
 
-    temp_path = None
     try:
-        if not settings.OPENAI_API_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI API key not configured"
-            )
-
-        MAX_AUDIO_SIZE = 25 * 1024 * 1024 
+        MAX_AUDIO_SIZE = 25 * 1024 * 1024
+        too_large = HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Audio file exceeds the 25MB limit."
+        )
         content_length = audio.headers.get('content-length')
         if content_length and int(content_length) > MAX_AUDIO_SIZE:
-             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Audio file exceeds the 25MB limit."
-            )
+            raise too_large
 
-        file_ext = os.path.splitext(audio.filename)[1] if audio.filename else ".wav"
-        if not file_ext:
-            file_ext = ".wav"
+        audio_bytes = await audio.read(MAX_AUDIO_SIZE + 1)
+        if len(audio_bytes) > MAX_AUDIO_SIZE:
+            raise too_large
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_audio:
-            shutil.copyfileobj(audio.file, temp_audio)
-            temp_path = temp_audio.name
+        # Providers pick the audio format from the file extension (.wav when there is none).
+        file_ext = os.path.splitext(audio.filename)[1] if audio.filename else ""
+        filename = f"audio{file_ext or '.wav'}"
+
+        async def call(client, t):
+            return await client.transcribe(t.model, audio_bytes, filename, whisper_language)
 
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-            whisper_kwargs = {"model": "whisper-1"}
-            if whisper_language:
-                whisper_kwargs["language"] = whisper_language  # omitted -> auto-detect
-            with open(temp_path, 'rb') as audio_file:
-                transcript = await client.audio.transcriptions.create(
-                    file=audio_file,
-                    **whisper_kwargs
-                )
-
-            transcription_length = len(transcript.text)
-            estimated_input_tokens = int(transcription_length / 4) 
-            estimated_output_tokens = int(transcription_length / 4)
-            estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
-
-            logger.info(f"🎤 [OPENAI TOKEN USAGE - Audio Transcription] User: {current_user['_id']}")
-            logger.info(f"   📥 Estimated input tokens: {estimated_input_tokens:,}")
-            logger.info(f"   📤 Estimated output tokens: {estimated_output_tokens:,}")
-            logger.info(f"   📊 Estimated total tokens: {estimated_total_tokens:,}")
-            logger.info(f"   🤖 Model: whisper-1")
-            logger.info(f"   📝 Transcription length: {transcription_length} characters")
-
-            await track_ai_usage(
-                user_id=current_user["_id"],
-                feature_type=AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION,
-                provider=AIProviderType.OPENAI,
-                model_name="whisper-1",
-                input_tokens=estimated_input_tokens,
-                output_tokens=estimated_output_tokens,
-                total_tokens=estimated_total_tokens
-            )
-
-            return {"transcription": transcript.text}
-
-        except Exception as e:
-            logger.error(f"OpenAI API Error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, 
-                detail=f"AI Service Provider Error: {str(e)}"
-            )
+            result = await _run_ai("transaction_audio", current_user["_id"], call)
+        except HTTPException as e:
+            # Silence or noise transcribes to "". The runner treats an empty answer as unusable, but before it
+            # that was a normal 200 with an empty transcription, so a chain that only gave empty answers still is.
+            if _only_empty_answers(e.__cause__):
+                return {"transcription": ""}
+            raise
+        _log_ai_usage("Audio Transcription", current_user["_id"], result)
+        return {"transcription": result.value.text}
 
     except HTTPException:
         raise
@@ -758,12 +832,6 @@ async def transcribe_audio(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to transcribe audio: {str(e)}"
         )
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.unlink(temp_path)
-            except Exception as e:
-                logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
 
 @router.post("/extract-from-text", response_model=TransactionExtraction)
@@ -771,14 +839,8 @@ async def extract_transaction_from_text(
     request: TextExtractionRequest,
     current_user: dict = Depends(require_premium)
 ):
-    """Extract transaction details from text using GPT-4"""
+    """Extract transaction details from text with the transaction_text provider chain"""
     try:
-        if not settings.OPENAI_API_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI API key not configured"
-            )
-
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
 
@@ -831,47 +893,14 @@ Respond in JSON format:
     "reasoning": "why you chose these categories"
 }}"""
 
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Extract transaction from: {request.text}"}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.3
+        result = await _run_ai(
+            "transaction_text", current_user["_id"],
+            call=_tx_call("transaction_text", system_prompt, f"Extract transaction from: {request.text}",
+                          _TX_ITEM_SCHEMA, _TEXT_MAX_TOKENS),
+            parse=_parse_extraction_json,
         )
-
-        if hasattr(response, 'usage'):
-            from ai_usage_service import track_ai_usage
-            from ai_usage_models import AIFeatureType, AIProviderType
-            import logging
-
-
-
-            input_tokens = response.usage.prompt_tokens
-            output_tokens = response.usage.completion_tokens
-            total_tokens = response.usage.total_tokens
-
-            logger.info(f"📝 [OPENAI TOKEN USAGE - Text Extraction] User: {current_user['_id']}")
-            logger.info(f"   📥 Input tokens: {input_tokens:,}")
-            logger.info(f"   📤 Output tokens: {output_tokens:,}")
-            logger.info(f"   📊 Total tokens: {total_tokens:,}")
-            logger.info(f"   🤖 Model: gpt-4o-mini")
-
-            await track_ai_usage(
-                user_id=current_user["_id"],
-                feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
-                provider=AIProviderType.OPENAI,
-                model_name="gpt-4o-mini",
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens
-            )
-
-        result = json.loads(response.choices[0].message.content)
+        _log_ai_usage("Text Extraction", current_user["_id"], result)
+        result = result.value
 
         extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True)
         if extraction is None:
@@ -893,14 +922,8 @@ async def extract_multiple_transactions_from_text(
     request: TextExtractionRequest,
     current_user: dict = Depends(require_premium)
 ):
-    """Extract multiple transaction details from text using GPT-4"""
+    """Extract multiple transaction details from text with the transaction_text provider chain"""
     try:
-        if not settings.OPENAI_API_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI API key not configured"
-            )
-
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
 
@@ -967,48 +990,14 @@ Respond in JSON format:
     "analysis": "Found 2 transactions: a grocery purchase and a salary payment"
 }}"""
 
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Extract all transactions from: {request.text}"}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.3
+        result = await _run_ai(
+            "transaction_text", current_user["_id"],
+            call=_tx_call("transaction_text", system_prompt, f"Extract all transactions from: {request.text}",
+                          _MULTI_JSON_SCHEMA, _MULTI_MAX_TOKENS),
+            parse=_parse_extraction_json,
         )
-
-
-        if hasattr(response, 'usage'):
-            from ai_usage_service import track_ai_usage
-            from ai_usage_models import AIFeatureType, AIProviderType
-            import logging
-
-
-
-            input_tokens = response.usage.prompt_tokens
-            output_tokens = response.usage.completion_tokens
-            total_tokens = response.usage.total_tokens
-
-            logger.info(f"📝 [OPENAI TOKEN USAGE - Multiple Text Extraction] User: {current_user['_id']}")
-            logger.info(f"   📥 Input tokens: {input_tokens:,}")
-            logger.info(f"   📤 Output tokens: {output_tokens:,}")
-            logger.info(f"   📊 Total tokens: {total_tokens:,}")
-            logger.info(f"   🤖 Model: gpt-4o-mini")
-
-            await track_ai_usage(
-                user_id=current_user["_id"],
-                feature_type=AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
-                provider=AIProviderType.OPENAI,
-                model_name="gpt-4o-mini",
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens
-            )
-
-        result = json.loads(response.choices[0].message.content)
+        _log_ai_usage("Multiple Text Extraction", current_user["_id"], result)
+        result = result.value
 
         transactions = []
         raw_items = result.get("transactions") or []
@@ -1104,9 +1093,9 @@ async def batch_create_transactions(
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB Hard Limit
 TARGET_IMAGE_SIZE = (1024, 1024)         # Resize target for Vision API
 
-def process_and_resize_image(image_data: bytes) -> str:
+def process_and_resize_image(image_data: bytes) -> bytes:
     """
-    CPU-bound task: Opens image, resizes it, and converts to optimized Base64.
+    CPU-bound task: Opens image, resizes it, and re-encodes it as an optimized JPEG (returns the JPEG bytes).
     This runs in a threadpool to avoid blocking the async event loop.
     """
     try:
@@ -1122,8 +1111,7 @@ def process_and_resize_image(image_data: bytes) -> str:
             buffer = io.BytesIO()
             img.save(buffer, format="JPEG", quality=85, optimize=True)
 
-            # 4. Encode to Base64
-            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+            return buffer.getvalue()
     except Exception as e:
         logger.error(f"Image processing failed: {e}")
         raise ValueError("Invalid image format")
@@ -1134,18 +1122,11 @@ async def extract_transaction_from_image(
     current_user: dict = Depends(require_premium)
 ):
     """
-    Extract transaction details from receipt image using OpenAI Vision.
+    Extract transaction details from a receipt image with the transaction_image provider chain.
     (Memory Optimized: Resizes images before processing)
     """
     try:
-        # 1. Validate Service Availability
-        if not settings.OPENAI_API_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI API key not configured"
-            )
-
-        # 2. Validate File Size (Content-Length Header)
+        # 1. Validate File Size (Content-Length Header)
         # Fail fast if the client reports a file larger than our limit
         content_length = image.headers.get('content-length')
         if content_length and int(content_length) > MAX_IMAGE_SIZE_BYTES:
@@ -1173,7 +1154,7 @@ async def extract_transaction_from_image(
         # 4. Process Image (Resize & Encode)
         # Run CPU-intensive PIL operations in a separate thread
         try:
-            base64_image = await run_in_threadpool(process_and_resize_image, bytes(image_data))
+            jpeg_bytes = await run_in_threadpool(process_and_resize_image, bytes(image_data))
         except ValueError:
              raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1234,62 +1215,15 @@ Respond in JSON format:
     "reasoning": "what you saw on the receipt"
 }}"""
 
-        # 7. Call OpenAI API
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system", 
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Analyze this receipt and extract transaction details:"
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=1000,
-            temperature=0.3
+        # 7. Ask the transaction_image provider chain (the resized receipt goes as one JPEG image)
+        result = await _run_ai(
+            "transaction_image", current_user["_id"],
+            call=_tx_call("transaction_image", system_prompt, "Analyze this receipt and extract transaction details:",
+                          _TX_ITEM_SCHEMA, _IMAGE_MAX_TOKENS, image=jpeg_bytes, image_mime="image/jpeg"),
+            parse=_parse_extraction_json,
         )
-
-        # 8. Track AI Usage
-        if hasattr(response, 'usage'):
-            input_tokens = response.usage.prompt_tokens
-            output_tokens = response.usage.completion_tokens
-            total_tokens = response.usage.total_tokens
-
-            logger.info(f"📸 [OPENAI TOKEN USAGE - Image Extraction] User: {current_user['_id']}")
-            logger.info(f"   📥 Input tokens: {input_tokens:,}")
-            logger.info(f"   📤 Output tokens: {output_tokens:,}")
-            logger.info(f"   📊 Total tokens: {total_tokens:,}")
-            logger.info(f"   🤖 Model: gpt-4o")
-
-            await track_ai_usage(
-                user_id=current_user["_id"],
-                feature_type=AIFeatureType.TRANSACTION_IMAGE_EXTRACTION,
-                provider=AIProviderType.OPENAI,
-                model_name="gpt-4o",
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens
-            )
-
-        # 9. Parse Response
-        result = json.loads(response.choices[0].message.content)
+        _log_ai_usage("Image Extraction", current_user["_id"], result)
+        result = result.value
 
         extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True)
         if extraction is None:

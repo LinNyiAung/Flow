@@ -412,6 +412,12 @@ def _claude_answer(kind, k):
     return _answer_text(kind, prompt, wants_json), "max_tokens" if kind == "length_once" else "end_turn"
 
 
+def _claude_has_image(k):
+    """True when a Claude request carries an image content block (recorded in the outbox for tests)."""
+    return any(isinstance(b, dict) and b.get("type") == "image"
+               for m in k.get("messages") or [] if isinstance(m.get("content"), list) for b in m["content"])
+
+
 class _FakeClaudeStream:
     """Async context manager like anthropic's message stream: async text_stream plus get_final_message()."""
 
@@ -449,7 +455,7 @@ class _FakeClaudeStream:
 class _FakeClaudeMessages:
     async def create(self, **k):
         LAST_KWARGS["claude"] = dict(k)
-        kind = _begin("claude", "beta.messages.create", k.get("model"))
+        kind = _begin("claude", "beta.messages.create", k.get("model"), has_image=_claude_has_image(k))
         text, stop = _claude_answer(kind, k)
         return _claude_message(text, stop, k.get("model"))
 

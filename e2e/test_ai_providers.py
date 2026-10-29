@@ -588,6 +588,9 @@ async def panel_checks():
         # provider status rows
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
+        from sql.db import execute as _execute
+        from sql.tables import ai_provider_status as _status_table
+        await _execute(_status_table.delete())  # a clean slate: the stub server's own runs leave status rows behind
         await ai_settings.record_provider_error("claude", "boom", now)
         await ai_settings.record_provider_success("claude", now)
         await ai_settings.record_provider_success("gemini", now)
@@ -2846,6 +2849,327 @@ async def _budget_inprocess_checks(uid):
         settings._env_units.update(saved[1])
 
 
+async def transaction_checks():
+    """Task 11: transaction text, receipt image and voice run on the provider runner."""
+    import io
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    from PIL import Image
+    from sqlalchemy import delete, select
+
+    from sql.db import execute, fetch_all
+    from sql.tables import ai_usage, users
+
+    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=120)
+    db = __import__("pgcompat").get_db()
+    made = make_admins(c, db, "t11", ("admin",))
+    AD = {}
+    uids = []
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (200, 30, 30)).save(buf, "PNG")
+    PNG = buf.getvalue()
+
+    def premium_user(label):
+        email, pw = f"t11-{label}-{uuid.uuid4().hex[:6]}@example.com", "T11TxPass123"
+        c.post("/api/auth/register", json={"name": f"T11 {label}", "email": email, "password": pw})
+        db.users.update_one({"email": email}, {"$set": {
+            "is_verified": True, "subscription_type": "premium",
+            "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
+        uid = db.users.find_one({"email": email})["_id"]
+        uids.append(uid)
+        hdr = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}
+        return uid, hdr
+
+    def put(feature, provider, model, backups=None):
+        return c.put(f"/api/admin/ai/settings/{feature}", headers=AD,
+                     json={"main": {"provider": provider, "model": model}, "backups": backups})
+
+    def calls(before):
+        return [x.get("provider") for x in _outbox_ai_calls(before)]
+
+    async def usage(uid, feature):
+        return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid, ai_usage.c.feature_type == feature)
+                               .order_by(ai_usage.c.created_at))
+
+    def image_post(H):
+        return c.post("/api/transactions/extract-from-image", headers=H, files={"image": ("r.png", PNG, "image/png")})
+
+    def audio_post(H, **data):
+        return c.post("/api/transactions/transcribe-audio", headers=H,
+                      files={"audio": ("voice.m4a", b"\x00\x01\x02\x03", "audio/mp4")}, data=data)
+
+    try:
+        AD = admin_login(c, made["admin"])
+        admin_reset(c, AD)
+        uid, U = premium_user("main")
+
+        # --- text_extract_on_gemini
+        r = put("transaction_text", "gemini", "gemini-2.5-flash")
+        check(r.status_code == 200, "tx setup: PUT transaction_text = gemini", f"{r.status_code} {r.text[:200]}")
+        before = len(outbox_lines())
+        r = c.post("/api/transactions/extract-from-text", headers=U, json={"text": "coffee 2.5 dollars"})
+        body = r.json() if r.status_code == 200 else {}
+        rows = await usage(uid, "transaction_text_extraction")
+        check(r.status_code == 200 and calls(before) == ["gemini"] and body.get("amount") == 2.5
+              and body.get("type") == "outflow" and body.get("description") == "coffee",
+              "text_extract_on_gemini: 200 with the canned transaction, one gemini call", f"{r.status_code} {r.text[:300]} {calls(before)}")
+        check(len(rows) == 1 and rows[0]["provider"] == "gemini" and rows[0]["model_name"] == "gemini-2.5-flash"
+              and rows[0]["fallback_from"] is None, "text_extract_on_gemini: exactly one usage row, provider gemini",
+              [(x["provider"], x["model_name"], x["fallback_from"]) for x in rows])
+
+        # --- the multi-transaction route on the same provider keeps its post-processing (zero amount dropped)
+        before = len(outbox_lines())
+        r = c.post("/api/transactions/extract-multiple-from-text", headers=U, json={"text": "lunch 4.5, grab 3, something"})
+        body = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and calls(before) == ["gemini"] and len(body.get("transactions") or []) == 2
+              and "omitted" in (body.get("analysis") or ""),
+              "multi_extract_on_gemini: 200, the zero-amount item is dropped as before", f"{r.status_code} {r.text[:300]}")
+        admin_reset(c, AD)
+
+        # --- a bad answer falls back; the usage row names the provider that failed
+        put("transaction_text", "claude", "claude-sonnet-5-5")
+        stubenv.set_fake_ai(claude="bad_json")
+        before = len(outbox_lines())
+        n0 = len(await usage(uid, "transaction_text_extraction"))
+        r = c.post("/api/transactions/extract-from-text", headers=U, json={"text": "coffee 2.5 dollars"})
+        rows = (await usage(uid, "transaction_text_extraction"))[n0:]
+        check(r.status_code == 200 and calls(before) == ["claude", "openai"] and r.json().get("amount") == 2.5,
+              "text_bad_json_falls_back: 200 from openai after claude's bad JSON", f"{r.status_code} {r.text[:200]} {calls(before)}")
+        check(len(rows) == 1 and rows[0]["provider"] == "openai" and rows[0]["fallback_from"] == "claude",
+              "text_bad_json_falls_back: the usage row has fallback_from claude", [(x["provider"], x["fallback_from"]) for x in rows])
+        admin_reset(c, AD)
+
+        # --- image_extract_on_claude
+        put("transaction_image", "claude", "claude-sonnet-5-5")
+        before = len(outbox_lines())
+        r = image_post(U)
+        body = r.json() if r.status_code == 200 else {}
+        ai = _outbox_ai_calls(before)
+        rows = await usage(uid, "transaction_image_extraction")
+        check(r.status_code == 200 and [x.get("provider") for x in ai] == ["claude"] and ai and ai[0].get("has_image") is True
+              and body.get("amount") == 2.5,
+              "image_extract_on_claude: 200, the claude call carries an image block", f"{r.status_code} {r.text[:300]} {ai}")
+        check(len(rows) == 1 and rows[0]["provider"] == "claude" and rows[0]["model_name"] == "claude-sonnet-5-5",
+              "image_extract_on_claude: one usage row, provider claude", [(x["provider"], x["model_name"]) for x in rows])
+        admin_reset(c, AD)
+
+        # --- image_bad_request_no_fallback: a request-level error is a 400 with a fixed message and no other provider is tried
+        put("transaction_image", "claude", "claude-sonnet-5-5")
+        stubenv.set_fake_ai(claude="bad_request")
+        before = len(outbox_lines())
+        n0 = len(await usage(uid, "transaction_image_extraction"))
+        r = image_post(U)
+        check(r.status_code == 400 and calls(before) == ["claude"] and "invalid image" not in r.text.lower()
+              and "Error code" not in r.text and len(await usage(uid, "transaction_image_extraction")) == n0,
+              "image_bad_request_no_fallback: 400 with a safe message, no openai call, no usage row",
+              f"{r.status_code} {r.text[:200]} {calls(before)}")
+        admin_reset(c, AD)
+
+        # --- every provider failing: 503 with the fixed message, never provider text, no usage row
+        for feature, post in (("transaction_text", lambda: c.post("/api/transactions/extract-from-text", headers=U, json={"text": "x 1"})),
+                              ("transaction_image", lambda: image_post(U)),
+                              ("transaction_audio", lambda: audio_post(U))):
+            main = ("openai", "whisper-1") if feature == "transaction_audio" else ("claude", "claude-sonnet-5-5")
+            put(feature, main[0], main[1], backups=[])
+            stubenv.set_fake_ai(**{main[0]: "server"})
+            before = len(outbox_lines())
+            r = post()
+            check(r.status_code == 503 and r.json().get("detail") == "AI is temporarily unavailable"
+                  and "The service" not in r.text and calls(before) == [main[0]],
+                  f"tx_all_fail_503: {feature} -> 503 'AI is temporarily unavailable'", f"{r.status_code} {r.text[:200]} {calls(before)}")
+            admin_reset(c, AD)
+
+        # --- audio_falls_back_to_gemini
+        put("transaction_audio", "openai", "whisper-1")
+        stubenv.set_fake_ai(openai="billing")
+        before = len(outbox_lines())
+        r = audio_post(U, language="my")
+        rows = await usage(uid, "transaction_audio_transcription")
+        check(r.status_code == 200 and r.json() == {"transcription": "fake transcript"} and calls(before) == ["openai", "gemini"],
+              "audio_falls_back_to_gemini: 200 transcript from gemini", f"{r.status_code} {r.text[:200]} {calls(before)}")
+        check(len(rows) == 1 and rows[0]["provider"] == "gemini" and rows[0]["fallback_from"] == "openai"
+              and rows[0]["model_name"] == "gemini-2.5-flash",
+              "audio_falls_back_to_gemini: one usage row from gemini with fallback_from openai",
+              [(x["provider"], x["fallback_from"], x["model_name"]) for x in rows])
+        admin_reset(c, AD)
+
+        # --- audio on the built-in default (whisper-1), language handling as before
+        before = len(outbox_lines())
+        n0 = len(await usage(uid, "transaction_audio_transcription"))
+        r = audio_post(U, language="en")
+        rows = (await usage(uid, "transaction_audio_transcription"))[n0:]
+        check(r.status_code == 200 and calls(before) == ["openai"] and len(rows) == 1 and rows[0]["model_name"] == "whisper-1",
+              "audio default: whisper-1 on openai, one usage row", f"{r.status_code} {r.text[:200]} {[x['model_name'] for x in rows]}")
+        r = audio_post(U, language="fr")
+        check(r.status_code == 400 and "Unsupported language" in r.text, "audio: an unsupported language is still a 400", f"{r.status_code} {r.text[:150]}")
+        r = put("transaction_audio", "claude", "claude-sonnet-5-5")
+        check(r.status_code == 422, "audio: claude cannot be chosen for transaction_audio", f"{r.status_code} {r.text[:150]}")
+
+        await _transaction_inprocess_checks(uid)
+    finally:
+        try:
+            stubenv.clear_fake_ai()
+            if AD:
+                admin_reset(c, AD)
+        finally:
+            try:
+                for u in uids:
+                    await execute(delete(users).where(users.c.id == u))  # cascades to transactions and ai_usage rows
+                from sql.tables import ai_provider_status
+                await execute(ai_provider_status.delete())
+            finally:
+                db.admins.delete_many({"email": {"$in": list(made.values())}})
+                c.close()
+
+
+async def _transaction_inprocess_checks(uid):
+    """transaction_routes in-process: schemas, the request each provider gets, and the parser's leniency."""
+    import io
+
+    from fastapi import UploadFile
+    from PIL import Image
+
+    import transaction_routes as tr
+    from ai_providers import health, settings
+    from ai_providers.errors import UnusableAnswer
+    from ai_providers.types import Completion, FeatureSetting, Target
+    from models import TextExtractionRequest
+
+    stubenv.patch_loaded_modules()
+    saved = (settings._env, dict(settings._env_units), settings._panel)
+    health.reset()
+    stubenv.clear_fake_ai()
+    user = {"_id": uid, "default_currency": "usd"}
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (10, 120, 200)).save(buf, "PNG")
+    png = buf.getvalue()
+
+    def use(feature, provider, model, backups=()):
+        settings.set_panel_cache({feature: FeatureSetting(Target(provider, model), backups, "panel")})
+
+    def kw_of(provider):
+        kw = stubenv.LAST_KWARGS[provider]
+        if provider == "openai":
+            return (kw.get("max_tokens"), kw.get("temperature"), (kw.get("response_format") or {}).get("type"))
+        if provider == "gemini":
+            return (kw["config"].max_output_tokens, kw["config"].temperature, kw["config"].response_mime_type)
+        fmt = (kw.get("output_config") or {}).get("format") or {}
+        return (kw.get("max_tokens"), kw.get("temperature", "absent"), fmt.get("type"))
+
+    try:
+        settings.set_panel_cache({})
+        settings.reload_env({})
+
+        # --- explicit closed schemas
+        item = tr._TX_ITEM_SCHEMA
+        multi = tr._MULTI_JSON_SCHEMA
+        fields = {"type", "main_category", "sub_category", "date", "description", "amount", "currency", "confidence", "reasoning"}
+        check(item.get("additionalProperties") is False and set(item["required"]) == fields and set(item["properties"]) == fields
+              and multi.get("additionalProperties") is False and multi["properties"]["transactions"]["items"] is not None
+              and multi["properties"]["transactions"]["items"].get("additionalProperties") is False
+              and set(multi["required"]) == {"transactions", "total_count", "overall_confidence", "analysis"},
+              "tx schemas: explicit required lists and additionalProperties false", (item, multi))
+
+        # --- the request each provider gets: today's temperature 0.3 (never to Claude), a json schema, explicit limits
+        want = {
+            "transaction_text": {"openai": (2000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+                                 "claude": (8000, "absent", "json_schema")},
+            "transaction_text_multi": {"openai": (4096, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+                                       "claude": (8000, "absent", "json_schema")},
+            "transaction_image": {"openai": (1000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+                                  "claude": (8000, "absent", "json_schema")},
+        }
+        for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
+            use("transaction_text", provider, model)
+            out = await tr.extract_transaction_from_text(TextExtractionRequest(text="coffee 2.5"), current_user=user)
+            check(kw_of(provider) == want["transaction_text"][provider] and out.amount == 2.5,
+                  f"tx request: text on {provider} sends {want['transaction_text'][provider]}", (kw_of(provider), out.amount))
+            out = await tr.extract_multiple_transactions_from_text(TextExtractionRequest(text="a 1, b 2"), current_user=user)
+            check(kw_of(provider) == want["transaction_text_multi"][provider] and len(out.transactions) == 2,
+                  f"tx request: multi text on {provider} sends {want['transaction_text_multi'][provider]}", (kw_of(provider), len(out.transactions)))
+            use("transaction_image", provider, "gpt-4o" if provider == "openai" else model)
+            up = UploadFile(file=io.BytesIO(png), filename="r.png")
+            out = await tr.extract_transaction_from_image(image=up, current_user=user)
+            check(kw_of(provider) == want["transaction_image"][provider] and out.amount == 2.5,
+                  f"tx request: image on {provider} sends {want['transaction_image'][provider]}", (kw_of(provider), out.amount))
+
+        # --- the request sends the receipt as one JPEG image whichever provider answers
+        import base64
+        use("transaction_image", "openai", "gpt-4o")
+        await tr.extract_transaction_from_image(image=UploadFile(file=io.BytesIO(png), filename="r.png"), current_user=user)
+        url = stubenv.LAST_KWARGS["openai"]["messages"][1]["content"][1]["image_url"]["url"]
+        raw = base64.b64decode(url.split("base64,", 1)[1]) if url.startswith("data:image/jpeg;base64,") else b""
+        check(raw[:2] == b"\xff\xd8", "tx image: openai gets the resized JPEG as image/jpeg", url[:40])
+
+        # --- voice: language and filename reach the provider as before
+        use("transaction_audio", "openai", "whisper-1")
+        for lang, want_lang in (("my", "my"), ("mm", "my"), ("en", "en"), (None, None)):
+            up = UploadFile(file=io.BytesIO(b"\x00\x01"), filename="note.m4a")
+            res = await tr.transcribe_audio(audio=up, language=lang, current_user=user)
+            kw = stubenv.LAST_KWARGS["openai"]
+            check(res == {"transcription": "fake transcript"} and kw.get("language") == want_lang and kw["model"] == "whisper-1"
+                  and kw["file"][0].endswith(".m4a"), f"tx audio: language {lang!r} reaches whisper as {want_lang!r}", kw)
+        up = UploadFile(file=io.BytesIO(b"\x00\x01"), filename="noext")
+        await tr.transcribe_audio(audio=up, language=None, current_user=user)
+        check(stubenv.LAST_KWARGS["openai"]["file"][0].endswith(".wav"), "tx audio: a file name without extension is sent as .wav",
+              stubenv.LAST_KWARGS["openai"]["file"][0])
+
+        # --- silence transcribes to "": still a normal 200 with an empty transcription (as before the runner)
+        stubenv.set_fake_ai(openai="empty", gemini="empty")
+        use("transaction_audio", "openai", "whisper-1", backups=(Target("gemini", "gemini-2.5-flash"),))
+        res = await tr.transcribe_audio(audio=UploadFile(file=io.BytesIO(b"\x00\x01"), filename="s.wav"), language=None, current_user=user)
+        check(res == {"transcription": ""}, "tx audio: every provider answering with nothing is a 200 with an empty transcription", res)
+        stubenv.set_fake_ai(openai="empty", gemini="server")
+        health.reset()
+        try:
+            await tr.transcribe_audio(audio=UploadFile(file=io.BytesIO(b"\x00\x01"), filename="s.wav"), language=None, current_user=user)
+            err = None
+        except tr.HTTPException as e:
+            err = e
+        check(err is not None and err.status_code == 503, "tx audio: an empty answer plus a provider failure is still a 503",
+              err and (err.status_code, err.detail))
+        stubenv.clear_fake_ai()
+        health.reset()
+        try:
+            big = UploadFile(file=io.BytesIO(b"\x00" * (25 * 1024 * 1024 + 1)), filename="big.wav")
+            await tr.transcribe_audio(audio=big, language=None, current_user=user)
+            err = None
+        except tr.HTTPException as e:
+            err = e
+        check(err is not None and err.status_code == 413, "tx audio: more than 25MB is a 413", err and err.status_code)
+
+        # --- the parser accepts everything today's code accepts and post-processes; only unusable JSON moves on
+        def refuses(parse, text):
+            try:
+                parse(Completion(text, 1, 1, "stop"))
+                return False
+            except UnusableAnswer:
+                return True
+
+        check(all(refuses(tr._parse_extraction_json, t) for t in ("not json", "", "[]", '"x"', "7", "null")),
+              "tx parse: unparseable JSON or a non-object is unusable (next provider)")
+        lenient = ['{}', '{"amount": 0, "confidence": 0.01}', '{"type": "weird", "main_category": "Nope", "amount": "abc"}',
+                   '{"transactions": "x"}', '{"transactions": []}', '{"amount": -5, "confidence": 7, "date": "garbage"}']
+        check(not any(refuses(tr._parse_extraction_json, t) for t in lenient),
+              "tx parse: low confidence, zero or odd amounts, unknown categories and empty lists are still accepted")
+        built = await tr._build_extraction({"amount": 0, "confidence": 0.9, "main_category": "Nope"}, "usd", keep_invalid_amount=True)
+        check(built is not None and built.amount == 0 and built.confidence == 0,
+              "tx parse: a zero amount still reaches the route's own handling (amount 0, confidence 0)")
+
+        src = open(tr.__file__, encoding="utf-8").read()
+        check(not any(s in src for s in ("gpt-4o", "whisper-1", "AsyncOpenAI", "track_ai_usage", "OPENAI_API_KEY")),
+              "transaction_routes: no direct OpenAI call, hard-coded model, key check or own usage tracking is left")
+    finally:
+        stubenv.clear_fake_ai()
+        health.reset()
+        settings._env, settings._panel = saved[0], saved[2]
+        settings._env_units.clear()
+        settings._env_units.update(saved[1])
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -2887,6 +3211,12 @@ async def all_async_checks():
         import traceback
         traceback.print_exc()
         check(False, "budget_checks ran to completion", repr(e))
+    try:
+        await transaction_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "transaction_checks ran to completion", repr(e))
 
 
 def stub_mode_checks():
