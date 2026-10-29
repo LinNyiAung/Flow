@@ -15,7 +15,9 @@ from sql.categories import get_categories_doc
 from budget_models import (
     BudgetPeriod, CategoryBudget, CategoryBudgetIn, AIBudgetSuggestion, BudgetStatus
 )
-from config import settings
+from ai_providers import runner as _runner
+from ai_providers.errors import AllProvidersFailed, UnusableAnswer
+from ai_providers.types import Completion, Prompt
 from finite_utils import is_finite_number
 from sqlalchemy.exc import IntegrityError
 import logging
@@ -48,6 +50,104 @@ def _append_valid_category(target: List[CategoryBudget], cat: Dict) -> None:
         target.append(CategoryBudget(**CategoryBudgetIn(**cat).model_dump()))
     except Exception as e:  # pydantic ValidationError / TypeError
         logger.warning(f"Skipping invalid category budget {cat!r}: {e}")
+
+
+# The object both budget prompts ask the model for. Explicit and closed (additionalProperties false) so
+# the structured-output modes of every provider accept it.
+_BUDGET_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "categories": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "main_category": {"type": "string"},
+                    "allocated_amount": {"type": "number"},
+                    "spent_amount": {"type": "number"},
+                    "percentage_used": {"type": "number"},
+                    "is_exceeded": {"type": "boolean"},
+                },
+                "required": ["main_category", "allocated_amount", "spent_amount", "percentage_used", "is_exceeded"],
+                "additionalProperties": False,
+            },
+        },
+        "reasoning": {"type": "string"},
+    },
+    "required": ["categories", "reasoning"],
+    "additionalProperties": False,
+}
+
+# Output limits per answering provider. OpenAI had no limit before; this is far above any budget answer.
+# Gemini's thinking tokens and Claude's thinking both count toward the limit, so they get more room.
+_BUDGET_MAX_TOKENS = {"openai": 4096, "gemini": 8192, "claude": 8000}
+_BUDGET_TEMPERATURE = 0.3  # as before; sent to OpenAI and Gemini, never to Claude
+
+
+def _budget_call(feature: str, system: str, user: str):
+    """A runner `call` that builds the JSON prompt for the answering target (its token limit depends on the provider)."""
+    async def call(client, t):
+        prompt = Prompt(system=system, user=user, json_schema=_BUDGET_JSON_SCHEMA,
+                        max_tokens=_BUDGET_MAX_TOKENS[t.provider], temperature=_BUDGET_TEMPERATURE)
+        return await _runner.default_call(prompt, feature)(client, t)
+    return call
+
+
+def _valid_budget_categories(raw_categories: List, categories_structure: List[Dict]) -> List[CategoryBudget]:
+    """The AI's categories that exist in the system ("Main" or "Main - Sub", main matched case-insensitively)."""
+    valid: List[CategoryBudget] = []
+    available_main_categories = [cat["main_category"] for cat in categories_structure]
+
+    for cat in raw_categories:
+        if not isinstance(cat, dict) or not isinstance(cat.get("main_category"), str):
+            continue
+        category_name = cat["main_category"]
+
+        if " - " in category_name:  # a sub-category budget
+            main_cat, sub_cat = category_name.split(" - ", 1)
+            if main_cat not in available_main_categories:
+                logger.warning(f"AI suggested invalid main category '{main_cat}', skipping")
+                continue
+            category_struct = next((c for c in categories_structure if c["main_category"] == main_cat), None)
+            if category_struct and sub_cat in category_struct["sub_categories"]:
+                _append_valid_category(valid, cat)
+            else:
+                logger.warning(f"AI suggested invalid sub-category '{sub_cat}' for '{main_cat}', skipping")
+        elif category_name in available_main_categories:  # a main category budget
+            _append_valid_category(valid, cat)
+        else:
+            match = next((a for a in available_main_categories if a.lower() == category_name.lower()), None)
+            if match is None:
+                logger.warning(f"AI suggested invalid category '{category_name}', skipping")
+            else:
+                cat["main_category"] = match
+                _append_valid_category(valid, cat)
+    return valid
+
+
+def _parse_budget_answer(categories_structure: List[Dict]):
+    """A runner `parse`: the answer's JSON with `categories` replaced by its valid CategoryBudgets.
+
+    Raises UnusableAnswer (the runner then tries the next provider) when the text isn't a JSON object with
+    a list of categories and a text reasoning, or when none of its categories exists in the system.
+    """
+    def parse(c: Completion) -> Dict:
+        try:
+            result = json.loads(c.text)
+        except ValueError as e:
+            raise UnusableAnswer("budget answer is not JSON") from e
+        if not isinstance(result, dict) or not isinstance(result.get("categories"), list):
+            raise UnusableAnswer("budget answer has no categories list")
+        reasoning = result.get("reasoning", "")
+        if not isinstance(reasoning, str):
+            raise UnusableAnswer("budget answer has a non-text reasoning")
+        valid = _valid_budget_categories(result["categories"], categories_structure)
+        if not valid:
+            raise UnusableAnswer("budget answer has no valid category")
+        if len(valid) < len(result["categories"]):
+            reasoning += "\n\nNote: Some suggested categories were not available in your system and were excluded."
+        return {"categories": valid, "reasoning": reasoning}
+    return parse
 
 
 class BudgetAnalyzer:
@@ -202,12 +302,19 @@ class BudgetAnalyzer:
         # Calculate days in budget period
         days_in_period = (budget_end - budget_start).days + 1
 
-        # Use OpenAI to generate smart suggestions
-        if settings.OPENAI_API_KEY and analysis["sufficient_data"]:
-            suggestions = await self._generate_with_ai(
-                analysis, period, days_in_period, include_categories, user_context, currency  # NEW parameter
-            )
-        else:
+        # Use AI (the budget_suggestion provider chain) to generate smart suggestions; if no provider can
+        # answer (none configured, all failing) the rule-based suggestions below are used instead.
+        suggestions = None
+        if analysis["sufficient_data"]:
+            try:
+                suggestions = await self._generate_with_ai(
+                    analysis, period, days_in_period, include_categories, user_context, currency  # NEW parameter
+                )
+            except AllProvidersFailed as e:
+                logger.warning(f"AI budget suggestion unavailable for user {self.user_id}: {e}")
+                if any(f.kind != "not_configured" for f in e.failures):
+                    warnings.append("AI is temporarily unavailable, so these suggestions use simple rules instead.")
+        if suggestions is None:
             suggestions = self._generate_basic_suggestions(
                 analysis, days_in_period, include_categories, currency
             )
@@ -259,10 +366,9 @@ class BudgetAnalyzer:
         user_context: Optional[str] = None,
         currency: str = "usd"
     ) -> Dict:
-        """Use OpenAI to generate intelligent budget suggestions"""
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        """Use the budget_suggestion provider chain to generate intelligent budget suggestions.
 
+        Raises AllProvidersFailed when no provider gives a usable answer."""
         currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
 
         # [FIX] Added await
@@ -363,100 +469,18 @@ REMEMBER:
 - Use sub-category budgets when spending patterns show clear distinctions
 - All amounts must be in {currency.upper()}"""
 
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.3
+        result = await _runner.run(
+            "budget_suggestion", user_id=self.user_id,
+            call=_budget_call("budget_suggestion", system_prompt, user_prompt),
+            parse=_parse_budget_answer(categories_structure),
         )
-
-        # NEW: Track AI usage
-        if hasattr(response, 'usage'):
-            from ai_usage_service import track_ai_usage
-            from ai_usage_models import AIFeatureType, AIProviderType
-
-            input_tokens = response.usage.prompt_tokens
-            output_tokens = response.usage.completion_tokens
-            total_tokens = response.usage.total_tokens
-
-            logger.info(f"📊 [OPENAI TOKEN USAGE - AI Budget Suggestion] User: {self.user_id}")
-            logger.info(f"   📥 Input tokens: {input_tokens:,}")
-            logger.info(f"   📤 Output tokens: {output_tokens:,}")
-            logger.info(f"   📊 Total tokens: {total_tokens:,}")
-            logger.info(f"   🤖 Model: gpt-4o-mini")
-
-            await track_ai_usage(
-                user_id=self.user_id,
-                feature_type=AIFeatureType.BUDGET_SUGGESTION,
-                provider=AIProviderType.OPENAI,
-                model_name="gpt-4o-mini",
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens
-            )
-
-        result = json.loads(response.choices[0].message.content)
-
-        # Validate that all categories exist in the system
-        valid_categories = []
-        available_main_categories = [cat["main_category"] for cat in categories_structure]
-        raw_categories = result.get("categories") or []
-
-        for cat in raw_categories:
-            if not isinstance(cat, dict) or not isinstance(cat.get("main_category"), str):
-                continue
-            category_name = cat["main_category"]
-
-            # Check if it's a sub-category budget (contains " - ")
-            if " - " in category_name:
-                parts = category_name.split(" - ", 1)
-                main_cat = parts[0]
-                sub_cat = parts[1]
-
-                # Validate main category exists
-                if main_cat not in available_main_categories:
-                    print(f"Warning: AI suggested invalid main category '{main_cat}', skipping...")
-                    continue
-
-                # Validate sub-category exists
-                category_struct = next(
-                    (c for c in categories_structure if c["main_category"] == main_cat),
-                    None
-                )
-
-                if category_struct and sub_cat in category_struct["sub_categories"]:
-                    _append_valid_category(valid_categories, cat)
-                else:
-                    print(f"Warning: AI suggested invalid sub-category '{sub_cat}' for '{main_cat}', skipping...")
-            else:
-                # It's a main category budget
-                if category_name in available_main_categories:
-                    _append_valid_category(valid_categories, cat)
-                else:
-                    # Try case-insensitive match
-                    matched = False
-                    for available_cat in available_main_categories:
-                        if available_cat.lower() == category_name.lower():
-                            cat["main_category"] = available_cat
-                            _append_valid_category(valid_categories, cat)
-                            matched = True
-                            break
-
-                    if not matched:
-                        print(f"Warning: AI suggested invalid category '{category_name}', skipping...")
-
-        # Update result with validated categories
-        result["categories"] = valid_categories
-        result.setdefault("reasoning", "")
-
-        # Add warning if some categories were skipped
-        if len(valid_categories) < len(raw_categories):
-            result["reasoning"] += "\n\nNote: Some suggested categories were not available in your system and were excluded."
-
-        return result
+        c, t = result.completion, result.target
+        logger.info(
+            f"📊 [{t.provider.upper()} TOKEN USAGE - AI Budget Suggestion] User: {self.user_id} | "
+            f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
+            + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
+        )
+        return result.value
 
     def _generate_basic_suggestions(
         self,
@@ -1251,23 +1275,21 @@ async def _generate_ai_category_budgets(
     for cat_budget in parent_budget["category_budgets"]:
         category_spending[cat_budget["main_category"]] = cat_budget.get("spent_amount", 0)
 
-    if settings.OPENAI_API_KEY:
-        try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    # The budget_auto_create provider chain; if it gives no usable answer (none configured, all failing,
+    # nothing valid in the answer) or anything else goes wrong, the non-AI adjusted budgets are used.
+    try:
+        # [Context and Prompt building logic remains identical]
+        context = {
+            "period_type": period.value,
+            "days_in_period": days_in_period,
+            "parent_budget_categories": parent_budget["category_budgets"],
+            "actual_spending": category_spending,
+            "total_allocated": parent_budget["total_budget"],
+            "total_spent": parent_budget["total_spent"],
+            "utilization_rate": parent_budget["percentage_used"]
+        }
 
-            # [Context and Prompt building logic remains identical]
-            context = {
-                "period_type": period.value,
-                "days_in_period": days_in_period,
-                "parent_budget_categories": parent_budget["category_budgets"],
-                "actual_spending": category_spending,
-                "total_allocated": parent_budget["total_budget"],
-                "total_spent": parent_budget["total_spent"],
-                "utilization_rate": parent_budget["percentage_used"]
-            }
-
-            system_prompt = f"""You are a financial budgeting expert. Analyze the previous budget performance and suggest improved budgets for the next period.
+        system_prompt = f"""You are a financial budgeting expert. Analyze the previous budget performance and suggest improved budgets for the next period.
 
 PREVIOUS BUDGET PERFORMANCE:
 - Period: {period.value} ({days_in_period} days)
@@ -1307,7 +1329,7 @@ Return JSON format:
     "reasoning": "Brief explanation of adjustments made"
 }}"""
 
-            user_prompt = f"""Based on this budget performance data, suggest optimized budgets for the next {period.value} period:
+        user_prompt = f"""Based on this budget performance data, suggest optimized budgets for the next {period.value} period:
 
 {json.dumps(context, indent=2)}
 
@@ -1315,77 +1337,21 @@ Provide realistic budget suggestions that learn from past spending patterns.
 
 REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list provided."""
 
-            response = await client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.3
-            )
+        result = await _runner.run(
+            "budget_auto_create", user_id=user_id,
+            call=_budget_call("budget_auto_create", system_prompt, user_prompt),
+            parse=_parse_budget_answer(categories_structure),
+        )
+        c, t = result.completion, result.target
+        logger.info(
+            f"💰 [{t.provider.upper()} TOKEN USAGE - Auto Budget Creation] User: {user_id} | "
+            f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
+            + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
+        )
+        return result.value["categories"]
 
-            # NEW: Track AI usage for auto-create
-            if hasattr(response, 'usage'):
-                from ai_usage_service import track_ai_usage
-                from ai_usage_models import AIFeatureType, AIProviderType
-                import logging
-
-                logger = logging.getLogger(__name__)
-
-                input_tokens = response.usage.prompt_tokens
-                output_tokens = response.usage.completion_tokens
-                total_tokens = response.usage.total_tokens
-
-                logger.info(f"💰 [OPENAI TOKEN USAGE - Auto Budget Creation] User: {user_id}")
-                logger.info(f"   📥 Input tokens: {input_tokens:,}")
-                logger.info(f"   📤 Output tokens: {output_tokens:,}")
-                logger.info(f"   📊 Total tokens: {total_tokens:,}")
-                logger.info(f"   🤖 Model: gpt-4o-mini")
-
-                await track_ai_usage(
-                    user_id=user_id,
-                    feature_type=AIFeatureType.BUDGET_AUTO_CREATE,
-                    provider=AIProviderType.OPENAI,
-                    model_name="gpt-4o-mini",
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
-
-            result = json.loads(response.choices[0].message.content)
-
-            # [Validation logic remains identical]
-            valid_categories = []
-            available_main_categories = [cat["main_category"] for cat in categories_structure]
-
-            for cat in result.get("categories") or []:
-                if not isinstance(cat, dict) or not isinstance(cat.get("main_category"), str):
-                    continue
-                category_name = cat["main_category"]
-                if " - " in category_name:
-                    parts = category_name.split(" - ", 1)
-                    main_cat, sub_cat = parts[0], parts[1]
-                    if main_cat not in available_main_categories: continue
-                    category_struct = next((c for c in categories_structure if c["main_category"] == main_cat), None)
-                    if category_struct and sub_cat in category_struct["sub_categories"]:
-                        _append_valid_category(valid_categories, cat)
-                else:
-                    if category_name in available_main_categories:
-                        _append_valid_category(valid_categories, cat)
-                    else:
-                        for available_cat in available_main_categories:
-                            if available_cat.lower() == category_name.lower():
-                                cat["main_category"] = available_cat
-                                _append_valid_category(valid_categories, cat)
-                                break
-
-            return valid_categories if valid_categories else _generate_adjusted_budgets(parent_budget, days_in_period)
-
-        except Exception as e:
-            print(f"Error generating AI budgets: {e}")
-            return _generate_adjusted_budgets(parent_budget, days_in_period)
-    else:
+    except Exception as e:
+        print(f"Error generating AI budgets: {e}")
         return _generate_adjusted_budgets(parent_budget, days_in_period)
 
 

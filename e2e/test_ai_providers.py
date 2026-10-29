@@ -2587,6 +2587,265 @@ async def _insight_inprocess_checks(uid):
         settings._env_units.update(saved[1])
 
 
+async def budget_checks():
+    """Task 10: budget suggestions and auto-created budgets run on the provider runner."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    from sqlalchemy import delete, select
+
+    from sql.db import execute, fetch_all
+    from sql.tables import ai_usage, users
+
+    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=120)
+    db = __import__("pgcompat").get_db()
+    made = make_admins(c, db, "t10", ("admin",))
+    AD = {}
+    uids = []
+
+    def premium_user(label, n_tx=12):
+        email, pw = f"t10-{label}-{uuid.uuid4().hex[:6]}@example.com", "T10BudgetPass123"
+        c.post("/api/auth/register", json={"name": f"T10 {label}", "email": email, "password": pw})
+        db.users.update_one({"email": email}, {"$set": {
+            "is_verified": True, "subscription_type": "premium",
+            "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
+        uid = db.users.find_one({"email": email})["_id"]
+        uids.append(uid)
+        hdr = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}
+        for i in range(n_tx):
+            c.post("/api/transactions", headers=hdr, json={
+                "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "amount": 10 + i, "currency": "usd", "date": (datetime.now(UTC) - timedelta(days=i)).isoformat(),
+                "description": f"t10 groceries {i}"})
+        return uid, hdr
+
+    def put(feature, provider, model, backups=None):
+        return c.put(f"/api/admin/ai/settings/{feature}", headers=AD,
+                     json={"main": {"provider": provider, "model": model}, "backups": backups})
+
+    def calls(before):
+        return [x.get("provider") for x in _outbox_ai_calls(before)]
+
+    async def usage(uid, feature):
+        return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid, ai_usage.c.feature_type == feature)
+                               .order_by(ai_usage.c.created_at))
+
+    suggest_body = {"period": "monthly", "start_date": datetime.now(UTC).isoformat(), "currency": "usd", "analysis_months": 3}
+
+    try:
+        AD = admin_login(c, made["admin"])
+        admin_reset(c, AD)
+        uid, U = premium_user("main")
+
+        # --- budget_suggest_on_claude
+        r = put("budget_suggestion", "claude", "claude-sonnet-5-5")
+        check(r.status_code == 200, "budget setup: PUT budget_suggestion = claude", f"{r.status_code} {r.text[:200]}")
+        before = len(outbox_lines())
+        r = c.post("/api/budgets/ai-suggest", headers=U, json=suggest_body)
+        body = r.json() if r.status_code == 200 else {}
+        cats = body.get("category_budgets") or []
+        rows = await usage(uid, "budget_suggestion")
+        check(r.status_code == 200 and calls(before) == ["claude"] and cats and cats[0]["main_category"] == "Food & Daily Living"
+              and cats[0]["allocated_amount"] == 450 and "temporarily unavailable" not in " ".join(body.get("warnings") or []),
+              "budget_suggest_on_claude: 200, one claude call, the AI's categories are used",
+              f"{r.status_code} {r.text[:300]} {calls(before)}")
+        check(len(rows) == 1 and rows[0]["provider"] == "claude" and rows[0]["model_name"] == "claude-sonnet-5-5"
+              and rows[0]["fallback_from"] is None, "budget_suggest_on_claude: exactly one usage row, provider claude",
+              [(x["provider"], x["model_name"], x["fallback_from"]) for x in rows])
+        admin_reset(c, AD)
+
+        # --- a bad answer falls back to the next provider; the usage row names the provider that failed
+        put("budget_suggestion", "claude", "claude-sonnet-5-5")
+        stubenv.set_fake_ai(claude="bad_json")
+        before = len(outbox_lines())
+        n0 = len(await usage(uid, "budget_suggestion"))
+        r = c.post("/api/budgets/ai-suggest", headers=U, json=suggest_body)
+        rows = (await usage(uid, "budget_suggestion"))[n0:]
+        cats = (r.json().get("category_budgets") if r.status_code == 200 else None) or []
+        check(r.status_code == 200 and calls(before) == ["claude", "openai"] and cats and cats[0]["allocated_amount"] == 450,
+              "budget_bad_json_falls_back: 200 from openai after claude's bad JSON", f"{r.status_code} {r.text[:200]} {calls(before)}")
+        check(len(rows) == 1 and rows[0]["provider"] == "openai" and rows[0]["fallback_from"] == "claude",
+              "budget_bad_json_falls_back: the usage row has fallback_from claude",
+              [(x["provider"], x["fallback_from"]) for x in rows])
+        admin_reset(c, AD)
+
+        # --- every provider fails: never a 500, no provider text; today's non-AI suggestions with a warning
+        put("budget_suggestion", "claude", "claude-sonnet-5-5", backups=[])
+        stubenv.set_fake_ai(claude="server")
+        before = len(outbox_lines())
+        n0 = len(await usage(uid, "budget_suggestion"))
+        r = c.post("/api/budgets/ai-suggest", headers=U, json=suggest_body)
+        body = r.json() if r.status_code == 200 else {}
+        check(r.status_code in (200, 503) and "The service" not in r.text and calls(before) == ["claude"],
+              "budget_all_fail_503: every provider failing is never a 500 and leaks no provider text",
+              f"{r.status_code} {r.text[:200]} {calls(before)}")
+        check(r.status_code == 200 and body.get("category_budgets") and "temporarily unavailable" in " ".join(body.get("warnings") or [])
+              and len(await usage(uid, "budget_suggestion")) == n0,
+              "budget_all_fail: the basic (non-AI) suggestions come back with a warning, no usage row",
+              f"{r.status_code} {r.text[:300]}")
+        admin_reset(c, AD)
+
+        # --- not enough data: basic suggestions, no AI call at all
+        uid2, U2 = premium_user("few", n_tx=3)
+        before = len(outbox_lines())
+        r = c.post("/api/budgets/ai-suggest", headers=U2, json=suggest_body)
+        check(r.status_code == 200 and calls(before) == [], "budget_suggest: too little data uses basic suggestions, no AI call",
+              f"{r.status_code} {r.text[:200]} {calls(before)}")
+
+        await _budget_inprocess_checks(uid)
+    finally:
+        try:
+            stubenv.clear_fake_ai()
+            if AD:
+                admin_reset(c, AD)
+        finally:
+            try:
+                for u in uids:
+                    await execute(delete(users).where(users.c.id == u))  # cascades to transactions and ai_usage rows
+            finally:
+                db.admins.delete_many({"email": {"$in": list(made.values())}})
+                c.close()
+
+
+async def _budget_inprocess_checks(uid):
+    """budget_service in-process: schema and limits per provider, the parser, the auto-create fallback, the route's 503."""
+    from datetime import UTC, datetime, timedelta
+
+    from fastapi import HTTPException
+    from sqlalchemy import select
+
+    import budget_routes
+    import budget_service as bs
+    from ai_providers import health, settings
+    from ai_providers.errors import AllProvidersFailed, UnusableAnswer
+    from ai_providers.types import Completion, FeatureSetting, Target
+    from budget_models import AIBudgetRequest
+    from sql.db import fetch_all
+    from sql.tables import ai_usage
+
+    stubenv.patch_loaded_modules()
+    saved = (settings._env, dict(settings._env_units), settings._panel)
+    health.reset()
+    stubenv.clear_fake_ai()
+    now = datetime.now(UTC)
+    parent = {"start_date": now - timedelta(days=30), "end_date": now + timedelta(days=1), "currency": "usd",
+              "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100.0, "spent_amount": 60.0,
+                                    "percentage_used": 60.0, "is_exceeded": False}],
+              "total_budget": 100.0, "total_spent": 60.0, "percentage_used": 60.0}
+
+    def use(feature, provider, model, backups=()):
+        settings.set_panel_cache({feature: FeatureSetting(Target(provider, model), backups, "panel")})
+
+    async def auto(feature="budget_auto_create"):
+        return await bs._generate_ai_category_budgets(uid, bs.BudgetPeriod.MONTHLY, now, now + timedelta(days=30), parent)
+
+    async def usage(feature):
+        return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid, ai_usage.c.feature_type == feature))
+
+    try:
+        settings.set_panel_cache({})
+        settings.reload_env({})
+
+        # --- the request each provider gets: temperature 0.3 (never to Claude), a json schema, explicit limits
+        schema = bs._BUDGET_JSON_SCHEMA
+        item = schema["properties"]["categories"]["items"]
+        check(schema.get("additionalProperties") is False and item.get("additionalProperties") is False
+              and set(schema["required"]) == {"categories", "reasoning"}
+              and set(item["required"]) == {"main_category", "allocated_amount", "spent_amount", "percentage_used", "is_exceeded"},
+              "budget schema: explicit required lists and additionalProperties false", schema)
+        for feature in ("budget_suggestion", "budget_auto_create"):
+            for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
+                use(feature, provider, model)
+                if feature == "budget_auto_create":
+                    out = await auto()
+                else:
+                    out = (await bs.BudgetAnalyzer(uid).generate_ai_suggestions(
+                        bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")).category_budgets
+                kw = stubenv.LAST_KWARGS[provider]
+                if provider == "openai":
+                    got = (kw.get("max_tokens"), kw.get("temperature"), (kw.get("response_format") or {}).get("type"))
+                elif provider == "gemini":
+                    got = (kw["config"].max_output_tokens, kw["config"].temperature, kw["config"].response_mime_type)
+                else:
+                    fmt = (kw.get("output_config") or {}).get("format") or {}
+                    got = (kw.get("max_tokens"), kw.get("temperature", "absent"), fmt.get("type"))
+                want = {"openai": (4096, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+                        "claude": (8000, "absent", "json_schema")}[provider]
+                check(got == want and kw.get("model", model) == model and out and out[0].allocated_amount == 450,
+                      f"budget request: {feature} on {provider} sends {want}", (got, out[:1]))
+
+        # --- the parser: today's field checks, anything unusable moves on to the next provider
+        structure = [{"main_category": "Food & Daily Living", "sub_categories": ["Groceries"]}]
+        parse = bs._parse_budget_answer(structure)
+
+        def refuses(text):
+            try:
+                parse(Completion(text, 1, 1, "stop"))
+                return False
+            except UnusableAnswer:
+                return True
+
+        good = '{"categories": [{"main_category": "food & daily living", "allocated_amount": 5, "spent_amount": 0, ' \
+               '"percentage_used": 0, "is_exceeded": false}, {"main_category": "Nope", "allocated_amount": 1}], "reasoning": "r"}'
+        res = parse(Completion(good, 1, 1, "stop"))
+        check([x.main_category for x in res["categories"]] == ["Food & Daily Living"] and res["reasoning"].startswith("r")
+              and "excluded" in res["reasoning"], "budget parse: keeps valid categories (case-insensitive), drops unknown ones", res)
+        check(all(refuses(t) for t in ("not json", "[]", '{"reasoning": "x"}', '{"categories": "x"}', '{"categories": []}',
+                                       '{"categories": [{"main_category": "Nope", "allocated_amount": 1}]}')),
+              "budget parse: bad JSON, wrong shape or no valid category is unusable")
+
+        # --- AllProvidersFailed / unusable answers: the non-AI fallbacks, as before
+        want_adjusted = [x.allocated_amount for x in bs._generate_adjusted_budgets(parent, 31)]
+        for label, fakes in (("every provider fails", {"claude": "server"}), ("bad json", {"claude": "bad_json"})):
+            health.reset()
+            use("budget_auto_create", "claude", "claude-sonnet-5-5")
+            n0 = len(await usage("budget_auto_create"))
+            stubenv.set_fake_ai(**fakes)
+            out = await auto()
+            check([x.allocated_amount for x in out] == want_adjusted and want_adjusted == [90.0]
+                  and len(await usage("budget_auto_create")) == n0,
+                  f"budget auto-create: {label} -> the adjusted (non-AI) budgets, no usage row", [x.allocated_amount for x in out])
+        stubenv.clear_fake_ai()
+        health.reset()
+
+        use("budget_suggestion", "claude", "claude-sonnet-5-5")
+        stubenv.set_fake_ai(claude="server")
+        s = await bs.BudgetAnalyzer(uid).generate_ai_suggestions(bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")
+        check(s.category_budgets and s.category_budgets[0].allocated_amount != 450
+              and any("temporarily unavailable" in w for w in s.warnings),
+              "budget suggest: every provider failing -> basic suggestions plus a warning",
+              ([x.allocated_amount for x in s.category_budgets], s.warnings))
+        stubenv.clear_fake_ai()
+
+        # --- the route: AllProvidersFailed that reaches it is a 503 with a fixed message, never a 500 with provider text
+        orig = bs.BudgetAnalyzer.generate_ai_suggestions
+
+        async def boom(self, *a, **k):
+            raise AllProvidersFailed([])
+        bs.BudgetAnalyzer.generate_ai_suggestions = boom
+        try:
+            req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
+            try:
+                await budget_routes.get_ai_budget_suggestions(req, current_user={"_id": uid})
+                err = None
+            except HTTPException as e:
+                err = e
+            check(err is not None and err.status_code == 503 and err.detail == "AI is temporarily unavailable",
+                  "route: AllProvidersFailed -> 503 'AI is temporarily unavailable'", (err and (err.status_code, err.detail)))
+        finally:
+            bs.BudgetAnalyzer.generate_ai_suggestions = orig
+        check(not hasattr(bs, "AsyncOpenAI") and "gpt-4o-mini" not in open(bs.__file__, encoding="utf-8").read()
+              and "track_ai_usage" not in open(bs.__file__, encoding="utf-8").read(),
+              "budget_service: no direct OpenAI call, hard-coded model or own usage tracking is left")
+    finally:
+        stubenv.clear_fake_ai()
+        health.reset()
+        settings._env, settings._panel = saved[0], saved[2]
+        settings._env_units.clear()
+        settings._env_units.update(saved[1])
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -2622,6 +2881,12 @@ async def all_async_checks():
         import traceback
         traceback.print_exc()
         check(False, "insight_checks ran to completion", repr(e))
+    try:
+        await budget_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "budget_checks ran to completion", repr(e))
 
 
 def stub_mode_checks():

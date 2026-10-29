@@ -234,8 +234,15 @@ def _stream_delay():
 
 
 def _canned_json(prompt):
-    """The JSON the fakes answer a transaction-extraction prompt with: one transaction, or several."""
+    """The JSON the fakes answer a JSON-mode prompt with: a budget (budget prompts), else one transaction or several."""
     today = __import__("datetime").date.today().isoformat()
+    if "allocated_amount" in prompt:  # the budget prompts (suggestions and auto-create) show this field in their format
+        return json.dumps({"categories": [
+            {"main_category": "Food & Daily Living", "allocated_amount": 450, "spent_amount": 0,
+             "percentage_used": 0, "is_exceeded": False},
+            {"main_category": "Transportation", "allocated_amount": 120, "spent_amount": 0,
+             "percentage_used": 0, "is_exceeded": False}],
+            "reasoning": "Fake budget based on your recent spending."})
     if '\\"transactions\\"' in prompt or "multiple" in prompt.lower():
         body = {"transactions": [
             {"type": "expense", "main_category": "Food & Drinks", "sub_category": "Lunch", "date": today,
