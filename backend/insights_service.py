@@ -21,6 +21,7 @@ import re
 from typing import Optional
 from ai_usage_service import track_ai_usage
 from ai_usage_models import AIFeatureType, AIProviderType
+from ai_providers import errors as _errors
 
 logger = logging.getLogger(__name__)
 
@@ -79,30 +80,15 @@ class InsightAIError(Exception):
         self.provider = provider
 
 
-_RATE_LIMIT_TEXT = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|rate[ _-]?limit|too many requests|quota", re.IGNORECASE)
-
-# Out of credit / billing problems. Providers report these with rate-limit-like codes
-# (Gemini: 402 RESOURCE_EXHAUSTED "prepayment credits are depleted"; OpenAI: 429
-# insufficient_quota), but waiting a few minutes won't help: someone must top up.
-_BILLING_TEXT = re.compile(
-    r"credits? (are |is )?depleted|insufficient[_ ]quota|billing|prepay|payment required|exceeded your current quota",
-    re.IGNORECASE,
-)
+# The patterns and matching logic live in ai_providers.errors; these are thin wrappers so the
+# names used by main.py and the insights code keep working.
+_RATE_LIMIT_TEXT = _errors.RATE_LIMIT_TEXT
+_BILLING_TEXT = _errors.BILLING_TEXT
 
 
 def is_billing_error(exc: Optional[BaseException]) -> bool:
     """True when the AI provider refused for lack of credit/billing, following __cause__/__context__."""
-    seen = set()
-    while exc is not None and id(exc) not in seen:
-        seen.add(id(exc))
-        for attr in ("code", "status_code"):
-            value = getattr(exc, attr, None)
-            if value == 402 or str(value) in ("402", "insufficient_quota"):
-                return True
-        if _BILLING_TEXT.search(str(exc) or ""):
-            return True
-        exc = exc.__cause__ or exc.__context__
-    return False
+    return _errors.is_billing_error(exc)
 
 
 def is_rate_limit_error(exc: Optional[BaseException]) -> bool:
@@ -111,30 +97,7 @@ def is_rate_limit_error(exc: Optional[BaseException]) -> bool:
     Billing / out-of-credit refusals are excluded (see is_billing_error): they are not
     transient, so telling users to retry in a few minutes would be wrong.
     """
-    if is_billing_error(exc):
-        return False
-    try:
-        from openai import RateLimitError as _OpenAIRateLimitError
-    except Exception:  # pragma: no cover - openai always installed in prod
-        _OpenAIRateLimitError = None
-    seen = set()
-    while exc is not None and id(exc) not in seen:
-        seen.add(id(exc))
-        if isinstance(exc, InsightAIError) and exc.rate_limited:
-            return True
-        if _OpenAIRateLimitError is not None and isinstance(exc, _OpenAIRateLimitError):
-            return True
-        for attr in ("code", "status_code"):
-            value = getattr(exc, attr, None)
-            if value == 429 or str(value) == "429":
-                return True
-        status_value = str(getattr(exc, "status", "") or "")
-        if "RESOURCE_EXHAUSTED" in status_value.upper() or status_value == "429":
-            return True
-        if _RATE_LIMIT_TEXT.search(str(exc) or ""):
-            return True
-        exc = exc.__cause__ or exc.__context__
-    return False
+    return _errors.is_rate_limit_error(exc, extra=lambda e: isinstance(e, InsightAIError) and e.rate_limited)
 
 
 # Stored insights always have non-blank content (enforced by the database; legacy

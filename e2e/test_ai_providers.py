@@ -585,12 +585,247 @@ async def panel_checks():
             settings._env_units.update(saved_env[1])
 
 
+def error_checks():
+    """Task 4: error classification, redaction and the insights wrappers. Pure Python."""
+    import httpx
+
+    from ai_providers import errors
+    from ai_providers.errors import AllProvidersFailed, ProviderFailure, classify, redact
+
+    # each fake failure kind maps to its failure kind (claude differs for billing and server statuses)
+    stubenv.clear_fake_ai()
+    expected = {"billing": "billing", "auth": "auth", "rate_limit": "rate_limit", "server": "server",
+                "model_not_found": "model_not_found", "echo_key": "auth", "bad_request": None}
+    for kind_name, want in expected.items():
+        for p in ("openai", "gemini", "claude"):
+            try:
+                stubenv._raise_for(p, kind_name)
+                got = "no error raised"
+            except stubenv.FakeAPIError as e:
+                f = classify(e, p, "m")
+                got = None if f is None else f.kind
+                if f is not None and (f.provider, f.model) != (p, "m"):
+                    got = f"wrong target {f.provider}/{f.model}"
+            check(got == want, f"classify_table: {p} {kind_name} -> {want}", got)
+    check(classify(TimeoutError(), "openai", "m").kind == "timeout", "classify_table: TimeoutError -> timeout")
+    check(classify(asyncio.TimeoutError(), "openai", "m").kind == "timeout", "classify_table: asyncio.TimeoutError -> timeout")
+    check(classify(ValueError("x"), "openai", "m") is None, "classify_table: ValueError -> None")
+    check(classify(Exception("boom"), "openai", "m") is None, "classify_table: plain Exception -> None")
+    check(classify(stubenv.FakeAPIError(422, None, "unprocessable"), "openai", "m") is None, "classify_table: 422 -> None")
+
+    # SDK timeout / connection errors (all three SDKs) and httpx network errors are timeouts
+    req = httpx.Request("POST", "http://x.test")
+    sdk = [openai.APITimeoutError(request=req), openai.APIConnectionError(request=req),
+           anthropic.APITimeoutError(request=req), anthropic.APIConnectionError(request=req),
+           httpx.ReadTimeout("t"), httpx.ConnectError("c")]
+    got = [getattr(classify(e, "x", "m"), "kind", None) for e in sdk]
+    check(got == ["timeout"] * len(sdk), "classify_sdk_timeouts: openai/anthropic/httpx network errors -> timeout", got)
+
+    # real SDK status errors
+    resp = httpx.Response(429, request=req)
+    check(classify(openai.RateLimitError("slow down", response=resp, body=None), "openai", "m").kind == "rate_limit",
+          "classify_sdk_status: openai.RateLimitError -> rate_limit")
+    resp = httpx.Response(401, request=req)
+    check(classify(anthropic.AuthenticationError("bad key", response=resp, body=None), "claude", "m").kind == "auth",
+          "classify_sdk_status: anthropic.AuthenticationError -> auth")
+    resp = httpx.Response(529, request=req)
+    check(classify(anthropic.APIStatusError("overloaded", response=resp, body=None), "claude", "m").kind == "server",
+          "classify_sdk_status: anthropic 529 -> server")
+    from google.genai import errors as genai_errors
+    e = genai_errors.ClientError(429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+    check(classify(e, "gemini", "m").kind == "rate_limit", "classify_sdk_status: genai 429 RESOURCE_EXHAUSTED -> rate_limit")
+    e = genai_errors.ServerError(503, {"error": {"code": 503, "message": "down", "status": "UNAVAILABLE"}})
+    check(classify(e, "gemini", "m").kind == "server", "classify_sdk_status: genai 503 -> server")
+
+    # billing is recognised before the generic 400 rule and before rate_limit
+    f = classify(stubenv.FakeAPIError(400, None, "Your credit balance is too low to access the Anthropic API."), "claude", "m")
+    check(f is not None and f.kind == "billing", "classify_claude_billing_400", f)
+    f = classify(stubenv.FakeAPIError(429, "insufficient_quota", "You exceeded your current quota"), "openai", "m")
+    check(f is not None and f.kind == "billing", "classify: openai 429 insufficient_quota is billing, not rate_limit", f)
+    f = classify(stubenv.FakeAPIError(402, "RESOURCE_EXHAUSTED", "prepayment credits are depleted"), "gemini", "m")
+    check(f is not None and f.kind == "billing", "classify: gemini 402 RESOURCE_EXHAUSTED is billing", f)
+    f = classify(stubenv.FakeAPIError(400, None, "The model `gpt-5x` does not exist"), "openai", "gpt-5x")
+    check(f is not None and f.kind == "model_not_found", "classify: 400 'model ... does not exist' -> model_not_found", f)
+
+    # the cause chain is walked
+    try:
+        try:
+            raise stubenv.FakeAPIError(429, "rate_limit_exceeded", "Rate limit reached")
+        except stubenv.FakeAPIError as inner:
+            raise RuntimeError("wrapper") from inner
+    except RuntimeError as outer:
+        f = classify(outer, "openai", "m")
+        check(f is not None and f.kind == "rate_limit", "classify: walks __cause__", f)
+
+    # redaction
+    for secret in ("sk-e2eSECRETabcdef123", "AIzaSyAbcdefghijk123", "sk-ant-api03-abcdef", "sk-proj-abcd1234"):
+        out = redact(f"Incorrect API key provided: {secret}. You can find your key at https://x.test")
+        check(secret not in out and "[redacted]" in out and "sk-e2e" not in out and "AIza" not in out
+              and "sk-ant" not in out, f"redact_keys: {secret[:6]}...", out)
+    check(redact("sk-proj-********************abcd rest").strip() == "[redacted] rest",
+          "redact_keys: OpenAI masked key form leaves no tail", redact("sk-proj-********************abcd rest"))
+    long = redact("x" * 1000)
+    check(len(long) <= 300, "redact: truncated to 300 characters", len(long))
+    check(redact("a" * 290 + " sk-e2eSECRETabcdef123").count("sk-") == 0,
+          "redact: a key near the truncation point is redacted before truncating")
+    check(redact("plain message") == "plain message", "redact: leaves ordinary text alone")
+    f = classify(stubenv.FakeAPIError(401, "invalid_api_key", "Incorrect API key provided: sk-e2eSECRETabcdef123"), "openai", "m")
+    check("sk-e2e" not in f.message and "[redacted]" in f.message, "classify: failure message is redacted", f.message)
+
+    # AllProvidersFailed
+    fs = [ProviderFailure("openai", "a", "rate_limit", ""), ProviderFailure("gemini", "b", "rate_limit", "")]
+    check(AllProvidersFailed(fs).all_rate_limited and AllProvidersFailed(fs).failures == fs,
+          "AllProvidersFailed: all_rate_limited when every failure is rate_limit")
+    check(not AllProvidersFailed(fs + [ProviderFailure("claude", "c", "auth", "")]).all_rate_limited
+          and not AllProvidersFailed([]).all_rate_limited, "AllProvidersFailed: mixed or empty is not all_rate_limited")
+    check(issubclass(errors.UnusableAnswer, Exception) and "unusable" in errors.KINDS and len(errors.KINDS) == 9,
+          "errors: KINDS and UnusableAnswer")
+
+    # insights_service keeps its public helpers, now backed by errors.py
+    import insights_service as ins
+    billing = RuntimeError("Your credit balance is too low")
+    check(ins.is_billing_error(billing) and not ins.is_rate_limit_error(billing),
+          "insights_wrappers: billing wins over rate limit")
+    check(ins.is_rate_limit_error(stubenv.FakeAPIError(429, None, "x")), "insights_wrappers: 429 is a rate limit")
+    wrapped = RuntimeError("outer")
+    wrapped.__cause__ = ins.InsightAIError("inner", rate_limited=True)
+    check(ins.is_rate_limit_error(wrapped), "insights_wrappers: InsightAIError(rate_limited) found through __cause__")
+    check(not ins.is_rate_limit_error(ins.InsightAIError("inner", rate_limited=False)) and not ins.is_rate_limit_error(None),
+          "insights_wrappers: unrelated errors and None are not rate limits")
+    check(ins.is_rate_limit_error(Exception("Error 429 too many requests")) and ins.is_rate_limit_error(Exception("RESOURCE_EXHAUSTED")),
+          "insights_wrappers: text patterns still match")
+    check(ins._RATE_LIMIT_TEXT.search("rate limit") and ins._BILLING_TEXT.search("insufficient_quota"),
+          "insights_wrappers: _RATE_LIMIT_TEXT and _BILLING_TEXT still exported")
+
+
+async def health_checks():
+    """Task 4: cool-off state. Resets health after itself so later checks start clean."""
+    from ai_providers import health
+    from ai_providers.errors import ProviderFailure
+    from ai_providers.types import Target
+
+    PF = ProviderFailure
+    T = Target
+    haiku, sonnet = T("claude", "claude-haiku-5-5"), T("claude", "claude-sonnet-5-5")
+    typo = T("claude", "claude-typo")
+    t0 = 1_000_000.0
+    health.reset()
+    try:
+        check(health.is_available(typo, t0) and health.is_available(T("openai", "gpt-4o"), t0), "health: starts available")
+
+        # model_not_found cools only that provider+model
+        health.mark_failure(PF("claude", "claude-typo", "model_not_found", ""), t0)
+        check(not health.is_available(typo, t0), "cooloff_model_scoped: the typo'd pair is unavailable")
+        check(health.is_available(sonnet, t0) and health.is_available(T("openai", "gpt-4o"), t0),
+              "cooloff_model_scoped: other claude models and providers stay available")
+        check(not health.is_available(typo, t0 + 299) and health.is_available(typo, t0 + 301)
+              and health.is_available(sonnet, t0 + 301), "cooloff_model_scoped: both available at +301 s")
+        snap = health.snapshot(t0 + 10)
+        check(snap["claude"]["cooling_until"] is None and list(snap["claude"]["cooling_models"]) == ["claude-typo"]
+              and abs(snap["claude"]["cooling_models"]["claude-typo"] - (t0 + 300)) < 1e-6
+              and snap["openai"] == {"cooling_until": None, "cooling_models": {}},
+              "health_snapshot: lists the cooled model and no provider cooling", snap)
+        snap = health.snapshot(t0 + 301)
+        check(snap["claude"]["cooling_models"] == {}, "health_snapshot: expired model cooling is not listed", snap)
+
+        # billing/auth/not_configured cool the whole provider for 300 s
+        for kind in ("billing", "auth", "not_configured"):
+            health.reset()
+            health.mark_failure(PF("claude", "claude-sonnet-5-5", kind, ""), t0)
+            check(not health.is_available(sonnet, t0) and not health.is_available(haiku, t0)
+                  and not health.is_available(typo, t0 + 299)
+                  and health.is_available(T("openai", "gpt-4o"), t0),
+                  f"cooloff_provider_scoped: {kind} makes every claude model unavailable", kind)
+            check(health.is_available(sonnet, t0 + 301) and health.is_available(haiku, t0 + 301),
+                  f"cooloff_provider_scoped: {kind} clears after 300 s")
+        health.reset()
+        health.mark_failure(PF("claude", "claude-sonnet-5-5", "billing", ""), t0)
+        snap = health.snapshot(t0 + 5)
+        check(abs(snap["claude"]["cooling_until"] - (t0 + 300)) < 1e-6, "health_snapshot: provider cooling_until", snap)
+
+        # R2: a success proves the provider works again
+        health.mark_success(T("claude", "claude-sonnet-5-5"))
+        check(all(health.is_available(m, t0 + 1) for m in (sonnet, haiku, typo)),
+              "mark_success_clears_provider_cooling: every claude model is available again")
+        health.mark_failure(PF("claude", "claude-typo", "model_not_found", ""), t0)
+        health.mark_failure(PF("claude", "claude-haiku-5-5", "model_not_found", ""), t0)
+        health.mark_success(typo)
+        check(health.is_available(typo, t0 + 1) and not health.is_available(haiku, t0 + 1),
+              "mark_success_clears_pair_cooling: only the succeeding pair is cleared")
+
+        # rate_limit: 60 s on the pair
+        health.reset()
+        health.mark_failure(PF("openai", "gpt-4o", "rate_limit", ""), t0)
+        check(not health.is_available(T("openai", "gpt-4o"), t0 + 59) and health.is_available(T("openai", "gpt-4o"), t0 + 61)
+              and health.is_available(T("openai", "gpt-4o-mini"), t0), "rate_limit_60s: unavailable until +60 s, other models fine")
+
+        # nothing for refusal / unusable / a single timeout
+        health.reset()
+        for kind in ("refusal", "unusable", "timeout"):
+            health.mark_failure(PF("gemini", "gemini-2.5-flash", kind, ""), t0)
+        check(health.is_available(T("gemini", "gemini-2.5-flash"), t0), "health: refusal, unusable and timeout never cool off")
+
+        # server needs two in a row
+        health.reset()
+        g = T("gemini", "gemini-2.5-flash")
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0)
+        check(health.is_available(g, t0), "server_needs_two: one server failure leaves the target available")
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0 + 1)
+        check(not health.is_available(g, t0 + 2) and not health.is_available(T("gemini", "gemini-2.5-pro"), t0 + 2)
+              and health.is_available(g, t0 + 302), "server_needs_two: two consecutive mark the provider unavailable for 300 s")
+        health.reset()
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0)
+        health.mark_success(g)
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0 + 1)
+        check(health.is_available(g, t0 + 2), "server_needs_two: a success in between resets the counter")
+        health.reset()
+        for i in range(2):
+            health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0)
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0 + 400)
+        check(health.is_available(g, t0 + 401), "server_needs_two: the counter restarts after a provider cool-off")
+
+        # default clock
+        health.reset()
+        health.mark_failure(PF("openai", "gpt-4o", "billing", ""))
+        check(not health.is_available(T("openai", "gpt-4o")), "health: now defaults to the wall clock")
+
+        # persistence writes to ai_provider_status and swallows database errors
+        from sql import ai_settings
+        health.reset()
+        await health.persist_failure(PF("claude", "claude-sonnet-5-5", "auth", "Invalid key [redacted]"))
+        await health.persist_success(T("gemini", "gemini-2.5-flash"))
+        st = await ai_settings.get_provider_status()
+        check(st["claude"]["last_error"] == "Invalid key [redacted]" and st["claude"]["last_error_at"] is not None
+              and st["gemini"]["last_success_at"] is not None, "persist: failure and success reach ai_provider_status", st)
+        orig = (ai_settings.record_provider_error, ai_settings.record_provider_success)
+
+        async def boom(*a, **k):
+            raise RuntimeError("db down")
+
+        ai_settings.record_provider_error = ai_settings.record_provider_success = boom
+        try:
+            await health.persist_failure(PF("claude", "m", "auth", "x"))
+            await health.persist_success(T("claude", "m"))
+            check(True, "persist: database errors are swallowed")
+        except Exception as e:  # noqa: BLE001
+            check(False, "persist: database errors are swallowed", repr(e))
+        finally:
+            ai_settings.record_provider_error, ai_settings.record_provider_success = orig
+    finally:
+        health.reset()
+        from sql.db import execute
+        from sql.tables import ai_provider_status
+        await execute(ai_provider_status.delete())
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
     await kind_checks()
     migration_checks()
     await panel_checks()
+    error_checks()
+    await health_checks()
 
 
 def stub_mode_checks():
