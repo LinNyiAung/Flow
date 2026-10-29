@@ -2962,10 +2962,36 @@ async def transaction_checks():
         before = len(outbox_lines())
         n0 = len(await usage(uid, "transaction_image_extraction"))
         r = image_post(U)
-        check(r.status_code == 400 and calls(before) == ["claude"] and "invalid image" not in r.text.lower()
-              and "Error code" not in r.text and len(await usage(uid, "transaction_image_extraction")) == n0,
-              "image_bad_request_no_fallback: 400 with a safe message, no openai call, no usage row",
+        import transaction_routes as _tr
+        check(r.status_code == 400 and r.json().get("detail") == _tr._AI_BAD_REQUEST and calls(before) == ["claude"]
+              and len(await usage(uid, "transaction_image_extraction")) == n0,
+              "image_bad_request_no_fallback: 400 with the fixed message, no openai call, no usage row",
               f"{r.status_code} {r.text[:200]} {calls(before)}")
+        admin_reset(c, AD)
+
+        # --- a request-level error with no numeric status at all: still the fixed 400, never provider text (R17)
+        for feature, post in (("transaction_text", lambda: c.post("/api/transactions/extract-from-text", headers=U, json={"text": "x 1"})),
+                              ("transaction_text", lambda: c.post("/api/transactions/extract-multiple-from-text", headers=U, json={"text": "x 1"})),
+                              ("transaction_image", lambda: image_post(U)),
+                              ("transaction_audio", lambda: audio_post(U))):
+            main = "openai" if feature == "transaction_audio" else "claude"
+            put(feature, main, "whisper-1" if main == "openai" else "claude-sonnet-5-5")
+            stubenv.set_fake_ai(**{main: "odd_error"})
+            before = len(outbox_lines())
+            r = post()
+            check(r.status_code == 400 and r.json().get("detail") == _tr._AI_BAD_REQUEST and "odd provider" not in r.text
+                  and calls(before) == [main], f"tx_odd_error_400: {feature} -> fixed 400, no provider text, no fallback",
+                  f"{r.status_code} {r.text[:200]} {calls(before)}")
+            admin_reset(c, AD)
+
+        # --- silent audio: ONE provider call, a 200 with an empty transcription, usage still tracked (R16)
+        stubenv.set_fake_ai(openai="empty")
+        before = len(outbox_lines())
+        n0 = len(await usage(uid, "transaction_audio_transcription"))
+        r = audio_post(U)
+        check(r.status_code == 200 and r.json() == {"transcription": ""} and calls(before) == ["openai"]
+              and len(await usage(uid, "transaction_audio_transcription")) == n0 + 1,
+              "audio_silence: 200 with an empty transcription after exactly one provider call", f"{r.status_code} {r.text[:200]} {calls(before)}")
         admin_reset(c, AD)
 
         # --- every provider failing: 503 with the fixed message, never provider text, no usage row
@@ -2986,8 +3012,9 @@ async def transaction_checks():
         put("transaction_audio", "openai", "whisper-1")
         stubenv.set_fake_ai(openai="billing")
         before = len(outbox_lines())
+        n0 = len(await usage(uid, "transaction_audio_transcription"))
         r = audio_post(U, language="my")
-        rows = await usage(uid, "transaction_audio_transcription")
+        rows = (await usage(uid, "transaction_audio_transcription"))[n0:]
         check(r.status_code == 200 and r.json() == {"transcription": "fake transcript"} and calls(before) == ["openai", "gemini"],
               "audio_falls_back_to_gemini: 200 transcript from gemini", f"{r.status_code} {r.text[:200]} {calls(before)}")
         check(len(rows) == 1 and rows[0]["provider"] == "gemini" and rows[0]["fallback_from"] == "openai"
@@ -3034,7 +3061,7 @@ async def _transaction_inprocess_checks(uid):
 
     import transaction_routes as tr
     from ai_providers import health, settings
-    from ai_providers.errors import UnusableAnswer
+    from ai_providers.errors import AllProvidersFailed, UnusableAnswer
     from ai_providers.types import Completion, FeatureSetting, Target
     from models import TextExtractionRequest
 
@@ -3075,9 +3102,9 @@ async def _transaction_inprocess_checks(uid):
 
         # --- the request each provider gets: today's temperature 0.3 (never to Claude), a json schema, explicit limits
         want = {
-            "transaction_text": {"openai": (2000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+            "transaction_text": {"openai": (4000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
                                  "claude": (8000, "absent", "json_schema")},
-            "transaction_text_multi": {"openai": (4096, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+            "transaction_text_multi": {"openai": (8000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
                                        "claude": (8000, "absent", "json_schema")},
             "transaction_image": {"openai": (1000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
                                   "claude": (8000, "absent", "json_schema")},
@@ -3120,19 +3147,54 @@ async def _transaction_inprocess_checks(uid):
         # --- silence transcribes to "": still a normal 200 with an empty transcription (as before the runner)
         stubenv.set_fake_ai(openai="empty", gemini="empty")
         use("transaction_audio", "openai", "whisper-1", backups=(Target("gemini", "gemini-2.5-flash"),))
+        before = len(outbox_lines())
         res = await tr.transcribe_audio(audio=UploadFile(file=io.BytesIO(b"\x00\x01"), filename="s.wav"), language=None, current_user=user)
-        check(res == {"transcription": ""}, "tx audio: every provider answering with nothing is a 200 with an empty transcription", res)
-        stubenv.set_fake_ai(openai="empty", gemini="server")
-        health.reset()
+        n_calls = [x.get("provider") for x in _outbox_ai_calls(before)]
+        check(res == {"transcription": ""} and n_calls == ["openai"],
+              "tx audio: silence is a 200 with an empty transcription after exactly one provider call", (res, n_calls))
+        key = os.environ.pop("GOOGLE_API_KEY", None)  # the next target is not configured: still the one call, still a 200
         try:
-            await tr.transcribe_audio(audio=UploadFile(file=io.BytesIO(b"\x00\x01"), filename="s.wav"), language=None, current_user=user)
-            err = None
-        except tr.HTTPException as e:
-            err = e
-        check(err is not None and err.status_code == 503, "tx audio: an empty answer plus a provider failure is still a 503",
-              err and (err.status_code, err.detail))
+            before = len(outbox_lines())
+            res = await tr.transcribe_audio(audio=UploadFile(file=io.BytesIO(b"\x00\x01"), filename="s.wav"), language=None, current_user=user)
+            n_calls = [x.get("provider") for x in _outbox_ai_calls(before)]
+        finally:
+            if key is not None:
+                os.environ["GOOGLE_API_KEY"] = key
+        check(res == {"transcription": ""} and n_calls == ["openai"],
+              "tx audio: silence with an unconfigured backup is still a 200 (one call)", (res, n_calls))
         stubenv.clear_fake_ai()
         health.reset()
+
+        # --- runner allow_empty: an empty answer that finished normally is valid (and tracked); nothing else changes
+        from ai_providers import runner as rn
+
+        def answer(text, finish):
+            async def call(client, t):
+                return Completion(text, 3, 4, finish)
+            return call
+
+        use("transaction_audio", "openai", "whisper-1", backups=(Target("gemini", "gemini-2.5-flash"),))
+        from sqlalchemy import select as _select
+
+        from sql.db import fetch_all as _fetch_all
+        from sql.tables import ai_usage as _ai_usage
+        n0 = len(await _fetch_all(_select(_ai_usage).where(_ai_usage.c.user_id == uid,
+                                                           _ai_usage.c.feature_type == "transaction_audio_transcription")))
+        r1 = await rn.run("transaction_audio", user_id=uid, call=answer("", "stop"), allow_empty=True)
+        n1 = len(await _fetch_all(_select(_ai_usage).where(_ai_usage.c.user_id == uid,
+                                                           _ai_usage.c.feature_type == "transaction_audio_transcription")))
+        check(r1.value.text == "" and r1.target.provider == "openai" and r1.fallback_from is None and n1 == n0 + 1,
+              "runner allow_empty=True: an empty stop answer is valid and tracked as usage", (r1.target, n1 - n0))
+        for label, text, finish in (("an empty answer", "", "stop"), ("a refusal", "x", "refusal"), ("a filtered answer", "x", "filtered"),
+                                    ("an empty cut-off answer", "", "length")):
+            allow = label != "an empty answer"  # the default (allow_empty False) must still reject empty
+            try:
+                await rn.run("transaction_audio", user_id=None, call=answer(text, finish), allow_empty=allow)
+                bad = False
+            except AllProvidersFailed as e:
+                bad = len(e.failures) == 2
+            check(bad, f"runner: {label} is still unusable ({'allow_empty=True' if allow else 'default'}); both targets tried", label)
+            health.reset()
         try:
             big = UploadFile(file=io.BytesIO(b"\x00" * (25 * 1024 * 1024 + 1)), filename="big.wav")
             await tr.transcribe_audio(audio=big, language=None, current_user=user)

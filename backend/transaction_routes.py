@@ -16,7 +16,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from ai_providers import runner as _runner
-from ai_providers.errors import AllProvidersFailed, UnusableAnswer, exception_chain, redact
+from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
 from utils import get_current_user, get_user_balance, get_user_money_lock, require_premium
 from goal_routes import to_cents
@@ -216,8 +216,8 @@ _MULTI_JSON_SCHEMA = {
 # Output limits per answering provider. OpenAI keeps what the routes sent before (the receipt route 1000; the text
 # routes had no limit, so these are far above any answer). Gemini's thinking tokens and Claude's thinking both
 # count toward the limit, so they get more room.
-_TEXT_MAX_TOKENS = {"openai": 2000, "gemini": 8192, "claude": 8000}
-_MULTI_MAX_TOKENS = {"openai": 4096, "gemini": 8192, "claude": 8000}
+_TEXT_MAX_TOKENS = {"openai": 4000, "gemini": 8192, "claude": 8000}
+_MULTI_MAX_TOKENS = {"openai": 8000, "gemini": 8192, "claude": 8000}
 _IMAGE_MAX_TOKENS = {"openai": 1000, "gemini": 8192, "claude": 8000}
 _TX_TEMPERATURE = 0.3  # as before; sent to OpenAI and Gemini, never to Claude
 
@@ -249,37 +249,22 @@ def _parse_extraction_json(c: Completion) -> dict:
     return data
 
 
-def _is_provider_error(e: BaseException) -> bool:
-    """True for an error raised by a provider SDK (it carries an HTTP-style status or code)."""
-    return any(isinstance(getattr(x, attr, None), int) and not isinstance(getattr(x, attr, None), bool)
-               for x in exception_chain(e) for attr in ("status_code", "code"))
-
-
-async def _run_ai(feature: str, user_id: str, call, parse=lambda c: c):
+async def _run_ai(feature: str, user_id: str, call, parse=lambda c: c, allow_empty: bool = False):
     """_runner.run for the transaction routes, with their error mapping.
 
-    AllProvidersFailed -> 503 with a fixed message; a request-level provider error (the request itself was refused,
-    e.g. an invalid image: no fallback) -> 400 with a fixed message. Provider text is only logged, redacted.
-    Anything else propagates.
+    AllProvidersFailed -> 503 with a fixed message. The runner re-raises only request-level errors (the request
+    itself was refused, e.g. an invalid image: no fallback), so any other exception escaping it -> 400 with a fixed
+    message. Either way provider text is only logged (redacted) and never reaches the response or the routes'
+    generic handlers.
     """
     try:
-        return await _runner.run(feature, user_id=user_id, call=call, parse=parse)
+        return await _runner.run(feature, user_id=user_id, call=call, parse=parse, allow_empty=allow_empty)
     except AllProvidersFailed as e:
         logger.warning(f"{feature} unavailable for user {user_id}: {e}")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_AI_UNAVAILABLE) from e
-    except HTTPException:
-        raise
     except Exception as e:
-        if not _is_provider_error(e):
-            raise
         logger.warning(f"{feature} request rejected for user {user_id}: {redact(f'{type(e).__name__}: {e}')}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_AI_BAD_REQUEST) from e
-
-
-def _only_empty_answers(e: Optional[BaseException]) -> bool:
-    """True for an AllProvidersFailed whose every provider answered, but with nothing."""
-    return isinstance(e, AllProvidersFailed) and bool(e.failures) and all(
-        f.kind == "unusable" and f.message == "empty" for f in e.failures)
 
 
 def _log_ai_usage(label: str, user_id: str, result) -> None:
@@ -813,14 +798,8 @@ async def transcribe_audio(
         async def call(client, t):
             return await client.transcribe(t.model, audio_bytes, filename, whisper_language)
 
-        try:
-            result = await _run_ai("transaction_audio", current_user["_id"], call)
-        except HTTPException as e:
-            # Silence or noise transcribes to "". The runner treats an empty answer as unusable, but before it
-            # that was a normal 200 with an empty transcription, so a chain that only gave empty answers still is.
-            if _only_empty_answers(e.__cause__):
-                return {"transcription": ""}
-            raise
+        # Silence or noise transcribes to "": that is a valid answer, not a reason to ask a backup provider.
+        result = await _run_ai("transaction_audio", current_user["_id"], call, allow_empty=True)
         _log_ai_usage("Audio Transcription", current_user["_id"], result)
         return {"transcription": result.value.text}
 

@@ -75,12 +75,14 @@ def _unusable(t: Target, e: UnusableAnswer) -> ProviderFailure:
                            redact(reason or "unusable answer"))
 
 
-def _check_answer(c: Completion) -> None:
-    """Raise UnusableAnswer for a refusal, a filtered answer or an empty one."""
+def _check_answer(c: Completion, allow_empty: bool = False) -> None:
+    """Raise UnusableAnswer for a refusal, a filtered answer or an empty one (an empty "stop" answer is fine with allow_empty)."""
     if c.finish == "refusal":
         raise UnusableAnswer("refusal")
-    if c.finish == "filtered" or not (c.text or "").strip():
-        raise UnusableAnswer("filtered" if c.finish == "filtered" else "empty")
+    if c.finish == "filtered":
+        raise UnusableAnswer("filtered")
+    if not (c.text or "").strip() and not (allow_empty and c.finish == "stop"):
+        raise UnusableAnswer("empty")
 
 
 async def _record_failure(f: ProviderFailure) -> None:
@@ -104,13 +106,14 @@ async def _succeeded(feature: str, user_id: str | None, t: Target, c: Completion
 async def run(feature: str, *, user_id: str | None,
               call: Callable[[ProviderClient, Target], Awaitable[Completion]],
               parse: Callable[[Completion], T] = lambda c: c,
-              background: bool = False) -> RunResult[T]:
+              background: bool = False, allow_empty: bool = False) -> RunResult[T]:
     """Try each target of the feature's chain until one gives a usable answer.
 
     Provider failures (see errors.classify) cool the target off and move on; an UnusableAnswer (refusal,
     empty, filtered, or raised by `parse`) moves on without a cool-off; any other error is about the request
     itself and propagates at once. With background=True a rate-limited target is retried twice (5 s, 10 s)
-    before moving on. Raises AllProvidersFailed when every target failed.
+    before moving on. With allow_empty=True an empty answer that finished normally is a valid answer (silence
+    transcribes to ""); it is still tracked as usage. Raises AllProvidersFailed when every target failed.
     """
     failures: list[ProviderFailure] = []
     for t in _targets(feature):
@@ -122,7 +125,7 @@ async def run(feature: str, *, user_id: str | None,
         for attempt in range(attempts):
             try:
                 c = await call(client, t)
-                _check_answer(c)
+                _check_answer(c, allow_empty)
                 value = parse(c)  # may raise UnusableAnswer
             except UnusableAnswer as e:
                 failures.append(_unusable(t, e))

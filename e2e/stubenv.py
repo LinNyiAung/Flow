@@ -90,7 +90,8 @@ FAKE_CONTROL = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".data",
 # key wins over the provider key for that model. A value is a kind ("billing") or {"kind": "billing", "times": N}
 # (the next N calls fail that way, then the entry is removed). See _raise_for / _begin for what each kind does.
 FAKE_PROVIDERS = ("openai", "gemini", "claude")
-_RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_not_found", "bad_request", "echo_key")
+_RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_not_found", "bad_request", "echo_key",
+                 "odd_error")  # odd_error: a plain exception with no status at all (a request-level error classify() can't place)
 # An odd successful answer, not an error. length_once: a reply cut off at the output limit (OpenAI finish_reason
 # "length", Gemini MAX_TOKENS, Claude stop_reason "max_tokens"), on the first matching call only.
 _ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once")
@@ -189,6 +190,8 @@ def _raise_for(provider, kind):
         raise FakeAPIError(400, None, "invalid image")
     if kind == "echo_key":
         raise FakeAPIError(401, "invalid_api_key", "Incorrect API key provided: sk-e2eSECRETabcdef123")
+    if kind == "odd_error":
+        raise ValueError("odd provider text: cannot use this request")
 
 
 LAST_KWARGS = {}  # provider id -> the keyword arguments of its latest fake SDK call (in-process checks read this)
