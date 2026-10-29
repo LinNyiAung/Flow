@@ -49,38 +49,6 @@ enum ResponseStyle {
   }
 }
 
-enum AIProvider {
-  openai,
-  gemini;
-
-  String getDisplayName(BuildContext context) {
-    switch (this) {
-      case AIProvider.openai:
-        return 'GPT';
-      case AIProvider.gemini:
-        return 'Gemini';
-    }
-  }
-
-  IconData get icon {
-    switch (this) {
-      case AIProvider.openai:
-        return Icons.psychology;
-      case AIProvider.gemini:
-        return Icons.auto_awesome;
-    }
-  }
-
-  Color get color {
-    switch (this) {
-      case AIProvider.openai:
-        return Color(0xFF10A37F);
-      case AIProvider.gemini:
-        return Color(0xFF4285F4);
-    }
-  }
-}
-
 class ChatMessage {
   final MessageRole role;
   final String content;
@@ -113,13 +81,11 @@ class ChatRequest {
   final String message;
   final List<ChatMessage>? chatHistory;
   final ResponseStyle? responseStyle;
-  final AIProvider? aiProvider; // NEW
 
   ChatRequest({
     required this.message,
     this.chatHistory,
     this.responseStyle,
-    this.aiProvider, // NEW
   });
 
   Map<String, dynamic> toJson() {
@@ -127,7 +93,6 @@ class ChatRequest {
       'message': message,
       'chat_history': chatHistory?.map((msg) => msg.toJson()).toList(),
       if (responseStyle != null) 'response_style': responseStyle!.name,
-      if (aiProvider != null) 'ai_provider': aiProvider!.name, // NEW
     };
   }
 }

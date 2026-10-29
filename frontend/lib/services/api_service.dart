@@ -1046,13 +1046,11 @@ class ApiService {
     required String message,
     List<ChatMessage>? chatHistory,
     ResponseStyle? responseStyle,
-    AIProvider? aiProvider, // NEW parameter
   }) async* {
     final chatRequest = ChatRequest(
       message: message,
       chatHistory: chatHistory,
       responseStyle: responseStyle ?? ResponseStyle.normal,
-      aiProvider: aiProvider ?? AIProvider.openai,
     );
 
     final request = http.Request('POST', Uri.parse('$baseUrl/api/chat/stream'));
@@ -1375,15 +1373,10 @@ class ApiService {
 
   static Future<Insight> getInsights({
     String language = 'en',
-    AIProvider? aiProvider,
-    String insightType = 'weekly', // NEW parameter
+    String insightType = 'weekly',
   }) async {
-    String url =
+    final url =
         '$baseUrl/api/insights?language=$language&insight_type=$insightType';
-
-    if (aiProvider != null) {
-      url += '&ai_provider=${aiProvider.name}';
-    }
 
     final response = await _client.get(
       Uri.parse(url),
@@ -1399,15 +1392,10 @@ class ApiService {
 
   static Future<Insight> regenerateInsights({
     String language = 'en',
-    AIProvider? aiProvider,
-    String insightType = 'weekly', // NEW parameter
+    String insightType = 'weekly',
   }) async {
-    String url =
+    final url =
         '$baseUrl/api/insights/regenerate?language=$language&insight_type=$insightType';
-
-    if (aiProvider != null) {
-      url += '&ai_provider=${aiProvider.name}';
-    }
 
     final response = await _client.post(
       Uri.parse(url),
@@ -1421,15 +1409,9 @@ class ApiService {
     }
   }
 
-  static Future<void> deleteInsights({AIProvider? aiProvider}) async {
-    String url = '$baseUrl/api/insights';
-
-    if (aiProvider != null) {
-      url += '?ai_provider=${aiProvider.name}';
-    }
-
+  static Future<void> deleteInsights() async {
     final response = await _client.delete(
-      Uri.parse(url),
+      Uri.parse('$baseUrl/api/insights'),
       headers: await _getHeaders(),
     );
 
@@ -1440,15 +1422,10 @@ class ApiService {
 
   // NEW: Method to translate existing insights
   static Future<void> translateInsightsToMyanmar({
-    AIProvider? aiProvider,
     String insightType = 'weekly',
   }) async {
-    String url =
+    final url =
         '$baseUrl/api/insights/translate-myanmar?insight_type=$insightType';
-
-    if (aiProvider != null) {
-      url += '&ai_provider=${aiProvider.name}';
-    }
 
     final response = await _client.post(
       Uri.parse(url),
@@ -1460,15 +1437,9 @@ class ApiService {
     }
   }
 
-  static Future<void> refreshAiData({AIProvider? aiProvider}) async {
-    String url = '$baseUrl/api/chat/refresh-data';
-
-    if (aiProvider != null) {
-      url += '?ai_provider=${aiProvider.name}';
-    }
-
+  static Future<void> refreshAiData() async {
     final response = await _client.post(
-      Uri.parse(url),
+      Uri.parse('$baseUrl/api/chat/refresh-data'),
       headers: await _getHeaders(),
     );
 

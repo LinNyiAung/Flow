@@ -23,7 +23,6 @@ class ChatProvider with ChangeNotifier {
   int _requestId = 0;
 
   ResponseStyle _responseStyle = ResponseStyle.normal;
-  AIProvider _aiProvider = AIProvider.gemini;
 
   List<ChatMessage> get messages => _messages;
   bool get isLoading => _isLoading;
@@ -32,7 +31,6 @@ class ChatProvider with ChangeNotifier {
   bool get isStreaming => _isStreaming;
   String get currentStreamingMessage => _currentStreamingMessage;
   ResponseStyle get responseStyle => _responseStyle;
-  AIProvider get aiProvider => _aiProvider;
 
   /// Clears all per-user state (called on logout / user switch).
   void reset() {
@@ -48,12 +46,6 @@ class ChatProvider with ChangeNotifier {
     _currentStreamingMessage = '';
     _streamingIndex = null;
     _responseStyle = ResponseStyle.normal;
-    _aiProvider = AIProvider.gemini;
-    notifyListeners();
-  }
-
-  void setAIProvider(AIProvider provider) {
-    _aiProvider = provider;
     notifyListeners();
   }
 
@@ -133,7 +125,6 @@ class ChatProvider with ChangeNotifier {
         message: message,
         chatHistory: chatHistoryToSend,
         responseStyle: _responseStyle,
-        aiProvider: _aiProvider,
       );
 
       _streamSubscription = stream.listen(
@@ -231,7 +222,7 @@ class ChatProvider with ChangeNotifier {
 
   Future<void> refreshAiData() async {
     try {
-      await ApiService.refreshAiData(aiProvider: _aiProvider);
+      await ApiService.refreshAiData();
     } catch (e) {
       debugPrint('Error refreshing AI data: $e');
     }

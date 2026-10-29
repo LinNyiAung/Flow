@@ -161,7 +161,7 @@ void budgetFlows() {
           timeout: const Duration(seconds: 100));
       check(r >= 0, 'AI budget suggestion neither showed a result nor an error within 100 s (${visibleTexts().take(20).join(' | ')})');
       if (r == 1) {
-        // The fake OpenAI returns an empty plan (no categories, total 0).
+        // The fake budget_suggestion provider answers with a two-category plan.
         final hasCats = find.text(L.useThisBudget).evaluate().isNotEmpty || await scrollTo(find.text(L.useThisBudget), maxSwipes: 6);
         // ignore: avoid_print
         print('E2E_INFO|AI suggestion shown; useThisBudget visible=$hasCats; texts=${visibleTexts().take(30).join(' | ')}');
@@ -172,14 +172,12 @@ void budgetFlows() {
         await waitAny([find.text(L.failedToGenerateSuggestion), find.text(L.useThisBudget)],
             timeout: const Duration(seconds: 100));
       } else if (r == 1 && find.text(L.useThisBudget).evaluate().isNotEmpty) {
-        step('use empty AI plan');
+        // Open the plan in the budget form but do not save it: a saved budget would change the seeded data
+        // the later tests count on.
+        step('use AI plan');
         await tap(find.text(L.useThisBudget));
         await waitFor(find.byType(CreateBudgetScreen));
         await settle(800);
-        step('save with AI plan (no categories)');
-        await tap(find.descendant(of: find.byType(AppBar), matching: find.text(L.createBudget)).last);
-        await settle(1500);
-        check(find.byType(CreateBudgetScreen).evaluate().isNotEmpty, 'An empty AI plan (0 categories) was saved as a budget');
       }
       await goHome();
       await logout();
