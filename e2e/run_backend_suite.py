@@ -20,8 +20,16 @@ SUITES = ["test_api", "test_jobs", "test_jobs2", "test_regressions_all", "test_r
 # A run killed mid-check can leave the fake-AI failure control behind (stubenv.FAKE_CONTROL); the stubbed
 # server re-reads it on every fake call, so clear it before any suite starts.
 FAKE_CONTROL = os.path.join(HERE, ".data", "fake_ai.json")
-if os.path.exists(FAKE_CONTROL):
-    os.remove(FAKE_CONTROL)
+for _attempt in range(20):  # on Windows a reader (the stubbed server) can briefly lock the file
+    try:
+        os.remove(FAKE_CONTROL)
+        break
+    except FileNotFoundError:
+        break
+    except PermissionError:
+        if _attempt == 19:
+            raise
+        time.sleep(0.05)
 
 res_path = os.path.join(HERE, "api_results.json")
 if os.path.exists(res_path):

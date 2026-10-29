@@ -5,7 +5,7 @@ chunks and ends with one RunResult; it can move to the next provider only until 
 has been yielded, after which any error propagates to the caller.
 """
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -38,10 +38,20 @@ def _configured(provider: str) -> bool:
     return get_client(provider).configured()
 
 
-def _targets(feature: str) -> list[Target]:
-    """The feature's chain without cooling targets; if every target is cooling, the whole chain in order."""
+def _targets(feature: str) -> Iterator[Target]:
+    """The feature's chain without cooling targets; if every target is cooling, the whole chain in order.
+
+    Availability is checked again as each target comes up (R11): a provider-wide failure earlier in this
+    request (billing, auth...) skips the later targets of that provider. Not when everything was cooling.
+    """
     targets = chain(feature, configured=_configured)
-    return [t for t in targets if health.is_available(t)] or targets
+    available = [t for t in targets if health.is_available(t)]
+    if not available:
+        yield from targets
+        return
+    for t in available:
+        if health.is_available(t):
+            yield t
 
 
 def _effort(feature: str, t: Target) -> str | None:
@@ -159,12 +169,17 @@ async def run_stream(feature: str, *, user_id: str | None, prompt: Prompt) -> As
             if not parts:
                 _check_answer(final or Completion("", 0, 0, "stop"))
         except UnusableAnswer as e:
+            if parts:
+                raise  # never stitch text from two providers together
             failures.append(_unusable(t, e))
             continue
         except Exception as e:
-            if parts:
-                raise  # something was already yielded: too late to switch providers
             f = classify(e, t.provider, t.model)
+            if parts:
+                # Too late to switch providers, but a provider failure still counts towards cool-off and status.
+                if f is not None:
+                    await _record_failure(f)
+                raise
             if f is None:
                 raise
             await _record_failure(f)

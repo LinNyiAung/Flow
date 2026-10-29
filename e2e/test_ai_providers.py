@@ -1327,9 +1327,25 @@ async def _runner_checks(uid):
     r, _ = await go(setting=FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"), claude="refusal")
     check(isinstance(r, AllProvidersFailed) and [f.kind for f in r.failures] == ["refusal"],
           "run: refusal failure kind", r)
+    check(health.is_available(T("claude", "claude-sonnet-5-5")), "health_unchanged: refusal does not cool the target")
     r, _ = await go(setting=FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"), claude="empty")
     check(isinstance(r, AllProvidersFailed) and [f.kind for f in r.failures] == ["unusable"],
           "run: empty answer failure kind unusable", r)
+    check(health.is_available(T("claude", "claude-sonnet-5-5")), "health_unchanged: unusable does not cool the target")
+
+    # R11: a provider-wide failure skips the provider's later targets in the same request
+    health.reset()
+    two_claudes = FeatureSetting(T("claude", "claude-sonnet-5-5"),
+                                 (T("claude", "claude-haiku-5-5"), T("openai", "gpt-4o-mini")), "panel")
+    r, called = await go(setting=two_claudes, claude="billing")
+    check(isinstance(r, runner.RunResult) and r.target == T("openai", "gpt-4o-mini") and r.fallback_from == "claude"
+          and called == ["claude", "openai"], "recheck_availability: billing skips claude-haiku in the same request",
+          (r, called))
+    health.reset()
+    r, called = await go(setting=two_claudes, **{"claude@claude-sonnet-5-5": "model_not_found"})
+    check(isinstance(r, runner.RunResult) and r.target == T("claude", "claude-haiku-5-5")
+          and called == ["claude", "claude"], "recheck_availability: a model-scoped failure still tries the other model",
+          (r, called))
 
     # no_fallback_on_bad_request: the request itself is wrong, so no other provider is tried and nothing cools
     health.reset()
@@ -1386,6 +1402,8 @@ async def _runner_checks(uid):
             os.environ["ANTHROPIC_API_KEY"] = old_key
     check(isinstance(r, AllProvidersFailed) and [f.kind for f in r.failures] == ["not_configured"] and called == [],
           "not_configured: with no backups the feature fails", r)
+    check(health.is_available(T("claude", "claude-sonnet-5-5")),
+          "health_unchanged: not_configured does not cool the target")
 
     # cooled_target_skipped_next_time (the fakes are cleared: claude would answer if it were called)
     health.reset()
@@ -1489,6 +1507,49 @@ async def _runner_checks(uid):
           and called == ["claude"], "stream_no_fallback_after_chunk: one chunk, then the error; no openai call",
           (items, err, called))
     check(len(await usage_rows()) == n0, "stream_no_fallback_after_chunk: no usage row")
+
+    # a provider failure after the first chunk still counts: status records it, and two in a row cool claude
+    health.reset()
+    await execute_status_delete()
+    items, err, called = await go_stream(claude="fail_mid_stream")
+    st = await ai_settings.get_provider_status()
+    check(isinstance(err, stubenv.FakeAPIError) and (st.get("claude") or {}).get("last_error"),
+          "stream_mid_failure_recorded: claude last_error is persisted", st.get("claude"))
+    check(health.is_available(T("claude", "claude-sonnet-5-5")),
+          "stream_mid_failure_recorded: one server failure does not cool yet")
+    items, err, called = await go_stream(claude="fail_mid_stream")
+    check(isinstance(err, stubenv.FakeAPIError) and called == ["claude"]
+          and not health.is_available(T("claude", "claude-sonnet-5-5")),
+          "stream_mid_failure_recorded: a second mid-stream 503 cools claude (server streak)", (err, called))
+    items, err, called = await go_stream()
+    check(isinstance(items[-1] if items else None, runner.RunResult) and items[-1].target.provider == "openai"
+          and "claude" not in called, "stream_mid_failure_recorded: the next stream skips the cooled claude", called)
+
+    # an unusable answer after a chunk was yielded propagates instead of switching provider
+    health.reset()
+    from ai_providers.clients.base import get_client
+    claude_client = get_client("claude")
+
+    async def chunk_then_unusable(model, prompt, *, effort=None):
+        yield "partial "
+        raise UnusableAnswer("late")
+    claude_client.stream = chunk_then_unusable
+    try:
+        items, err, called = await go_stream()
+    finally:
+        del claude_client.stream
+    check(isinstance(err, UnusableAnswer) and items == ["partial "] and called == [],
+          "stream_unusable_after_chunk: propagates, no other provider is called", (items, err, called))
+
+    # R11 for streams too
+    health.reset()
+    await settings.save_panel("chat", two_claudes, "t6@x")
+    stubenv.set_fake_ai(claude="billing")
+    before = len(outbox_lines())
+    items = [x async for x in runner.run_stream("chat", user_id=uid, prompt=Prompt("s", "u"))]
+    called = [x.get("provider") for x in _outbox_ai_calls(before)]
+    check(isinstance(items[-1], runner.RunResult) and items[-1].target.provider == "openai" and called == ["claude", "openai"],
+          "recheck_availability: run_stream skips claude-haiku after a billing failure", called)
 
     health.reset()
     items, err, called = await go_stream(claude="bad_request")
