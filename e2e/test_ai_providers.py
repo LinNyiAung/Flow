@@ -226,7 +226,151 @@ async def kind_checks():
     stubenv.clear_fake_ai()
 
 
+def resolution_checks():
+    """Task 2: feature catalogue and setting resolution (environment and built-in). Pure Python."""
+    import logging
+
+    from ai_providers import features, settings
+    from ai_providers.types import FeatureSetting, Target
+    from ai_usage_models import AIFeatureType
+
+    settings.set_panel_cache({})
+    T = Target
+
+    # catalogue
+    check(features.PROVIDERS == ("openai", "gemini", "claude"), "catalogue: provider ids")
+    check(set(features.FEATURES) == {
+        "chat", "insight_weekly", "insight_monthly", "insight_translation", "budget_suggestion",
+        "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio"},
+        "catalogue: feature keys", sorted(features.FEATURES))
+    check(features.KNOWN_MODELS == {
+        "openai": ["gpt-4o-mini", "gpt-4o", "whisper-1"],
+        "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
+        "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"]}, "catalogue: known models")
+    check(all("claude" in s.allowed for k, s in features.FEATURES.items() if k != "transaction_audio")
+          and "claude" not in features.FEATURES["transaction_audio"].allowed
+          and all(s.key == k for k, s in features.FEATURES.items()), "catalogue: claude allowed except audio")
+    usage = {k: s.usage_type for k, s in features.FEATURES.items()}
+    check(usage == {
+        "chat": AIFeatureType.CHAT, "insight_weekly": AIFeatureType.WEEKLY_INSIGHT,
+        "insight_monthly": AIFeatureType.MONTHLY_INSIGHT, "insight_translation": AIFeatureType.TRANSLATION,
+        "budget_suggestion": AIFeatureType.BUDGET_SUGGESTION, "budget_auto_create": AIFeatureType.BUDGET_AUTO_CREATE,
+        "transaction_text": AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
+        "transaction_image": AIFeatureType.TRANSACTION_IMAGE_EXTRACTION,
+        "transaction_audio": AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION}, "catalogue: usage types", usage)
+    check(features.CLAUDE_EFFORT == {
+        "chat": "low", "transaction_text": "low", "transaction_image": "low", "budget_suggestion": "low",
+        "budget_auto_create": "low", "insight_weekly": "medium", "insight_monthly": "medium",
+        "insight_translation": "medium"}, "catalogue: claude effort", features.CLAUDE_EFFORT)
+    dm = lambda f, p, env=None: features.default_model(f, p, {} if env is None else env)  # noqa: E731
+    check(dm("transaction_image", "openai") == "gpt-4o"
+          and dm("transaction_audio", "openai") == "whisper-1"
+          and dm("transaction_audio", "gemini") == "gemini-2.5-flash"
+          and dm("chat", "openai") == "gpt-4o-mini"
+          and dm("chat", "gemini") == "gemini-2.5-flash"
+          and dm("chat", "claude") == "claude-sonnet-5-5",
+          "catalogue: default_model per provider and exceptions")
+    env = {"OPENAI_MODEL": "gpt-4o", "GEMINI_MODEL": "gemini-2.5-pro", "CLAUDE_MODEL": "claude-haiku-5-5"}
+    check(dm("chat", "openai", env) == "gpt-4o" and dm("chat", "gemini", env) == "gemini-2.5-pro"
+          and dm("chat", "claude", env) == "claude-haiku-5-5"
+          and dm("transaction_audio", "gemini", env) == "gemini-2.5-pro"
+          and dm("transaction_audio", "openai", env) == "whisper-1"
+          and dm("transaction_image", "openai", {"OPENAI_MODEL": "x"}) == "gpt-4o",
+          "catalogue: default_model honours OPENAI/GEMINI/CLAUDE_MODEL except the fixed exceptions")
+
+    # env parsing
+    s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "claude"})
+    check(s == FeatureSetting(T("claude", "claude-sonnet-5-5"), None, "server"), "env_unit", s)
+    check(settings.parse_env("chat", {"AI_CHAT_MODEL": "claude-haiku-5-5"}) is None,
+          "env_model_without_provider_ignored")
+    s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "claude", "AI_CHAT_MODEL": "claude-haiku-5-5"})
+    check(s is not None and s.main == T("claude", "claude-haiku-5-5"), "env: model override", s)
+    s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "openai", "AI_CHAT_BACKUPS": "none"})
+    check(s is not None and s.backups == (), "env_backups_none", s)
+    s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "openai", "AI_CHAT_BACKUPS": "gemini:gemini-2.5-pro,claude"})
+    check(s is not None and s.backups == (T("gemini", "gemini-2.5-pro"), T("claude", "claude-sonnet-5-5")),
+          "env_backups_list", s)
+
+    class Capture(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    cap = Capture()
+    logging.getLogger().addHandler(cap)
+    try:
+        s = settings.parse_env("transaction_audio", {"AI_TRANSACTION_AUDIO_PROVIDER": "claude"})
+        warned = [r for r in cap.records if r.levelno == logging.WARNING]
+        check(s is None and warned, "env_claude_audio_rejected", f"{s} {len(warned)} warnings")
+    finally:
+        logging.getLogger().removeHandler(cap)
+    check(settings.parse_env("chat", {"AI_CHAT_PROVIDER": "bogus"}) is None, "env: unknown provider skipped")
+    check(settings.parse_env("chat", {}) is None, "env: nothing set gives None")
+
+    # built-in defaults through resolve (empty environment snapshot, no panel rows)
+    settings.reload_env({})
+    expected = {
+        "chat": ("gemini", "gemini-2.5-flash"), "insight_weekly": ("gemini", "gemini-2.5-flash"),
+        "insight_monthly": ("gemini", "gemini-2.5-flash"), "insight_translation": ("gemini", "gemini-2.5-pro"),
+        "budget_suggestion": ("openai", "gpt-4o-mini"), "budget_auto_create": ("openai", "gpt-4o-mini"),
+        "transaction_text": ("openai", "gpt-4o-mini"), "transaction_image": ("openai", "gpt-4o"),
+        "transaction_audio": ("openai", "whisper-1")}
+    got = {k: settings.resolve(k) for k in features.FEATURES}
+    check(all(got[k] == FeatureSetting(T(*v), None, "default") for k, v in expected.items()),
+          "builtin_defaults", got)
+    # resolution order: env beats built-in, panel beats env
+    settings.reload_env({"AI_CHAT_PROVIDER": "claude"})
+    r = settings.resolve("chat")
+    check(r.main == T("claude", "claude-sonnet-5-5") and r.source == "server", "resolve: env beats built-in", r)
+    panel = FeatureSetting(T("openai", "gpt-4o"), (), "panel")
+    settings.set_panel_cache({"chat": panel})
+    check(settings.resolve("chat") == panel and settings.resolve("insight_weekly").source == "default",
+          "resolve: panel beats env, other features untouched")
+    settings.set_panel_cache({})
+    settings.reload_env({})
+
+    # chains
+    d = settings.resolve("chat")
+    c = settings.chain("chat", lambda p: p != "claude")
+    check(c == [T("gemini", "gemini-2.5-flash"), T("openai", "gpt-4o-mini")], "chain_default_backups", c)
+    c = settings.chain("chat", lambda p: True)
+    check(c == [T("gemini", "gemini-2.5-flash"), T("openai", "gpt-4o-mini"), T("claude", "claude-sonnet-5-5")],
+          "chain: every provider configured appends claude", c)
+    c = settings.chain("transaction_audio", lambda p: True)
+    check(c == [T("openai", "whisper-1"), T("gemini", "gemini-2.5-flash")], "chain: audio never gets claude", c)
+    settings.set_panel_cache({"chat": FeatureSetting(d.main, (), "panel")})
+    c = settings.chain("chat", lambda p: True)
+    check(c == [T("gemini", "gemini-2.5-flash")], "chain_no_backups", c)
+    settings.set_panel_cache({"chat": FeatureSetting(d.main, (T("claude", "claude-haiku-5-5"),), "panel")})
+    c = settings.chain("chat", lambda p: False)
+    check(c == [d.main, T("claude", "claude-haiku-5-5")], "chain: explicit backups kept even if unconfigured", c)
+    settings.set_panel_cache({})
+
+    # validation
+    ok = FeatureSetting(T("openai", "gpt-4o-mini"), (T("gemini", "gemini-2.5-flash"),), "panel")
+    check(settings.validate("chat", ok) == [], "validate: a good setting has no errors", settings.validate("chat", ok))
+    dup_main = FeatureSetting(T("openai", "gpt-4o-mini"), (T("openai", "gpt-4o-mini"),), "panel")
+    e = settings.validate("chat", dup_main)
+    check(len(e) == 1, "validate_duplicates: backup equal to main", e)
+    dup_backup = FeatureSetting(T("openai", "gpt-4o-mini"),
+                                (T("gemini", "gemini-2.5-flash"), T("gemini", "gemini-2.5-flash")), "panel")
+    e = settings.validate("chat", dup_backup)
+    check(len(e) == 1, "validate_duplicates: repeated backup", e)
+    e = settings.validate("chat", FeatureSetting(T("nope", "x"), None, "panel"))
+    check(len(e) == 1, "validate: unknown provider", e)
+    e = settings.validate("transaction_audio", FeatureSetting(T("claude", "claude-sonnet-5-5"), None, "panel"))
+    check(len(e) == 1, "validate: provider not allowed for the feature", e)
+    e = settings.validate("chat", FeatureSetting(T("openai", ""), None, "panel"))
+    check(len(e) == 1, "validate: empty model", e)
+    e = settings.validate("transaction_audio", FeatureSetting(T("openai", "whisper-1"), (T("claude", "claude-haiku-5-5"),), "panel"))
+    check(len(e) == 1, "validate: backup provider not allowed", e)
+
+
 async def all_async_checks():
+    resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
     await kind_checks()
 
