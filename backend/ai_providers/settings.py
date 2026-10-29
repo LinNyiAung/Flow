@@ -1,7 +1,10 @@
 """Resolve a feature's provider setting: admin panel, then environment, then built-in default."""
+import asyncio
 import logging
 import os
 from collections.abc import Callable, Mapping
+
+from sql import ai_settings as store
 
 from .features import FEATURES, MODEL_ENV_VARS, PROVIDERS, builtin_default, default_model
 from .types import FeatureSetting, Target
@@ -134,3 +137,85 @@ def chain(feature: str, configured: Callable[[str], bool]) -> list[Target]:
     defaults = [Target(p, default_model(feature, p, env)) for p in PROVIDERS
                 if p in spec.allowed and p != s.main.provider and configured(p)]
     return [s.main, *defaults]
+
+
+# ---- admin-panel layer: database rows <-> the in-memory cache that resolve() reads ----
+
+def _row_to_setting(row: Mapping) -> FeatureSetting:
+    """A stored row as a FeatureSetting (raises ValueError/KeyError/TypeError if it is malformed)."""
+    raw = row["backups"]
+    backups: tuple[Target, ...] | None
+    if raw is None:
+        backups = None
+    elif isinstance(raw, list):
+        backups = tuple(Target(str(b["provider"]), str(b["model"])) for b in raw)
+    else:
+        raise ValueError("backups is not a list")
+    return FeatureSetting(Target(row["main_provider"], row["main_model"]), backups, "panel")
+
+
+async def load_panel() -> None:
+    """Read every stored setting into the cache. A row that is malformed or fails validation is logged and skipped."""
+    rows: dict[str, FeatureSetting] = {}
+    for row in await store.list_feature_settings():
+        feature = row.get("feature")
+        try:
+            setting = _row_to_setting(row)
+        except (ValueError, KeyError, TypeError) as e:
+            logger.warning("Ignoring the stored AI setting for %r: %s", feature, e)
+            continue
+        errors = validate(feature, setting)
+        if errors:
+            logger.warning("Ignoring the stored AI setting for %r: %s", feature, "; ".join(errors))
+            continue
+        rows[feature] = setting
+    set_panel_cache(rows)
+
+
+async def save_panel(feature: str, s: FeatureSetting, admin_email: str) -> None:
+    """Validate, store and cache an admin-panel setting. Raises ValueError(list_of_errors) if it is invalid."""
+    errors = validate(feature, s)
+    if errors:
+        raise ValueError(errors)
+    backups = None if s.backups is None else [{"provider": b.provider, "model": b.model} for b in s.backups]
+    await store.upsert_feature_setting(feature, s.main.provider, s.main.model, backups, admin_email)
+    set_panel_cache({**_panel, feature: FeatureSetting(s.main, s.backups, "panel")})
+
+
+async def clear_panel(feature: str) -> None:
+    """Remove a feature's panel setting; it then falls back to the environment, then the built-in default."""
+    await store.delete_feature_setting(feature)
+    set_panel_cache({k: v for k, v in _panel.items() if k != feature})
+
+
+_refresh_task: asyncio.Task | None = None
+
+
+async def _refresh_forever(interval: float) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await load_panel()
+        except Exception:  # noqa: BLE001 - keep the last good cache and try again next round
+            logger.exception("Could not refresh the AI settings from the database")
+
+
+def start_refresh_loop(interval: float = 60.0) -> asyncio.Task:
+    """Reload the panel cache every `interval` seconds on the running event loop (call once from app startup).
+
+    Never started at import. Calling it again while the task is alive returns the same task.
+    """
+    global _refresh_task
+    loop = asyncio.get_running_loop()
+    if _refresh_task is not None and not _refresh_task.done() and _refresh_task.get_loop() is loop:
+        return _refresh_task
+    _refresh_task = loop.create_task(_refresh_forever(interval), name="ai-settings-refresh")
+    return _refresh_task
+
+
+def setting_warnings(s: FeatureSetting, configured: Callable[[str], bool]) -> list[str]:
+    """Warnings for a setting: one if its main provider has no API key configured."""
+    if configured(s.main.provider):
+        return []
+    return [f"The main provider '{s.main.provider}' is not configured (no API key); "
+            "requests will skip it and use the backups."]

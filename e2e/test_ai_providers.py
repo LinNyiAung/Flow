@@ -448,10 +448,149 @@ def _resolution_checks():
     check(len(e) == 1, "validate: backup provider not allowed", e)
 
 
+def migration_checks():
+    """Task 3: the Alembic revision created the tables/columns and relaxed the insights CHECK."""
+    import psycopg
+
+    dsn = os.environ["DATABASE_URL"]
+    try:
+        with psycopg.connect(dsn) as conn:  # not autocommit: everything below is rolled back
+            have = {r[0] for r in conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")}
+            cols = {r[0] for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'ai_usage'")}
+            ok = {"ai_feature_settings", "ai_provider_status"} <= have and "fallback_from" in cols
+            check(ok, "migration_applied: new tables and ai_usage.fallback_from exist", f"{sorted(have)} {sorted(cols)}")
+            try:
+                conn.execute("INSERT INTO users (id, name, email, password) VALUES ('t3-user','t','t3@x.test','x')")
+                conn.execute("INSERT INTO insights (id, user_id, insight_type, ai_provider, content) "
+                             "VALUES ('t3-ins','t3-user','weekly','claude','hello')")
+                check(True, "migration_applied: insights accept ai_provider='claude'")
+            except Exception as e:  # noqa: BLE001
+                check(False, "migration_applied: insights accept ai_provider='claude'", repr(e))
+            conn.rollback()
+            for provider, expect_ok in (("claude", True), ("bogus", False)):
+                try:
+                    conn.execute("INSERT INTO users (id, name, email, password) VALUES ('t3-user','t','t3@x.test','x')")
+                    conn.execute("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, fallback_from) "
+                                 "VALUES ('t3-use','t3-user','chat','openai','m', %s)", (provider,))
+                    got = True
+                except Exception:  # noqa: BLE001
+                    got = False
+                check(got == expect_ok, f"migration_applied: ai_usage.fallback_from {provider!r} {'accepted' if expect_ok else 'rejected'}")
+                conn.rollback()
+    except Exception as e:  # noqa: BLE001
+        check(False, "migration_applied", repr(e))
+
+
+async def panel_checks():
+    """Task 3: the admin-panel layer (database rows -> cache -> resolve). Restores the panel cache and rows."""
+    from ai_providers import settings
+    from ai_providers.types import FeatureSetting, Target
+    from sql import ai_settings
+
+    T = Target
+    saved_env = (settings._env, dict(settings._env_units), settings._panel)
+    try:
+        settings.set_panel_cache({})
+        settings.reload_env({"AI_CHAT_PROVIDER": "claude"})
+        await settings.clear_panel("chat")
+        await settings.save_panel("chat", FeatureSetting(T("openai", "gpt-4o"), (), "panel"), "t@x")
+        r = settings.resolve("chat")
+        check(r.main == T("openai", "gpt-4o") and r.backups == () and r.source == "panel",
+              "panel_wins_over_env", r)
+        rows = await ai_settings.list_feature_settings()
+        row = next((x for x in rows if x["feature"] == "chat"), None)
+        check(row is not None and row["main_provider"] == "openai" and row["updated_by"] == "t@x"
+              and row["backups"] == [], "panel: save_panel upserts the row", row)
+
+        await settings.clear_panel("chat")
+        r = settings.resolve("chat")
+        check(r.source == "server" and r.main.provider == "claude", "clear_panel_falls_back_to_env", r)
+        check(not any(x["feature"] == "chat" for x in await ai_settings.list_feature_settings()),
+              "panel: clear_panel deletes the row")
+
+        # None (default backups) and () (no backups) and a list stay distinct through save and reload
+        for backups in (None, (), (T("gemini", "gemini-2.5-pro"),)):
+            await settings.save_panel("chat", FeatureSetting(T("openai", "gpt-4o"), backups, "panel"), "t@x")
+            settings.set_panel_cache({})
+            await settings.load_panel()
+            got = settings.resolve("chat")
+            check(got.source == "panel" and got.backups == backups, f"backups_null_vs_empty_roundtrip: {backups!r}", got)
+
+        # save_panel validates and leaves the previous setting alone
+        try:
+            await settings.save_panel("chat", FeatureSetting(T("openai", "gpt-4o"), (T("openai", "gpt-4o"),), "panel"), "t@x")
+            check(False, "panel: invalid setting raises ValueError", "no error")
+        except ValueError as e:
+            check(isinstance(e.args[0], list) and len(e.args[0]) == 1, "panel: invalid setting raises ValueError(list)", e.args)
+        check(settings.resolve("chat").backups == (T("gemini", "gemini-2.5-pro"),),
+              "panel: a rejected save keeps the previous setting")
+
+        # load_panel skips (and logs) invalid rows
+        await ai_settings.upsert_feature_setting("transaction_audio", "claude", "claude-sonnet-5-5", None, "t@x")
+        await ai_settings.upsert_feature_setting("chat", "openai", "gpt-4o", [{"provider": "bogus", "model": "x"}], "t@x")
+        settings.set_panel_cache({})
+        await settings.load_panel()
+        check("transaction_audio" not in settings._panel and settings.resolve("transaction_audio").source != "panel",
+              "panel: load_panel skips a row that fails validation")
+        check(settings.resolve("chat").source != "panel", "panel: load_panel skips a row with a bad backup")
+        await settings.clear_panel("transaction_audio")
+        await settings.clear_panel("chat")
+
+        # warnings
+        s = FeatureSetting(T("claude", "claude-sonnet-5-5"), None, "panel")
+        w = settings.setting_warnings(s, lambda p: p != "claude")
+        check(len(w) == 1 and "claude" in w[0].lower(), "setting_warnings: unconfigured main warns", w)
+        check(settings.setting_warnings(s, lambda p: True) == [], "setting_warnings: configured main is clean")
+
+        # provider status rows
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        await ai_settings.record_provider_error("claude", "boom", now)
+        await ai_settings.record_provider_success("claude", now)
+        await ai_settings.record_provider_success("gemini", now)
+        st = await ai_settings.get_provider_status()
+        check(st["claude"]["last_error"] == "boom" and st["claude"]["last_success_at"] is not None
+              and st["gemini"]["last_error"] is None and st["gemini"]["last_success_at"] is not None,
+              "status: error and success are stored independently per provider", st)
+        await ai_settings.record_provider_success("openai", now)
+        check(await ai_settings.delete_feature_setting("nope") is False, "delete_feature_setting: false when absent")
+
+        # the refresh loop is an asyncio task that picks up changes made behind the cache's back
+        settings.set_panel_cache({})
+        await ai_settings.upsert_feature_setting("chat", "openai", "gpt-4o", None, "t@x")
+        task = settings.start_refresh_loop(interval=0.2)
+        try:
+            await asyncio.sleep(0.8)
+            check(settings.resolve("chat").source == "panel", "panel: refresh loop reloads the cache")
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    finally:
+        async def cleanup():
+            for f in ("chat", "transaction_audio"):
+                await ai_settings.delete_feature_setting(f)
+            from sql.db import execute
+            from sql.tables import ai_provider_status
+            await execute(ai_provider_status.delete())
+        try:
+            await cleanup()
+        finally:
+            settings._env, settings._panel = saved_env[0], saved_env[2]
+            settings._env_units.clear()
+            settings._env_units.update(saved_env[1])
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
     await kind_checks()
+    migration_checks()
+    await panel_checks()
 
 
 def stub_mode_checks():

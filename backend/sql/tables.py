@@ -232,7 +232,7 @@ insights = Table(
     Column("expires_at", TS),
     Column("generated_at", TS, nullable=False, server_default=func.now()),
     CheckConstraint("insight_type IN ('weekly','monthly')", name="insight_type"),
-    CheckConstraint("ai_provider IN ('openai','gemini')", name="ai_provider"),
+    CheckConstraint("ai_provider IN ('openai','gemini','claude')", name="ai_provider"),
     CheckConstraint("btrim(content) <> ''", name="content_not_blank"),
 )
 Index("ix_insights_latest", insights.c.user_id, insights.c.ai_provider, insights.c.insight_type,
@@ -272,10 +272,33 @@ ai_usage = Table(
     Column("estimated_cost_usd", Numeric(12, 6), nullable=False, server_default="0"),
     CheckConstraint("estimated_cost_usd >= 0 AND estimated_cost_usd < 1e6", name="cost_finite"),
     Column("created_at", TS, nullable=False, server_default=func.now()),
+    # The provider that failed before this one answered (a fallback happened); NULL = no fallback.
+    Column("fallback_from", Text),
+    CheckConstraint("fallback_from IS NULL OR fallback_from IN ('openai','gemini','claude')", name="fallback_from"),
 )
 Index("ix_ai_usage_created", ai_usage.c.created_at)
 Index("ix_ai_usage_user_created", ai_usage.c.user_id, ai_usage.c.created_at)
 Index("ix_ai_usage_feature_created", ai_usage.c.feature_type, ai_usage.c.created_at)
+
+# Admin-panel AI provider settings (one row per feature that has an override) and per-provider health.
+ai_feature_settings = Table(
+    "ai_feature_settings", metadata,
+    Column("feature", Text, primary_key=True),
+    Column("main_provider", Text, nullable=False),
+    Column("main_model", Text, nullable=False),
+    # NULL = default backups; [] = no backups; else a list of {"provider", "model"}.
+    Column("backups", JSONB),
+    Column("updated_at", TS, nullable=False, server_default=func.now()),
+    Column("updated_by", Text),
+)
+
+ai_provider_status = Table(
+    "ai_provider_status", metadata,
+    Column("provider", Text, primary_key=True),
+    Column("last_error", Text),
+    Column("last_error_at", TS),
+    Column("last_success_at", TS),
+)
 
 admins = Table(
     "admins", metadata,
