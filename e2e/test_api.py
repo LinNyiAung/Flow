@@ -702,12 +702,16 @@ def t_ai():
     ok("chat history", c.get("/api/chat/history", headers=H(A)).status_code == 200, "")
     ok("clear chat history", c.delete("/api/chat/history", headers=H(A)).status_code == 200, "")
 
+    # Insights run on the insight_weekly / insight_monthly provider chains (built-in default: gemini fake);
+    # one row per user per period, whatever ai_provider an old app sends.
     r = c.get("/api/insights", headers=H(A), params={"insight_type": "weekly"})
-    ok("GET weekly insight (fake OpenAI)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:200]}")
+    ok("GET weekly insight (fake AI, built-in insight provider)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:200]}")
+    weekly_rows = db.insights.count_documents({"user_id": S["A_id"], "insight_type": "weekly"})
+    ok("first weekly insight stores one row (not one per provider)", weekly_rows == 1, f"{weekly_rows} rows")
     r = c.get("/api/insights", headers=H(A), params={"insight_type": "monthly"})
-    ok("GET monthly insight (fake OpenAI)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:300]}")
+    ok("GET monthly insight (fake AI, built-in insight provider)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:300]}")
     r = c.post("/api/insights/translate-myanmar", headers=H(A), params={"insight_type": "monthly"})
-    mm = db.insights.find_one({"user_id": S["A_id"], "insight_type": "monthly", "ai_provider": "openai"}, sort=[("generated_at", -1)])
+    mm = db.insights.find_one({"user_id": S["A_id"], "insight_type": "monthly"}, sort=[("generated_at", -1)])
     ok("translate-myanmar translates the requested (monthly) insight", r.status_code == 200 and mm and mm.get("content_mm"),
        f"{r.status_code} {r.text[:150]}")
     r = c.post("/api/transactions/extract-from-text", headers=H(A), json={"text": "coffee 3 dollars"})

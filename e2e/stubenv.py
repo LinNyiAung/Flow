@@ -91,7 +91,10 @@ FAKE_CONTROL = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".data",
 # (the next N calls fail that way, then the entry is removed). See _raise_for / _begin for what each kind does.
 FAKE_PROVIDERS = ("openai", "gemini", "claude")
 _RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_not_found", "bad_request", "echo_key")
-_ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream")  # an odd successful answer, not an error
+# An odd successful answer, not an error. length_once: a reply cut off at the output limit (OpenAI finish_reason
+# "length", Gemini MAX_TOKENS, Claude stop_reason "max_tokens"), on the first matching call only.
+_ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once")
+_ONCE_KINDS = ("length_once",)  # consumed by the first matching call, even without "times"
 FAKE_KINDS = _RAISING_KINDS + _ANSWER_KINDS  # later tasks add kinds here
 
 
@@ -141,7 +144,8 @@ def set_fake_ai(**kinds):
 
     Replaces the whole control file, so providers not named succeed. Kinds: billing, auth, rate_limit, server,
     timeout, model_not_found, bad_request, echo_key (raise); refusal (claude), empty, bad_json (odd successful
-    answer); fail_mid_stream (streaming calls only). Model-scoped keys need dict unpacking:
+    answer); fail_mid_stream (streaming calls only); length_once (a reply cut off at the output limit, on the
+    first matching call only). Model-scoped keys need dict unpacking:
     set_fake_ai(**{"claude@claude-typo": "model_not_found"}); a count limits a failure:
     set_fake_ai(claude={"kind": "rate_limit", "times": 2}). Typos raise ValueError.
     """
@@ -198,8 +202,11 @@ def _take_kind(provider, model):
         return None
     value = data[key]
     if not isinstance(value, dict):
+        if value in _ONCE_KINDS:
+            del data[key]
+            _write_control(data)
         return value
-    times = value.get("times")
+    times = value.get("times", 1 if value.get("kind") in _ONCE_KINDS else None)
     if isinstance(times, int):
         if times <= 1:
             del data[key]
@@ -249,7 +256,10 @@ def _answer_text(kind, prompt, wants_json):
         return ""
     if kind == "bad_json":
         return "not json"
-    return _canned_json(prompt) if wants_json else FAKE_REPLY
+    text = _canned_json(prompt) if wants_json else FAKE_REPLY
+    if kind == "length_once":  # cut off at the output limit
+        return text[:max(1, len(text) // 2)]
+    return text
 
 
 def _stream_parts(text):
@@ -269,15 +279,18 @@ class _FakeCompletions:
         usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
         wants_json = (k.get("response_format") or {}).get("type") == "json_object"
         text = _answer_text(kind, json.dumps(k.get("messages", [])), wants_json)
+        finish = "length" if kind == "length_once" else "stop"
         if not stream:
-            return _ns(choices=[_ns(message=_ns(content=text), finish_reason="stop")], usage=usage, model="fake")
+            return _ns(choices=[_ns(message=_ns(content=text), finish_reason=finish)], usage=usage, model="fake")
 
         async def gen():
             delay = _stream_delay()
-            for part in _stream_parts(text):
+            parts = _stream_parts(text)
+            for i, part in enumerate(parts):
                 if delay:
                     await asyncio.sleep(delay)
-                yield _ns(choices=[_ns(delta=_ns(content=part), finish_reason=None)], usage=None, model="fake")
+                last_finish = "length" if kind == "length_once" and i == len(parts) - 1 else None
+                yield _ns(choices=[_ns(delta=_ns(content=part), finish_reason=last_finish)], usage=None, model="fake")
                 if kind == "fail_mid_stream":
                     raise FakeAPIError(503, None, "The service is unavailable")
             yield _ns(choices=[], usage=usage, model="fake")
@@ -326,7 +339,7 @@ class _FakeGeminiModels:
         if _gemini_has_audio(contents):  # a transcription request answers like OpenAI's audio.transcriptions
             return _gemini_response({"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"))
         text = _answer_text(kind, json.dumps([contents, str(config)], default=str), wants_json)
-        return _gemini_response(text)
+        return _gemini_response(text, "MAX_TOKENS" if kind == "length_once" else "STOP")
 
     async def generate_content_stream(self, *, model=None, contents=None, config=None, **k):
         LAST_KWARGS["gemini"] = dict(k, model=model, contents=contents, config=config)
@@ -341,7 +354,8 @@ class _FakeGeminiModels:
                 if delay:
                     await asyncio.sleep(delay)
                 last = i == len(parts) - 1
-                chunk = _gemini_response(part, finish_reason="STOP" if last else None)
+                end = "MAX_TOKENS" if kind == "length_once" else "STOP"
+                chunk = _gemini_response(part, finish_reason=end if last else None)
                 if not last:
                     chunk.usage_metadata = None
                 yield chunk
@@ -388,7 +402,7 @@ def _claude_answer(kind, k):
     prompt = json.dumps([k.get("system"), k.get("messages", [])], default=str)
     if kind == "refusal":
         return "", "refusal"
-    return _answer_text(kind, prompt, wants_json), "end_turn"
+    return _answer_text(kind, prompt, wants_json), "max_tokens" if kind == "length_once" else "end_turn"
 
 
 class _FakeClaudeStream:

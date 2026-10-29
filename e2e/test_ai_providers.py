@@ -123,6 +123,41 @@ async def outcome(*args, **kw):
         return "timeout", None
 
 
+async def length_once_checks():
+    """Task 9: control kind length_once maps through each fake SDK and each client to finish "length", once."""
+    from ai_providers.clients.base import get_client
+    from ai_providers.types import Prompt
+
+    raw = {"openai": lambda r: r.choices[0].finish_reason, "gemini": lambda r: r.candidates[0].finish_reason,
+           "claude": lambda r: r.stop_reason}
+    want = {"openai": "length", "gemini": "MAX_TOKENS", "claude": "max_tokens"}
+    models = {"openai": "gpt-4o-mini", "gemini": "gemini-2.5-flash", "claude": "claude-sonnet-5-5"}
+    for p in ("openai", "gemini", "claude"):
+        stubenv.set_fake_ai(**{p: "length_once"})
+        text, r = await call(p)
+        check(raw[p](r) == want[p] and text and text != stubenv.FAKE_REPLY and stubenv.FAKE_REPLY.startswith(text),
+              f"length_once: {p} answers a cut-off reply with {want[p]}", (raw[p](r), text))
+        text2, r2 = await call(p)
+        check(raw[p](r2) != want[p] and text2 == stubenv.FAKE_REPLY,
+              f"length_once: {p} second call is a normal reply (first matching call only)", (raw[p](r2), text2))
+        stubenv.set_fake_ai(**{p: "length_once"})
+        c = await get_client(p).complete(models[p], Prompt("sys", "hi", max_tokens=100))
+        check(c.finish == "length" and c.text, f"length_once: the {p} client maps it to finish 'length'", c)
+        stubenv.set_fake_ai(**{p: "length_once"})
+        finals = [x async for x in get_client(p).stream(models[p], Prompt("sys", "hi", max_tokens=100))
+                  if not isinstance(x, str)]
+        check(finals and finals[-1].finish == "length", f"length_once: the {p} client stream ends with finish 'length'",
+              finals)
+    # the {"kind": ...} form is also consumed by its first call; "times" still counts when given
+    stubenv.set_fake_ai(claude={"kind": "length_once"})
+    got = [(await call("claude"))[1].stop_reason for _ in range(2)]
+    check(got == ["max_tokens", "end_turn"], "length_once: {'kind': 'length_once'} applies once", got)
+    stubenv.set_fake_ai(claude={"kind": "length_once", "times": 2})
+    got = [(await call("claude"))[1].stop_reason for _ in range(3)]
+    check(got == ["max_tokens", "max_tokens", "end_turn"], "length_once: times=2 applies twice", got)
+    stubenv.clear_fake_ai()
+
+
 async def kind_checks():
     stubenv.clear_fake_ai()
     for p in ("openai", "gemini", "claude"):
@@ -205,6 +240,9 @@ async def kind_checks():
             check(len(got) == 1 and e.status_code == 503, f"{p} fail_mid_stream: one chunk then 503", f"{got} {e.status_code}")
         kind, text = await outcome(p)
         check(kind == "ok" and text == stubenv.FAKE_REPLY, f"{p} fail_mid_stream leaves non-streaming calls alone")
+
+    # length_once: a cut-off reply with each SDK's own length signal, on the first matching call only
+    await length_once_checks()
 
     # usage and finish metadata
     stubenv.clear_fake_ai()
@@ -2203,6 +2241,300 @@ async def _chat_inprocess_checks(uid):
         settings._env_units.update(saved[1])
 
 
+LONG_INSIGHT = "".join(
+    f"## Section {n}\n" + "".join(f"- Point {n}.{i}: you spent $1{i}.00 on groceries this week.\n" for i in range(30))
+    for n in range(4))  # about 6000 characters in 4 markdown sections: the chunked retry needs several chunks
+
+
+async def insight_checks():
+    """Task 9: insights run on the provider runner (one row per user, read across providers, translation)."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    from sqlalchemy import delete
+
+    from sql.db import execute
+    from sql.tables import users
+
+    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=120)
+    db = __import__("pgcompat").get_db()
+    made = make_admins(c, db, "t9", ("admin",))
+    AD = {}
+    uids = []
+
+    def premium_user(label, with_tx=True):
+        email, pw = f"t9-{label}-{uuid.uuid4().hex[:6]}@example.com", "T9InsightPass123"
+        c.post("/api/auth/register", json={"name": f"T9 {label}", "email": email, "password": pw})
+        db.users.update_one({"email": email}, {"$set": {
+            "is_verified": True, "subscription_type": "premium",
+            "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
+        uid = db.users.find_one({"email": email})["_id"]
+        uids.append(uid)
+        hdr = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}
+        if with_tx:
+            c.post("/api/transactions", headers=hdr, json={
+                "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "amount": 12.5,
+                "currency": "usd", "date": datetime.now(UTC).isoformat(), "description": "t9 groceries"})
+        return uid, hdr
+
+    def newest(uid, insight_type="weekly"):
+        return db.insights.find_one({"user_id": uid, "insight_type": insight_type}, sort=[("generated_at", -1)])
+
+    def n_rows(uid):
+        return db.insights.count_documents({"user_id": uid})
+
+    def put(feature, provider, model, backups=None):
+        return c.put(f"/api/admin/ai/settings/{feature}", headers=AD,
+                     json={"main": {"provider": provider, "model": model}, "backups": backups})
+
+    def calls(before):
+        return [x.get("provider") for x in _outbox_ai_calls(before)]
+
+    try:
+        AD = admin_login(c, made["admin"])
+        admin_reset(c, AD)
+        uid, U = premium_user("main")
+
+        # --- regenerate ignores ai_provider: the insight_weekly setting decides, and the row names the answerer
+        r = put("insight_weekly", "claude", "claude-sonnet-5-5")
+        check(r.status_code == 200, "insights setup: PUT insight_weekly = claude", f"{r.status_code} {r.text[:200]}")
+        before, rows0 = len(outbox_lines()), n_rows(uid)
+        r = c.post("/api/insights/regenerate", headers=U, params={"ai_provider": "openai", "insight_type": "weekly"})
+        row = newest(uid)
+        check(r.status_code == 200 and row and row["ai_provider"] == "claude" and r.json().get("id") == row["_id"]
+              and calls(before) == ["claude"] and n_rows(uid) == rows0 + 1,
+              "insight_regenerate_uses_setting", f"{r.status_code} {r.text[:200]} {row and row['ai_provider']} {calls(before)}")
+        claude_row = row
+
+        # --- reads take the newest row across providers
+        for p in ("gemini", "openai"):
+            before = len(outbox_lines())
+            r = c.get("/api/insights", headers=U, params={"ai_provider": p, "insight_type": "weekly"})
+            check(r.status_code == 200 and claude_row and r.json().get("id") == claude_row["_id"] and calls(before) == [],
+                  f"insight_get_ignores_provider: ai_provider={p}", f"{r.status_code} {r.text[:200]} {calls(before)}")
+        r = c.get("/api/insights", headers=U, params={"ai_provider": "bard"})
+        check(r.status_code == 422, "insights: an unknown ai_provider is still rejected (422)", r.status_code)
+
+        # --- fallback: the stored provider is the one that answered
+        stubenv.set_fake_ai(claude="billing")
+        before = len(outbox_lines())
+        r = c.post("/api/insights/regenerate", headers=U, params={"insight_type": "weekly"})
+        row = newest(uid)
+        check(r.status_code == 200 and row["ai_provider"] == "openai" and calls(before) == ["claude", "openai"],
+              "insights: after a fallback the row names the answering provider", f"{r.status_code} {row['ai_provider']} {calls(before)}")
+        admin_reset(c, AD)
+
+        # --- translation on claude
+        r = put("insight_translation", "claude", "claude-sonnet-5-5")
+        check(r.status_code == 200, "insights setup: PUT insight_translation = claude", f"{r.status_code} {r.text[:200]}")
+        before = len(outbox_lines())
+        r = c.post("/api/insights/translate-myanmar", headers=U, params={"ai_provider": "openai", "insight_type": "weekly"})
+        row = newest(uid)
+        check(r.status_code == 200 and row.get("content_mm") and calls(before) == ["claude"],
+              "translation_on_claude", f"{r.status_code} {r.text[:200]} {calls(before)} mm={bool(row.get('content_mm'))}")
+
+        # --- translation cut off at the output limit: re-translated section by section
+        long_id = "t9-long-" + uuid.uuid4().hex[:8]
+        db.insights.insert_one({"_id": long_id, "user_id": uid, "ai_provider": "gemini", "insight_type": "weekly",
+                                "content": LONG_INSIGHT, "content_mm": None, "is_placeholder": False,
+                                "generated_at": datetime.now(UTC)})
+        stubenv.set_fake_ai(claude="length_once")
+        before = len(outbox_lines())
+        r = c.post("/api/insights/translate-myanmar", headers=U, params={"insight_type": "weekly"})
+        row = db.insights.find_one({"_id": long_id})
+        n_calls = calls(before)
+        check(r.status_code == 200 and row.get("content_mm") and len(n_calls) >= 3 and set(n_calls) == {"claude"},
+              "translation_length_retry: the cut-off reply is retried in section chunks and content_mm is stored",
+              f"{r.status_code} {r.text[:200]} calls={n_calls} mm={(row.get('content_mm') or '')[:60]!r}")
+        check(row.get("content_mm") and row["content_mm"].count("Fake answer") == len(n_calls) - 1,
+              "translation_length_retry: content_mm joins one translation per chunk (not the cut-off reply)",
+              (row.get("content_mm") or "")[:200])
+        stubenv.clear_fake_ai()
+
+        # --- every provider fails: a stored placeholder is still shown (200), mirrors test_backend_r4
+        uid2, U2 = premium_user("down")
+        db.insights.insert_one({"_id": "t9-ph-" + uid2[:8], "user_id": uid2, "ai_provider": "gemini",
+                                "insight_type": "weekly", "content": "## Welcome to Toe Pwar!", "is_placeholder": True,
+                                "generated_at": datetime.now(UTC) - timedelta(days=1)})
+        stubenv.set_fake_ai(openai="server", gemini="server", claude="server")
+        r = c.get("/api/insights", headers=U2, params={"insight_type": "weekly", "ai_provider": "gemini"})
+        check(r.status_code == 200 and "Welcome to Toe Pwar" in (r.json().get("content") or ""),
+              "all_fail_returns_placeholder", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/insights", headers=U, params={"insight_type": "weekly"})
+        check(r.status_code == 200 and r.json().get("id") == long_id, "all_fail: a stored real insight is shown (200)",
+              f"{r.status_code} {r.text[:200]}")
+
+        # --- nothing stored and every provider fails: today's mapping (503 / 429 / 503 for billing), never a 500
+        uid3, U3 = premium_user("none")
+        for kinds, want, label in (({"openai": "server", "gemini": "server", "claude": "server"}, 503, "server"),
+                                   ({"openai": "rate_limit", "gemini": "rate_limit", "claude": "rate_limit"}, 429, "rate limit"),
+                                   ({"openai": "billing", "gemini": "rate_limit", "claude": "server"}, 503, "billing")):
+            admin_reset(c, AD)
+            stubenv.set_fake_ai(**kinds)
+            r = c.get("/api/insights", headers=U3, params={"insight_type": "weekly"})
+            check(r.status_code == want and "credit" not in r.text and "quota" not in r.text,
+                  f"insights: every provider failing ({label}) with nothing stored -> {want}", f"{r.status_code} {r.text[:200]}")
+            if want == 429:
+                check(r.headers.get("retry-after") == "60", "insights: the 429 carries Retry-After: 60", dict(r.headers))
+        check(n_rows(uid3) == 0, "insights: nothing is stored when every provider failed", n_rows(uid3))
+        admin_reset(c, AD)
+
+        # --- a user without data gets a placeholder stored under the feature's current main provider
+        uid4, U4 = premium_user("empty", with_tx=False)
+        put("insight_monthly", "claude", "claude-sonnet-5-5")
+        before = len(outbox_lines())
+        r = c.get("/api/insights", headers=U4, params={"insight_type": "monthly", "ai_provider": "openai"})
+        row = newest(uid4, "monthly")
+        check(r.status_code == 200 and row and row["is_placeholder"] and row["ai_provider"] == "claude"
+              and calls(before) == [], "insights: a placeholder is stored with the feature's main provider (no AI call)",
+              f"{r.status_code} {row and (row['is_placeholder'], row['ai_provider'])} {calls(before)}")
+        admin_reset(c, AD)
+
+        # --- the manual weekly route generates once
+        rows0 = n_rows(uid)
+        before = len(outbox_lines())
+        r = c.post("/api/insights/generate-weekly", headers=U)
+        check(r.status_code == 200 and n_rows(uid) == rows0 + 1 and len(calls(before)) == 1,
+              "insights: POST generate-weekly generates one insight (no loop over providers)",
+              f"{r.status_code} {r.text[:200]} rows {rows0}->{n_rows(uid)} calls={calls(before)}")
+
+        await _insight_inprocess_checks(uid)
+    finally:
+        try:
+            stubenv.clear_fake_ai()
+            if AD:
+                admin_reset(c, AD)
+        finally:
+            try:
+                for u in uids:
+                    await execute(delete(users).where(users.c.id == u))  # cascades to insights and ai_usage rows
+            finally:
+                db.admins.delete_many({"email": {"$in": list(made.values())}})
+                c.close()
+
+
+async def _insight_inprocess_checks(uid):
+    """insights_service in-process: the jobs generate once per user in the background, prompts and token limits."""
+    import insights_service as ins
+    from ai_providers import health, runner, settings
+    from ai_providers.types import FeatureSetting, Target
+    from sql.db import fetch_value
+    from sql.tables import insights as insights_t
+    from sqlalchemy import func, select
+
+    stubenv.patch_loaded_modules()
+    saved = (settings._env, dict(settings._env_units), settings._panel)
+    health.reset()
+    stubenv.clear_fake_ai()
+    orig_run, orig_list = runner.run, ins.users_db.list_fields
+    runs = []
+
+    async def spy(feature, **kw):
+        runs.append((feature, kw.get("background"), kw.get("user_id")))
+        return await orig_run(feature, **kw)
+
+    async def only_our_user(fields, *where):
+        return [u for u in await orig_list(fields, *where) if u["_id"] == uid]
+
+    async def count(insight_type):
+        return await fetch_value(select(func.count()).select_from(insights_t).where(
+            insights_t.c.user_id == uid, insights_t.c.insight_type == insight_type))
+
+    def use(feature, provider, model):
+        settings.set_panel_cache({feature: FeatureSetting(Target(provider, model), None, "panel")})
+
+    try:
+        settings.set_panel_cache({})
+        settings.reload_env({})
+        runner.run, ins.users_db.list_fields = spy, only_our_user
+        for label, job, itype, feature in (("weekly", ins.generate_weekly_insights_for_all_users, "weekly", "insight_weekly"),
+                                           ("monthly", ins.generate_monthly_insights_for_all_users, "monthly", "insight_monthly")):
+            n0 = await count(itype)
+            runs.clear()
+            await job()
+            n1 = await count(itype)
+            check(n1 == n0 + 1, f"job_generates_once_per_user: the {label} job inserts exactly 1 row", (n0, n1))
+            check(runs == [(feature, True, uid)], f"job_generates_once_per_user: the {label} job runs {feature} once in the background",
+                  runs)
+        runner.run, ins.users_db.list_fields = orig_run, orig_list
+
+        # prompts and token limits per answering provider (temperature 0.7 as before; never sent to Claude)
+        for feature, gen, limits in (("insight_weekly", ins.generate_weekly_insight, {"openai": 2500, "gemini": 8192, "claude": 12000}),
+                                     ("insight_monthly", ins.generate_monthly_insight, {"openai": 3000, "gemini": 8192, "claude": 12000})):
+            for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
+                use(feature, provider, model)
+                row = await gen(uid)
+                kw = stubenv.LAST_KWARGS[provider]
+                if provider == "openai":
+                    got = (kw.get("max_tokens"), kw.get("temperature"), kw["messages"][0]["content"][:40])
+                elif provider == "gemini":
+                    got = (kw["config"].max_output_tokens, kw["config"].temperature, (kw["config"].system_instruction or "")[:40])
+                else:
+                    got = (kw.get("max_tokens"), kw.get("temperature", "absent"), (kw.get("system") or "")[:40])
+                want_temp = "absent" if provider == "claude" else 0.7
+                persona = "You are Flow Finance AI" if feature == "insight_weekly" else "You are Toe Pwar AI"
+                check(row and row["ai_provider"] == provider and got[0] == limits[provider] and got[1] == want_temp
+                      and got[2].startswith(persona) and kw.get("model") == model,
+                      f"insights prompt: {feature} on {provider} sends max tokens {limits[provider]}, temperature {want_temp}",
+                      (row and row.get("ai_provider"), got, kw.get("model")))
+
+        # translation: per-provider limits, temperature 0.3 as before, the default model is gemini-2.5-pro
+        settings.set_panel_cache({})
+        await ins.translate_insight_to_myanmar("## Hi\nYou spent $5.", user_id=uid, is_placeholder=False)
+        cfg = stubenv.LAST_KWARGS["gemini"]["config"]
+        check(stubenv.LAST_KWARGS["gemini"]["model"] == "gemini-2.5-pro" and cfg.max_output_tokens == 32768
+              and cfg.temperature == 0.3, "translation: built-in gemini-2.5-pro, 32768 tokens, temperature 0.3",
+              (stubenv.LAST_KWARGS["gemini"]["model"], cfg.max_output_tokens, cfg.temperature))
+        use("insight_translation", "openai", "gpt-4o-mini")
+        await ins.translate_insight_to_myanmar("## Hi\nYou spent $5.", user_id=uid, is_placeholder=False)
+        kw = stubenv.LAST_KWARGS["openai"]
+        check(kw.get("max_tokens") == 8000 and kw.get("temperature") == 0.3, "translation: openai 8000 tokens, temperature 0.3",
+              (kw.get("max_tokens"), kw.get("temperature")))
+        use("insight_translation", "claude", "claude-sonnet-5-5")
+        await ins.translate_insight_to_myanmar("## Hi\nYou spent $5.", user_id=uid, is_placeholder=False)
+        kw = stubenv.LAST_KWARGS["claude"]
+        check(kw.get("max_tokens") == 32000 and "temperature" not in kw, "translation: claude 32000 tokens, no temperature",
+              (kw.get("max_tokens"), kw.get("temperature")))
+        check(not hasattr(ins, "TRANSLATION_GEMINI_MODEL"), "translation: the hard-coded TRANSLATION_GEMINI_MODEL is gone")
+
+        # the chunked retry also fails: an InsightAIError, nothing cached (as before)
+        stubenv.set_fake_ai(claude={"kind": "length_once", "times": 10})
+        try:
+            await ins.translate_insight_to_myanmar(LONG_INSIGHT, user_id=uid, is_placeholder=False)
+            err = None
+        except Exception as e:  # noqa: BLE001
+            err = e
+        check(isinstance(err, ins.InsightAIError) and not ins.is_rate_limit_error(err),
+              "translation: a cut-off chunk in the retry still fails with InsightAIError", repr(err))
+        stubenv.clear_fake_ai()
+
+        # AllProvidersFailed -> InsightAIError(rate_limited=all_rate_limited, provider=<main provider>)
+        settings.set_panel_cache({"insight_weekly": FeatureSetting(Target("claude", "claude-sonnet-5-5"), (), "panel")})
+        for kind, rate_limited, billing in (("rate_limit", True, False), ("server", False, False), ("billing", False, True)):
+            health.reset()
+            stubenv.set_fake_ai(claude=kind)
+            try:
+                await ins.generate_weekly_insight(uid)
+                err = None
+            except Exception as e:  # noqa: BLE001
+                err = e
+            check(isinstance(err, ins.InsightAIError) and err.provider == "claude"
+                  and ins.is_rate_limit_error(err) == rate_limited and ins.is_billing_error(err) == billing,
+                  f"insights: every provider failing ({kind}) -> InsightAIError(rate_limited={rate_limited}, provider=claude)"
+                  f"{', billing' if billing else ''}", (repr(err), getattr(err, "provider", None)))
+        stubenv.clear_fake_ai()
+        import ai_chatbot
+        check(not hasattr(ai_chatbot.financial_chatbot, "gpt_model"), "insights: FinancialChatbot.gpt_model is gone (R1)")
+    finally:
+        runner.run, ins.users_db.list_fields = orig_run, orig_list
+        stubenv.clear_fake_ai()
+        health.reset()
+        settings._env, settings._panel = saved[0], saved[2]
+        settings._env_units.clear()
+        settings._env_units.update(saved[1])
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -2232,6 +2564,12 @@ async def all_async_checks():
         import traceback
         traceback.print_exc()
         check(False, "chat_checks ran to completion", repr(e))
+    try:
+        await insight_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "insight_checks ran to completion", repr(e))
 
 
 def stub_mode_checks():

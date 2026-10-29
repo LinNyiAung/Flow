@@ -888,9 +888,6 @@ class FinancialChatbot:
             max_users=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
         )
 
-        # Only insights_service still reads this (its OpenAI model) until insights move onto the runner.
-        self.gpt_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
     async def _build_vector_store(self, user_id: str) -> Optional[InMemoryVectorStore]:
         processor = FinancialDataProcessor(user_id)
         documents = await processor.create_financial_documents()

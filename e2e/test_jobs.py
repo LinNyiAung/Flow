@@ -183,7 +183,8 @@ async def main():
     openai.AsyncOpenAI = FakeAsyncOpenAI
 
     # ---------------- monthly insight directly (missing await claim)
-    exc, out, na = await run_job("monthly-one", ins.generate_monthly_insight, A, "openai")
+    # One insight per user on the insight_monthly provider chain (no provider argument any more).
+    exc, out, na = await run_job("monthly-one", ins.generate_monthly_insight, A)
     mi = await I.count_documents({"user_id": A, "insight_type": "monthly"})
     rec("monthly insight saved with a working AI", "PASS" if mi else "BUG", "" if mi else "no monthly insight document created even though AI answered")
     coroutine_err = [l for l in out.splitlines() if "coroutine" in l]
@@ -194,7 +195,7 @@ async def main():
 
     # ---------------- un-awaited notify in weekly insight path
     n0 = await N.count_documents({"user_id": A})
-    exc, out, na = await run_job("weekly-one", ins.generate_weekly_insight, A, "openai")
+    exc, out, na = await run_job("weekly-one", ins.generate_weekly_insight, A)
     await asyncio.sleep(0.5)
     n1 = await N.count_documents({"user_id": A})
     wi = await I.count_documents({"user_id": A, "insight_type": "weekly", "is_placeholder": False})

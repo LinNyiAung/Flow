@@ -52,6 +52,9 @@ async def main():
         await ins.generate_weekly_insights_for_all_users()
         n = await I.count_documents({"user_id": A, "insight_type": "weekly"})
         rec(f"weekly all-users job generated insights for {label}", "PASS" if n else "BUG", f"{n} insight docs")
+        # One insight per user per period (the insight_weekly provider chain), not one per provider.
+        rec(f"weekly all-users job generated exactly one insight for {label}", "PASS" if n == 1 else "BUG",
+            f"{n} insight docs")
     await U.update_one({"_id": A}, {"$set": {"subscription_expires_at": datetime.now(UTC) + timedelta(days=20)}})
 
 

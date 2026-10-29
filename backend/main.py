@@ -415,15 +415,16 @@ async def refresh_ai_data(
 # ==================== AI INSIGHTS ====================
 
 
-async def _generate_insight(user_id: str, insight_type: str, ai_provider: str):
+async def _generate_insight(user_id: str, insight_type: str):
+    """One insight on the insight_weekly / insight_monthly provider chain (the admin AI settings decide)."""
     from insights_service import generate_weekly_insight, generate_monthly_insight
 
     if insight_type == "monthly":
-        return await generate_monthly_insight(user_id, ai_provider)
-    return await generate_weekly_insight(user_id, ai_provider)
+        return await generate_monthly_insight(user_id)
+    return await generate_weekly_insight(user_id)
 
 
-async def _ensure_myanmar_translation(insight: dict, ai_provider: str, user_id: str) -> dict:
+async def _ensure_myanmar_translation(insight: dict, user_id: str) -> dict:
     """Translate (and cache) content_mm if missing. Placeholders never hit the paid API."""
     if insight.get("content_mm"):
         return insight
@@ -432,7 +433,6 @@ async def _ensure_myanmar_translation(insight: dict, ai_provider: str, user_id: 
 
     myanmar_content = await translate_insight_to_myanmar(
         insight["content"],
-        ai_provider,
         user_id=user_id,
         # None (legacy docs without the flag) falls back to text detection
         is_placeholder=insight.get("is_placeholder"),
@@ -504,13 +504,16 @@ async def get_insights(
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
-    """Get latest AI-generated financial insights"""
+    """Get latest AI-generated financial insights.
+
+    `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is shown.
+    """
     user_id = current_user["_id"]
     try:
         from insights_service import latest_valid_insight, user_has_insight_data, _latest_real_insight
 
         # Legacy insights with content None / "" are treated as missing (skipped here).
-        latest_insight = await latest_valid_insight(user_id, ai_provider.value, insight_type)
+        latest_insight = await latest_valid_insight(user_id, insight_type)
 
         # A stored "welcome" placeholder is replaced once the user has real data (incl.
         # transactions in the current, incomplete period). If they don't, but they have
@@ -519,10 +522,10 @@ async def get_insights(
         if latest_insight and latest_insight.get("is_placeholder"):
             try:
                 if await user_has_insight_data(user_id, insight_type):
-                    print(f"🔄 Replacing placeholder {insight_type} {ai_provider.value} insight for user {user_id} (user now has data)")
+                    print(f"🔄 Replacing placeholder {insight_type} insight for user {user_id} (user now has data)")
                     regenerated = None
                     try:
-                        regenerated = await _generate_insight(user_id, insight_type, ai_provider.value)
+                        regenerated = await _generate_insight(user_id, insight_type)
                     except Exception as gen_error:
                         # AI down / rate limited: something stored is still worth showing.
                         print(f"⚠️ Regenerating {insight_type} insight for user {user_id} failed "
@@ -530,12 +533,12 @@ async def get_insights(
                     if _insight_has_content(regenerated):
                         latest_insight = regenerated
                     else:
-                        latest_real = await _latest_real_insight(user_id, ai_provider.value, insight_type)
+                        latest_real = await _latest_real_insight(user_id, insight_type)
                         if latest_real:
                             latest_insight = latest_real
                         # else: keep showing the stored placeholder
                 else:
-                    latest_real = await _latest_real_insight(user_id, ai_provider.value, insight_type)
+                    latest_real = await _latest_real_insight(user_id, insight_type)
                     if latest_real:
                         latest_insight = latest_real
             except Exception as refresh_error:
@@ -544,8 +547,8 @@ async def get_insights(
 
         if not latest_insight:
             # Nothing stored at all: generation errors are surfaced (429/503/500).
-            print(f"🔄 No {insight_type} insight found, generating first {ai_provider.value} insight for user {user_id}")
-            latest_insight = await _generate_insight(user_id, insight_type, ai_provider.value)
+            print(f"🔄 No {insight_type} insight found, generating the first one for user {user_id}")
+            latest_insight = await _generate_insight(user_id, insight_type)
             if not _insight_has_content(latest_insight):
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -553,7 +556,7 @@ async def get_insights(
                 )
 
         if language == "mm":
-            latest_insight = await _ensure_myanmar_translation(latest_insight, ai_provider.value, user_id)
+            latest_insight = await _ensure_myanmar_translation(latest_insight, user_id)
 
         return _insight_response(latest_insight)
 
@@ -571,15 +574,16 @@ async def delete_insights(
     insight_type: Optional[str] = Query(default=None, pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(get_current_user)
 ):
-    """Delete cached insights"""
-    try:
-        deleted = await insights_db.delete_for_user(
-            current_user["_id"], ai_provider.value if ai_provider else None, insight_type
-        )
+    """Delete cached insights.
 
-        provider_msg = f" for {ai_provider.value}" if ai_provider else ""
+    `ai_provider` (sent by old apps) is validated and ignored: reads show the newest insight of any
+    provider, so clearing only one provider's rows would leave another provider's insight on screen.
+    """
+    try:
+        deleted = await insights_db.delete_for_user(current_user["_id"], None, insight_type)
+
         type_msg = f" {insight_type}" if insight_type else ""
-        return {"message": f"Deleted {deleted}{type_msg} insights{provider_msg}", "deleted_count": deleted}
+        return {"message": f"Deleted {deleted}{type_msg} insights", "deleted_count": deleted}
     except Exception as e:
         print(f"Error deleting insights: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete insights")
@@ -592,11 +596,11 @@ async def regenerate_insights(
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
-    """Force regenerate insights (admin/testing purpose)"""
+    """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored."""
     try:
-        print(f"🔄 Force regenerating {insight_type} {ai_provider.value} insights for user {current_user['_id']}")
+        print(f"🔄 Force regenerating {insight_type} insights for user {current_user['_id']}")
 
-        new_insight = await _generate_insight(current_user["_id"], insight_type, ai_provider.value)
+        new_insight = await _generate_insight(current_user["_id"], insight_type)
 
         if not _insight_has_content(new_insight):
             raise HTTPException(
@@ -605,9 +609,9 @@ async def regenerate_insights(
             )
 
         if language == "mm":
-            new_insight = await _ensure_myanmar_translation(new_insight, ai_provider.value, current_user["_id"])
+            new_insight = await _ensure_myanmar_translation(new_insight, current_user["_id"])
 
-        print(f"✅ {insight_type.title()} {ai_provider.value} insights regenerated successfully")
+        print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
         return _insight_response(new_insight)
     except HTTPException:
         raise
@@ -624,21 +628,25 @@ async def translate_insights_to_myanmar(
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
-    """Translate the latest weekly or monthly insight to Myanmar"""
+    """Translate the latest weekly or monthly insight to Myanmar.
+
+    `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is
+    translated on the insight_translation provider chain.
+    """
     try:
         from insights_service import latest_valid_insight
 
         # Legacy insights without content can't be translated: skipped.
-        insight = await latest_valid_insight(current_user["_id"], ai_provider.value, insight_type)
+        insight = await latest_valid_insight(current_user["_id"], insight_type)
 
         if not insight:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No {insight_type} {ai_provider.value} insights found to translate")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No {insight_type} insights found to translate")
 
         if insight.get("content_mm"):
             return {"message": "Myanmar translation already exists", "already_translated": True}
 
-        print(f"🔄 Translating {insight_type} insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
-        await _ensure_myanmar_translation(insight, ai_provider.value, current_user["_id"])
+        print(f"🔄 Translating {insight_type} insights to Myanmar for user {current_user['_id']}")
+        await _ensure_myanmar_translation(insight, current_user["_id"])
 
         return {"message": "Translation completed successfully", "already_translated": False}
 
@@ -655,25 +663,18 @@ async def translate_insights_to_myanmar(
 async def manually_generate_weekly_insights(
     current_user: dict = Depends(require_premium)
 ):
-    """Manually trigger weekly insights generation for current user"""
+    """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain)"""
     try:
-        from insights_service import generate_weekly_insight
+        from insights_service import generate_weekly_insight, is_rate_limit_error
 
-        results = {}
-
-        for provider in ["openai", "gemini"]:
-            try:
-                insight = await generate_weekly_insight(
-                    current_user["_id"],
-                    provider
-                )
-                results[provider] = "success" if insight else "failed"
-            except Exception as e:
-                from insights_service import is_rate_limit_error
-
-                print(f"❌ Manual weekly insight ({provider}) failed: {type(e).__name__}: {e}")
-                # No raw exception text in the response.
-                results[provider] = "rate_limited" if is_rate_limit_error(e) else "error"
+        try:
+            insight = await generate_weekly_insight(current_user["_id"])
+            outcome = "success" if insight else "failed"
+        except Exception as e:
+            print(f"❌ Manual weekly insight failed: {type(e).__name__}: {e}")
+            # No raw exception text in the response.
+            outcome = "rate_limited" if is_rate_limit_error(e) else "error"
+        results = {"weekly": outcome}
 
         return {
             "message": "Weekly insights generation completed",
