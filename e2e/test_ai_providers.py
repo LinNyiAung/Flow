@@ -1661,17 +1661,46 @@ async def refresh_race_checks():
 ADMIN_FEATURES = ("chat", "insight_weekly", "insight_monthly", "insight_translation", "budget_suggestion",
                   "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio")
 ADMIN_PROVIDERS = ("openai", "gemini", "claude")
+ADMIN_PW = "t7-admin-pass-1"
+
+
+def make_admins(c, db, prefix, roles):
+    """Insert our own admins (never the root admin: test_api trips its login lockout); returns {role: email}."""
+    import uuid
+    from datetime import UTC, datetime
+
+    import admin_utils
+    made = {}
+    for role in roles:
+        email = f"{prefix}-{role}-{uuid.uuid4().hex[:6]}@example.com"
+        db.admins.insert_one({"_id": str(uuid.uuid4()), "name": f"{prefix} {role}", "email": email,
+                              "password": admin_utils.get_password_hash(ADMIN_PW), "role": role,
+                              "created_at": datetime.now(UTC), "last_login": None})
+        made[role] = email
+    return made
+
+
+def admin_login(c, email):
+    r = c.post("/api/admin/login", json={"email": email, "password": ADMIN_PW})
+    return {"Authorization": "Bearer " + r.json()["access_token"]}
+
+
+def admin_reset(c, headers):
+    """Settings only through the admin API (the server has its own cache and health); fakes cleared."""
+    stubenv.clear_fake_ai()
+    for f in ADMIN_FEATURES:
+        c.delete(f"/api/admin/ai/settings/{f}", headers=headers)
+    for p in ADMIN_PROVIDERS:
+        c.post(f"/api/admin/ai/test/{p}", headers=headers, json={})
 
 
 async def admin_api_checks():
     """Task 7: /api/admin/ai settings, status and test, over HTTP against the stubbed server."""
-    import uuid
     from datetime import UTC, datetime, timedelta
 
     import httpx
     from sqlalchemy import delete, insert
 
-    import admin_utils
     from ai_providers import health, runner, settings
     from ai_providers.types import FeatureSetting, Prompt, Target
     from sql.db import execute
@@ -1680,26 +1709,13 @@ async def admin_api_checks():
     T = Target
     c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
     db = __import__("pgcompat").get_db()
-    pw = "t7-admin-pass-1"
-    made = {}
-    for role in ("admin", "moderator", "super_admin"):
-        email = f"t7-{role}-{uuid.uuid4().hex[:6]}@example.com"
-        db.admins.insert_one({"_id": str(uuid.uuid4()), "name": f"t7 {role}", "email": email,
-                              "password": admin_utils.get_password_hash(pw), "role": role,
-                              "created_at": datetime.now(UTC), "last_login": None})
-        made[role] = email
+    made = make_admins(c, db, "t7", ("admin", "moderator", "super_admin"))
 
     def login(role):
-        r = c.post("/api/admin/login", json={"email": made[role], "password": pw})
-        return {"Authorization": "Bearer " + r.json()["access_token"]}
+        return admin_login(c, made[role])
 
     def reset():
-        """Settings only through the admin API (the server has its own cache and health); fakes cleared."""
-        stubenv.clear_fake_ai()
-        for f in ADMIN_FEATURES:
-            c.delete(f"/api/admin/ai/settings/{f}", headers=AD)
-        for p in ADMIN_PROVIDERS:
-            c.post(f"/api/admin/ai/test/{p}", headers=AD, json={})
+        admin_reset(c, AD)
 
     uid = "t7-status-user"
     AD = MOD = SUP = {}
@@ -1951,6 +1967,242 @@ async def admin_api_checks():
                 c.close()
 
 
+def sse_frames(r):
+    return [json.loads(line[6:]) for line in r.text.split("\n") if line.startswith("data: ")]
+
+
+async def chat_checks():
+    """Task 8: /api/chat/stream runs on the provider runner (one chatbot; ai_provider is validated and ignored)."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    from sqlalchemy import delete, func, select
+
+    from sql.db import execute, fetch_all, fetch_value
+    from sql.tables import ai_usage, chat_messages, chat_sessions, users
+
+    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
+    db = __import__("pgcompat").get_db()
+    made = make_admins(c, db, "t8", ("admin",))
+    email, pw = f"t8-chat-{uuid.uuid4().hex[:6]}@example.com", "T8ChatPass123"
+    uid = None
+    AD = {}
+    try:
+        AD = admin_login(c, made["admin"])
+        admin_reset(c, AD)
+        r = c.post("/api/auth/register", json={"name": "T8 Chat", "email": email, "password": pw})
+        db.users.update_one({"email": email}, {"$set": {
+            "is_verified": True, "subscription_type": "premium",
+            "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
+        uid = db.users.find_one({"email": email})["_id"]
+        U = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}
+        r = c.post("/api/transactions", headers=U, json={
+            "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "amount": 12.5,
+            "currency": "usd", "date": datetime.now(UTC).isoformat(), "description": "t8 groceries"})
+        check(r.status_code == 200, "chat setup: a premium user with one transaction", f"{r.status_code} {r.text[:200]}")
+
+        def chat(body):
+            before = len(outbox_lines())
+            resp = c.post("/api/chat/stream", headers=U, json=body)
+            frames = sse_frames(resp) if resp.status_code == 200 else []
+            return resp, frames, [x.get("provider") for x in _outbox_ai_calls(before)]
+
+        def normal_reply(resp, frames):
+            chunks = [f for f in frames[:-1] if f.get("done") is False and f.get("chunk")]
+            last = frames[-1] if frames else {}
+            return (resp.status_code == 200 and chunks and len(chunks) == len(frames) - 1
+                    and not any("error" in f for f in frames) and last.get("done") is True
+                    and last.get("full_response") == "".join(f["chunk"] for f in chunks)
+                    and "Fake answer" in last["full_response"])
+
+        async def n_messages():
+            return await fetch_value(select(func.count()).select_from(
+                chat_messages.join(chat_sessions, chat_messages.c.session_id == chat_sessions.c.id))
+                .where(chat_sessions.c.user_id == uid))
+
+        async def usage():
+            return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid).order_by(ai_usage.c.created_at))
+
+        claude = {"provider": "claude", "model": "claude-sonnet-5-5"}
+        put = lambda body: c.put("/api/admin/ai/settings/chat", headers=AD, json=body)  # noqa: E731
+
+        # --- chat = claude from the panel
+        r = put({"main": claude, "backups": None})
+        check(r.status_code == 200, "chat: PUT chat = claude", f"{r.status_code} {r.text[:200]}")
+        m0, u0 = await n_messages(), len(await usage())
+        r, fr, called = chat({"message": "How much did I spend?"})
+        check(normal_reply(r, fr) and called == ["claude"], "chat_uses_panel_provider",
+              f"{r.status_code} {called} {fr[-2:]}")
+        rows = await usage()
+        check(len(rows) == u0 + 1 and rows[-1]["provider"] == "claude" and rows[-1]["feature_type"] == "chat"
+              and rows[-1]["model_name"] == "claude-sonnet-5-5" and rows[-1]["fallback_from"] is None,
+              "chat: exactly one usage row per exchange, from the runner (no duplicate tracking)",
+              [(x["provider"], x["model_name"], x["fallback_from"]) for x in rows[u0:]])
+        check(await n_messages() == m0 + 2, "chat: a successful exchange is saved to history", (m0, await n_messages()))
+
+        for old in ("gemini", "openai"):
+            r, fr, called = chat({"message": "hi", "ai_provider": old})
+            check(normal_reply(r, fr) and called == ["claude"], f"chat_ignores_ai_provider_field: {old}",
+                  f"{r.status_code} {called} {fr[-1:]}")
+
+        r = c.post("/api/chat/stream", headers=U, json={"message": "hi", "ai_provider": "bard"})
+        check(r.status_code == 422, "chat_invalid_ai_provider_422", f"{r.status_code} {r.text[:200]}")
+
+        # --- claude has no credit: the default backups answer and the app sees a normal reply
+        stubenv.set_fake_ai(claude="billing")
+        u0 = len(await usage())
+        r, fr, called = chat({"message": "hi"})
+        check(normal_reply(r, fr) and called == ["claude", "openai"], "chat_fallback_invisible",
+              f"{r.status_code} {called} {fr[-2:]}")
+        rows = await usage()
+        check(len(rows) == u0 + 1 and rows[-1]["provider"] == "openai" and rows[-1]["fallback_from"] == "claude",
+              "chat_fallback_invisible: the usage row names the answering provider and fallback_from",
+              [(x["provider"], x["fallback_from"]) for x in rows[u0:]])
+        admin_reset(c, AD)
+
+        # --- every provider fails: today's error frame, nothing saved, no usage row
+        r = put({"main": claude, "backups": []})
+        stubenv.set_fake_ai(claude="billing")
+        m0, u0 = await n_messages(), len(await usage())
+        r, fr, called = chat({"message": "hi"})
+        last = fr[-1] if fr else {}
+        check(r.status_code == 200 and len(fr) == 1 and last.get("done") is True and last.get("error")
+              and "credit" not in r.text and called == ["claude"],
+              "chat_all_fail_error_frame_no_history: one error frame", f"{r.status_code} {called} {fr}")
+        check(await n_messages() == m0 and len(await usage()) == u0,
+              "chat_all_fail_error_frame_no_history: no history, no usage row", (m0, u0))
+        admin_reset(c, AD)
+
+        # --- the provider fails after the first chunk: chunks, then the error frame; nothing saved
+        put({"main": claude, "backups": None})
+        stubenv.set_fake_ai(claude="fail_mid_stream")
+        m0 = await n_messages()
+        r, fr, called = chat({"message": "hi"})
+        check(r.status_code == 200 and len(fr) >= 2 and fr[0].get("chunk") and fr[-1].get("error")
+              and fr[-1].get("done") is True and called == ["claude"],
+              "chat: a mid-stream failure ends with the error frame (no second provider)", f"{called} {fr}")
+        check(await n_messages() == m0, "chat: a mid-stream failure is not saved to history")
+        admin_reset(c, AD)
+
+        # --- refresh-data accepts and ignores ai_provider
+        for q, want in (({}, 200), ({"ai_provider": "gemini"}, 200), ({"ai_provider": "openai"}, 200),
+                        ({"ai_provider": "bard"}, 422)):
+            r = c.post("/api/chat/refresh-data", headers=U, params=q)
+            check(r.status_code == want, f"chat refresh-data {q or 'no ai_provider'} -> {want}", f"{r.status_code} {r.text[:200]}")
+
+        await _chat_inprocess_checks(uid)
+    finally:
+        try:
+            if AD:
+                admin_reset(c, AD)
+        finally:
+            try:
+                if uid:
+                    await execute(delete(users).where(users.c.id == uid))  # cascades to chat and ai_usage rows
+            finally:
+                db.admins.delete_many({"email": {"$in": list(made.values())}})
+                c.close()
+
+
+async def _chat_inprocess_checks(uid):
+    """FinancialChatbot.stream_chat in-process: prompt, temperatures, final usage, closing and runner outcomes."""
+    from ai_chatbot import ChatServiceError, financial_chatbot
+    from ai_providers import health, runner, settings
+    from ai_providers.errors import AllProvidersFailed
+    from ai_providers.types import Completion, Target
+
+    saved = (settings._env, dict(settings._env_units), settings._panel)
+    health.reset()
+    stubenv.clear_fake_ai()
+    try:
+        settings.set_panel_cache({})
+        settings.reload_env({})
+
+        async def collect(**kw):
+            items = []
+            async for item in financial_chatbot.stream_chat(uid, "How much did I spend?", **kw):
+                items.append(item)
+            return items
+
+        for style, temp in (("normal", 0.3), ("concise", 0.2), ("explanatory", 0.4), ("odd", 0.3)):
+            items = await collect(response_style=style)
+            cfg = stubenv.LAST_KWARGS["gemini"]["config"]
+            check(cfg.temperature == temp and cfg.max_output_tokens == 4000,
+                  f"chat prompt: {style} style sends temperature {temp} and max tokens 4000",
+                  (cfg.temperature, cfg.max_output_tokens))
+        sysmsg = cfg.system_instruction or ""
+        user_msg = stubenv.LAST_KWARGS["gemini"]["contents"]
+        check(sysmsg.startswith("You are Toe Pwar AI") and "Flow Finance AI" not in sysmsg
+              and "How much did I spend?" in user_msg and "Name: T8 Chat" in user_msg,
+              "chat prompt: persona Toe Pwar AI; the user prompt carries the profile and the question", sysmsg[:80])
+        text = "".join(t for t, u in items if t)
+        final = items[-1]
+        check(final[0] == "" and final[1] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
+                                               "model_name": "gemini-2.5-flash", "provider": "gemini",
+                                               "fallback_from": None}
+              and all(u is None for _, u in items[:-1]) and "Fake answer" in text,
+              "chat stream_chat: chunks with None, then one final usage dict", items[-2:])
+
+        await collect(chat_history=[{"role": "user", "content": "earlier question"},
+                                    {"role": "assistant", "content": "earlier answer"}])
+        user_msg = stubenv.LAST_KWARGS["gemini"]["contents"]
+        check("You: earlier question" in user_msg and "Assistant: earlier answer" in user_msg,
+              "chat prompt: the recent history is in the user prompt")
+
+        # The runner is replaced to drive the outcomes the fakes can't reach directly.
+        orig = runner.run_stream
+        t = Target("claude", "claude-sonnet-5-5")
+        closed = []
+
+        def fake(*outcomes):
+            async def run_stream(feature, *, user_id, prompt):
+                try:
+                    for o in outcomes:
+                        if isinstance(o, BaseException):
+                            raise o
+                        yield o
+                finally:
+                    closed.append(feature)
+            return run_stream
+
+        try:
+            runner.run_stream = fake("one", "two", runner.RunResult("onetwo", t, None, Completion("onetwo", 1, 1, "stop")))
+            gen = financial_chatbot.stream_chat(uid, "hi")
+            first = await gen.__anext__()
+            await gen.aclose()
+            check(first == ("one", None) and closed == ["chat"],
+                  "chat: closing the chat stream early closes the runner stream at once", (first, closed))
+
+            runner.run_stream = fake("partial", runner.RunResult("partial", t, "gemini", Completion("partial", 3, 2, "filtered")))
+            try:
+                items = await collect()
+                err = None
+            except Exception as e:  # noqa: BLE001
+                items, err = [], e
+            check(err is None and items[0] == ("partial", None) and items[-1][1]["provider"] == "claude"
+                  and items[-1][1]["fallback_from"] == "gemini" and len(items) == 2,
+                  "chat: a filtered ending after chunks ends the stream normally (text already sent stands)",
+                  (items, err))
+
+            runner.run_stream = fake(AllProvidersFailed([]))
+            try:
+                await collect()
+                err = None
+            except Exception as e:  # noqa: BLE001
+                err = e
+            check(isinstance(err, ChatServiceError) and err.user_message == ChatServiceError.DEFAULT_MESSAGE,
+                  "chat: AllProvidersFailed becomes ChatServiceError with the default message", repr(err))
+        finally:
+            runner.run_stream = orig
+    finally:
+        stubenv.clear_fake_ai()
+        health.reset()
+        settings._env, settings._panel = saved[0], saved[2]
+        settings._env_units.clear()
+        settings._env_units.update(saved[1])
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -1974,6 +2226,12 @@ async def all_async_checks():
         import traceback
         traceback.print_exc()
         check(False, "admin_api_checks ran to completion", repr(e))
+    try:
+        await chat_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "chat_checks ran to completion", repr(e))
 
 
 def stub_mode_checks():

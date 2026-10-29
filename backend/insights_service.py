@@ -14,7 +14,6 @@ from tz_utils import (
     current_week_to_date_range, current_month_to_date_range,
 )
 from ai_chatbot import financial_chatbot, FinancialDataProcessor
-from ai_chatbot_gemini import gemini_financial_chatbot
 from budget_service import get_running_budgets
 import logging
 import re
@@ -237,8 +236,8 @@ async def generate_weekly_insight(user_id: str, ai_provider: str = "openai", not
     all-users job sends exactly one notification per user after both providers ran.
     """
     try:
-        # Select chatbot based on provider
-        chatbot = gemini_financial_chatbot if ai_provider == "gemini" else financial_chatbot
+        # One chatbot for every provider; only its gpt_model (the OpenAI model) is used here.
+        chatbot = financial_chatbot
 
         if chatbot is None:
             logger.error(f"Chatbot not available for provider: {ai_provider}")
@@ -1043,8 +1042,8 @@ async def generate_monthly_insight(user_id: str, ai_provider: str = "openai", no
     all-users job sends exactly one notification per user after both providers ran.
     """
     try:
-        # Select chatbot based on provider
-        chatbot = gemini_financial_chatbot if ai_provider == "gemini" else financial_chatbot
+        # One chatbot for every provider; only its gpt_model (the OpenAI model) is used here.
+        chatbot = financial_chatbot
 
         if chatbot is None:
             logger.error(f"Chatbot not available for provider: {ai_provider}")

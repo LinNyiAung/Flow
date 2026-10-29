@@ -674,7 +674,7 @@ def t_ai():
 
     r = c.post("/api/chat/stream", headers=H(A), json={"message": "How much did I spend?"})
     fr = frames_of(r) if r.status_code == 200 else []
-    ok("chat stream (fake OpenAI) streams chunks and a done frame",
+    ok("chat stream (fake AI, built-in chat provider) streams chunks and a done frame",
        r.status_code == 200 and len(fr) >= 2 and fr[-1].get("done") and "Fake answer" in (fr[-1].get("full_response") or ""),
        f"{r.status_code} {str(fr[-1:])[:250]}")
     rec("chat stream content-type", "INFO", r.headers.get("content-type"))
@@ -686,15 +686,17 @@ def t_ai():
         f"{len(h)} stored messages after 3 exchanges")
     bug("client-supplied assistant messages persisted into server history", any("INJECTED" in (m.get("content") or "") for m in h), "")
 
+    # Chat ignores ai_provider (old apps still send it): the "chat" feature's provider chain answers
+    # (built-in default gemini, via the async Gemini fake), and the exchange is saved.
     r = c.post("/api/chat/stream", headers=H(A), json={"message": "hi", "ai_provider": "gemini"})
-    if r.status_code == 200:
-        fr = frames_of(r)
-        last = fr[-1] if fr else {}
-        bug("Gemini failure not surfaced as an error frame", "error" not in last, str(last)[:250])
-        h2 = c.get("/api/chat/history", headers=H(A), params={"limit": 50}).json()
-        bug("failed AI exchange persisted into chat history", len(h2) != len(h), f"{len(h)} -> {len(h2)}")
-    else:
-        rec("gemini stream", "INFO", f"{r.status_code} {r.text[:150]}")
+    fr = frames_of(r) if r.status_code == 200 else []
+    last = fr[-1] if fr else {}
+    ok("chat with ai_provider=gemini streams a normal reply (field ignored)",
+       r.status_code == 200 and len(fr) >= 2 and not any("error" in f for f in fr) and last.get("done")
+       and "Fake answer" in (last.get("full_response") or ""), f"{r.status_code} {str(fr[-1:])[:250]}")
+    h2 = c.get("/api/chat/history", headers=H(A), params={"limit": 50}).json()
+    ok("successful exchange with ai_provider=gemini saved to chat history", len(h2) == len(h) + 2,
+       f"{len(h)} -> {len(h2)}")
     r = c.post("/api/chat", headers=H(A), json={"message": "x"})
     ok("deprecated /api/chat -> 410", r.status_code == 410, r.status_code)
     ok("chat history", c.get("/api/chat/history", headers=H(A)).status_code == 200, "")

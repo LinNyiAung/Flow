@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+from contextlib import aclosing
 from datetime import datetime, timedelta, UTC
 from typing import List, Optional
 
@@ -41,9 +42,6 @@ from sql import notifications as notifications_db
 from sql import chat as chat_db
 from sql import insights as insights_db
 from ai_chatbot import financial_chatbot, ChatServiceError
-from ai_chatbot_gemini import gemini_financial_chatbot
-from ai_usage_service import track_ai_usage
-from ai_usage_models import AIFeatureType, AIProviderType
 from config import settings
 
 from transaction_routes import router as transaction_router
@@ -61,6 +59,7 @@ from app_version_routes import user_router as app_version_user_router
 # AI provider switching: admin API and the settings cache it feeds
 from ai_admin_routes import router as ai_admin_router
 from ai_providers import settings as ai_provider_settings
+from ai_providers.errors import redact
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
@@ -257,14 +256,13 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str):
 
 
 def _invalidate_ai_caches(user_id: str) -> None:
-    """Drop BOTH providers' cached vector stores for the user (they rebuild lazily)."""
-    for bot in (financial_chatbot, gemini_financial_chatbot):
-        if bot is None:
-            continue
-        try:
-            bot.refresh_user_data(user_id)
-        except Exception as e:
-            print(f"⚠️ Failed to invalidate AI cache for user {user_id}: {e}")
+    """Drop the chatbot's cached vector store for the user (it rebuilds lazily)."""
+    if financial_chatbot is None:
+        return
+    try:
+        financial_chatbot.refresh_user_data(user_id)
+    except Exception as e:
+        print(f"⚠️ Failed to invalidate AI cache for user {user_id}: {e}")
 
 
 def _sse(payload: dict) -> str:
@@ -284,12 +282,13 @@ async def stream_chat_with_ai(
       - final: {"chunk": "", "done": true, "full_response": "...", "timestamp": ...}
       - error: {"error": "<user-friendly message>", "done": true, "timestamp": ...}
     On error the exchange is NOT saved to chat history.
+
+    The answer comes from the "chat" feature's provider chain (admin panel / server settings), which also
+    records the usage. `ai_provider` in the body (sent by old apps) is validated and ignored.
     """
     user_id = current_user["_id"]
-    model_name = "unknown-model"  # Fallback
 
-    # The ai_data_stale flag is shared by both providers, so when it is set invalidate
-    # BOTH providers' caches. Clearing it with a conditional update first means a data
+    # Clearing the ai_data_stale flag with a conditional update first means a data
     # change that lands after this point re-sets the flag and is picked up next time.
     try:
         if await users_db.claim_ai_data_fresh(user_id):
@@ -297,19 +296,6 @@ async def stream_chat_with_ai(
             print(f"🔄 AI data was stale for user {user_id}; invalidated cached vector stores")
     except Exception as e:
         print(f"⚠️ Failed to refresh stale AI data: {e}")
-
-    if chat_request.ai_provider == AIProvider.GEMINI:
-        chatbot = gemini_financial_chatbot
-        if chatbot is None:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Gemini AI service is currently unavailable")
-        model_name = getattr(chatbot, 'gemini_model', 'gemini-2.5-flash')
-        provider = AIProviderType.GEMINI
-    else:
-        chatbot = financial_chatbot
-        if chatbot is None:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OpenAI AI service is currently unavailable")
-        model_name = getattr(chatbot, 'gpt_model', 'gpt-4o-mini')
-        provider = AIProviderType.OPENAI
 
     chat_history = None
     if chat_request.chat_history:
@@ -319,35 +305,26 @@ async def stream_chat_with_ai(
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
 
     async def generate_stream():
-        nonlocal model_name
-        input_tokens = output_tokens = total_tokens = 0
         full_response = ""
         error_message = None
 
         try:
-            stream = chatbot.stream_chat(
+            # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
+            async with aclosing(financial_chatbot.stream_chat(
                 user_id=user_id,
                 message=chat_request.message,
                 chat_history=chat_history,
                 response_style=response_style
-            )
-
-            async for chunk_text, usage_data in stream:
-                if chunk_text:
-                    full_response += chunk_text
-                    yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
-                    await asyncio.sleep(0.01)
-
-                if usage_data:
-                    input_tokens = usage_data.get('input_tokens') or 0
-                    output_tokens = usage_data.get('output_tokens') or 0
-                    total_tokens = usage_data.get('total_tokens') or (input_tokens + output_tokens)
-                    if usage_data.get('model_name'):
-                        model_name = usage_data['model_name']
+            )) as stream:
+                async for chunk_text, _usage in stream:  # usage is already tracked by the provider runner
+                    if chunk_text:
+                        full_response += chunk_text
+                        yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
+                        await asyncio.sleep(0.01)
         except ChatServiceError as e:
             error_message = e.user_message
         except Exception as e:
-            print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {e}")
+            print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {redact(str(e))}")
             error_message = ChatServiceError.DEFAULT_MESSAGE
 
         if error_message:
@@ -355,24 +332,9 @@ async def stream_chat_with_ai(
             yield _sse({"error": error_message, "done": True, "timestamp": datetime.now(UTC).isoformat()})
             return
 
-        # Track usage BEFORE the final frame: the client may disconnect as soon as it
-        # sees done:true, which would cancel anything after the yield.
-        if input_tokens > 0 or output_tokens > 0:
-            try:
-                await track_ai_usage(
-                    user_id=user_id,
-                    feature_type=AIFeatureType.CHAT,
-                    provider=provider,
-                    model_name=model_name,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
-            except Exception as e:
-                print(f"⚠️ Failed to track chat AI usage: {e}")
-
         if full_response:
-            # Saved before the "done" frame for the same reason.
+            # Saved BEFORE the "done" frame: the client may disconnect as soon as it
+            # sees done:true, which would cancel anything after the yield.
             await save_chat_session(user_id, chat_request.message, full_response)
 
         yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
@@ -437,29 +399,11 @@ async def refresh_ai_data(
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     current_user: dict = Depends(get_current_user)
 ):
-    """Manually refresh user's AI data"""
+    """Manually refresh user's AI data. `ai_provider` (sent by old apps) is validated and ignored: one chatbot."""
     try:
-        # Refresh based on provider
-        if ai_provider == AIProvider.GEMINI:
-            if gemini_financial_chatbot:
-                gemini_financial_chatbot.refresh_user_data(current_user["_id"])
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Gemini AI service is currently unavailable"
-                )
-        else:
-            if financial_chatbot:
-                financial_chatbot.refresh_user_data(current_user["_id"])
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="OpenAI AI service is currently unavailable"
-                )
-
-        return {"message": f"AI data refreshed successfully for {ai_provider.value}"}
-    except HTTPException:
-        raise
+        if financial_chatbot:
+            financial_chatbot.refresh_user_data(current_user["_id"])
+        return {"message": "AI data refreshed successfully"}
     except Exception as e:
         print(f"Refresh AI data error: {str(e)}")
         raise HTTPException(

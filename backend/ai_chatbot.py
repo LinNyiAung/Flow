@@ -3,6 +3,7 @@ import os
 import threading
 import json
 from collections import OrderedDict
+from contextlib import aclosing
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 
+from ai_providers import runner as ai_runner
+from ai_providers.errors import AllProvidersFailed, redact
+from ai_providers.types import Prompt
 from budget_service import get_running_budgets
 from sql import transactions as transactions_db
 from sql import goals as goals_db
@@ -851,14 +855,19 @@ class FinancialDataProcessor:
         return documents
 
 
+CHAT_MAX_TOKENS = 4000
+# Today's chat temperatures per response style (OpenAI and Gemini; the Claude client never sends one).
+CHAT_TEMPERATURES = {"normal": 0.3, "concise": 0.2, "explanatory": 0.4}
+
+
 class FinancialChatbot:
-    """AI Chatbot with GPT-4 + Optimized RAG (Recommended Approach)"""
+    """The AI chatbot: RAG over the user's data (OpenAI embeddings); answers come from the "chat" feature's
+    provider chain (ai_providers.runner), whichever provider that is."""
 
     def __init__(self):
-        self.last_usage = {}
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
-            print("Warning: OPENAI_API_KEY not found")
+            print("Warning: OPENAI_API_KEY not found (needed for chat embeddings)")
 
         try:
             self.embeddings = OpenAIEmbeddings(
@@ -879,6 +888,7 @@ class FinancialChatbot:
             max_users=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
         )
 
+        # Only insights_service still reads this (its OpenAI model) until insights move onto the runner.
         self.gpt_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     async def _build_vector_store(self, user_id: str) -> Optional[InMemoryVectorStore]:
@@ -927,7 +937,7 @@ class FinancialChatbot:
             print(f"🗑️ Invalidated cache for user {user_id}")
 
     def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
-        """Build enhanced system prompt for GPT-4 with Myanmar language support and response style"""
+        """Build the chat system prompt (persona, Myanmar language support, response style); same for every provider"""
 
         # Define style-specific instructions
         style_instructions = {
@@ -958,7 +968,7 @@ class FinancialChatbot:
 
         style_instruction = style_instructions.get(response_style, style_instructions["normal"])
 
-        return f"""You are Flow Finance AI, an expert personal finance assistant with complete access to the user's transaction history, financial goals, and budgets.
+        return f"""You are Toe Pwar AI, an expert personal finance assistant with complete access to the user's transaction history, financial goals, and budgets.
 
 📅 Today's date: {today}
 
@@ -1128,7 +1138,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         if goals_summary and goals_summary.get('goals_by_currency'):
             prompt += "\n🎯 GOALS BY CURRENCY:\n"
             for currency, curr_goals in goals_summary['goals_by_currency'].items():
-                currency_name = "USD" if currency == "usd" else "MMK"
+                currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
                 active = [g for g in curr_goals if g.get('status') == 'active']
                 achieved = [g for g in curr_goals if g.get('status') == 'achieved']
                 prompt += f"  {currency_name}: {len(active)} active, {len(achieved)} achieved\n"
@@ -1172,12 +1182,14 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         return prompt
 
     async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None, response_style: str = "normal"):
-        """Stream chat response using GPT-4 with enhanced RAG and response style"""
-        try:
-            if not self.openai_api_key:
-                print("❌ OpenAI API key not configured")
-                raise ChatServiceError("The AI assistant is not available right now. Please try again later.")
+        """
+        Stream a chat answer from the "chat" feature's provider chain, with RAG context and response style.
 
+        Yields (chunk, None) for each text chunk, then ("", usage) once, where usage has input_tokens,
+        output_tokens, total_tokens, model_name, provider and fallback_from. The runner has already recorded
+        the usage. Raises ChatServiceError (safe user_message) on any failure, including every provider failing.
+        """
+        try:
             # [FIX] Direct await (no to_thread needed for DB)
             user = await users_db.get_user(user_id)
             if not user:
@@ -1316,60 +1328,53 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
             user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text, message, today)
 
-            # Stream response
-            if not self.openai_api_key:
-                yield "AI service is not available. OpenAI API key not configured.", None
-                return
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.openai_api_key)
-
-            temperature_map = {
-                "normal": 0.3,
-                "concise": 0.2,
-                "explanatory": 0.4
-            }
-
-            stream = await client.chat.completions.create(
-                model=self.gpt_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=temperature_map.get(response_style, 0.3),
-                max_tokens=1000,
-                stream=True,
-                stream_options={"include_usage": True}
+            prompt = Prompt(
+                system=system_prompt,
+                user=user_prompt,
+                max_tokens=CHAT_MAX_TOKENS,
+                temperature=CHAT_TEMPERATURES.get(response_style, CHAT_TEMPERATURES["normal"]),
             )
 
-            final_usage_data = None
+            # The runner falls back to a backup only before the first chunk; after that a failure propagates
+            # (it never stitches two providers' text together). aclosing: if our consumer stops early (client
+            # disconnect), the runner's and the provider's streams are closed right away.
+            result = None
+            async with aclosing(ai_runner.run_stream("chat", user_id=user_id, prompt=prompt)) as items:
+                async for item in items:
+                    if isinstance(item, ai_runner.RunResult):
+                        result = item
+                    elif item:
+                        yield item, None
 
-            async for chunk in stream:
-                if hasattr(chunk, 'usage') and chunk.usage is not None:
-                    final_usage_data = {
-                        'input_tokens': chunk.usage.prompt_tokens,
-                        'output_tokens': chunk.usage.completion_tokens,
-                        'total_tokens': chunk.usage.total_tokens,
-                        'model_name': self.gpt_model
-                    }
-
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    yield content, None
-
-            yield "", final_usage_data
+            if result is None:  # the runner always ends with a RunResult or raises; guard anyway
+                raise ChatServiceError()
+            # A "filtered"/"refusal" finish after chunks were sent ends the stream like a normal one:
+            # the text already sent stands and no other provider is asked.
+            c = result.completion
+            yield "", {
+                "input_tokens": c.input_tokens,
+                "output_tokens": c.output_tokens,
+                "total_tokens": c.input_tokens + c.output_tokens,
+                "model_name": result.target.model,
+                "provider": result.target.provider,
+                "fallback_from": result.fallback_from,
+            }
 
         except ChatServiceError:
             raise
+        except AllProvidersFailed as e:
+            print(f"❌ Chat: every provider failed: {e}")
+            raise ChatServiceError() from e
         except Exception as e:
             # Log the details server-side; the client only gets a friendly message
             # (sent by the route as an error frame, not saved to chat history).
-            print(f"❌ Streaming chat error: {type(e).__name__}: {e}")
+            print(f"❌ Streaming chat error: {type(e).__name__}: {redact(str(e))}")
             raise ChatServiceError() from e
 
 # Global chatbot instance
 try:
     financial_chatbot = FinancialChatbot()
-    print("✅ Financial chatbot initialized successfully with GPT-4 + RAG + Goals")
+    print("✅ Financial chatbot initialized (RAG + provider runner)")
 except Exception as e:
     print(f"❌ Failed to initialize financial chatbot: {e}")
     financial_chatbot = None
