@@ -870,6 +870,251 @@ async def health_checks():
         await execute(ai_provider_status.delete())
 
 
+async def client_checks():
+    """Task 5: the three provider clients behind one interface, in-process against the fakes."""
+    from ai_providers.clients import claude_client, gemini_client, openai_client
+    from ai_providers.clients.base import get_client
+    from ai_providers.types import Completion, Prompt
+
+    models = {"openai": "gpt-4o-mini", "gemini": "gemini-2.5-flash", "claude": "claude-sonnet-5-5"}
+    stubenv.clear_fake_ai()
+
+    check(all(get_client(p) is get_client(p) and get_client(p).name == p for p in models),
+          "get_client: one instance per provider, named after it")
+    try:
+        get_client("bogus")
+        check(False, "get_client: unknown provider raises", "no error")
+    except (KeyError, ValueError):
+        check(True, "get_client: unknown provider raises")
+
+    # configured() reads the environment at call time
+    keys = {"openai": "OPENAI_API_KEY", "gemini": "GOOGLE_API_KEY", "claude": "ANTHROPIC_API_KEY"}
+    saved = {k: os.environ.get(k) for k in keys.values()}
+    try:
+        for p, k in keys.items():
+            os.environ[k] = "x-test"
+            on = get_client(p).configured()
+            del os.environ[k]
+            off = get_client(p).configured()
+            check(on is True and off is False, f"configured_{p}: follows {k} at call time", f"{on} {off}")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # complete / json / stream through each provider
+    for p, m in models.items():
+        c = get_client(p)
+        r = await c.complete(m, Prompt("sys", "hi"))
+        check(isinstance(r, Completion) and r.text.strip() and r.finish == "stop" and r.input_tokens > 0
+              and r.output_tokens > 0, f"client_complete_each: {p}", r)
+        r = await c.complete(m, Prompt("sys", "hi", json_schema={"type": "object"}))
+        try:
+            ok = isinstance(json.loads(r.text), dict)
+        except ValueError:
+            ok = False
+        check(ok, f"client_json_each: {p}", r.text)
+        items = [x async for x in c.stream(m, Prompt("sys", "hi"))]
+        chunks, last = items[:-1], items[-1] if items else None
+        check(len(chunks) >= 2 and all(isinstance(x, str) and x for x in chunks) and "".join(chunks) == stubenv.FAKE_REPLY
+              and isinstance(last, Completion) and last.text == "" and last.finish == "stop"
+              and last.input_tokens == 10 and last.output_tokens == 5, f"client_stream_each: {p}", items)
+
+    # the SDK call shape: what each fake received
+    prompt = Prompt("be brief", "hello", json_schema={"type": "object"}, max_tokens=321)
+    await get_client("claude").complete("claude-sonnet-5-5", prompt, effort="low")
+    k = stubenv.LAST_KWARGS["claude"]
+    check(not ({"temperature", "top_p", "top_k", "thinking"} & set(k)) and k["fallbacks"] == "default"
+          and k["betas"] == ["server-side-fallback-2026-07-01"], "claude_no_sampling_params: none sent, fallbacks default", sorted(k))
+    check(k["system"] == "be brief" and k["max_tokens"] == 321 and k["model"] == "claude-sonnet-5-5"
+          and k["messages"] == [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
+          and k["output_config"] == {"format": {"type": "json_schema", "schema": {"type": "object"}}, "effort": "low"},
+          "claude: system, max_tokens, messages and output_config shape", k)
+    for model in ("claude-opus-5-5", "claude-fable-5-1"):
+        await get_client("claude").complete(model, Prompt("s", "hi"))
+        k = stubenv.LAST_KWARGS["claude"]
+        check(k.get("fallbacks") == "default" and "output_config" not in k and "temperature" not in k,
+              f"claude: refusal fallback for {model}, no output_config without schema/effort", sorted(k))
+    await get_client("claude").complete("claude-haiku-5-5", Prompt("s", "hi"))
+    k = stubenv.LAST_KWARGS["claude"]
+    check("fallbacks" not in k and "betas" not in k, "claude: no fallbacks for other models", sorted(k))
+    await get_client("claude").complete("claude-sonnet-5-5", Prompt("", "hi"))
+    check("system" not in stubenv.LAST_KWARGS["claude"], "claude: empty system is omitted")
+    async for _ in get_client("claude").stream("claude-sonnet-5-5", Prompt("s", "hi"), effort="medium"):
+        pass
+    k = stubenv.LAST_KWARGS["claude"]
+    check(k["fallbacks"] == "default" and k["output_config"] == {"effort": "medium"}
+          and not ({"temperature", "top_p", "top_k"} & set(k)), "claude stream: same params", sorted(k))
+
+    # a big max_tokens goes through stream() + get_final_message()
+    before = len(outbox_lines())
+    r = await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "hi", max_tokens=20000))
+    new = [x for x in outbox_lines()[before:] if x.get("kind") == "ai_call"]
+    check(r.text and [x["target"] for x in new] == ["beta.messages.stream"],
+          "claude: max_tokens > 16000 uses stream()", [x.get("target") for x in new])
+    before = len(outbox_lines())
+    await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "hi", max_tokens=16000))
+    new = [x for x in outbox_lines()[before:] if x.get("kind") == "ai_call"]
+    check([x["target"] for x in new] == ["beta.messages.create"], "claude: max_tokens == 16000 uses create()")
+
+    # images: claude image block before the text, openai data URI, gemini Part
+    img = Prompt("s", "what is this", image=b"\x89PNGdata", image_mime="image/png")
+    for p, m in models.items():
+        r = await get_client(p).complete(m, img)
+        check(r.text.strip(), f"client_image: {p} answers")
+    import base64
+    b64 = base64.b64encode(b"\x89PNGdata").decode()
+    content = stubenv.LAST_KWARGS["claude"]["messages"][0]["content"]
+    check(content == [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
+                      {"type": "text", "text": "what is this"}], "claude: image block precedes the text", content)
+    msgs = stubenv.LAST_KWARGS["openai"]["messages"]
+    check(msgs[0] == {"role": "system", "content": "s"} and msgs[1]["role"] == "user"
+          and msgs[1]["content"] == [{"type": "text", "text": "what is this"},
+                                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}],
+          "openai: image sent as a base64 image_url data URI", msgs)
+    gk = stubenv.LAST_KWARGS["gemini"]
+    parts = gk["contents"]
+    check(isinstance(parts, list) and parts[0].inline_data.data == b"\x89PNGdata"
+          and parts[0].inline_data.mime_type == "image/png" and parts[1] == "what is this",
+          "gemini: image sent as Part.from_bytes", parts)
+    check(_field(gk["config"], "system_instruction") == "s", "gemini: system goes in system_instruction")
+
+    # openai and gemini request shapes
+    await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi", json_schema={"type": "object"}, max_tokens=77))
+    k = stubenv.LAST_KWARGS["openai"]
+    check(k["response_format"] == {"type": "json_object"} and k["max_tokens"] == 77 and k["model"] == "gpt-4o-mini",
+          "openai: json_schema -> response_format json_object", k)
+    await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi"))
+    check("response_format" not in stubenv.LAST_KWARGS["openai"], "openai: no response_format without json_schema")
+    async for _ in get_client("openai").stream("gpt-4o-mini", Prompt("s", "hi")):
+        pass
+    k = stubenv.LAST_KWARGS["openai"]
+    check(k["stream"] is True and k["stream_options"] == {"include_usage": True}, "openai: stream asks for usage", k)
+    await get_client("gemini").complete("gemini-2.5-flash", Prompt("s", "hi", json_schema={"type": "object"}, max_tokens=55))
+    cfg = stubenv.LAST_KWARGS["gemini"]["config"]
+    check(_field(cfg, "response_mime_type") == "application/json" and _field(cfg, "max_output_tokens") == 55
+          and stubenv.LAST_KWARGS["gemini"]["contents"] == "hi", "gemini: json_schema -> response_mime_type", cfg)
+    await get_client("gemini").complete("gemini-2.5-flash", Prompt("s", "hi"))
+    check(_field(stubenv.LAST_KWARGS["gemini"]["config"], "response_mime_type") is None,
+          "gemini: no mime type without json_schema")
+
+    # transcription
+    r = await get_client("gemini").transcribe("gemini-2.5-flash", b"RIFFxxxx", "note.m4a", "my")
+    gk = stubenv.LAST_KWARGS["gemini"]
+    check(r.text == "fake transcript" and r.finish == "stop", "gemini_transcribe: returns the transcript", r)
+    check(gk["contents"][0].inline_data.mime_type == "audio/mp4" and gk["contents"][0].inline_data.data == b"RIFFxxxx"
+          and "Transcribe this audio exactly. Reply with only the transcript." in gk["contents"][1]
+          and "my" in gk["contents"][1], "gemini_transcribe: audio part, mime from extension, instruction and language", gk["contents"])
+    await get_client("gemini").transcribe("gemini-2.5-flash", b"x", "a.unknownext", None)
+    gk = stubenv.LAST_KWARGS["gemini"]
+    check(gk["contents"][0].inline_data.mime_type.startswith("audio/") and len(gk["contents"]) == 2
+          and "language" not in gk["contents"][1].lower(), "gemini_transcribe: unknown extension, no language hint")
+    r = await get_client("openai").transcribe("whisper-1", b"RIFFxxxx", "a.wav", "en")
+    k = stubenv.LAST_KWARGS["openai"]
+    check(r.text == "fake transcript" and r.input_tokens == r.output_tokens == len("fake transcript") // 4
+          and k["language"] == "en" and k["model"] == "whisper-1" and k["file"] == ("a.wav", b"RIFFxxxx"),
+          "openai_transcribe: whisper-1 with language, tokens estimated len//4", (r, k))
+    await get_client("openai").transcribe("whisper-1", b"x", "a.wav", None)
+    check("language" not in stubenv.LAST_KWARGS["openai"], "openai_transcribe: no language -> omitted")
+    try:
+        await get_client("claude").transcribe("claude-sonnet-5-5", b"x", "a.wav", None)
+        check(False, "claude_transcribe_not_supported", "no error")
+    except NotImplementedError:
+        check(True, "claude_transcribe_not_supported")
+
+    # refusal and the other odd answers
+    stubenv.set_fake_ai(claude="refusal")
+    r = await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "hi"))
+    check(r.finish == "refusal" and r.text == "", "claude_refusal_finish: empty content tolerated", r)
+    items = [x async for x in get_client("claude").stream("claude-sonnet-5-5", Prompt("s", "hi"))]
+    check(len(items) == 1 and items[0].finish == "refusal", "claude_refusal_finish: stream yields just the Completion", items)
+    for p, m in models.items():
+        stubenv.set_fake_ai(**{p: "empty"})
+        r = await get_client(p).complete(m, Prompt("s", "hi"))
+        check(r.text == "" and r.finish == "stop", f"client: {p} empty answer passes through", r)
+        stubenv.set_fake_ai(**{p: "bad_json"})
+        r = await get_client(p).complete(m, Prompt("s", "hi", json_schema={"type": "object"}))
+        check(r.text == "not json", f"client: {p} bad_json passes through unparsed", r)
+
+    # SDK errors are not caught or translated; mid-stream failures propagate after the first chunk
+    for p, m in models.items():
+        stubenv.set_fake_ai(**{p: "billing"})
+        try:
+            await get_client(p).complete(m, Prompt("s", "hi"))
+            check(False, f"client_errors_propagate: {p} complete", "no error")
+        except stubenv.FakeAPIError as e:
+            check(e.status_code in (400, 402), f"client_errors_propagate: {p} complete raises the SDK error")
+        try:
+            [x async for x in get_client(p).stream(m, Prompt("s", "hi"))]
+            check(False, f"client_errors_propagate: {p} stream", "no error")
+        except stubenv.FakeAPIError:
+            check(True, f"client_errors_propagate: {p} stream raises the SDK error")
+        stubenv.set_fake_ai(**{p: "fail_mid_stream"})
+        got = []
+        try:
+            async for x in get_client(p).stream(m, Prompt("s", "hi")):
+                got.append(x)
+            check(False, f"client_errors_propagate: {p} mid-stream", "no error")
+        except stubenv.FakeAPIError as e:
+            check(e.status_code == 503 and len(got) == 1 and isinstance(got[0], str),
+                  f"client_errors_propagate: {p} mid-stream 503 after one chunk", got)
+        stubenv.set_fake_ai(**{p: "timeout"})
+        try:
+            await get_client(p).complete(m, Prompt("s", "hi"))
+            check(False, f"client_errors_propagate: {p} timeout", "no error")
+        except TimeoutError:
+            check(True, f"client_errors_propagate: {p} timeout raises TimeoutError")
+
+    # ping: a tiny request; whisper pings through a short silent clip
+    stubenv.clear_fake_ai()
+    for p, m in {**models, "whisper": "whisper-1"}.items():
+        c = get_client("openai" if p == "whisper" else p)
+        before = len(outbox_lines())
+        check(await c.ping(m) is None, f"ping: {p} returns None")
+        new = [x for x in outbox_lines()[before:] if x.get("kind") == "ai_call"]
+        check(len(new) == 1 and new[0]["model"] == m, f"ping: {p} makes exactly one call", new)
+    check(stubenv.LAST_KWARGS["claude"]["max_tokens"] == 16 and "output_config" not in stubenv.LAST_KWARGS["claude"],
+          "ping: claude max_tokens 16, no effort")
+    stubenv.set_fake_ai(claude="auth", openai="auth")
+    for p, m in (("claude", "claude-sonnet-5-5"), ("openai", "whisper-1"), ("openai", "gpt-4o-mini")):
+        try:
+            await get_client(p).ping(m)
+            check(False, f"ping: {p}/{m} propagates SDK errors", "no error")
+        except stubenv.FakeAPIError:
+            check(True, f"ping: {p}/{m} propagates SDK errors")
+    stubenv.clear_fake_ai()
+
+    # finish mapping
+    class R:  # stand-in for Gemini's FinishReason enum member
+        def __init__(self, name):
+            self.name = name
+
+    om = {"length": "length", "content_filter": "filtered", "stop": "stop", "tool_calls": "stop", None: "stop"}
+    check(all(openai_client.map_finish(raw) == want for raw, want in om.items()), "finish_map: openai")
+    gm = {"MAX_TOKENS": "length", "SAFETY": "filtered", "PROHIBITED_CONTENT": "filtered", "BLOCKLIST": "filtered",
+          "STOP": "stop", "OTHER": "stop", None: "stop"}
+    check(all(gemini_client.map_finish(R(raw) if raw else None) == want for raw, want in gm.items())
+          and gemini_client.map_finish("MAX_TOKENS") == "length", "finish_map: gemini (enum member or plain string)")
+    cm = {"max_tokens": "length", "refusal": "refusal", "end_turn": "stop", "stop_sequence": "stop",
+          "pause_turn": "stop", None: "stop"}
+    check(all(claude_client.map_finish(raw) == want for raw, want in cm.items()), "finish_map: claude")
+
+    # gemini usage falls back to len // 4 when usage_metadata is missing; text blocks only for claude
+    check(gemini_client.usage_of(None, 40, "x" * 80) == (10, 20) and gemini_client.usage_of(None, 3, "") == (0, 0),
+          "gemini: usage falls back to len // 4")
+    from types import SimpleNamespace as NS
+    msg = NS(content=[NS(type="thinking", thinking="hmm"), NS(type="fallback"), NS(type="text", text="a"),
+                      NS(type="text", text="b")], stop_reason="end_turn", usage=NS(input_tokens=3, output_tokens=4))
+    check(claude_client.text_of(msg) == "ab" and claude_client.text_of(NS(content=[])) == "",
+          "claude: text is the concatenation of text blocks only")
+
+
+def _field(obj, name):
+    return stubenv._field(obj, name)
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -878,6 +1123,7 @@ async def all_async_checks():
     await panel_checks()
     error_checks()
     await health_checks()
+    await client_checks()
 
 
 def stub_mode_checks():

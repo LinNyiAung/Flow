@@ -152,6 +152,9 @@ def _raise_for(provider, kind):
         raise FakeAPIError(401, "invalid_api_key", "Incorrect API key provided: sk-e2eSECRETabcdef123")
 
 
+LAST_KWARGS = {}  # provider id -> the keyword arguments of its latest fake SDK call (in-process checks read this)
+
+
 def _begin(provider, target, model, streaming=False, **extra):
     """Record the call, raise the configured failure, else return the configured odd-answer kind (or None)."""
     record("ai_call", provider=provider, target=target, model=model, **extra)
@@ -207,6 +210,7 @@ def _field(obj, name):
 # ---- OpenAI ----
 class _FakeCompletions:
     async def create(self, *a, stream=False, **k):
+        LAST_KWARGS["openai"] = dict(k, stream=stream)
         kind = _begin("openai", "chat.completions.create", k.get("model"), streaming=stream, stream=stream)
         usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
         wants_json = (k.get("response_format") or {}).get("type") == "json_object"
@@ -228,6 +232,7 @@ class _FakeCompletions:
 
 class _FakeTranscriptions:
     async def create(self, *a, **k):
+        LAST_KWARGS["openai"] = dict(k)
         kind = _begin("openai", "audio.transcriptions.create", k.get("model"))
         return _ns(text={"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"))
 
@@ -254,14 +259,23 @@ def _gemini_wants_json(config):
     return config is not None and _field(config, "response_mime_type") == "application/json"
 
 
+def _gemini_has_audio(contents):
+    return isinstance(contents, list) and any(
+        str(getattr(getattr(p, "inline_data", None), "mime_type", "") or "").startswith("audio/") for p in contents)
+
+
 class _FakeGeminiModels:
     async def generate_content(self, *, model=None, contents=None, config=None, **k):
+        LAST_KWARGS["gemini"] = dict(k, model=model, contents=contents, config=config)
         kind = _begin("gemini", "aio.models.generate_content", model)
         wants_json = _gemini_wants_json(config)
+        if _gemini_has_audio(contents):  # a transcription request answers like OpenAI's audio.transcriptions
+            return _gemini_response({"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"))
         text = _answer_text(kind, json.dumps([contents, str(config)], default=str), wants_json)
         return _gemini_response(text)
 
     async def generate_content_stream(self, *, model=None, contents=None, config=None, **k):
+        LAST_KWARGS["gemini"] = dict(k, model=model, contents=contents, config=config)
         kind = _begin("gemini", "aio.models.generate_content_stream", model, streaming=True)
         wants_json = _gemini_wants_json(config)
         text = _answer_text(kind, json.dumps([contents, str(config)], default=str), wants_json)
@@ -359,11 +373,13 @@ class _FakeClaudeStream:
 
 class _FakeClaudeMessages:
     async def create(self, **k):
+        LAST_KWARGS["claude"] = dict(k)
         kind = _begin("claude", "beta.messages.create", k.get("model"))
         text, stop = _claude_answer(kind, k)
         return _claude_message(text, stop, k.get("model"))
 
     def stream(self, **k):
+        LAST_KWARGS["claude"] = dict(k)
         try:
             kind = _begin("claude", "beta.messages.stream", k.get("model"), streaming=True)
         except Exception as e:  # noqa: BLE001
