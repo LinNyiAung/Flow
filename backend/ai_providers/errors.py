@@ -26,6 +26,15 @@ BILLING_TEXT = re.compile(
 
 _MODEL_NOT_FOUND_TEXT = re.compile(r"model\b.*\b(not found|does not exist)|\b(not found|does not exist)\b.*\bmodel", re.IGNORECASE | re.DOTALL)
 
+_CREDIT_BALANCE_TEXT = re.compile(r"credit balance is too low", re.IGNORECASE)
+_BAD_KEY_TEXT = re.compile(r"API key not valid|API key expired|API_KEY_INVALID", re.IGNORECASE)
+
+
+def _error_code(exc: BaseException) -> str:
+    value = getattr(exc, "code", None)
+    return value.lower() if isinstance(value, str) else ""
+
+
 # API keys a provider may echo back in an error message. Anything that looks like one is removed.
 _KEY_PATTERNS = re.compile(
     r"sk-ant-[A-Za-z0-9_-]{6,}(?:\*+[A-Za-z0-9_-]*)?"
@@ -180,12 +189,22 @@ def _kind(exc: BaseException) -> Optional[str]:
     statuses = _statuses(exc)
     texts = [str(e) or "" for e in chain]
     status_names = " ".join(str(getattr(e, "status", "") or "") for e in chain)
+    if 408 in statuses:
+        return "timeout"
     if statuses & {401, 403}:
         return "auth"
-    if 402 in statuses or is_billing_error(exc):  # before the 400 rule: Anthropic reports billing as a 400
+    # Gemini reports a bad or expired key as HTTP 400 INVALID_ARGUMENT, so check the text before the 400 rule.
+    if any(_BAD_KEY_TEXT.search(t) for t in texts):
+        return "auth"
+    # Billing needs an explicit signal. A plain 429 / RESOURCE_EXHAUSTED is a rate limit even when its text
+    # mentions "quota" and "billing" (Gemini's per-minute limit does).
+    if 402 in statuses or any(_error_code(e) == "insufficient_quota" for e in chain) \
+            or any(_CREDIT_BALANCE_TEXT.search(t) for t in texts):  # Anthropic reports billing as a 400
         return "billing"
     if 429 in statuses or "RESOURCE_EXHAUSTED" in status_names.upper() or any("RESOURCE_EXHAUSTED" in t for t in texts):
         return "rate_limit"
+    if any(BILLING_TEXT.search(t) for t in texts):  # not a rate limit: billing wording alone is enough
+        return "billing"
     if 404 in statuses or any(_MODEL_NOT_FOUND_TEXT.search(t) for t in texts):
         return "model_not_found"
     if any(s >= 500 for s in statuses) or any("overloaded" in t.lower() for t in texts) \

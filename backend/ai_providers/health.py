@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from .errors import ProviderFailure
+from .errors import ProviderFailure, redact
 from .features import PROVIDERS
 from .types import Target
 
@@ -51,14 +51,20 @@ def mark_failure(f: ProviderFailure, now: Optional[float] = None) -> None:
         if _server_streak[f.provider] >= SERVER_STREAK_LIMIT:
             _cool_provider(f.provider, now)
     elif f.kind == "model_not_found":
-        _pair_until[(f.provider, f.model)] = now + MODEL_COOLOFF
+        _cool_pair(f.provider, f.model, now + MODEL_COOLOFF)
     elif f.kind == "rate_limit":
-        _pair_until[(f.provider, f.model)] = now + RATE_LIMIT_COOLOFF
+        _cool_pair(f.provider, f.model, now + RATE_LIMIT_COOLOFF)
     # refusal, unusable and a single timeout never cool anything off
 
 
+def _cool_pair(provider: str, model: str, until: float) -> None:
+    """Never shorten an existing cool-off (a 60 s rate limit must not cut a 300 s model_not_found)."""
+    key = (provider, model)
+    _pair_until[key] = max(_pair_until.get(key, 0.0), until)
+
+
 def _cool_provider(provider: str, now: float) -> None:
-    _provider_until[provider] = now + PROVIDER_COOLOFF
+    _provider_until[provider] = max(_provider_until.get(provider, 0.0), now + PROVIDER_COOLOFF)
     _server_streak[provider] = 0
 
 
@@ -86,7 +92,8 @@ async def persist_failure(f: ProviderFailure) -> None:
     """Store the (already redacted) last error for the provider. Database errors are swallowed."""
     try:
         from sql import ai_settings
-        await ai_settings.record_provider_error(f.provider, f.message, datetime.now(timezone.utc))
+        # classify() already redacts; do it again because the store writes the message verbatim
+        await ai_settings.record_provider_error(f.provider, redact(f.message), datetime.now(timezone.utc))
     except Exception as e:  # noqa: BLE001
         logger.warning("could not record %s provider error: %s", f.provider, type(e).__name__)
 

@@ -647,6 +647,39 @@ def error_checks():
     f = classify(stubenv.FakeAPIError(400, None, "The model `gpt-5x` does not exist"), "openai", "gpt-5x")
     check(f is not None and f.kind == "model_not_found", "classify: 400 'model ... does not exist' -> model_not_found", f)
 
+    # R7: billing needs an explicit signal; a plain 429 is a rate limit even when it mentions quota and billing
+    gemini_429 = ("You exceeded your current quota, please check your plan and billing details. "
+                  "For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits.")
+    e = genai_errors.ClientError(429, {"error": {"code": 429, "message": gemini_429, "status": "RESOURCE_EXHAUSTED"}})
+    f = classify(e, "gemini", "gemini-2.5-flash")
+    check(f is not None and f.kind == "rate_limit", "classify_gemini_429_quota_text_is_rate_limit", f)
+    f = classify(stubenv.FakeAPIError(429, None, gemini_429), "gemini", "m")
+    check(f is not None and f.kind == "rate_limit", "classify: 429 mentioning quota and billing without a code is rate_limit", f)
+    f = classify(stubenv.FakeAPIError(429, "insufficient_quota", gemini_429), "openai", "m")
+    check(f is not None and f.kind == "billing", "classify_openai_429_insufficient_quota_is_billing", f)
+    f = classify(stubenv.FakeAPIError(402, None, "payment required"), "gemini", "m")
+    check(f is not None and f.kind == "billing", "classify: 402 alone is billing", f)
+    f = classify(genai_errors.ClientError(429, {"error": {"code": 429, "message": "prepayment credits depleted",
+                                                          "status": "RESOURCE_EXHAUSTED"}}), "gemini", "m")
+    check(f is not None and f.kind == "rate_limit", "classify: 429 without an explicit billing signal is rate_limit", f)
+    f = classify(stubenv.FakeAPIError(400, None, "Please check your billing details"), "x", "m")
+    check(f is not None and f.kind == "billing", "classify: non-429 billing wording is still billing", f)
+
+    # R7: Gemini reports bad/expired keys as 400 INVALID_ARGUMENT
+    for msg in ("API key not valid. Please pass a valid API key.", "API key expired. Please renew the API key.",
+                "reason: API_KEY_INVALID"):
+        e = genai_errors.ClientError(400, {"error": {"code": 400, "message": msg, "status": "INVALID_ARGUMENT"}})
+        f = classify(e, "gemini", "m")
+        check(f is not None and f.kind == "auth", f"classify_gemini_bad_key_400: {msg[:24]}", f)
+    check(classify(stubenv.FakeAPIError(400, None, "invalid image"), "gemini", "m") is None,
+          "classify: an ordinary 400 is still None")
+
+    # plain statuses
+    for status, want in ((403, "auth"), (401, "auth"), (402, "billing"), (404, "model_not_found"), (408, "timeout"),
+                         (500, "server"), (529, "server"), (400, None), (422, None)):
+        f = classify(stubenv.FakeAPIError(status, None, "something"), "openai", "m")
+        check((f.kind if f else None) == want, f"classify_status: bare {status} -> {want}", f)
+
     # the cause chain is walked
     try:
         try:
@@ -759,6 +792,21 @@ async def health_checks():
         check(not health.is_available(T("openai", "gpt-4o"), t0 + 59) and health.is_available(T("openai", "gpt-4o"), t0 + 61)
               and health.is_available(T("openai", "gpt-4o-mini"), t0), "rate_limit_60s: unavailable until +60 s, other models fine")
 
+        # a shorter cool-off never shortens a longer one for the same key
+        health.reset()
+        health.mark_failure(PF("openai", "gpt-4o", "model_not_found", ""), t0)
+        health.mark_failure(PF("openai", "gpt-4o", "rate_limit", ""), t0 + 10)
+        check(not health.is_available(T("openai", "gpt-4o"), t0 + 200), "cooloff_max: rate_limit does not shorten model_not_found")
+        health.reset()
+        health.mark_failure(PF("openai", "gpt-4o", "rate_limit", ""), t0)
+        health.mark_failure(PF("openai", "gpt-4o", "rate_limit", ""), t0 + 30)
+        check(not health.is_available(T("openai", "gpt-4o"), t0 + 80) and health.is_available(T("openai", "gpt-4o"), t0 + 91),
+              "cooloff_max: a later rate_limit extends the cool-off")
+        health.reset()
+        health.mark_failure(PF("openai", "gpt-4o", "billing", ""), t0 + 100)
+        health.mark_failure(PF("openai", "gpt-4o", "auth", ""), t0)
+        check(not health.is_available(T("openai", "gpt-4o"), t0 + 350), "cooloff_max: an earlier-timestamped provider cool-off does not shorten")
+
         # nothing for refusal / unusable / a single timeout
         health.reset()
         for kind in ("refusal", "unusable", "timeout"):
@@ -797,6 +845,10 @@ async def health_checks():
         st = await ai_settings.get_provider_status()
         check(st["claude"]["last_error"] == "Invalid key [redacted]" and st["claude"]["last_error_at"] is not None
               and st["gemini"]["last_success_at"] is not None, "persist: failure and success reach ai_provider_status", st)
+        await health.persist_failure(PF("claude", "m", "auth", "Incorrect API key provided: sk-e2eSECRETabcdef123"))
+        st = await ai_settings.get_provider_status()
+        check("sk-e2e" not in (st["claude"]["last_error"] or "") and "[redacted]" in (st["claude"]["last_error"] or ""),
+              "persist: the message is redacted again before storing", st["claude"]["last_error"])
         orig = (ai_settings.record_provider_error, ai_settings.record_provider_success)
 
         async def boom(*a, **k):
