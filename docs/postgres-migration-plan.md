@@ -172,13 +172,17 @@ bootstrap super admin (`ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD`).
 ### AI providers
 
 The backend can use OpenAI, Gemini or Claude for each AI feature. This release's deploy runs
-the Alembic migration `20261029_a3f1c7d92b64` (via the Pre-Deploy Command above), which adds
-the tables `ai_feature_settings` and `ai_provider_status`.
+the Alembic migration, revision `a3f1c7d92b64`
+(`backend/alembic/versions/20261029_a3f1c7d92b64_ai_provider_switching.py`; via the Pre-Deploy
+Command above), which adds the tables `ai_feature_settings` and `ai_provider_status`.
 
 - API keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY` (Gemini) and the new `ANTHROPIC_API_KEY`
   (Claude). A provider without a key is skipped.
-- Default models: `OPENAI_MODEL`, `GEMINI_MODEL` and the new `CLAUDE_MODEL`
-  (default `claude-sonnet-5-5`).
+- Default models: `OPENAI_MODEL`, `GEMINI_MODEL` and the new `CLAUDE_MODEL` (default
+  `claude-sonnet-5-5`) set the built-in model for chat and the weekly/monthly insights, and the
+  model used when a provider is named without one; the other built-in models are fixed
+  (photo `gpt-4o`, voice `whisper-1`, insight translation `gemini-2.5-pro`, budgets and text
+  `gpt-4o-mini`).
 - Per feature (optional): `AI_<FEATURE>_PROVIDER` (`openai`, `gemini` or `claude`),
   `AI_<FEATURE>_MODEL` and `AI_<FEATURE>_BACKUPS`. `_BACKUPS` is a comma-separated list of
   `provider[:model]`, or `none` for no backups; left unset, every other configured provider
@@ -187,6 +191,8 @@ the tables `ai_feature_settings` and `ai_provider_status`.
   `BUDGET_SUGGESTION`, `BUDGET_AUTO_CREATE`, `TRANSACTION_TEXT`, `TRANSACTION_IMAGE`,
   `TRANSACTION_AUDIO`. Example: `AI_CHAT_PROVIDER=claude`, `AI_CHAT_BACKUPS=gemini,openai`.
 - `TRANSACTION_AUDIO` (voice input) cannot use Claude, because Claude has no audio input.
+  An invalid or disallowed environment setting is ignored with a log warning and the default
+  applies (for example `AI_TRANSACTION_AUDIO_PROVIDER=claude` is ignored).
 - Order of precedence: the admin panel's **AI Providers** page, then these environment
   variables, then the built-in default (chat and insights on Gemini, budgets and transaction
   text/photo/voice on OpenAI). Panel changes apply right away (within about a minute across

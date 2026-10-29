@@ -118,8 +118,9 @@ every item below should be repeated against the live address with a test account
 ## 5. AI providers (backend)
 
 The backend can run each AI feature on OpenAI, Gemini or Claude. Deploying this version runs
-the Alembic migration `20261029_a3f1c7d92b64` (adds `ai_feature_settings` and
-`ai_provider_status`). The full list is in [postgres-migration-plan.md](postgres-migration-plan.md),
+the Alembic migration, revision `a3f1c7d92b64`
+(`backend/alembic/versions/20261029_a3f1c7d92b64_ai_provider_switching.py`), which adds
+`ai_feature_settings` and `ai_provider_status`. The full list is in [postgres-migration-plan.md](postgres-migration-plan.md),
 section "Deploying on Render", "AI providers". In short, on the backend service:
 
 - Set `ANTHROPIC_API_KEY` to turn Claude on, and optionally `CLAUDE_MODEL`
