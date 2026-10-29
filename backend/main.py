@@ -58,6 +58,10 @@ from feedback_routes import router as feedback_router
 from app_version_routes import admin_router as app_version_admin_router
 from app_version_routes import user_router as app_version_user_router
 
+# AI provider switching: admin API and the settings cache it feeds
+from ai_admin_routes import router as ai_admin_router
+from ai_providers import settings as ai_provider_settings
+
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
 
@@ -72,12 +76,21 @@ app.include_router(feedback_router)
 # NEW: Register app version routes
 app.include_router(app_version_admin_router)
 app.include_router(app_version_user_router)
+app.include_router(ai_admin_router)
 
 
 @app.on_event("startup")
 async def startup_db_client():
     await initialize_categories()
     await initialize_admin()
+
+    # Admin-panel AI settings: load once, then refresh every minute. A database blip must not stop the API
+    # from booting; until a load succeeds the server's environment / built-in settings apply (the refresh retries).
+    try:
+        await ai_provider_settings.load_panel()
+    except Exception as e:
+        print(f"⚠️ Could not load the AI provider settings at startup ({type(e).__name__}); will retry")
+    app.state.ai_settings_refresh = ai_provider_settings.start_refresh_loop()
 
     try:
         from scheduler import start_scheduler
@@ -89,6 +102,8 @@ async def startup_db_client():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    if hasattr(app.state, "ai_settings_refresh"):
+        app.state.ai_settings_refresh.cancel()
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown()
         print("🛑 Scheduler shut down successfully")

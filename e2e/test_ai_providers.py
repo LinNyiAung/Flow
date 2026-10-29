@@ -1586,6 +1586,371 @@ async def execute_status_delete():
     await execute(ai_provider_status.delete())
 
 
+async def refresh_race_checks():
+    """Task 7: load_panel must not overwrite a newer save_panel / clear_panel with a stale snapshot (in-memory store)."""
+    from ai_providers import settings
+    from ai_providers.types import FeatureSetting, Target
+
+    T = Target
+    store = settings.store
+    orig = (store.list_feature_settings, store.upsert_feature_setting, store.delete_feature_setting)
+    saved = (settings._env, dict(settings._env_units), settings._panel)
+    rows: dict = {}
+    ctl = {"hold": False, "reading": asyncio.Event(), "gate": asyncio.Event()}
+
+    async def fake_list():
+        snapshot = [dict(r) for r in rows.values()]   # what the database held when the read started
+        if ctl["hold"]:
+            ctl["reading"].set()
+            await ctl["gate"].wait()                   # ... and the read finishes later
+        return snapshot
+
+    async def fake_upsert(feature, main_provider, main_model, backups, updated_by):
+        rows[feature] = {"feature": feature, "main_provider": main_provider, "main_model": main_model,
+                         "backups": backups}
+
+    async def fake_delete(feature):
+        return rows.pop(feature, None) is not None
+
+    def arm():
+        ctl.update(hold=True, reading=asyncio.Event(), gate=asyncio.Event())
+
+    store.list_feature_settings, store.upsert_feature_setting, store.delete_feature_setting = (
+        fake_list, fake_upsert, fake_delete)
+    try:
+        settings.set_panel_cache({})
+        settings.reload_env({})
+        x = FeatureSetting(T("openai", "gpt-4o"), (), "panel")
+        y = FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel")
+
+        # a load that started before a newer save finishes after it: the save wins
+        await settings.save_panel("chat", x, "t7@x")
+        arm()
+        task = asyncio.create_task(settings.load_panel())
+        await ctl["reading"].wait()
+        await settings.save_panel("chat", y, "t7@x")
+        ctl["gate"].set()
+        await task
+        r = settings.resolve("chat")
+        check(r.main == y.main and r.source == "panel", "refresh_race: a stale load does not overwrite a newer save", r)
+
+        # ... and a newer clear
+        arm()
+        task = asyncio.create_task(settings.load_panel())
+        await ctl["reading"].wait()
+        await settings.clear_panel("chat")
+        ctl["gate"].set()
+        await task
+        r = settings.resolve("chat")
+        check(r.source == "default" and "chat" not in settings._panel,
+              "refresh_race: a stale load does not bring back a cleared setting", r)
+
+        # an undisturbed load still applies what is in the store
+        ctl["hold"] = False
+        rows["chat"] = {"feature": "chat", "main_provider": "openai", "main_model": "gpt-4o", "backups": None}
+        await settings.load_panel()
+        check(settings.resolve("chat").source == "panel" and settings.resolve("chat").main == T("openai", "gpt-4o"),
+              "refresh_race: an undisturbed load applies the stored rows")
+    finally:
+        store.list_feature_settings, store.upsert_feature_setting, store.delete_feature_setting = orig
+        settings._env, settings._panel = saved[0], saved[2]
+        settings._env_units.clear()
+        settings._env_units.update(saved[1])
+
+
+ADMIN_FEATURES = ("chat", "insight_weekly", "insight_monthly", "insight_translation", "budget_suggestion",
+                  "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio")
+ADMIN_PROVIDERS = ("openai", "gemini", "claude")
+
+
+async def admin_api_checks():
+    """Task 7: /api/admin/ai settings, status and test, over HTTP against the stubbed server."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    import httpx
+    from sqlalchemy import delete, insert
+
+    import admin_utils
+    from ai_providers import health, runner, settings
+    from ai_providers.types import FeatureSetting, Prompt, Target
+    from sql.db import execute
+    from sql.tables import ai_provider_status, ai_usage, users
+
+    T = Target
+    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
+    db = __import__("pgcompat").get_db()
+    pw = "t7-admin-pass-1"
+    made = {}
+    for role in ("admin", "moderator", "super_admin"):
+        email = f"t7-{role}-{uuid.uuid4().hex[:6]}@example.com"
+        db.admins.insert_one({"_id": str(uuid.uuid4()), "name": f"t7 {role}", "email": email,
+                              "password": admin_utils.get_password_hash(pw), "role": role,
+                              "created_at": datetime.now(UTC), "last_login": None})
+        made[role] = email
+
+    def login(role):
+        r = c.post("/api/admin/login", json={"email": made[role], "password": pw})
+        return {"Authorization": "Bearer " + r.json()["access_token"]}
+
+    def reset():
+        """Settings only through the admin API (the server has its own cache and health); fakes cleared."""
+        stubenv.clear_fake_ai()
+        for f in ADMIN_FEATURES:
+            c.delete(f"/api/admin/ai/settings/{f}", headers=AD)
+        for p in ADMIN_PROVIDERS:
+            c.post(f"/api/admin/ai/test/{p}", headers=AD, json={})
+
+    uid = "t7-status-user"
+    AD = MOD = SUP = {}
+    try:
+        AD, MOD, SUP = login("admin"), login("moderator"), login("super_admin")
+        reset()
+
+        # --- GET /settings
+        r = c.get("/api/admin/ai/settings", headers=MOD)
+        body = r.json() if r.status_code == 200 else {}
+        feats = {f["key"]: f for f in body.get("features", [])}
+        provs = {p["id"]: p for p in body.get("providers", [])}
+        chat = feats.get("chat", {})
+        check(r.status_code == 200 and set(feats) == set(ADMIN_FEATURES) and len(body["features"]) == 9
+              and chat["effective"]["source"] == "default" and provs.get("claude", {}).get("configured") is True,
+              "settings_get_moderator_ok", f"{r.status_code} {r.text[:300]}")
+        check(set(provs) == set(ADMIN_PROVIDERS) and all(set(p) == {"id", "label", "configured", "known_models"}
+                                                         for p in provs.values())
+              and provs["claude"]["known_models"] == ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
+              "settings_get: provider shape and known models", provs)
+        check(chat.get("effective") == {"main": {"provider": "gemini", "model": "gemini-2.5-flash"},
+                                        "backups": None, "source": "default"}
+              and chat.get("panel") is None and chat.get("allowed") == ["openai", "gemini", "claude"]
+              and chat.get("label") and set(chat) == {"key", "label", "allowed", "effective", "default_chain", "panel"},
+              "settings_get: feature shape", chat)
+        check(chat.get("default_chain") == [{"provider": "openai", "model": "gpt-4o-mini"},
+                                            {"provider": "claude", "model": "claude-sonnet-5-5"}],
+              "settings_get: default_chain is what null backups expand to", chat.get("default_chain"))
+        check(feats["transaction_audio"]["allowed"] == ["openai", "gemini"]
+              and [t["provider"] for t in feats["transaction_audio"]["default_chain"]] == ["gemini"],
+              "settings_get: audio never offers or chains claude", feats["transaction_audio"])
+        check("sk-" not in r.text and "AIza" not in r.text, "settings_get: no key material in the response")
+        r2 = c.get("/api/admin/ai/settings")
+        check(r2.status_code in (401, 403), "settings_get: no token is refused", r2.status_code)
+
+        # --- PUT /settings/{feature}
+        put = lambda feature, body, h=None: c.put(f"/api/admin/ai/settings/{feature}", headers=h or AD, json=body)  # noqa: E731
+        claude = {"provider": "claude", "model": "claude-sonnet-5-5"}
+        r = put("chat", {"main": claude, "backups": []})
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j.get("effective") == {"main": claude, "backups": [], "source": "panel"}
+              and j.get("warnings") == [] and j.get("panel") == {"main": claude, "backups": [], "source": "panel"},
+              "settings_put_admin_ok_and_applied: PUT result", f"{r.status_code} {r.text[:300]}")
+        r = c.get("/api/admin/ai/settings", headers=MOD)
+        chat = {f["key"]: f for f in r.json()["features"]}["chat"]
+        check(chat["effective"]["source"] == "panel" and chat["effective"]["main"] == claude
+              and chat["effective"]["backups"] == [], "settings_put_admin_ok_and_applied: GET shows source panel", chat)
+        check({f["key"]: f for f in r.json()["features"]}["insight_weekly"]["effective"]["source"] == "default",
+              "settings_put: other features untouched")
+
+        r = put("chat", {"main": claude, "backups": []}, MOD)
+        check(r.status_code == 403, "settings_put_moderator_forbidden", r.status_code)
+        r = c.put("/api/admin/ai/settings/chat", json={"main": claude, "backups": []})
+        check(r.status_code in (401, 403), "settings_put: no token is refused", r.status_code)
+
+        r = put("transaction_audio", {"main": claude, "backups": None})
+        check(r.status_code == 422 and isinstance(r.json().get("detail"), list)
+              and any("claude" in str(m).lower() for m in r.json()["detail"]),
+              "settings_put_claude_audio_422", f"{r.status_code} {r.text[:200]}")
+        r = put("chat", {"main": {"provider": "openai", "model": "gpt-4o"}, "backups": [
+            {"provider": "openai", "model": "gpt-4o"}]})
+        check(r.status_code == 422, "settings_put_duplicates_422: backup repeats the main", f"{r.status_code} {r.text[:200]}")
+        r = put("chat", {"main": claude, "backups": [{"provider": "gemini", "model": "gemini-2.5-pro"},
+                                                      {"provider": "gemini", "model": "gemini-2.5-pro"}]})
+        check(r.status_code == 422, "settings_put_duplicates_422: a backup repeats an earlier backup", f"{r.status_code} {r.text[:200]}")
+        chat = {f["key"]: f for f in c.get("/api/admin/ai/settings", headers=AD).json()["features"]}["chat"]
+        check(chat["effective"]["main"] == claude and chat["effective"]["backups"] == [],
+              "settings_put: a rejected PUT leaves the saved setting alone", chat["effective"])
+
+        r = put("nope", {"main": claude, "backups": None})
+        check(r.status_code == 404, "settings_put: unknown feature is 404", r.status_code)
+        bad_bodies = {
+            "unknown provider": {"main": {"provider": "bogus", "model": "x"}, "backups": None},
+            "empty model": {"main": {"provider": "claude", "model": "   "}, "backups": None},
+            "missing model": {"main": {"provider": "claude"}, "backups": None},
+            "missing main": {"backups": None},
+            "unknown field": {"main": claude, "backups": None, "extra": 1},
+            "unknown nested field": {"main": {**claude, "key": "x"}, "backups": None},
+            "backups not a list": {"main": claude, "backups": "none"},
+            "model not a string": {"main": {"provider": "claude", "model": 5}, "backups": None},
+            "bad backup": {"main": claude, "backups": [{"provider": "bogus", "model": "x"}]},
+        }
+        for label, b in bad_bodies.items():
+            r = put("chat", b)
+            check(r.status_code == 422, f"settings_put_422: {label}", f"{r.status_code} {r.text[:160]}")
+        r = c.put("/api/admin/ai/settings/chat", headers=AD, content=b"not json")
+        check(r.status_code == 422, "settings_put_422: not JSON", r.status_code)
+
+        r = put("chat", {"main": {"provider": "openai", "model": " gpt-4o "}, "backups": None})
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j["effective"]["main"]["model"] == "gpt-4o" and j["effective"]["backups"] is None
+              and [t["provider"] for t in j["default_chain"]] == ["gemini", "claude"],
+              "settings_put: null backups means default; model is trimmed; default_chain follows the main", f"{r.status_code} {r.text[:300]}")
+        r = put("chat", {"main": {"provider": "openai", "model": "gpt-4o"},
+                         "backups": [{"provider": "claude", "model": "claude-haiku-5-5"}]})
+        check(r.status_code == 200 and r.json()["effective"]["backups"] == [{"provider": "claude", "model": "claude-haiku-5-5"}],
+              "settings_put: explicit backups are stored", r.text[:300])
+
+        # --- unconfigured main: the handler's warnings come from setting_warnings (the server has every key)
+        w = settings.setting_warnings(FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"),
+                                      configured=lambda p: p != "claude")
+        check(len(w) == 1 and "claude" in w[0].lower(), "unconfigured_warning", w)
+
+        # --- DELETE
+        r = c.delete("/api/admin/ai/settings/chat", headers=MOD)
+        check(r.status_code == 403, "settings_delete: moderator forbidden", r.status_code)
+        r = c.delete("/api/admin/ai/settings/nope", headers=AD)
+        check(r.status_code == 404, "settings_delete: unknown feature is 404", r.status_code)
+        r = c.delete("/api/admin/ai/settings/chat", headers=AD)
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j.get("effective", {}).get("source") in ("server", "default")
+              and j.get("panel") is None, "settings_delete_resets", f"{r.status_code} {r.text[:300]}")
+        chat = {f["key"]: f for f in c.get("/api/admin/ai/settings", headers=AD).json()["features"]}["chat"]
+        check(chat["effective"]["source"] in ("server", "default") and chat["panel"] is None,
+              "settings_delete_resets: GET agrees", chat)
+        r = c.delete("/api/admin/ai/settings/chat", headers=AD)
+        check(r.status_code == 200, "settings_delete: deleting again is harmless", r.status_code)
+
+        # --- POST /test/{provider}
+        r = c.post("/api/admin/ai/test/openai", headers=MOD, json={})
+        check(r.status_code == 403, "test: moderator forbidden", r.status_code)
+        r = c.post("/api/admin/ai/test/bogus", headers=AD, json={})
+        check(r.status_code == 404, "test: unknown provider is 404", r.status_code)
+        r = c.post("/api/admin/ai/test/openai", headers=AD, json={"model": "gpt-4o-mini", "x": 1})
+        check(r.status_code == 422, "test: unknown field is 422", r.status_code)
+        r = c.post("/api/admin/ai/test/openai", headers=AD, json={"model": "  "})
+        check(r.status_code == 422, "test: empty model is 422", r.status_code)
+        before = len(outbox_lines())
+        r = c.post("/api/admin/ai/test/claude", headers=AD, json={"model": "claude-haiku-5-5"})
+        calls = _outbox_ai_calls(before)
+        check(r.status_code == 200 and r.json() == {"ok": True} and [x.get("model") for x in calls] == ["claude-haiku-5-5"],
+              "test: success pings the given model", f"{r.status_code} {r.text} {calls}")
+        before = len(outbox_lines())
+        r = c.post("/api/admin/ai/test/openai", headers=AD)
+        calls = _outbox_ai_calls(before)
+        check(r.status_code == 200 and r.json() == {"ok": True} and [x.get("model") for x in calls] == ["gpt-4o-mini"],
+              "test: no body pings the provider's default model", f"{r.status_code} {r.text} {calls}")
+
+        def status_of(provider):
+            body = c.get("/api/admin/ai/status", headers=MOD).json()
+            return {p["id"]: p for p in body["providers"]}[provider]
+
+        s = status_of("openai")
+        check(s["state"] == "working" and s["configured"] is True and s["last_success_at"],
+              "status: a successful test makes the provider working", s)
+
+        # --- status after a failed test, and redaction
+        stubenv.set_fake_ai(claude="echo_key")
+        r = c.post("/api/admin/ai/test/claude", headers=AD, json={})
+        j = r.json()
+        check(r.status_code == 200 and j.get("ok") is False and "sk-e2e" not in r.text and j.get("error"),
+              "status_shape_and_redaction: the test reports a redacted error", r.text)
+        rs = c.get("/api/admin/ai/status", headers=MOD)
+        sj = rs.json()
+        s = {p["id"]: p for p in sj["providers"]}["claude"]
+        check(rs.status_code == 200 and "sk-e2e" not in rs.text and "sk-ant" not in rs.text and "AIza" not in rs.text
+              and s["state"] == "failing" and "[redacted]" in (s["last_error"] or ""),
+              "status_shape_and_redaction: status is redacted and failing", f"{rs.status_code} {s}")
+        check([p["id"] for p in sj["providers"]] == list(ADMIN_PROVIDERS)
+              and all(set(p) == {"id", "label", "configured", "state", "cooling_until", "cooling_models", "last_error",
+                                 "last_error_at", "last_success_at", "backup_answers_24h"} for p in sj["providers"])
+              and all(p["state"] in ("working", "failing", "cooling", "unused") for p in sj["providers"])
+              and s["cooling_until"] is None and s["cooling_models"] == [] and s["last_error_at"],
+              "status_shape_and_redaction: status shape", sj)
+        r = c.get("/api/admin/ai/status")
+        check(r.status_code in (401, 403), "status: no token is refused", r.status_code)
+        stubenv.clear_fake_ai()
+
+        # a failed test does not take the provider out of rotation; a success afterwards puts it back to working
+        r = c.post("/api/admin/ai/test/claude", headers=AD, json={})
+        s = status_of("claude")
+        check(r.json() == {"ok": True} and s["state"] == "working" and s["cooling_until"] is None,
+              "test: a later success makes the provider working again", s)
+
+        # not configured: no SDK call (R10)
+        import ai_admin_routes
+        from ai_providers.clients.base import get_client
+        gc = get_client("claude")
+        orig_cfg, orig_ping = gc.configured, gc.ping
+        pings = []
+
+        async def ping_spy(model):
+            pings.append(model)
+
+        gc.configured = lambda: False
+        gc.ping = ping_spy
+        try:
+            out = await ai_admin_routes.test_provider("claude", ai_admin_routes.TestBody(), {"_id": "x", "email": "x"})
+        finally:
+            gc.configured, gc.ping = orig_cfg, orig_ping
+        check(out == {"ok": False, "error": "not configured"} and pings == [],
+              "test: an unconfigured provider answers 'not configured' without calling the SDK", (out, pings))
+
+        # --- status_backup_count: one fallback from claude, then one old row and one other provider
+        health.reset()
+        await execute(delete(users).where(users.c.id == uid))
+        await execute(insert(users).values(id=uid, name="t7", email="t7-status@x.test", password="x"))
+        n0 = status_of("claude")["backup_answers_24h"]
+        g0 = status_of("gemini")["backup_answers_24h"]
+        saved = (settings._env, dict(settings._env_units), settings._panel)
+        try:
+            settings.reload_env({})
+            settings.set_panel_cache({"chat": FeatureSetting(T("claude", "claude-sonnet-5-5"), None, "panel")})
+            stubenv.set_fake_ai(claude="billing")
+            res = await runner.run("chat", user_id=uid, call=runner.default_call(Prompt("s", "u"), "chat"))
+        finally:
+            stubenv.clear_fake_ai()
+            settings._env, settings._panel = saved[0], saved[2]
+            settings._env_units.clear()
+            settings._env_units.update(saved[1])
+            health.reset()
+        check(res.fallback_from == "claude", "status_backup_count: the in-process run fell back from claude", res)
+        await execute(insert(ai_usage).values(
+            id="t7-old-row", user_id=uid, feature_type="chat", provider="openai", model_name="gpt-4o-mini",
+            fallback_from="gemini", created_at=datetime.now(UTC) - timedelta(hours=30)))
+        s = status_of("claude")
+        check(s["backup_answers_24h"] == n0 + 1 and s["backup_answers_24h"] >= 1,
+              "status_backup_count: claude counts the fallback", s)
+        check(status_of("gemini")["backup_answers_24h"] == g0, "status_backup_count: rows older than 24 h are not counted",
+              status_of("gemini"))
+        check(s["state"] == "failing" and "credit balance" in (s["last_error"] or ""),
+              "status: the runner's billing failure shows as the last error", s)
+
+        # --- admin_logs_written
+        r = c.get("/api/admin/logs", headers=SUP, params={"limit": 100})
+        logs = r.json() if r.status_code == 200 else []
+        mine = [x for x in logs if x["admin_email"] == made["admin"]]
+        upd = [x for x in mine if x["action"] == "ai_setting_update"]
+        rst = [x for x in mine if x["action"] == "ai_setting_reset"]
+        check(any("chat: main=openai:gpt-4o" in (x.get("details") or "") for x in upd)
+              and any((x.get("details") or "").startswith("chat:") for x in rst)
+              and not any("sk-" in (x.get("details") or "") for x in mine),
+              "admin_logs_written: ai_setting_update and ai_setting_reset are logged", [x["action"] for x in mine][:6])
+        n_logs = len(mine)
+        c.delete("/api/admin/ai/settings/chat", headers=AD)  # nothing stored now: nothing to log
+        r = c.get("/api/admin/logs", headers=SUP, params={"limit": 100})
+        check(len([x for x in r.json() if x["admin_email"] == made["admin"]]) == n_logs,
+              "admin_logs_written: resetting a setting that has no panel row writes no log entry")
+    finally:
+        try:
+            reset()
+        finally:
+            health.reset()
+            try:
+                await execute(delete(users).where(users.c.id == uid))  # cascades to its ai_usage rows
+                await execute(ai_provider_status.delete())
+            finally:
+                db.admins.delete_many({"email": {"$in": list(made.values())}})
+                c.close()
+
+
 async def all_async_checks():
     resolution_checks()  # pure; kept inside the single event loop run per the suite's convention
     await fake_checks()
@@ -1602,6 +1967,13 @@ async def all_async_checks():
         import traceback
         traceback.print_exc()
         check(False, "runner_checks ran to completion", repr(e))
+    await refresh_race_checks()
+    try:
+        await admin_api_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "admin_api_checks ran to completion", repr(e))
 
 
 def stub_mode_checks():

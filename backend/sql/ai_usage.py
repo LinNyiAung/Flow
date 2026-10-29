@@ -36,6 +36,15 @@ async def insert_usage(doc: Dict[str, Any]) -> None:
     await execute(insert(ai_usage).values(**{("id" if k == "_id" else k): v for k, v in doc.items()}))
 
 
+async def backup_answer_counts(since: datetime) -> Dict[str, int]:
+    """fallback_from provider -> number of answers since `since` that a backup gave after that provider failed."""
+    rows = await fetch_all(
+        select(c.fallback_from, func.count().label("n"))
+        .where(c.fallback_from.is_not(None), c.created_at >= since)
+        .group_by(c.fallback_from))
+    return {r["fallback_from"]: int(r["n"]) for r in rows}
+
+
 async def overall_stats(start: Optional[datetime], end: Optional[datetime]) -> Dict[str, Any]:
     stmt = _window(select(
         func.count().label("total_requests"),

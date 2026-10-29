@@ -127,16 +127,20 @@ def resolve(feature: str) -> FeatureSetting:
     return FeatureSetting(builtin_default(feature, _snapshot()), None, "default")
 
 
+def default_backups(feature: str, main: Target, configured: Callable[[str], bool]) -> list[Target]:
+    """What `backups: None` expands to for `main`: every other allowed, configured provider on its default model."""
+    spec = FEATURES[feature]
+    env = _snapshot()
+    return [Target(p, default_model(feature, p, env)) for p in PROVIDERS
+            if p in spec.allowed and p != main.provider and configured(p)]
+
+
 def chain(feature: str, configured: Callable[[str], bool]) -> list[Target]:
     """The targets to try, in order: main, then explicit backups or the default backups."""
     s = resolve(feature)
     if s.backups is not None:
         return [s.main, *s.backups]
-    spec = FEATURES[feature]
-    env = _snapshot()
-    defaults = [Target(p, default_model(feature, p, env)) for p in PROVIDERS
-                if p in spec.allowed and p != s.main.provider and configured(p)]
-    return [s.main, *defaults]
+    return [s.main, *default_backups(feature, s.main, configured)]
 
 
 # ---- admin-panel layer: database rows <-> the in-memory cache that resolve() reads ----
@@ -154,10 +158,26 @@ def _row_to_setting(row: Mapping) -> FeatureSetting:
     return FeatureSetting(Target(row["main_provider"], row["main_model"]), backups, "panel")
 
 
+def panel_setting(feature: str) -> FeatureSetting | None:
+    """The admin-panel setting for a feature, or None when it has none (resolution then falls to env / built-in)."""
+    return _panel.get(feature)
+
+
+# Bumped by every save_panel / clear_panel, before the write and after the cache changes. A load_panel whose read
+# overlapped a write may hold a stale snapshot, so it compares the counter and drops its result if it moved.
+_write_gen = 0
+
+
 async def load_panel() -> None:
-    """Read every stored setting into the cache. A row that is malformed or fails validation is logged and skipped."""
+    """Read every stored setting into the cache. A row that is malformed or fails validation is logged and skipped.
+
+    If a save_panel / clear_panel happened while the rows were being read, the snapshot may predate it, so it is
+    discarded (the cache already holds the newer value; the next refresh reads a consistent state).
+    """
+    gen = _write_gen
+    stored = await store.list_feature_settings()
     rows: dict[str, FeatureSetting] = {}
-    for row in await store.list_feature_settings():
+    for row in stored:
         feature = row.get("feature")
         try:
             setting = _row_to_setting(row)
@@ -169,23 +189,36 @@ async def load_panel() -> None:
             logger.warning("Ignoring the stored AI setting for %r: %s", feature, "; ".join(errors))
             continue
         rows[feature] = setting
+    if _write_gen != gen:
+        logger.debug("Discarding a stale AI settings snapshot: a setting was written while it was being read")
+        return
     set_panel_cache(rows)
 
 
 async def save_panel(feature: str, s: FeatureSetting, admin_email: str) -> None:
     """Validate, store and cache an admin-panel setting. Raises ValueError(list_of_errors) if it is invalid."""
+    global _write_gen
     errors = validate(feature, s)
     if errors:
         raise ValueError(errors)
     backups = None if s.backups is None else [{"provider": b.provider, "model": b.model} for b in s.backups]
+    _write_gen += 1
     await store.upsert_feature_setting(feature, s.main.provider, s.main.model, backups, admin_email)
     set_panel_cache({**_panel, feature: FeatureSetting(s.main, s.backups, "panel")})
+    _write_gen += 1
 
 
-async def clear_panel(feature: str) -> None:
-    """Remove a feature's panel setting; it then falls back to the environment, then the built-in default."""
-    await store.delete_feature_setting(feature)
+async def clear_panel(feature: str) -> bool:
+    """Remove a feature's panel setting; it then falls back to the environment, then the built-in default.
+
+    Returns True if a stored row was removed.
+    """
+    global _write_gen
+    _write_gen += 1
+    removed = await store.delete_feature_setting(feature)
     set_panel_cache({k: v for k, v in _panel.items() if k != feature})
+    _write_gen += 1
+    return bool(removed)
 
 
 _refresh_task: asyncio.Task | None = None
