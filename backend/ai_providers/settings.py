@@ -6,7 +6,9 @@ from collections.abc import Callable, Mapping
 
 from sql import ai_settings as store
 
-from .features import FEATURES, MODEL_ENV_VARS, PROVIDERS, builtin_default, default_model
+from .errors import redact
+from .features import (AUDIO_FEATURE, FEATURES, MODEL_ENV_VARS, PROVIDERS, builtin_default, default_model,
+                       is_openai_audio_model)
 from .types import FeatureSetting, Target
 
 logger = logging.getLogger(__name__)
@@ -60,17 +62,32 @@ def validate(feature: str, s: FeatureSetting) -> list[str]:
             errors.append(f"{role}: unknown provider '{t.provider}'")
         elif t.provider not in spec.allowed:
             errors.append(f"{role}: provider '{t.provider}' is not allowed for {feature}")
-        if not (t.model or "").strip():
+        model = (t.model or "").strip()
+        if not model:
             errors.append(f"{role}: model is empty")
+        elif redact(model) != model:
+            # Never repeated in the message: the setting, the admin log and GET settings must not carry a key.
+            errors.append(f"{role}: the model name looks like an API key; enter the model's name instead")
+        elif t.provider == "openai":
+            audio_model = is_openai_audio_model(model)
+            if feature == AUDIO_FEATURE and not audio_model:
+                errors.append(f"{role}: OpenAI model '{model}' is not a speech-to-text model; voice input on OpenAI "
+                              "needs one such as whisper-1")
+            elif feature != AUDIO_FEATURE and audio_model:
+                errors.append(f"{role}: OpenAI model '{model}' is a speech-to-text model; it can only be used for "
+                              "voice input")
+
+    def pair(t: Target) -> str:
+        return f"{t.provider}:{redact(t.model)}"
 
     check_target("main", s.main)
     seen: list[Target] = [s.main]
     for i, b in enumerate(s.backups or (), start=1):
         check_target(f"backup {i}", b)
         if b == s.main:
-            errors.append(f"backup {i}: same as the main provider and model ({b.provider}:{b.model})")
+            errors.append(f"backup {i}: same as the main provider and model ({pair(b)})")
         elif b in seen:
-            errors.append(f"backup {i}: duplicate of an earlier backup ({b.provider}:{b.model})")
+            errors.append(f"backup {i}: duplicate of an earlier backup ({pair(b)})")
         seen.append(b)
     return errors
 
@@ -105,6 +122,8 @@ def parse_env(feature: str, environ: Mapping[str, str]) -> FeatureSetting | None
             backups = ()
         else:
             backups = tuple(_entry(feature, part, environ) for part in backups_raw.split(",") if part.strip())
+            if not backups:  # e.g. "," : a typo must not silently mean "no backups" (that is spelt "none")
+                raise ValueError(f"{backups_var} lists no provider (use 'none' for no backups)")
         setting = FeatureSetting(main, backups, "server")
     except ValueError as e:
         logger.warning("Ignoring the %s* environment setting: %s", prefix, e)

@@ -15,7 +15,7 @@ KINDS = ("auth", "billing", "rate_limit", "server", "timeout", "model_not_found"
 RATE_LIMIT_TEXT = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|rate[ _-]?limit|too many requests|quota", re.IGNORECASE)
 
 # Out of credit / billing problems. Providers report these with rate-limit-like codes
-# (Gemini: 402 RESOURCE_EXHAUSTED "prepayment credits are depleted"; OpenAI: 429
+# (Gemini: 429 RESOURCE_EXHAUSTED "Your prepayment credits are depleted"; OpenAI: 429
 # insufficient_quota; Anthropic: 400 "credit balance is too low"), but waiting a few
 # minutes won't help: someone must top up.
 BILLING_TEXT = re.compile(
@@ -27,6 +27,10 @@ BILLING_TEXT = re.compile(
 _MODEL_NOT_FOUND_TEXT = re.compile(r"model\b.*\b(not found|does not exist)|\b(not found|does not exist)\b.*\bmodel", re.IGNORECASE | re.DOTALL)
 
 _CREDIT_BALANCE_TEXT = re.compile(r"credit balance is too low", re.IGNORECASE)
+# Gemini's depleted prepaid credits (a 429). Not in its per-minute-limit text, so it is an explicit billing signal.
+_DEPLETED_CREDITS_TEXT = re.compile(r"credits.*depleted|prepay", re.IGNORECASE | re.DOTALL)
+# OpenAI structured-error codes that mean "this model can't serve this request" (see _model_level_400).
+_MODEL_LEVEL_CODES = frozenset({"unsupported_parameter", "model_not_found"})
 _BAD_KEY_TEXT = re.compile(r"API key not valid|API key expired|API_KEY_INVALID", re.IGNORECASE)
 
 
@@ -35,12 +39,13 @@ def _error_code(exc: BaseException) -> str:
     return value.lower() if isinstance(value, str) else ""
 
 
-# API keys a provider may echo back in an error message. Anything that looks like one is removed.
+# API keys a provider may echo back in an error message. Anything that looks like one is removed. Each form must
+# start a word, so ordinary words such as "risk-assessment" are left alone.
 _KEY_PATTERNS = re.compile(
-    r"sk-ant-[A-Za-z0-9_-]{6,}(?:\*+[A-Za-z0-9_-]*)?"
-    r"|sk-[A-Za-z0-9_-]{6,}(?:\*+[A-Za-z0-9_-]*)?"
-    r"|sk-[A-Za-z0-9_-]*\*{3,}[A-Za-z0-9_-]*"  # OpenAI's masked echo: sk-proj-****abcd
-    r"|AIza[0-9A-Za-z_-]{10,}"
+    r"(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{6,}(?:\*+[A-Za-z0-9_-]*)?"
+    r"|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{6,}(?:\*+[A-Za-z0-9_-]*)?"
+    r"|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]*\*{3,}[A-Za-z0-9_-]*"  # OpenAI's masked echo: sk-proj-****abcd
+    r"|(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{10,}"
 )
 MAX_MESSAGE_LEN = 300
 
@@ -202,15 +207,28 @@ def _kind(exc: BaseException) -> Optional[str]:
     # Billing needs an explicit signal. A plain 429 / RESOURCE_EXHAUSTED is a rate limit even when its text
     # mentions "quota" and "billing" (Gemini's per-minute limit does).
     if 402 in statuses or any(_error_code(e) == "insufficient_quota" for e in chain) \
-            or any(_CREDIT_BALANCE_TEXT.search(t) for t in texts):  # Anthropic reports billing as a 400
+            or any(_CREDIT_BALANCE_TEXT.search(t) for t in texts) \
+            or any(_DEPLETED_CREDITS_TEXT.search(t) for t in texts):  # Anthropic: a 400; Gemini: a 429
         return "billing"
     if 429 in statuses or "RESOURCE_EXHAUSTED" in status_names.upper() or any("RESOURCE_EXHAUSTED" in t for t in texts):
         return "rate_limit"
     if any(BILLING_TEXT.search(t) for t in texts):  # not a rate limit: billing wording alone is enough
         return "billing"
-    if 404 in statuses or any(_MODEL_NOT_FOUND_TEXT.search(t) for t in texts):
+    if 404 in statuses or any(_MODEL_NOT_FOUND_TEXT.search(t) for t in texts) or _model_level_400(chain, statuses):
         return "model_not_found"
     if any(s >= 500 for s in statuses) or any("overloaded" in t.lower() for t in texts) \
             or any("overloaded" in type(e).__name__.lower() for e in chain):
         return "server"
     return None  # other 400 / 422 / unknown: the request or our own code is at fault
+
+
+def _model_level_400(chain: list, statuses: set[int]) -> bool:
+    """A 400 whose structured error (OpenAI's `param` / `code`) blames the model: it names param "model" (e.g. a chat
+    model sent to the transcription endpoint) or has code unsupported_parameter / model_not_found (e.g. max_tokens
+    on a reasoning model). It is specific to the provider+model pair, so it cools that pair and falls back.
+
+    Anthropic and Gemini report an unknown model as a 404 (handled by the 404 rule) and have no such fields.
+    """
+    if 400 not in statuses:
+        return False
+    return any(getattr(e, "param", None) == "model" or _error_code(e) in _MODEL_LEVEL_CODES for e in chain)

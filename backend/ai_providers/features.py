@@ -46,11 +46,31 @@ FEATURES: dict[str, FeatureSpec] = {s.key: s for s in (
           AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION),
 )}
 
+# The models the admin page offers per provider (it also allows "Other..."). OpenAI's speech-to-text models are
+# offered only for voice input: see known_models().
 KNOWN_MODELS: dict[str, list[str]] = {
-    "openai": ["gpt-4o-mini", "gpt-4o", "whisper-1"],
+    "openai": ["gpt-4o-mini", "gpt-4o"],
     "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
     "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
 }
+AUDIO_FEATURE = "transaction_audio"
+OPENAI_AUDIO_MODELS: list[str] = ["whisper-1"]
+
+
+def known_models(feature: str) -> dict[str, list[str]]:
+    """The models offered for `feature`, per allowed provider (fresh lists). Voice input on OpenAI offers only the
+    speech-to-text models; no other feature offers them."""
+    def models(provider: str) -> list[str]:
+        if feature == AUDIO_FEATURE and provider == "openai":
+            return list(OPENAI_AUDIO_MODELS)
+        return list(KNOWN_MODELS[provider])
+    return {p: models(p) for p in FEATURES[feature].allowed}
+
+
+def is_openai_audio_model(model: str) -> bool:
+    """True for OpenAI speech-to-text models: whisper* or *transcribe* (case-insensitive)."""
+    name = (model or "").strip().lower()
+    return name.startswith("whisper") or "transcribe" in name
 
 # Claude "effort" level sent per feature (Claude only).
 CLAUDE_EFFORT: dict[str, str] = {

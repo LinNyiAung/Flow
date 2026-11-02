@@ -14,6 +14,10 @@ from ..types import Completion, Prompt
 
 _FINISH = {"length": "length", "content_filter": "filtered"}
 
+# Explicit, so a hung provider fails over in about a minute (the SDK defaults are 600 s and 2 retries).
+TIMEOUT = 60  # seconds
+MAX_RETRIES = 1
+
 
 def map_finish(raw) -> str:
     return _FINISH.get(raw, "stop")
@@ -53,11 +57,12 @@ class OpenAIClient:
     def _client(self):
         key = os.getenv("OPENAI_API_KEY")
         if self._sdk is None or self._sdk[0] != key:
-            self._sdk = (key, openai.AsyncOpenAI(api_key=key))
+            self._sdk = (key, openai.AsyncOpenAI(api_key=key, timeout=TIMEOUT, max_retries=MAX_RETRIES))
         return self._sdk[1]
 
     def _kwargs(self, model: str, prompt: Prompt) -> dict:
-        kwargs = {"model": model, "messages": _messages(prompt), "max_tokens": prompt.max_tokens}
+        # max_completion_tokens, not the deprecated max_tokens: gpt-4o accepts both, reasoning models only this one.
+        kwargs = {"model": model, "messages": _messages(prompt), "max_completion_tokens": prompt.max_tokens}
         if prompt.temperature is not None:
             kwargs["temperature"] = prompt.temperature
         if prompt.json_schema is not None:
@@ -104,4 +109,4 @@ class OpenAIClient:
             await self.transcribe(model, _silent_wav(), "ping.wav", None)
             return
         await self._client().chat.completions.create(
-            model=model, messages=[{"role": "user", "content": "ping"}], max_tokens=16)
+            model=model, messages=[{"role": "user", "content": "ping"}], max_completion_tokens=16)

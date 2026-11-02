@@ -14,7 +14,7 @@ from admin_utils import log_admin_action, require_admin_or_super, require_modera
 from ai_providers import health, settings
 from ai_providers.clients.base import get_client
 from ai_providers.errors import ProviderFailure, classify, redact
-from ai_providers.features import FEATURES, KNOWN_MODELS, PROVIDERS, default_model
+from ai_providers.features import FEATURES, PROVIDERS, default_model, known_models
 from ai_providers.types import FeatureSetting, Target
 from sql import ai_settings as ai_settings_db
 from sql import ai_usage as ai_usage_db
@@ -78,6 +78,7 @@ def _feature_json(key: str) -> dict:
         "effective": _setting_json(effective),
         "default_chain": [_target_json(t) for t in default_backups],
         "panel": None if panel is None else _setting_json(panel),
+        "known_models": known_models(key),  # the models this feature's pickers offer, per allowed provider
     }
 
 
@@ -108,10 +109,10 @@ def _describe(s: FeatureSetting) -> str:
 
 @router.get("/settings")
 async def get_ai_settings(current_admin: dict = Depends(require_moderator_or_above)):
-    """Providers (with whether their API key is configured) and every feature's effective setting."""
+    """Providers (with whether their API key is configured) and every feature's effective setting and known models."""
     return {
         "providers": [
-            {"id": p, "label": PROVIDER_LABELS[p], "configured": _configured(p), "known_models": list(KNOWN_MODELS[p])}
+            {"id": p, "label": PROVIDER_LABELS[p], "configured": _configured(p)}
             for p in PROVIDERS
         ],
         "features": [_feature_json(key) for key in FEATURES],

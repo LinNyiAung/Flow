@@ -20,6 +20,10 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # Above this, a plain request can hit HTTP timeouts, so the SDK asks for a stream.
 STREAM_ABOVE_TOKENS = 16000
 
+# Explicit, so a hung provider fails over in about a minute (the SDK defaults are 600 s and 2 retries).
+TIMEOUT = 60  # seconds
+MAX_RETRIES = 1
+
 
 def map_finish(raw) -> str:
     return {"max_tokens": "length", "refusal": "refusal"}.get(raw, "stop")
@@ -69,7 +73,7 @@ class ClaudeClient:
     def _messages(self):
         key = os.getenv("ANTHROPIC_API_KEY")
         if self._sdk is None or self._sdk[0] != key:
-            self._sdk = (key, anthropic.AsyncAnthropic(api_key=key))
+            self._sdk = (key, anthropic.AsyncAnthropic(api_key=key, timeout=TIMEOUT, max_retries=MAX_RETRIES))
         return self._sdk[1].beta.messages
 
     @staticmethod

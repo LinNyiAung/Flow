@@ -263,7 +263,8 @@ async def _run_ai(feature: str, user_id: str, call, parse=lambda c: c, allow_emp
         logger.warning(f"{feature} unavailable for user {user_id}: {e}")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_AI_UNAVAILABLE) from e
     except Exception as e:
-        logger.warning(f"{feature} request rejected for user {user_id}: {redact(f'{type(e).__name__}: {e}')}")
+        # error, not warning: this path also catches our own bugs, which must be visible in the logs
+        logger.error(f"{feature} request rejected for user {user_id}: {redact(f'{type(e).__name__}: {e}')}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_AI_BAD_REQUEST) from e
 
 

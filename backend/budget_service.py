@@ -16,7 +16,7 @@ from budget_models import (
     BudgetPeriod, CategoryBudget, CategoryBudgetIn, AIBudgetSuggestion, BudgetStatus
 )
 from ai_providers import runner as _runner
-from ai_providers.errors import AllProvidersFailed, UnusableAnswer
+from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
 from finite_utils import is_finite_number
 from sqlalchemy.exc import IntegrityError
@@ -24,6 +24,10 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+
+
+class AIRequestRejected(Exception):
+    """The budget_suggestion provider refused the request itself (no fallback). Carries no provider text."""
 
 
 # Strong references to fire-and-forget tasks (asyncio only keeps weak refs).
@@ -469,11 +473,20 @@ REMEMBER:
 - Use sub-category budgets when spending patterns show clear distinctions
 - All amounts must be in {currency.upper()}"""
 
-        result = await _runner.run(
-            "budget_suggestion", user_id=self.user_id,
-            call=_budget_call("budget_suggestion", system_prompt, user_prompt),
-            parse=_parse_budget_answer(categories_structure),
-        )
+        try:
+            result = await _runner.run(
+                "budget_suggestion", user_id=self.user_id,
+                call=_budget_call("budget_suggestion", system_prompt, user_prompt),
+                parse=_parse_budget_answer(categories_structure),
+            )
+        except AllProvidersFailed:
+            raise
+        except Exception as e:
+            # The runner re-raises only request-level errors (the provider refused this request itself: no
+            # fallback). Their text can carry provider details, so it is only logged, redacted.
+            logger.error(f"budget_suggestion request rejected for user {self.user_id}: "
+                         f"{redact(f'{type(e).__name__}: {e}')}")
+            raise AIRequestRejected() from e
         c, t = result.completion, result.target
         logger.info(
             f"📊 [{t.provider.upper()} TOKEN USAGE - AI Budget Suggestion] User: {self.user_id} | "

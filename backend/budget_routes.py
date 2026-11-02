@@ -13,6 +13,7 @@ from utils import get_current_user, require_premium
 
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
 from budget_service import (
+    AIRequestRejected,
     BudgetAnalyzer,
     calculate_budget_status,
     calculate_total_budget_excluding_subcategories,
@@ -31,6 +32,9 @@ from sql import users as users_db
 
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
+
+# Same wording as the transaction routes' request-level AI error.
+_AI_BAD_REQUEST = "The AI service could not process this request. Please check it and try again."
 
 # Statuses that count as the "current" budget set for summary totals.
 _CURRENT_STATUSES = {BudgetStatus.ACTIVE.value, BudgetStatus.EXCEEDED.value}
@@ -122,6 +126,9 @@ async def get_ai_budget_suggestions(
         # Fixed message: the failures' text could carry provider details.
         print(f"AI budget suggestions unavailable: {e}")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI is temporarily unavailable")
+    except AIRequestRejected:
+        # Already logged (redacted) by the service; the provider's text never reaches the response.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_AI_BAD_REQUEST)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:

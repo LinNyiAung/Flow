@@ -423,7 +423,7 @@ async def get_financial_summary(user_id, start_date, end_date):
 
 def _build_weekly_system_prompt():
     """Build system prompt for weekly insights generation"""
-    return """You are Flow Finance AI, an expert financial analyst providing weekly financial insights.
+    return """You are Toe Pwar AI, an expert financial analyst providing weekly financial insights.
 
 Your task is to analyze the user's financial activity from the past week and generate a comprehensive weekly report.
 

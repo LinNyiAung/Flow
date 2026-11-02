@@ -675,7 +675,7 @@ async def manually_generate_weekly_insights(
             outcome = "success" if insight else "failed"
             provider = (insight or {}).get("ai_provider") or provider
         except Exception as e:
-            print(f"❌ Manual weekly insight failed: {type(e).__name__}: {e}")
+            print(f"❌ Manual weekly insight failed: {type(e).__name__}: {redact(str(e))}")
             # No raw exception text in the response.
             outcome = "rate_limited" if is_rate_limit_error(e) else "error"
         results = {provider: outcome}
@@ -686,7 +686,7 @@ async def manually_generate_weekly_insights(
         }
 
     except Exception as e:
-        print(f"Error in manual weekly generation: {str(e)}")
+        print(f"Error in manual weekly generation: {redact(str(e))}")
         raise _insight_http_error(e, "generate weekly insights")
 
 

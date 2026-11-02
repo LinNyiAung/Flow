@@ -14,10 +14,10 @@ from .types import Target
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_COOLOFF = 300.0     # auth, billing, not_configured, repeated server errors
+PROVIDER_COOLOFF = 300.0     # auth, billing, not_configured, repeated server errors / timeouts
 MODEL_COOLOFF = 300.0        # model_not_found
 RATE_LIMIT_COOLOFF = 60.0    # rate_limit (provider+model)
-SERVER_STREAK_LIMIT = 2
+SERVER_STREAK_LIMIT = 2      # consecutive server errors or timeouts (either kind) that cool the provider
 
 _provider_until: dict[str, float] = {}
 _pair_until: dict[tuple[str, str], float] = {}
@@ -46,7 +46,8 @@ def mark_failure(f: ProviderFailure, now: Optional[float] = None) -> None:
     now = _now(now)
     if f.kind in ("auth", "billing", "not_configured"):
         _cool_provider(f.provider, now)
-    elif f.kind == "server":
+    elif f.kind in ("server", "timeout"):
+        # A hung or unreachable provider is an outage like a 5xx: both count in one consecutive streak.
         _server_streak[f.provider] = _server_streak.get(f.provider, 0) + 1
         if _server_streak[f.provider] >= SERVER_STREAK_LIMIT:
             _cool_provider(f.provider, now)
@@ -54,7 +55,7 @@ def mark_failure(f: ProviderFailure, now: Optional[float] = None) -> None:
         _cool_pair(f.provider, f.model, now + MODEL_COOLOFF)
     elif f.kind == "rate_limit":
         _cool_pair(f.provider, f.model, now + RATE_LIMIT_COOLOFF)
-    # refusal, unusable and a single timeout never cool anything off
+    # refusal, unusable and a single server error or timeout never cool anything off
 
 
 def _cool_pair(provider: str, model: str, until: float) -> None:

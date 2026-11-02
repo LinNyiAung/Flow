@@ -12,6 +12,10 @@ from ..types import Completion, Prompt
 
 _FILTERED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"}
 
+# Explicit, so a hung provider fails over in about a minute (by default google-genai has no timeout).
+# HttpOptions.timeout is in milliseconds. Retries stay at the SDK default (none: retry_options unset).
+TIMEOUT_MS = 60_000
+
 _AUDIO_MIME = {
     ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/aac",
     ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".flac": "audio/flac", ".webm": "audio/webm",
@@ -73,7 +77,7 @@ class GeminiClient:
     def _models(self):
         key = os.getenv("GOOGLE_API_KEY")
         if self._sdk is None or self._sdk[0] != key:
-            self._sdk = (key, genai.Client(api_key=key))
+            self._sdk = (key, genai.Client(api_key=key, http_options=types.HttpOptions(timeout=TIMEOUT_MS)))
         return self._sdk[1].aio.models
 
     def _request(self, model: str, prompt: Prompt) -> dict:

@@ -41,16 +41,19 @@ def _configured(provider: str) -> bool:
 def _targets(feature: str) -> Iterator[Target]:
     """The feature's chain without cooling targets; if every target is cooling, the whole chain in order.
 
+    A target whose provider has no API key never counts as available: otherwise an unconfigured main would be
+    the only "available" target and a cooling backup would be skipped instead of tried. Unconfigured targets are
+    still yielded in their place, so the caller records them as not_configured (and as fallback_from).
     Availability is checked again as each target comes up (R11): a provider-wide failure earlier in this
     request (billing, auth...) skips the later targets of that provider. Not when everything was cooling.
     """
     targets = chain(feature, configured=_configured)
-    available = [t for t in targets if health.is_available(t)]
+    available = [t for t in targets if _configured(t.provider) and health.is_available(t)]
     if not available:
         yield from targets
         return
-    for t in available:
-        if health.is_available(t):
+    for t in targets:
+        if not _configured(t.provider) or health.is_available(t):
             yield t
 
 
