@@ -211,6 +211,8 @@ After the deploy, check by hand (needs the real keys, so the automated suites ca
 - Run one Claude JSON feature, such as a budget suggestion or a transaction from text, with
   Claude as its main provider.
 - Send one voice note with Gemini as the voice input provider.
+- If you pick Claude Haiku for any feature, run one JSON feature on it (for example a budget
+  suggestion), because the client always sends `output_config.effort` with Claude requests.
 - When a key is out of credit, confirm the provider's status card shows a billing error.
 
 Notes:

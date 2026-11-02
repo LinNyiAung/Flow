@@ -14,7 +14,7 @@ from ai_usage_models import AIProviderType
 from ai_usage_service import track_ai_usage
 
 from . import health
-from .clients.base import ProviderClient, get_client
+from .clients.base import ProviderClient, get_client, request_timeout
 from .errors import AllProvidersFailed, ProviderFailure, UnusableAnswer, classify, redact
 from .features import CLAUDE_EFFORT, FEATURES
 from .settings import chain
@@ -62,9 +62,10 @@ def _effort(feature: str, t: Target) -> str | None:
 
 
 def default_call(prompt: Prompt, feature: str) -> Callable[[ProviderClient, Target], Awaitable[Completion]]:
-    """A `call` for run() that sends `prompt` with client.complete (plus the feature's effort on Claude)."""
+    """A `call` for run() that sends `prompt` with client.complete (plus the feature's effort on Claude, and the
+    feature's per-request timeout: 300 s for the insight jobs, 60 s otherwise)."""
     async def call(client: ProviderClient, t: Target) -> Completion:
-        return await client.complete(t.model, prompt, effort=_effort(feature, t))
+        return await client.complete(t.model, prompt, effort=_effort(feature, t), timeout=request_timeout(feature))
     return call
 
 

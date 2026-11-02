@@ -1256,38 +1256,54 @@ async def client_checks():
     get_client("gemini")._models()
     gem = get_client("gemini")._sdk[1].init_kwargs
     opts = gem.get("http_options")
-    check(opts is not None and stubenv._field(opts, "timeout") == 60_000 and stubenv._field(opts, "retry_options") is None,
-          "sdk_timeouts: gemini http_options timeout 60000 ms (60 s), no retries (the SDK default)",
+    check(opts is None or (stubenv._field(opts, "timeout") is None and stubenv._field(opts, "retry_options") is None),
+          "sdk_timeouts: the gemini client has no client-level timeout (each call passes its own) and no retries",
           {k: v for k, v in gem.items() if k != "api_key"})
 
-    # Follow-up ruling 1: a large non-streamed request (max_tokens above 4000) gets a 300 s read timeout, others 60 s
+    # Follow-up 2 (N2): the long timeout is keyed on the feature: only the insight jobs get 300 s
+    from ai_providers import runner as _runner
     from ai_providers.clients import base as client_base
-    check([client_base.request_timeout(n) for n in (16, 2000, 4000, 4001, 8000, 32768)] == [60, 60, 60, 300, 300, 300],
-          "request_timeout: 60 s up to 4000 tokens, 300 s above",
-          [client_base.request_timeout(n) for n in (16, 2000, 4000, 4001, 8000, 32768)])
+    from ai_providers.features import FEATURES
+    from ai_providers.types import Target
+    got = {f: client_base.request_timeout(f) for f in FEATURES}
+    check(got == {f: (300 if f in ("insight_weekly", "insight_monthly", "insight_translation") else 60) for f in FEATURES}
+          and client_base.request_timeout(None) == 60,
+          "request_timeout_by_feature: 300 s for the insight jobs, 60 s for every other feature", got)
 
     def gemini_timeout():
         cfg = stubenv.LAST_KWARGS["gemini"]["config"]
         opts = stubenv._field(cfg, "http_options") if cfg is not None else None
         return stubenv._field(opts, "timeout") if opts is not None else None
 
-    for size, want in ((8000, 300), (2000, 60), (4000, 60)):
-        p = Prompt("s", "translate this", max_tokens=size)
-        await get_client("openai").complete("gpt-4o-mini", p)
-        got_oai = stubenv.LAST_KWARGS["openai"].get("timeout")
-        await get_client("claude").complete("claude-sonnet-5-5", p)
-        got_ant = stubenv.LAST_KWARGS["claude"].get("timeout")
-        await get_client("gemini").complete("gemini-2.5-flash", p)
-        got_gem = gemini_timeout()
-        check((got_oai, got_ant, got_gem) == (want, want, want * 1000),
-              f"timeout_by_request_size: max_tokens {size} -> {want} s on openai, claude and gemini (ms)",
-              (got_oai, got_ant, got_gem))
-    await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "translate this", max_tokens=32000))
+    tmodels = {"openai": "gpt-4o-mini", "claude": "claude-sonnet-5-5", "gemini": "gemini-2.5-flash"}
+
+    async def timeouts_via_default_call(feature, size):
+        out = []
+        for p, m in tmodels.items():
+            await _runner.default_call(Prompt("s", "translate this", max_tokens=size), feature)(get_client(p), Target(p, m))
+            out.append(gemini_timeout() if p == "gemini" else stubenv.LAST_KWARGS[p].get("timeout"))
+        return tuple(out)
+
+    for feature, size, want in (("insight_translation", 8000, 300), ("insight_translation", 2000, 300),
+                                ("insight_weekly", 2500, 300), ("insight_monthly", 12000, 300),
+                                ("transaction_text", 8000, 60), ("budget_suggestion", 8000, 60),
+                                ("transaction_image", 1000, 60), ("chat", 4000, 60)):
+        got = await timeouts_via_default_call(feature, size)
+        check(got == (want, want, want * 1000),
+              f"timeout_by_feature: {feature} with max_tokens {size} -> {want} s on openai, claude and gemini (ms)", got)
+    await _runner.default_call(Prompt("s", "translate this", max_tokens=32000), "insight_translation")(
+        get_client("claude"), Target("claude", "claude-sonnet-5-5"))
     check(stubenv.LAST_KWARGS["claude"].get("timeout") == 300,
-          "timeout_by_request_size: claude's streamed path for very large answers gets 300 s too",
+          "timeout_by_feature: claude's streamed path for a 32000-token translation gets 300 s too",
           stubenv.LAST_KWARGS["claude"].get("timeout"))
-    # streamed chat keeps the client default (60 s between chunks): no per-request override
+    # complete() without a feature, and stream(): the 60 s default (OpenAI/Claude: the client's; Gemini: per request)
     big = Prompt("s", "hi", max_tokens=8000)
+    await get_client("openai").complete("gpt-4o-mini", big)
+    await get_client("claude").complete("claude-sonnet-5-5", big)
+    await get_client("gemini").complete("gemini-2.5-flash", big)
+    check("timeout" not in stubenv.LAST_KWARGS["openai"] and "timeout" not in stubenv.LAST_KWARGS["claude"]
+          and gemini_timeout() == 60_000, "timeout_by_feature: complete() with no timeout keeps 60 s",
+          (stubenv.LAST_KWARGS["openai"].get("timeout"), stubenv.LAST_KWARGS["claude"].get("timeout"), gemini_timeout()))
     async for _ in get_client("openai").stream("gpt-4o-mini", big):
         pass
     async for _ in get_client("claude").stream("claude-sonnet-5-5", big):
@@ -1295,9 +1311,16 @@ async def client_checks():
     async for _ in get_client("gemini").stream("gemini-2.5-flash", big):
         pass
     check("timeout" not in stubenv.LAST_KWARGS["openai"] and "timeout" not in stubenv.LAST_KWARGS["claude"]
-          and gemini_timeout() is None,
-          "timeout_by_request_size: stream() keeps the 60 s client default even for a large prompt",
+          and gemini_timeout() == 60_000,
+          "timeout_by_feature: stream() keeps 60 s even for a large prompt",
           (stubenv.LAST_KWARGS["openai"].get("timeout"), stubenv.LAST_KWARGS["claude"].get("timeout"), gemini_timeout()))
+    await get_client("gemini").ping("gemini-2.5-flash")
+    p_ping = gemini_timeout()
+    await get_client("gemini").transcribe("gemini-2.5-flash", b"x", "a.mp3", None)
+    check(p_ping == 60_000 and gemini_timeout() == 60_000,
+          "timeout_by_feature: gemini ping and transcribe pass their own 60 s", (p_ping, gemini_timeout()))
+
+    await _gemini_server_timeout_header_checks()
     await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi"))
     check("response_format" not in stubenv.LAST_KWARGS["openai"], "openai: no response_format without json_schema")
     async for _ in get_client("openai").stream("gpt-4o-mini", Prompt("s", "hi")):
@@ -1466,6 +1489,74 @@ async def client_checks():
                       NS(type="text", text="b")], stop_reason="end_turn", usage=NS(input_tokens=3, output_tokens=4))
     check(claude_client.text_of(msg) == "ab" and claude_client.text_of(NS(content=[])) == "",
           "claude: text is the concatenation of text blocks only")
+
+
+async def _gemini_server_timeout_header_checks():
+    """Follow-up 2 (N1), no network: the real google-genai client builds each request, and the request is captured
+    just before it would be sent. A 300 s request must still say X-Server-Timeout: 300 after 60 s calls."""
+    from google.genai import client as genai_client_mod
+    from google.genai import types as gtypes
+
+    from ai_providers import runner as _runner
+    from ai_providers.clients.base import get_client
+    from ai_providers.types import Prompt, Target
+
+    class _Stop(Exception):
+        pass
+
+    def real_client(**kw):
+        """A real genai client (stubenv only swaps the package-level name) whose send step records and stops."""
+        rc = genai_client_mod.Client(api_key="e2e-not-a-key", **kw)
+        sent = []
+
+        async def capture(http_request, http_options=None, stream=False):
+            sent.append((dict(http_request.headers).get("X-Server-Timeout"), http_request.timeout))
+            raise _Stop()
+        rc._api_client._async_request = capture
+        return rc, sent
+
+    async def attempt(coro_or_gen):
+        try:
+            if hasattr(coro_or_gen, "__aiter__"):
+                async for _ in coro_or_gen:
+                    pass
+            else:
+                await coro_or_gen
+        except _Stop:
+            pass
+
+    # what the fix avoids: with a client-level timeout, a call that does not override it writes X-Server-Timeout
+    # into the client's shared headers, and a later 300 s request inherits that 60
+    rc, sent = real_client(http_options=gtypes.HttpOptions(timeout=60_000))
+    await attempt(rc.aio.models.generate_content(model="gemini-2.5-flash", contents="hi"))
+    await attempt(rc.aio.models.generate_content(model="gemini-2.5-flash", contents="hi", config=gtypes.GenerateContentConfig(
+        http_options=gtypes.HttpOptions(timeout=300_000))))
+    check(sent == [("60", 60.0), ("60", 300.0)],
+          "gemini_server_timeout_header: (SDK behaviour) a client-level timeout leaks X-Server-Timeout 60 into later "
+          "requests", sent)
+
+    # our client: no client-level timeout, every call passes its own
+    gc = get_client("gemini")
+    gc._models()  # make sure _sdk is keyed on the current key
+    saved = gc._sdk
+    rc, sent = real_client()
+    gc._sdk = (saved[0], rc)
+    try:
+        await attempt(gc.stream("gemini-2.5-flash", Prompt("s", "hi")))
+        await attempt(gc.ping("gemini-2.5-flash"))
+        await attempt(gc.transcribe("gemini-2.5-flash", b"x", "a.mp3", None))
+        await attempt(_runner.default_call(Prompt("s", "translate", max_tokens=8000), "insight_translation")(
+            gc, Target("gemini", "gemini-2.5-pro")))
+        await attempt(_runner.default_call(Prompt("s", "x", max_tokens=8000), "transaction_text")(
+            gc, Target("gemini", "gemini-2.5-flash")))
+        shared = dict(rc._api_client._http_options.headers or {})
+    finally:
+        gc._sdk = saved
+    check(sent == [("60", 60.0), ("60", 60.0), ("60", 60.0), ("300", 300.0), ("60", 60.0)],
+          "gemini_server_timeout_header: stream, ping and transcribe send 60; a later insight request still sends "
+          "X-Server-Timeout 300 (and a transaction 60)", sent)
+    check("X-Server-Timeout" not in shared,
+          "gemini_server_timeout_header: the client's shared header dict is never written", sorted(shared))
 
 
 def control_format_checks():

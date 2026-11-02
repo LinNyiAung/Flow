@@ -11,11 +11,12 @@ from typing import AsyncIterator
 import openai
 
 from ..types import Completion, Prompt
-from .base import DEFAULT_TIMEOUT, request_timeout
+from .base import DEFAULT_TIMEOUT
 
 _FINISH = {"length": "length", "content_filter": "filtered"}
 
-# Explicit, so a hung provider fails over in about a minute (the SDK defaults are 600 s and 2 retries).
+# The SDK defaults are 600 s and 2 retries: a hung provider now costs about 60 s per attempt, with one retry.
+# See base.py for what the timeout bounds.
 TIMEOUT = DEFAULT_TIMEOUT  # seconds
 MAX_RETRIES = 1
 
@@ -70,10 +71,12 @@ class OpenAIClient:
             kwargs["response_format"] = {"type": "json_object"}
         return kwargs
 
-    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None) -> Completion:
-        # Per-request read timeout (seconds): a large non-streamed answer gets longer than the client default.
-        r = await self._client().chat.completions.create(**self._kwargs(model, prompt),
-                                                         timeout=request_timeout(prompt.max_tokens))
+    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None,
+                       timeout: int | None = None) -> Completion:
+        kwargs = self._kwargs(model, prompt)
+        if timeout is not None:
+            kwargs["timeout"] = timeout  # seconds, this request only (the SDK's per-request override)
+        r = await self._client().chat.completions.create(**kwargs)
         choice = r.choices[0] if r.choices else None
         usage = getattr(r, "usage", None)
         return Completion(

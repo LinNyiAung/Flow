@@ -10,7 +10,9 @@ class ProviderClient(Protocol):
     def configured(self) -> bool:
         """True when the provider's API key is present in the environment (checked at call time)."""
 
-    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None) -> Completion: ...
+    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None,
+                       timeout: int | None = None) -> Completion:
+        """One non-streamed answer. `timeout` (seconds) overrides DEFAULT_TIMEOUT for this request."""
 
     def stream(self, model: str, prompt: Prompt, *, effort: str | None = None) -> AsyncIterator[str | Completion]:
         """Yields text chunks, then exactly one Completion (text="", usage, finish)."""
@@ -22,17 +24,21 @@ class ProviderClient(Protocol):
         """A tiny request (max_tokens about 16). Raises whatever the SDK raises."""
 
 
-# Read timeouts (seconds). Every SDK client is built with DEFAULT_TIMEOUT, so a hung provider fails over in about
-# a minute. A non-streamed answer must arrive within the read timeout, so a large one gets more time per request.
-# Streams keep the default: it applies between chunks.
+# Timeouts in seconds. All three SDKs use httpx, where the timeout bounds each network operation: connecting, and
+# each read (the wait for the next bytes of the response). A non-streamed answer arrives only when the model has
+# finished, so its first read waits for the whole answer; a stream reads chunk by chunk. A hung provider costs
+# about DEFAULT_TIMEOUT per attempt: OpenAI and Claude retry once (max_retries=1), Gemini does not retry.
+# (google-genai would apply the timeout to the whole request if aiohttp were installed; it is not.)
 DEFAULT_TIMEOUT = 60
 LONG_TIMEOUT = 300
-LONG_ABOVE_TOKENS = 4000
+# Background jobs whose non-streamed answers are long: they get LONG_TIMEOUT. Every other feature (chat, transaction
+# text/image/voice, budgets) gets DEFAULT_TIMEOUT.
+LONG_TIMEOUT_FEATURES = frozenset({"insight_weekly", "insight_monthly", "insight_translation"})
 
 
-def request_timeout(max_tokens: int) -> int:
-    """The read timeout in seconds for a non-streamed request allowed `max_tokens` output tokens."""
-    return LONG_TIMEOUT if max_tokens > LONG_ABOVE_TOKENS else DEFAULT_TIMEOUT
+def request_timeout(feature: str | None) -> int:
+    """The per-request timeout in seconds for a non-streamed call made for `feature`."""
+    return LONG_TIMEOUT if feature in LONG_TIMEOUT_FEATURES else DEFAULT_TIMEOUT
 
 
 _clients: dict[str, ProviderClient] = {}

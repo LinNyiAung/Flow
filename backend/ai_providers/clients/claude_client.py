@@ -11,7 +11,7 @@ from typing import AsyncIterator
 import anthropic
 
 from ..types import Completion, Prompt
-from .base import DEFAULT_TIMEOUT, request_timeout
+from .base import DEFAULT_TIMEOUT
 
 # Models whose safety classifiers can decline a request: ask the API to re-run a declined request on its default
 # fallback model instead of returning the refusal.
@@ -21,7 +21,8 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # Above this, a plain request can hit HTTP timeouts, so the SDK asks for a stream.
 STREAM_ABOVE_TOKENS = 16000
 
-# Explicit, so a hung provider fails over in about a minute (the SDK defaults are 600 s and 2 retries).
+# The SDK defaults are 600 s and 2 retries: a hung provider now costs about 60 s per attempt, with one retry.
+# See base.py for what the timeout bounds.
 TIMEOUT = DEFAULT_TIMEOUT  # seconds
 MAX_RETRIES = 1
 
@@ -101,9 +102,11 @@ class ClaudeClient:
             kwargs["fallbacks"] = "default"
         return kwargs
 
-    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None) -> Completion:
-        # Per-request read timeout (seconds): a large answer gets longer than the client default.
-        kwargs = {**self._request(model, prompt, effort), "timeout": request_timeout(prompt.max_tokens)}
+    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None,
+                       timeout: int | None = None) -> Completion:
+        kwargs = self._request(model, prompt, effort)
+        if timeout is not None:
+            kwargs["timeout"] = timeout  # seconds, this request only (create() and stream() both take it)
         if prompt.max_tokens > STREAM_ABOVE_TOKENS:
             async with self._messages().stream(**kwargs) as s:
                 return _completion(await s.get_final_message())

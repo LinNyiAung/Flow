@@ -9,13 +9,21 @@ from google import genai
 from google.genai import types
 
 from ..types import Completion, Prompt
-from .base import DEFAULT_TIMEOUT, request_timeout
+from .base import DEFAULT_TIMEOUT
 
 _FILTERED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"}
 
-# Explicit, so a hung provider fails over in about a minute (by default google-genai has no timeout).
-# HttpOptions.timeout is in milliseconds. Retries stay at the SDK default (none: retry_options unset).
+# google-genai has no timeout by default. Every call here passes its own HttpOptions(timeout=...) (milliseconds;
+# with httpx it bounds each read), and the client is built without one. A client-level timeout would make
+# google-genai write "X-Server-Timeout" into the client's shared header dict on the first call that does not
+# override it, and every later request (including a 300 s one) would inherit that value. Retries stay at the
+# SDK default: none (retry_options unset), so a hung provider costs about 60 s.
 TIMEOUT_MS = DEFAULT_TIMEOUT * 1000
+
+
+def _http_options(timeout_s: int | None) -> types.HttpOptions:
+    """Per-request options: a fresh timeout (DEFAULT_TIMEOUT when None), in milliseconds."""
+    return types.HttpOptions(timeout=(DEFAULT_TIMEOUT if timeout_s is None else timeout_s) * 1000)
 
 _AUDIO_MIME = {
     ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/aac",
@@ -78,26 +86,26 @@ class GeminiClient:
     def _models(self):
         key = os.getenv("GOOGLE_API_KEY")
         if self._sdk is None or self._sdk[0] != key:
-            self._sdk = (key, genai.Client(api_key=key, http_options=types.HttpOptions(timeout=TIMEOUT_MS)))
+            self._sdk = (key, genai.Client(api_key=key))  # no client-level timeout: see TIMEOUT_MS
         return self._sdk[1].aio.models
 
     def _request(self, model: str, prompt: Prompt, timeout_s: int | None = None) -> dict:
-        """`timeout_s` (seconds) overrides the client's timeout for this request; None keeps the client default."""
+        """`timeout_s` (seconds) for this request; None means DEFAULT_TIMEOUT."""
         config = types.GenerateContentConfig(
             system_instruction=prompt.system or None,
             response_mime_type="application/json" if prompt.json_schema is not None else None,
             max_output_tokens=prompt.max_tokens,
             temperature=prompt.temperature,
-            http_options=None if timeout_s is None else types.HttpOptions(timeout=timeout_s * 1000))  # milliseconds
+            http_options=_http_options(timeout_s))
         contents = prompt.user
         if prompt.image:
             contents = [types.Part.from_bytes(data=prompt.image, mime_type=prompt.image_mime or "image/jpeg"),
                         prompt.user]
         return {"model": model, "contents": contents, "config": config}
 
-    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None) -> Completion:
-        # Per-request read timeout: a large non-streamed answer gets longer than the client default.
-        r = await self._models().generate_content(**self._request(model, prompt, request_timeout(prompt.max_tokens)))
+    async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None,
+                       timeout: int | None = None) -> Completion:
+        r = await self._models().generate_content(**self._request(model, prompt, timeout))
         text = r.text or ""
         tokens_in, tokens_out = usage_of(getattr(r, "usage_metadata", None), _chars(prompt), text)
         return Completion(text, tokens_in, tokens_out, map_finish(_finish_of(r)))
@@ -124,11 +132,13 @@ class GeminiClient:
         instruction = _TRANSCRIBE + (f" The spoken language is {_language_phrase(language)}." if language else "")
         r = await self._models().generate_content(
             model=model,
-            contents=[types.Part.from_bytes(data=audio, mime_type=mime), instruction])
+            contents=[types.Part.from_bytes(data=audio, mime_type=mime), instruction],
+            config=types.GenerateContentConfig(http_options=_http_options(None)))
         text = (r.text or "").strip()
         tokens_in, tokens_out = usage_of(getattr(r, "usage_metadata", None), len(instruction), text)
         return Completion(text, tokens_in, tokens_out, map_finish(_finish_of(r)))
 
     async def ping(self, model: str) -> None:
         await self._models().generate_content(
-            model=model, contents="ping", config=types.GenerateContentConfig(max_output_tokens=16))
+            model=model, contents="ping",
+            config=types.GenerateContentConfig(max_output_tokens=16, http_options=_http_options(None)))

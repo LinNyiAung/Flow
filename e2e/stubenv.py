@@ -306,7 +306,7 @@ class _FakeCompletions:
         kind = _begin("openai", "chat.completions.create", k.get("model"), streaming=stream, stream=stream)
         if "max_tokens" in k:  # like OpenAI's reasoning models: only max_completion_tokens is accepted
             raise _unsupported_max_tokens()
-        usage =_ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
+        usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
         wants_json = (k.get("response_format") or {}).get("type") == "json_object"
         text = _answer_text(kind, json.dumps(k.get("messages", [])), wants_json)
         finish = "length" if kind == "length_once" else "stop"
