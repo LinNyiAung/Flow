@@ -2,6 +2,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
+from plans.catalog import PAID_PLANS
 from sql import budgets as budgets_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
@@ -681,7 +682,7 @@ async def generate_weekly_insights_for_all_users():
 
     # 1. Fetch all premium users quickly to release DB cursor
     # Projection only gets necessary fields to save memory
-    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type == "premium")
+    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type.in_(PAID_PLANS))
 
     if not users:
         logger.info("ℹ️ No premium users found for weekly insights.")
@@ -1385,7 +1386,7 @@ async def generate_monthly_insights_for_all_users():
     logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
 
     # 1. Fetch all premium users
-    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type == "premium")
+    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type.in_(PAID_PLANS))
 
     if not users:
         logger.info("ℹ️ No premium users found for monthly insights.")

@@ -34,7 +34,7 @@ for key, a in ACCOUNTS.items():
     assert r.status_code == 200, r.text
     upd = {"is_verified": True, "language": a["language"]}
     if a["premium"]:
-        upd |= {"subscription_type": "premium", "subscription_expires_at": datetime.now(UTC) + timedelta(days=200), "has_claimed_free_trial": True}
+        upd |= {"subscription_type": "plus", "subscription_expires_at": datetime.now(UTC) + timedelta(days=200), "has_claimed_free_trial": True}
     db.users.update_one({"email": a["email"]}, {"$set": upd})
     tokens[key] = c.post("/api/auth/login", json={"email": a["email"], "password": a["password"]}).json()["access_token"]
     a["id"] = db.users.find_one({"email": a["email"]})["_id"]

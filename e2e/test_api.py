@@ -248,7 +248,7 @@ def t_subscription():
     r = c.post("/api/auth/claim-free-trial", headers=H(S["A"]))
     ok("second trial claim rejected", r.status_code == 400, r.status_code)
 
-    db.users.update_one({"_id": S["B_id"]}, {"$set": {"subscription_type": "premium", "subscription_expires_at": None}})
+    db.users.update_one({"_id": S["B_id"]}, {"$set": {"subscription_type": "plus", "subscription_expires_at": None}})
     r = c.post("/api/auth/claim-free-trial", headers=H(S["B"]))
     after = db.users.find_one({"_id": S["B_id"]})
     bug("lifetime premium user downgraded to 30-day expiry by claiming trial",
@@ -257,7 +257,7 @@ def t_subscription():
 
     # expired premium is blocked
     tok, uid, _, _ = register_verified("Exp", "expired@example.com", "secret123")
-    db.users.update_one({"_id": uid}, {"$set": {"subscription_type": "premium", "subscription_expires_at": datetime.now(UTC) - timedelta(days=1)}})
+    db.users.update_one({"_id": uid}, {"$set": {"subscription_type": "plus", "subscription_expires_at": datetime.now(UTC) - timedelta(days=1)}})
     r = c.post("/api/chat/stream", headers=H(tok), json={"message": "hi"})
     ok("expired premium blocked from premium endpoints", r.status_code == 403, r.status_code)
 
@@ -772,7 +772,7 @@ def t_admin():
     r = c.get("/api/admin/users/nope", headers=H(AD))
     ok("user detail 404", r.status_code == 404, r.status_code)
     r = c.put(f"/api/admin/users/{S['B_id']}/subscription", headers=H(AD),
-              json={"subscription_type": "premium", "subscription_expires_at": iso(now + timedelta(days=30))})
+              json={"subscription_type": "plus", "subscription_expires_at": iso(now + timedelta(days=30))})
     ok("grant premium", r.status_code == 200, r.text[:200])
     r = c.get("/api/auth/subscription-status", headers=H(S["B"]))
     bug("subscription-status 500 after admin grants time-limited premium", r.status_code == 500, f"{r.status_code}")

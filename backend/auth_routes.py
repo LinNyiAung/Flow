@@ -40,6 +40,7 @@ from models import (
     VerifyOTPRequest,
 )
 from config import settings
+from plans.catalog import PAID_PLANS
 from sql import users as users_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -534,7 +535,7 @@ async def get_subscription_status(current_user: dict = Depends(get_current_user)
     except (TypeError, ValueError, AttributeError):
         expires_at = None
 
-    is_premium = subscription_type == "premium"
+    is_premium = subscription_type in PAID_PLANS
     is_expired = False
 
     if is_premium and expires_at:
@@ -563,7 +564,7 @@ async def claim_free_trial(current_user: dict = Depends(get_current_user)):
         )
 
     # Prevent claiming if already premium (admin-granted, lifetime or still active)
-    if current_user.get("subscription_type") == "premium":
+    if current_user.get("subscription_type") in PAID_PLANS:
         existing_expiry = ensure_utc_datetime(current_user.get("subscription_expires_at"))
         if existing_expiry is None or existing_expiry > datetime.now(UTC):
             raise HTTPException(

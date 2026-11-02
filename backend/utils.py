@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException , status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_chatbot import financial_chatbot
+from plans.catalog import PAID_PLANS
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import users as users_db
@@ -211,7 +212,7 @@ async def require_premium(current_user: dict = Depends(get_current_user)):
     """Middleware to check if user has premium subscription"""
     subscription_type = current_user.get("subscription_type", "free")
 
-    if subscription_type == "premium":
+    if subscription_type in PAID_PLANS:
         # Check if subscription hasn't expired
         expires_at = current_user.get("subscription_expires_at")
         if expires_at:

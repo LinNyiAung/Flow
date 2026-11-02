@@ -67,7 +67,7 @@ def make_user(prefix, premium=False):
     c.post("/api/auth/register", json={"name": prefix, "email": email, "password": "secret123"})
     upd = {"is_verified": True}
     if premium:
-        upd |= {"subscription_type": "premium", "subscription_expires_at": None}
+        upd |= {"subscription_type": "plus", "subscription_expires_at": None}
     db.users.update_one({"email": email}, {"$set": upd})
     tok = c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json()["access_token"]
     return tok, db.users.find_one({"email": email})["_id"]

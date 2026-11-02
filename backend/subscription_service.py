@@ -1,7 +1,7 @@
 """Premium subscription state: one definition of "active premium" and the expiry job.
 
-A user is premium while subscription_type == "premium" and subscription_expires_at is
-unset (lifetime) or in the future. Feature access (utils.require_premium) checks that
+A user is premium (on a paid plan) while subscription_type is "plus" or "pro" and
+subscription_expires_at is unset (lifetime) or in the future. Feature access (utils.require_premium) checks that
 live; expire_premium_subscriptions() additionally downgrades expired users to "free"
 so the stored data, admin counts and broadcast targeting stay truthful.
 """
@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 
+from plans.catalog import PAID_PLANS
 from sql import users as users_db
 from firebase_service import send_fcm_data_message
 from notification_service import create_notification, get_user_language, translate
@@ -50,7 +51,7 @@ async def expire_premium_subscriptions(now: Optional[datetime] = None) -> int:
     now = now or datetime.now(UTC)
     candidates = await users_db.list_fields(
         ["subscription_expires_at", "fcm_token"],
-        users_db.users.c.subscription_type == "premium",
+        users_db.users.c.subscription_type.in_(PAID_PLANS),
         users_db.users.c.subscription_expires_at.isnot(None),
     )
 

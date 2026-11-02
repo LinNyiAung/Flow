@@ -1,6 +1,6 @@
 """Test-only adapter: pymongo-style calls on the PostgreSQL tables.
 
-The E2E suites poke the database directly (make a user premium, insert a legacy
+The E2E suites poke the database directly (put a user on a paid plan, insert a legacy
 transaction, read an OTP hash, ...). They were written against MongoDB; `get_db()`
 returns an object whose attributes are `PgCollection`s accepting the subset of Mongo
 calls and operators the suites use, so the suites barely changed in the move. Direct
@@ -341,7 +341,10 @@ def get_db() -> CompatDB:
 
 
 def reset_postgres() -> None:
-    """Empty every application table (keeps the schema and alembic_version)."""
+    """Empty every application table (keeps the schema and alembic_version).
+
+    plan_limits and plan_settings are kept: the migration seeds them with the plan defaults and nothing else does.
+    """
     with psycopg.connect(PG_DSN, autocommit=True) as conn:
-        names = ", ".join(t.name for t in T.metadata.sorted_tables)
+        names = ", ".join(t.name for t in T.metadata.sorted_tables if t.name not in ("plan_limits", "plan_settings"))
         conn.execute(f"TRUNCATE {names} CASCADE")

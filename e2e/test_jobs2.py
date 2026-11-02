@@ -47,7 +47,7 @@ async def main():
     # control: same user but lifetime premium (no expiry)
     for label, expiry in (("trial user (has expiry)", u.get("subscription_expires_at") or datetime.now(UTC) + timedelta(days=20)),
                           ("lifetime premium (no expiry)", None)):
-        await U.update_one({"_id": A}, {"$set": {"subscription_type": "premium", "subscription_expires_at": expiry}})
+        await U.update_one({"_id": A}, {"$set": {"subscription_type": "plus", "subscription_expires_at": expiry}})
         await I.delete_many({"user_id": A})
         await ins.generate_weekly_insights_for_all_users()
         n = await I.count_documents({"user_id": A, "insight_type": "weekly"})

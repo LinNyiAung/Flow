@@ -2470,7 +2470,7 @@ async def chat_checks():
         admin_reset(c, AD)
         r = c.post("/api/auth/register", json={"name": "T8 Chat", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         U = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}
@@ -2706,7 +2706,7 @@ async def insight_checks():
         email, pw = f"t9-{label}-{uuid.uuid4().hex[:6]}@example.com", "T9InsightPass123"
         c.post("/api/auth/register", json={"name": f"T9 {label}", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         uids.append(uid)
@@ -3071,7 +3071,7 @@ async def budget_checks():
         email, pw = f"t10-{label}-{uuid.uuid4().hex[:6]}@example.com", "T10BudgetPass123"
         c.post("/api/auth/register", json={"name": f"T10 {label}", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         uids.append(uid)
@@ -3383,7 +3383,7 @@ async def transaction_checks():
         email, pw = f"t11-{label}-{uuid.uuid4().hex[:6]}@example.com", "T11TxPass123"
         c.post("/api/auth/register", json={"name": f"T11 {label}", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         uids.append(uid)
@@ -3807,7 +3807,7 @@ async def usage_stats_checks():
         admin_reset(c, AD)
         c.post("/api/auth/register", json={"name": "T12 Usage", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         U = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}

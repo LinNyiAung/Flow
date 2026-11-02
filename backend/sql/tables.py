@@ -40,8 +40,10 @@ users = Table(
     Column("password_version", Integer, nullable=False, server_default="0"),
     Column("password_changed_at", TS),
     Column("subscription_type", Text, nullable=False, server_default="free"),
-    Column("subscription_expires_at", TS),  # NULL = lifetime when premium
+    Column("subscription_expires_at", TS),  # NULL = lifetime when on a paid plan (plus / pro)
     Column("premium_ended_at", TS),
+    Column("trial_ends_at", TS),  # set while the plan is the free-trial grant; NULL otherwise
+    Column("usage_reset_at", TS),  # admin "reset usage": allowances and cost cap count from here
     Column("has_claimed_free_trial", Boolean, nullable=False, server_default=text("false")),
     Column("default_currency", Text, nullable=False, server_default="usd"),
     Column("language", Text, nullable=False, server_default="en"),
@@ -60,7 +62,7 @@ users = Table(
     Column("fcm_token", Text),
     Column("ai_data_stale", Boolean, nullable=False, server_default=text("false")),
     Column("created_at", TS, nullable=False, server_default=func.now()),
-    CheckConstraint("subscription_type IN ('free','premium')", name="subscription_type"),
+    CheckConstraint("subscription_type IN ('free','plus','pro')", name="subscription_type"),
     CheckConstraint(f"default_currency IN {CURRENCIES}", name="default_currency"),
     CheckConstraint("language IN ('en','my')", name="language"),
     CheckConstraint("password_version >= 0", name="password_version"),
@@ -298,6 +300,47 @@ ai_provider_status = Table(
     Column("last_error", Text),
     Column("last_error_at", TS),
     Column("last_success_at", TS),
+)
+
+# Plans and AI quotas. plan_limits / plan_settings hold the owner-editable allowances (seeded by the migration
+# with plans.catalog's defaults); usage_counters counts what each user has used in the current week / month.
+plan_limits = Table(
+    "plan_limits", metadata,
+    Column("plan", Text, primary_key=True),
+    Column("feature", Text, primary_key=True),
+    Column("mode", Text, nullable=False),
+    Column("quota", Integer),  # counted only
+    Column("period", Text),  # counted only
+    CheckConstraint("plan IN ('free','plus','pro')", name="plan"),
+    CheckConstraint("mode IN ('locked','included','counted')", name="mode"),
+    CheckConstraint("period IS NULL OR period IN ('week','month')", name="period"),
+    CheckConstraint("mode <> 'counted' OR (quota IS NOT NULL AND quota >= 0 AND period IS NOT NULL)", name="counted_complete"),
+)
+
+plan_settings = Table(
+    "plan_settings", metadata,
+    Column("plan", Text, primary_key=True),
+    Column("cost_cap_usd", Numeric(12, 6), nullable=False),
+    CheckConstraint("plan IN ('free','plus','pro')", name="plan"),
+    CheckConstraint("cost_cap_usd >= 0", name="cost_cap_non_negative"),
+)
+
+app_settings = Table(
+    "app_settings", metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", Text, nullable=False),
+    Column("updated_at", TS, nullable=False, server_default=func.now()),
+)
+
+usage_counters = Table(
+    "usage_counters", metadata,
+    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("feature", Text, primary_key=True),
+    Column("period", Text, primary_key=True),
+    Column("period_start", Date, primary_key=True),
+    Column("used", Integer, nullable=False, server_default="0"),
+    CheckConstraint("period IN ('week','month')", name="period"),
+    CheckConstraint("used >= 0", name="used_non_negative"),
 )
 
 admins = Table(

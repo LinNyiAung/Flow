@@ -20,12 +20,12 @@ db = __import__("pgcompat").get_db()
 def ACTIVE(now=None):
     """Mongo-style filter equivalent of subscription_service.active_premium_filter (for pgcompat)."""
     now = now or datetime.now(UTC)
-    return {"subscription_type": "premium", "$or": [{"subscription_expires_at": None}, {"subscription_expires_at": {"$gt": now}}]}
+    return {"subscription_type": {"$in": ["plus", "pro"]}, "$or": [{"subscription_expires_at": None}, {"subscription_expires_at": {"$gt": now}}]}
 
 
 def FREE(now=None):
     now = now or datetime.now(UTC)
-    return {"$or": [{"subscription_type": {"$ne": "premium"}}, {"subscription_expires_at": {"$lte": now}}]}
+    return {"$or": [{"subscription_type": {"$nin": ["plus", "pro"]}}, {"subscription_expires_at": {"$lte": now}}]}
 c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
 H = lambda t: {"Authorization": f"Bearer {t}"}
 now = datetime.now(UTC)
@@ -48,13 +48,13 @@ def user(tag, sub="free", expires=None, lang="en", fcm=None):
 
 # fresh population for exact counts
 db.users.delete_many({"email": {"$regex": "^px-"}})
-expired_en, tok_expired = user("expired-en", "premium", now - timedelta(days=5), "en", fcm="fcm-token-expired-en")
-expired_my, _ = user("expired-my", "premium", now - timedelta(hours=2), "my")
-active, tok_active = user("active", "premium", now + timedelta(days=20))
-lifetime, _ = user("lifetime", "premium", None)
+expired_en, tok_expired = user("expired-en", "plus", now - timedelta(days=5), "en", fcm="fcm-token-expired-en")
+expired_my, _ = user("expired-my", "plus", now - timedelta(hours=2), "my")
+active, tok_active = user("active", "plus", now + timedelta(days=20))
+lifetime, _ = user("lifetime", "pro", None)
 free, _ = user("free", "free", None)
-race, _ = user("race", "premium", now - timedelta(minutes=1))
-lapsed, _ = user("lapsed", "premium", now - timedelta(days=90), fcm="fcm-token-lapsed")
+race, _ = user("race", "plus", now - timedelta(minutes=1))
+lapsed, _ = user("lapsed", "pro", now - timedelta(days=90), fcm="fcm-token-lapsed")
 ids = [expired_en, expired_my, active, lifetime, free, race, lapsed]
 scope = {"_id": {"$in": ids}}
 
@@ -101,8 +101,8 @@ docs = {d["_id"]: d for d in db.users.find(scope)}
 check(docs[expired_en]["subscription_type"] == "free" and docs[expired_my]["subscription_type"] == "free", "expired users are now subscription_type=free")
 check(docs[expired_en].get("subscription_expires_at") is not None and docs[expired_en].get("premium_ended_at") is not None,
       "old expiry kept and premium_ended_at recorded (history)")
-check(docs[race]["subscription_type"] == "premium", "admin extension made just before the downgrade wins (race user stays premium)")
-check(docs[active]["subscription_type"] == "premium" and docs[lifetime]["subscription_type"] == "premium" and docs[free]["subscription_type"] == "free",
+check(docs[race]["subscription_type"] == "plus", "admin extension made just before the downgrade wins (race user stays plus)")
+check(docs[active]["subscription_type"] == "plus" and docs[lifetime]["subscription_type"] == "pro" and docs[free]["subscription_type"] == "free",
       "active, lifetime and free users untouched")
 
 notes = {d["user_id"]: d for d in db.notifications.find({"type": "subscription_expired", "user_id": {"$in": ids}})}

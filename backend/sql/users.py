@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.sql import ColumnElement
 
+from plans.catalog import PAID_PLANS
 from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, write_returning
 from sql.docs import row_to_doc, rows_to_docs
 from sql.tables import users
@@ -23,14 +24,14 @@ def _values(fields: Dict[str, Any]) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------ subscription rule
 def active_premium(now: datetime) -> ColumnElement:
-    """Premium and not expired (no expiry date = lifetime)."""
-    return and_(users.c.subscription_type == "premium",
+    """On a paid plan (plus or pro) and not expired (no expiry date = lifetime)."""
+    return and_(users.c.subscription_type.in_(PAID_PLANS),
                 or_(users.c.subscription_expires_at.is_(None), users.c.subscription_expires_at > now))
 
 
 def effectively_free(now: datetime) -> ColumnElement:
-    """Free, or premium whose expiry has passed."""
-    return or_(users.c.subscription_type != "premium", users.c.subscription_expires_at <= now)
+    """Free, or on a paid plan whose expiry has passed."""
+    return or_(users.c.subscription_type.not_in(PAID_PLANS), users.c.subscription_expires_at <= now)
 
 
 HAS_DEVICE = users.c.fcm_token.isnot(None)
@@ -147,7 +148,7 @@ async def change_password(user_id: str, password_hash: str, changed_at: datetime
 
 async def claim_free_trial(user_id: str, expires_at: datetime) -> bool:
     return await update_user(user_id, users.c.has_claimed_free_trial.is_(False),
-                             subscription_type="premium", subscription_expires_at=expires_at,
+                             subscription_type="plus", subscription_expires_at=expires_at,
                              has_claimed_free_trial=True) > 0
 
 
@@ -161,8 +162,8 @@ async def mark_ai_data_stale(user_id: str) -> None:
 
 
 async def downgrade_if_unchanged(user_id: str, stored_expiry: datetime, ended_at: datetime) -> bool:
-    """Premium -> free only if the expiry is still the one the job read (an admin extension wins)."""
-    return await update_user(user_id, users.c.subscription_type == "premium",
+    """Plus/pro -> free only if the expiry is still the one the job read (an admin extension wins)."""
+    return await update_user(user_id, users.c.subscription_type.in_(PAID_PLANS),
                              users.c.subscription_expires_at == stored_expiry,
                              subscription_type="free", premium_ended_at=ended_at) > 0
 

@@ -37,10 +37,10 @@ class LanguageUpdate(BaseModel):
 class CurrencyUpdate(BaseModel):
     default_currency: Currency
 
-# NEW: Add subscription type enum
 class SubscriptionType(str, Enum):
     FREE = "free"
-    PREMIUM = "premium"
+    PLUS = "plus"
+    PRO = "pro"
 
 class UserCreate(BaseModel):
     name: str
