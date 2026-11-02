@@ -63,7 +63,9 @@ from ai_providers.errors import redact
 
 # Plans and AI quotas: admin API and the limits cache it feeds
 from plans_admin_routes import router as plans_admin_router
+from plans_routes import plan_error_handler, router as plans_router
 from plans import store as plan_store
+from plans.access import PlanError
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
@@ -81,6 +83,7 @@ app.include_router(app_version_admin_router)
 app.include_router(app_version_user_router)
 app.include_router(ai_admin_router)
 app.include_router(plans_admin_router)
+app.include_router(plans_router)
 
 
 @app.on_event("startup")
@@ -198,6 +201,10 @@ def _pg_sqlstate(exc: BaseException) -> Optional[str]:
                 return code
         exc = getattr(exc, "orig", None) or exc.__cause__ or exc.__context__
     return None
+
+
+# A plan check refused the request (feature locked, allowance used up, cost cap): 403 / 429 with a stable code.
+app.add_exception_handler(PlanError, plan_error_handler)
 
 
 @app.exception_handler(DBAPIError)

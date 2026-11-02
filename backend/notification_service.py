@@ -62,6 +62,20 @@ NOTIFICATION_TRANSLATIONS = {
         "monthly_insights_msg": "Your monthly financial insights powered by Toe Pwar AI are now available. Check them out to see your monthly financial progress!",
         "subscription_expired_title": "Your Premium Has Ended",
         "subscription_expired_msg": "Your Toe Pwar Premium ended on {date}. Upgrade any time to keep using AI insights, the AI assistant and other premium features.",
+        # Plan limit responses (plans.access.PlanError). Feature names are used inside the messages.
+        "plan_feature_chat": "AI chat",
+        "plan_feature_chat_advanced": "Advanced chat",
+        "plan_feature_insight_monthly": "monthly insights",
+        "plan_feature_insight_weekly": "weekly insights",
+        "plan_feature_insight_translation": "insight translation",
+        "plan_feature_entry": "AI entries (receipt, text and voice)",
+        "plan_feature_budget_suggestion": "AI budget suggestions",
+        "plan_feature_reports": "reports",
+        "plan_feature_locked_msg": "Your plan doesn't include {feature}.",
+        "plan_limit_reached_msg": "You've reached your limit for {feature}. It resets on {date}.",
+        "plan_cost_cap_msg": "You've reached this month's AI limit; it resets on {date}.",
+        "plan_upgrade_to_unlock": "Upgrade your plan to use it.",
+        "plan_upgrade_for_more": "Upgrade your plan to get more.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -98,7 +112,20 @@ NOTIFICATION_TRANSLATIONS = {
         "monthly_insights_title": "လစဉ်သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ! 📊",
         "monthly_insights_msg": "Toe Pwar AI မှ ထုတ်ပြန်ပေးသော သင်၏ လစဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ တစ်လတာ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။",
         "subscription_expired_title": "Premium အသုံးပြုခွင့် ကုန်ဆုံးသွားပါပြီ",
-        "subscription_expired_msg": "သင်၏ Toe Pwar Premium သည် {date} တွင် ကုန်ဆုံးသွားပါပြီ။ AI သုံးသပ်ချက်များ၊ AI လက်ထောက်နှင့် အခြား Premium လုပ်ဆောင်ချက်များကို ဆက်လက်အသုံးပြုရန် အချိန်မရွေး အဆင့်မြှင့်တင်နိုင်ပါသည်။"
+        "subscription_expired_msg": "သင်၏ Toe Pwar Premium သည် {date} တွင် ကုန်ဆုံးသွားပါပြီ။ AI သုံးသပ်ချက်များ၊ AI လက်ထောက်နှင့် အခြား Premium လုပ်ဆောင်ချက်များကို ဆက်လက်အသုံးပြုရန် အချိန်မရွေး အဆင့်မြှင့်တင်နိုင်ပါသည်။",
+        "plan_feature_chat": "AI စကားပြောခြင်း",
+        "plan_feature_chat_advanced": "Advanced စကားပြောခြင်း",
+        "plan_feature_insight_monthly": "လစဉ်သုံးသပ်ချက်",
+        "plan_feature_insight_weekly": "အပတ်စဉ်သုံးသပ်ချက်",
+        "plan_feature_insight_translation": "သုံးသပ်ချက် ဘာသာပြန်ခြင်း",
+        "plan_feature_entry": "AI ဖြင့် စာရင်းသွင်းခြင်း (ပြေစာ၊ စာသားနှင့် အသံ)",
+        "plan_feature_budget_suggestion": "AI ဘတ်ဂျက် အကြံပြုချက်",
+        "plan_feature_reports": "အစီရင်ခံစာများ",
+        "plan_feature_locked_msg": "{feature} သည် သင်၏ အစီအစဉ်တွင် မပါဝင်ပါ။",
+        "plan_limit_reached_msg": "{feature} အတွက် အသုံးပြုခွင့် ကုန်သွားပါပြီ။ {date} တွင် ပြန်လည်ရရှိပါမည်။",
+        "plan_cost_cap_msg": "ဤလအတွက် AI အသုံးပြုမှု ကန့်သတ်ချက်သို့ ရောက်ရှိသွားပါပြီ။ {date} တွင် ပြန်လည်စတင်ပါမည်။",
+        "plan_upgrade_to_unlock": "အသုံးပြုရန် သင်၏ အစီအစဉ်ကို အဆင့်မြှင့်တင်ပါ။",
+        "plan_upgrade_for_more": "ပိုမိုအသုံးပြုရန် သင်၏ အစီအစဉ်ကို အဆင့်မြှင့်တင်ပါ။",
     }
 }
 

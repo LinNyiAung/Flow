@@ -4,7 +4,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import case, distinct, func, insert, select
 
-from sql.db import execute, fetch_all, fetch_one
+from sql.db import execute, fetch_all, fetch_one, fetch_value
 from sql.docs import rows_to_docs
 from sql.tables import ai_usage, users
 
@@ -34,6 +34,13 @@ def _f(row: Dict[str, Any]) -> Dict[str, Any]:
 
 async def insert_usage(doc: Dict[str, Any]) -> None:
     await execute(insert(ai_usage).values(**{("id" if k == "_id" else k): v for k, v in doc.items()}))
+
+
+async def user_cost_since(user_id: str, since: datetime) -> float:
+    """The user's estimated AI spend (USD) on calls made at or after `since` (the hidden cost cap's window)."""
+    total = await fetch_value(select(func.coalesce(func.sum(c.estimated_cost_usd), 0))
+                              .where(c.user_id == user_id, c.created_at >= since))
+    return float(total or 0)
 
 
 async def backup_answer_counts(since: datetime) -> Dict[str, int]:
