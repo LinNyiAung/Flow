@@ -1,3 +1,4 @@
+import os
 import requests
 import random
 from datetime import datetime, timedelta, UTC
@@ -5,7 +6,7 @@ import json
 
 # Configuration
 API_BASE_URL = "http://10.80.21.130:8000"
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGdtYWlsLmNvbSIsImV4cCI6MTc2MzM3NTExMX0.NxTxkbU3Y09h6J8ALSaeN3IOpRCp-sTvKTZpzFoNAJ0"  # Replace with your actual token
+ACCESS_TOKEN = os.environ.get("MOCK_ACCESS_TOKEN", "")
 
 # Realistic transaction templates matching your database.py categories
 MOCK_TRANSACTIONS = {
@@ -180,7 +181,7 @@ if __name__ == "__main__":
     print("=" * 60)
     
     # Make sure to set your token
-    if ACCESS_TOKEN == "your_token_here":
+    if not ACCESS_TOKEN:
         print("\n⚠️  SETUP REQUIRED ⚠️")
         print("-" * 60)
         print("Please follow these steps:")
@@ -191,8 +192,9 @@ if __name__ == "__main__":
         print("     -H 'Content-Type: application/json' \\")
         print("     -d '{\"email\":\"your@email.com\",\"password\":\"your_password\"}'")
         print("\n3️⃣  Copy the 'access_token' from the response")
-        print("\n4️⃣  Replace 'your_token_here' in this script with your token:")
-        print("   ACCESS_TOKEN = \"eyJhbGciOiJIUzI1NiIsInR5cCI6...\"")
+        print("\n4️⃣  Put the token in the MOCK_ACCESS_TOKEN environment variable:")
+        print("   PowerShell: $env:MOCK_ACCESS_TOKEN = \"<access_token>\"")
+        print("   bash:       export MOCK_ACCESS_TOKEN=\"<access_token>\"")
         print("\n5️⃣  Run this script again:")
         print("   python generate_mock_data.py")
         print("=" * 60)
