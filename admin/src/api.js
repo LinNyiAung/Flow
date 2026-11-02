@@ -159,6 +159,20 @@ export const getAIStatus = (token) => apiRequest('/api/admin/ai/status', { token
 export const testAIProvider = (token, provider, model = null) =>
   apiRequest(`/api/admin/ai/test/${enc(provider)}`, { token, method: 'POST', body: { model } });
 
+// ─── Plans ────────────────────────────────────────────────────────────────────
+/** { plans: {plan: {limits: {feature: {mode, quota, period}}, cost_cap_usd}}, upgrade_contact: {en, my} } */
+export const getPlans = (token) => apiRequest('/api/admin/plans', { token });
+
+/** Same shape as getPlans. Replaces every plan's limits, cost caps and the contact texts. 422 detail: a string or a list. */
+export const updatePlans = (token, body) => apiRequest('/api/admin/plans', { token, method: 'PUT', body });
+
+/** { plan, features: {feature: {mode, used, limit, period}}, month_spend_usd, cost_cap_usd, cost_cap_reached } */
+export const getUserUsage = (token, userId) => apiRequest(`/api/admin/users/${enc(userId)}/usage`, { token });
+
+/** Clears this period's counts and the cost-cap flag for the user (admins only). */
+export const resetUserUsage = (token, userId) =>
+  apiRequest(`/api/admin/users/${enc(userId)}/reset-usage`, { token, method: 'POST' });
+
 // ─── Roles ────────────────────────────────────────────────────────────────────
 /** admin and super_admin can make changes; moderators are read-only. */
 export const canWrite = (role) => role === 'admin' || role === 'super_admin';
