@@ -197,6 +197,30 @@ Command above), which adds the tables `ai_feature_settings` and `ai_provider_sta
   variables, then the built-in default (chat and insights on Gemini, budgets and transaction
   text/photo/voice on OpenAI). Panel changes apply right away (within about a minute across
   instances); changing an environment variable needs a restart (Render redeploys on save).
+- OpenAI speech-to-text models (`whisper*`, `*transcribe*`) can only be used for voice input, and
+  voice input on OpenAI needs one of them; the panel offers only the models each feature can use
+  and refuses others. A model the provider rejects at run time (for example a model name typed
+  under "Other…" that the endpoint does not support) falls back to the backups and shows on the
+  provider's status card.
+
+After the deploy, check by hand (needs the real keys, so the automated suites cannot):
+
+- On the **AI Providers** page, press **Test** for each provider; each should succeed.
+- Get one chat answer from each provider: switch chat to that provider on the panel, send a
+  message from the app, then press **Use server setting**.
+- Run one Claude JSON feature, such as a budget suggestion or a transaction from text, with
+  Claude as its main provider.
+- Send one voice note with Gemini as the voice input provider.
+- When a key is out of credit, confirm the provider's status card shows a billing error.
+
+Notes:
+
+- The **AI Usage & Costs** page counts only the provider that answered. Tokens spent on attempts that
+  failed before a fallback (for example a cut-off or unusable answer) are not shown, so the page
+  can undercount spend when fallbacks happen.
+- Rolling back: after `alembic downgrade` to the previous revision, `ai_usage` rows with provider
+  `claude` stay in the table, and the previous version's per-user usage detail may reject them
+  (it does not know `claude`). Delete or remap those rows if the old version must show them.
 
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
