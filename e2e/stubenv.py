@@ -93,7 +93,8 @@ FAKE_PROVIDERS = ("openai", "gemini", "claude")
 _RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_not_found", "bad_request", "echo_key",
                  "odd_error",  # odd_error: a plain exception with no status at all (a request-level error classify() can't place)
                  "invalid_model",  # OpenAI's 400 for a model the endpoint can't use (param "model", no code)
-                 "unsupported_param")  # OpenAI's 400 code unsupported_parameter (e.g. max_tokens on a reasoning model)
+                 "unsupported_param",  # OpenAI's 400 code unsupported_parameter (e.g. max_tokens on a reasoning model)
+                 "unsupported_value")  # OpenAI's 400 code unsupported_value, param temperature (reasoning models)
 # An odd successful answer, not an error. length_once: a reply cut off at the output limit (OpenAI finish_reason
 # "length", Gemini MAX_TOKENS, Claude stop_reason "max_tokens"), on the first matching call only.
 _ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once")
@@ -148,7 +149,8 @@ def set_fake_ai(**kinds):
     """Make fake providers fail on demand, e.g. set_fake_ai(claude="billing", openai="timeout").
 
     Replaces the whole control file, so providers not named succeed. Kinds: billing, auth, rate_limit, server,
-    timeout, model_not_found, bad_request, echo_key, odd_error, invalid_model, unsupported_param (raise); refusal (claude), empty, bad_json (odd successful
+    timeout, model_not_found, bad_request, echo_key, odd_error, invalid_model, unsupported_param, unsupported_value
+    (raise); refusal (claude), empty, bad_json (odd successful
     answer); fail_mid_stream (streaming calls only); length_once (a reply cut off at the output limit, on the
     first matching call only). Model-scoped keys need dict unpacking:
     set_fake_ai(**{"claude@claude-typo": "model_not_found"}); a count limits a failure:
@@ -200,6 +202,9 @@ def _raise_for(provider, kind):
         raise FakeAPIError(400, None, "Invalid model. The model argument should be left blank.", param="model")
     if kind == "unsupported_param":
         raise _unsupported_max_tokens()
+    if kind == "unsupported_value":
+        raise FakeAPIError(400, "unsupported_value", "Unsupported value: 'temperature' does not support 0.3 with this "
+                           "model. Only the default (1) value is supported.", param="temperature")
 
 
 def _unsupported_max_tokens():

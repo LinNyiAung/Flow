@@ -9,12 +9,13 @@ from google import genai
 from google.genai import types
 
 from ..types import Completion, Prompt
+from .base import DEFAULT_TIMEOUT, request_timeout
 
 _FILTERED = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"}
 
 # Explicit, so a hung provider fails over in about a minute (by default google-genai has no timeout).
 # HttpOptions.timeout is in milliseconds. Retries stay at the SDK default (none: retry_options unset).
-TIMEOUT_MS = 60_000
+TIMEOUT_MS = DEFAULT_TIMEOUT * 1000
 
 _AUDIO_MIME = {
     ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/aac",
@@ -80,12 +81,14 @@ class GeminiClient:
             self._sdk = (key, genai.Client(api_key=key, http_options=types.HttpOptions(timeout=TIMEOUT_MS)))
         return self._sdk[1].aio.models
 
-    def _request(self, model: str, prompt: Prompt) -> dict:
+    def _request(self, model: str, prompt: Prompt, timeout_s: int | None = None) -> dict:
+        """`timeout_s` (seconds) overrides the client's timeout for this request; None keeps the client default."""
         config = types.GenerateContentConfig(
             system_instruction=prompt.system or None,
             response_mime_type="application/json" if prompt.json_schema is not None else None,
             max_output_tokens=prompt.max_tokens,
-            temperature=prompt.temperature)
+            temperature=prompt.temperature,
+            http_options=None if timeout_s is None else types.HttpOptions(timeout=timeout_s * 1000))  # milliseconds
         contents = prompt.user
         if prompt.image:
             contents = [types.Part.from_bytes(data=prompt.image, mime_type=prompt.image_mime or "image/jpeg"),
@@ -93,7 +96,8 @@ class GeminiClient:
         return {"model": model, "contents": contents, "config": config}
 
     async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None) -> Completion:
-        r = await self._models().generate_content(**self._request(model, prompt))
+        # Per-request read timeout: a large non-streamed answer gets longer than the client default.
+        r = await self._models().generate_content(**self._request(model, prompt, request_timeout(prompt.max_tokens)))
         text = r.text or ""
         tokens_in, tokens_out = usage_of(getattr(r, "usage_metadata", None), _chars(prompt), text)
         return Completion(text, tokens_in, tokens_out, map_finish(_finish_of(r)))

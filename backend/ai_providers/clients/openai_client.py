@@ -11,11 +11,12 @@ from typing import AsyncIterator
 import openai
 
 from ..types import Completion, Prompt
+from .base import DEFAULT_TIMEOUT, request_timeout
 
 _FINISH = {"length": "length", "content_filter": "filtered"}
 
 # Explicit, so a hung provider fails over in about a minute (the SDK defaults are 600 s and 2 retries).
-TIMEOUT = 60  # seconds
+TIMEOUT = DEFAULT_TIMEOUT  # seconds
 MAX_RETRIES = 1
 
 
@@ -70,7 +71,9 @@ class OpenAIClient:
         return kwargs
 
     async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None) -> Completion:
-        r = await self._client().chat.completions.create(**self._kwargs(model, prompt))
+        # Per-request read timeout (seconds): a large non-streamed answer gets longer than the client default.
+        r = await self._client().chat.completions.create(**self._kwargs(model, prompt),
+                                                         timeout=request_timeout(prompt.max_tokens))
         choice = r.choices[0] if r.choices else None
         usage = getattr(r, "usage", None)
         return Completion(

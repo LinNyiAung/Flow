@@ -31,6 +31,9 @@ _CREDIT_BALANCE_TEXT = re.compile(r"credit balance is too low", re.IGNORECASE)
 _DEPLETED_CREDITS_TEXT = re.compile(r"credits.*depleted|prepay", re.IGNORECASE | re.DOTALL)
 # OpenAI structured-error codes that mean "this model can't serve this request" (see _model_level_400).
 _MODEL_LEVEL_CODES = frozenset({"unsupported_parameter", "model_not_found"})
+# ...and unsupported_value on one of these sampling parameters (reasoning models accept only the default temperature).
+_SAMPLING_PARAMS = frozenset({"temperature", "top_p", "top_k", "frequency_penalty", "presence_penalty", "logit_bias",
+                              "logprobs", "top_logprobs", "n"})
 _BAD_KEY_TEXT = re.compile(r"API key not valid|API key expired|API_KEY_INVALID", re.IGNORECASE)
 
 
@@ -224,11 +227,17 @@ def _kind(exc: BaseException) -> Optional[str]:
 
 def _model_level_400(chain: list, statuses: set[int]) -> bool:
     """A 400 whose structured error (OpenAI's `param` / `code`) blames the model: it names param "model" (e.g. a chat
-    model sent to the transcription endpoint) or has code unsupported_parameter / model_not_found (e.g. max_tokens
-    on a reasoning model). It is specific to the provider+model pair, so it cools that pair and falls back.
+    model sent to the transcription endpoint), has code unsupported_parameter / model_not_found (e.g. max_tokens
+    on a reasoning model), or has code unsupported_value on a sampling parameter (e.g. temperature 0.3 on a
+    reasoning model). It is specific to the provider+model pair, so it cools that pair and falls back.
 
     Anthropic and Gemini report an unknown model as a 404 (handled by the 404 rule) and have no such fields.
     """
     if 400 not in statuses:
         return False
-    return any(getattr(e, "param", None) == "model" or _error_code(e) in _MODEL_LEVEL_CODES for e in chain)
+
+    def blames_model(e) -> bool:
+        param, code = getattr(e, "param", None), _error_code(e)
+        return param == "model" or code in _MODEL_LEVEL_CODES \
+            or (code == "unsupported_value" and param in _SAMPLING_PARAMS)
+    return any(blames_model(e) for e in chain)

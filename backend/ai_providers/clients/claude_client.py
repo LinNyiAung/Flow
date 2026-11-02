@@ -11,6 +11,7 @@ from typing import AsyncIterator
 import anthropic
 
 from ..types import Completion, Prompt
+from .base import DEFAULT_TIMEOUT, request_timeout
 
 # Models whose safety classifiers can decline a request: ask the API to re-run a declined request on its default
 # fallback model instead of returning the refusal.
@@ -21,7 +22,7 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 STREAM_ABOVE_TOKENS = 16000
 
 # Explicit, so a hung provider fails over in about a minute (the SDK defaults are 600 s and 2 retries).
-TIMEOUT = 60  # seconds
+TIMEOUT = DEFAULT_TIMEOUT  # seconds
 MAX_RETRIES = 1
 
 
@@ -101,7 +102,8 @@ class ClaudeClient:
         return kwargs
 
     async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None) -> Completion:
-        kwargs = self._request(model, prompt, effort)
+        # Per-request read timeout (seconds): a large answer gets longer than the client default.
+        kwargs = {**self._request(model, prompt, effort), "timeout": request_timeout(prompt.max_tokens)}
         if prompt.max_tokens > STREAM_ABOVE_TOKENS:
             async with self._messages().stream(**kwargs) as s:
                 return _completion(await s.get_final_message())

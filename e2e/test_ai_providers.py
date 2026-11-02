@@ -211,6 +211,7 @@ async def kind_checks():
         "echo_key": {"openai": 401, "gemini": 401, "claude": 401},
         "invalid_model": {"openai": 400, "gemini": 400, "claude": 400},
         "unsupported_param": {"openai": 400, "gemini": 400, "claude": 400},
+        "unsupported_value": {"openai": 400, "gemini": 400, "claude": 400},
     }
     for kind_name, per in table.items():
         for p, status in per.items():
@@ -835,6 +836,18 @@ def error_checks():
                                                      "code": "unsupported_parameter"}, "model_not_found"),
         "openai 400 code model_not_found": ({"message": "That model is not available here", "type": "invalid_request_error",
                                              "param": None, "code": "model_not_found"}, "model_not_found"),
+        "openai unsupported_value temperature": ({"message": "Unsupported value: 'temperature' does not support 0.3 "
+                                                             "with this model. Only the default (1) value is supported.",
+                                                  "type": "invalid_request_error", "param": "temperature",
+                                                  "code": "unsupported_value"}, "model_not_found"),
+        "openai unsupported_value top_p": ({"message": "Unsupported value: 'top_p'", "type": "invalid_request_error",
+                                            "param": "top_p", "code": "unsupported_value"}, "model_not_found"),
+        "openai unsupported_value presence_penalty": ({"message": "Unsupported value: 'presence_penalty'",
+                                                       "type": "invalid_request_error", "param": "presence_penalty",
+                                                       "code": "unsupported_value"}, "model_not_found"),
+        "openai unsupported_value on a non-sampling param stays request-level": (
+            {"message": "Unsupported value: 'messages[0].role'", "type": "invalid_request_error",
+             "param": "messages[0].role", "code": "unsupported_value"}, None),
         "openai 400 bad messages stays request-level": ({"message": "Invalid 'messages[0].content'", "type":
                                                          "invalid_request_error", "param": "messages[0].content",
                                                          "code": "invalid_value"}, None),
@@ -1246,6 +1259,45 @@ async def client_checks():
     check(opts is not None and stubenv._field(opts, "timeout") == 60_000 and stubenv._field(opts, "retry_options") is None,
           "sdk_timeouts: gemini http_options timeout 60000 ms (60 s), no retries (the SDK default)",
           {k: v for k, v in gem.items() if k != "api_key"})
+
+    # Follow-up ruling 1: a large non-streamed request (max_tokens above 4000) gets a 300 s read timeout, others 60 s
+    from ai_providers.clients import base as client_base
+    check([client_base.request_timeout(n) for n in (16, 2000, 4000, 4001, 8000, 32768)] == [60, 60, 60, 300, 300, 300],
+          "request_timeout: 60 s up to 4000 tokens, 300 s above",
+          [client_base.request_timeout(n) for n in (16, 2000, 4000, 4001, 8000, 32768)])
+
+    def gemini_timeout():
+        cfg = stubenv.LAST_KWARGS["gemini"]["config"]
+        opts = stubenv._field(cfg, "http_options") if cfg is not None else None
+        return stubenv._field(opts, "timeout") if opts is not None else None
+
+    for size, want in ((8000, 300), (2000, 60), (4000, 60)):
+        p = Prompt("s", "translate this", max_tokens=size)
+        await get_client("openai").complete("gpt-4o-mini", p)
+        got_oai = stubenv.LAST_KWARGS["openai"].get("timeout")
+        await get_client("claude").complete("claude-sonnet-5-5", p)
+        got_ant = stubenv.LAST_KWARGS["claude"].get("timeout")
+        await get_client("gemini").complete("gemini-2.5-flash", p)
+        got_gem = gemini_timeout()
+        check((got_oai, got_ant, got_gem) == (want, want, want * 1000),
+              f"timeout_by_request_size: max_tokens {size} -> {want} s on openai, claude and gemini (ms)",
+              (got_oai, got_ant, got_gem))
+    await get_client("claude").complete("claude-sonnet-5-5", Prompt("s", "translate this", max_tokens=32000))
+    check(stubenv.LAST_KWARGS["claude"].get("timeout") == 300,
+          "timeout_by_request_size: claude's streamed path for very large answers gets 300 s too",
+          stubenv.LAST_KWARGS["claude"].get("timeout"))
+    # streamed chat keeps the client default (60 s between chunks): no per-request override
+    big = Prompt("s", "hi", max_tokens=8000)
+    async for _ in get_client("openai").stream("gpt-4o-mini", big):
+        pass
+    async for _ in get_client("claude").stream("claude-sonnet-5-5", big):
+        pass
+    async for _ in get_client("gemini").stream("gemini-2.5-flash", big):
+        pass
+    check("timeout" not in stubenv.LAST_KWARGS["openai"] and "timeout" not in stubenv.LAST_KWARGS["claude"]
+          and gemini_timeout() is None,
+          "timeout_by_request_size: stream() keeps the 60 s client default even for a large prompt",
+          (stubenv.LAST_KWARGS["openai"].get("timeout"), stubenv.LAST_KWARGS["claude"].get("timeout"), gemini_timeout()))
     await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi"))
     check("response_format" not in stubenv.LAST_KWARGS["openai"], "openai: no response_format without json_schema")
     async for _ in get_client("openai").stream("gpt-4o-mini", Prompt("s", "hi")):
@@ -1687,7 +1739,7 @@ async def _runner_checks(uid):
 
     # F1: a model-level 400 (OpenAI "Invalid model" / unsupported max_tokens) falls back, cools only that pair and
     # shows in the provider status
-    for kind in ("invalid_model", "unsupported_param"):
+    for kind in ("invalid_model", "unsupported_param", "unsupported_value"):
         health.reset()
         await execute_status_delete()
         oai_main = FeatureSetting(T("openai", "gpt-5-mini"), (T("gemini", "gemini-2.5-flash"),), "panel")
@@ -3310,7 +3362,7 @@ async def transaction_checks():
         # backup and shows on the status card: the model cools and the provider's last error is set
         r = put("transaction_text", "openai", "gpt-5-mini", backups=[{"provider": "gemini", "model": "gemini-2.5-flash"}])
         check(r.status_code == 200, "tx setup: PUT transaction_text = openai gpt-5-mini, backup gemini", f"{r.status_code} {r.text[:200]}")
-        for kind in ("invalid_model", "unsupported_param"):
+        for kind in ("invalid_model", "unsupported_param", "unsupported_value"):
             stubenv.clear_fake_ai()
             # a successful Test of the pair clears its cool-off from the previous round
             admin_reset_status = c.post("/api/admin/ai/test/openai", headers=AD, json={"model": "gpt-5-mini"})

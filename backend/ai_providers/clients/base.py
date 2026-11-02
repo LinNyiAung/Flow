@@ -22,6 +22,19 @@ class ProviderClient(Protocol):
         """A tiny request (max_tokens about 16). Raises whatever the SDK raises."""
 
 
+# Read timeouts (seconds). Every SDK client is built with DEFAULT_TIMEOUT, so a hung provider fails over in about
+# a minute. A non-streamed answer must arrive within the read timeout, so a large one gets more time per request.
+# Streams keep the default: it applies between chunks.
+DEFAULT_TIMEOUT = 60
+LONG_TIMEOUT = 300
+LONG_ABOVE_TOKENS = 4000
+
+
+def request_timeout(max_tokens: int) -> int:
+    """The read timeout in seconds for a non-streamed request allowed `max_tokens` output tokens."""
+    return LONG_TIMEOUT if max_tokens > LONG_ABOVE_TOKENS else DEFAULT_TIMEOUT
+
+
 _clients: dict[str, ProviderClient] = {}
 
 
