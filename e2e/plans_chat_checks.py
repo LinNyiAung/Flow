@@ -161,6 +161,23 @@ async def run(t):
         check(answered(fr) and plus_one(before, counts(uid), "chat/week", "chat/month"),
               "chat_fail_releases: the next chat that answers counts once (week and month)", (before, counts(uid)))
 
+        # ---- chat_midstream_failure_releases: partial text, then the provider fails: a failed request, not counted
+        before, m0 = counts(uid), history(uid)
+        stubenv.set_fake_ai(openai="fail_mid_stream", gemini="fail_mid_stream", claude="fail_mid_stream")
+        try:
+            r, fr, calls = chat(h)
+        finally:
+            reset_ai()
+        check(r.status_code == 200 and len(fr) >= 3 and is_meta(fr[0], "standard", False) and fr[1].get("chunk")
+              and fr[-1].get("error") and fr[-1].get("done") is True and len(calls) == 1,
+              "chat_midstream_failure_releases: the meta frame, a chunk, then the error frame (no second provider)",
+              f"{r.status_code} {fr} {calls}")
+        check(counts(uid) == before and history(uid) == m0,
+              "chat_midstream_failure_releases: the failed answer used nothing and saved nothing", (before, counts(uid)))
+        r, fr, _ = chat(h)
+        check(answered(fr) and plus_one(before, counts(uid), "chat/week", "chat/month"),
+              "chat_completion_counts_once: a completed answer counts exactly once", (before, counts(uid)))
+
         # ---- chat_disconnect_counts: the client goes away after the first chunk, then before it
         uid, h = register("disconnect")
         before, m0 = counts(uid), history(uid)

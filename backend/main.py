@@ -337,9 +337,9 @@ async def stream_chat_with_ai(
     On error the exchange is NOT saved to chat history.
 
     Each message uses one chat (and, answered as Advanced, one chat_advanced) allowance. It is reserved before the
-    stream starts, so a refusal is a normal 403 / 429 with the plan-error body. The use is kept once the first chunk
-    of the answer has been sent (a client that disconnects after that still used it) and given back when the AI fails
-    before it, or the client leaves before it.
+    stream starts, so a refusal is a normal 403 / 429 with the plan-error body. The use is kept when the answer
+    completes, or when the client disconnects after the first chunk of the answer was sent. It is given back when the
+    AI fails (before or after the first chunk: the error frame) or the client leaves before the first chunk.
 
     The answer comes from the "chat" feature's provider chain, or "chat_advanced" for an Advanced answer (admin
     panel / server settings); the runner records the usage. `ai_provider` in the body (sent by old apps) is
@@ -367,6 +367,19 @@ async def stream_chat_with_ai(
     reservation, mode_used, advanced_exhausted = await _reserve_chat(current_user, chat_request.mode)
     feature = "chat_advanced" if mode_used == "advanced" else "chat"
 
+    # What the stream got to: whether a chunk of the answer reached the client, and whether the AI failed.
+    progress = {"first_sent": False, "failed": False}
+
+    async def settle():
+        """Keep or give back the use, once (later calls do nothing): a failed AI request never counts; an answer that
+        reached the client counts, even if the client then left; a stream that ended before any answer gives it back."""
+        if reservation.committed or reservation.released:
+            return
+        if progress["first_sent"] and not progress["failed"]:
+            reservation.commit()
+        else:
+            await _give_back(reservation)
+
     async def generate_stream():
         full_response = ""
         error_message = None
@@ -387,9 +400,7 @@ async def stream_chat_with_ai(
                         if chunk_text:
                             full_response += chunk_text
                             yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
-                            # Resumed only once that chunk was sent: from here the message has used its allowance.
-                            if not reservation.committed:
-                                reservation.commit()
+                            progress["first_sent"] = True  # resumed only once that chunk was sent
                             await asyncio.sleep(0.01)
             except ChatServiceError as e:
                 error_message = e.user_message
@@ -398,9 +409,9 @@ async def stream_chat_with_ai(
                 error_message = ChatServiceError.DEFAULT_MESSAGE
 
             if error_message:
-                # Do not persist failed exchanges. A failure before the first chunk gives the use back (a no-op once
-                # a chunk was sent).
-                await _give_back(reservation)
+                # A failed AI request, before or after the first chunk: nothing saved, the use given back.
+                progress["failed"] = True
+                await settle()
                 yield _sse({"error": error_message, "done": True, "timestamp": datetime.now(UTC).isoformat()})
                 return
 
@@ -409,23 +420,24 @@ async def stream_chat_with_ai(
                 # sees done:true, which would cancel anything after the yield.
                 await save_chat_session(user_id, chat_request.message, full_response)
 
+            await settle()  # the answer completed: the use is kept
             yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
         finally:
-            # The client left (or the stream was cancelled) before the first chunk was sent: give the use back.
-            # Shielded so a cancelled request still completes the release.
-            if not reservation.committed:
-                await asyncio.shield(_give_back(reservation))
+            # Closed or cancelled early (the client left): kept if an answer chunk had reached the client, otherwise
+            # given back. Shielded so a cancelled request still completes a release.
+            if not (reservation.committed or reservation.released):
+                await asyncio.shield(settle())
 
-    async def release_unsent():
+    async def settle_unstarted():
         # Also run after the response ends: a client gone before the stream started never runs generate_stream's
-        # finally. A no-op when the use was kept or already given back.
-        await _give_back(reservation)
+        # finally. A no-op once the stream settled the use itself.
+        await settle()
 
     return StreamingResponse(
         generate_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        background=BackgroundTask(release_unsent),
+        background=BackgroundTask(settle_unstarted),
     )
 
 
