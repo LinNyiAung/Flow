@@ -224,6 +224,83 @@ Notes:
   `claude` stay in the table, and the previous version's per-user usage detail may reject them
   (it does not know `claude`). Delete or remap those rows if the old version must show them.
 
+### Plans and quotas
+
+Free, Plus and Pro replace the old Free and Premium. Free users get a small AI allowance instead
+of none, and the one-time 30-day trial now gives Plus. Upgrades stay manual (there is no payment
+integration): the user contacts the owner, and the owner sets the plan and its end date in the
+admin panel. This release's deploy runs two Alembic migrations, both applied by the usual
+`alembic upgrade head` in the Pre-Deploy Command above, in this order:
+
+- `c4e8b1a05d37` (`backend/alembic/versions/20261102_c4e8b1a05d37_plans_and_quotas.py`) adds
+  the tables `plan_limits`, `plan_settings`, `app_settings` and `usage_counters`, seeded with
+  the default limits below, and the columns `users.trial_ends_at` and `users.usage_reset_at`.
+  It changes `users.subscription_type` to allow `free`, `plus` and `pro`, and **maps every
+  existing `premium` user to `plus`**, keeping their end date. Users migrated this way are not
+  marked as trials, so they get no trial reminders.
+- `e1b6d3a8f245` (`backend/alembic/versions/20261102_e1b6d3a8f245_trial_reminders.py`) adds
+  `users.trial_reminder_3d_at` and `users.trial_reminder_last_at`, so the hourly job sends each
+  trial reminder (3 days before the trial ends, and on its last day) at most once.
+
+No new environment variables. The default limits (all editable afterwards, see below):
+
+| Feature | Free | Plus | Pro |
+|---|---|---|---|
+| AI chat messages | 5 per week | 100 per month | 400 per month, up to 100 of them Advanced |
+| Monthly insight | 1 per month | included | included |
+| Weekly insights, insight translation, Reports | locked | included | included |
+| Receipt photo / text / voice entries (one shared count) | 10 per month | 150 per month | 500 per month |
+| AI budget suggestion | 1 per month | 5 per month | 20 per month |
+| Hidden monthly AI cost cap per user | $0.10 | $1.00 | $3.00 |
+
+Weeks start on Monday and months on the 1st, both at 00:00 in the app timezone
+(`SCHEDULER_TIMEZONE`, default Asia/Yangon). A failed AI request, or an unusable answer, does
+not use up an allowance.
+
+Where the owner changes things in the admin panel:
+
+- **Plans** page: each feature's limit per plan (locked, included, or counted with a number per
+  week or month, plus Pro's Advanced chat count), each plan's monthly cost cap, and the upgrade
+  contact message in English and Myanmar (shown on the app's Upgrade screen). Admins and super
+  admins can edit; moderators see it read-only. Saves apply right away (within about a minute
+  across instances).
+- **Users**, in a user's detail panel: set the plan (Free, Plus or Pro) and its end date, see
+  this period's usage per feature, this month's AI spend and a "Cost cap reached" flag. Behind it
+  are `GET /api/admin/users/{id}/usage` and `POST /api/admin/users/{id}/reset-usage`.
+- **Reset usage** (button in the same panel, written to the admin action log) clears this
+  week's and this month's counters for that user and gives them a fresh cost cap from that
+  moment: spend towards the cap is measured from the later of the 1st of the month and the reset
+  time. It deletes no `ai_usage` rows. There are no per-user custom limits; Reset usage is how
+  to give someone more.
+- **AI Providers** page: the Advanced chat model for Pro is chosen on the `chat_advanced`
+  feature. Its built-in default is Claude (`claude-sonnet-5-5`), so `ANTHROPIC_API_KEY` must be
+  set, or another provider chosen, for Advanced to work. A Pro user whose Advanced allowance is
+  used up gets Standard answers, and a non-Pro user is never answered as Advanced.
+
+After the deploy, check by hand (needs the real keys and the app, so the automated suites
+cannot):
+
+- Set the upgrade contact message (English and Myanmar) on the **Plans** page, and check it
+  shows on the app's Upgrade screen.
+- Confirm an existing former-Premium user now shows **Plus** (user list and detail panel) with
+  the same end date.
+- On **AI Providers**, press **Test** for the model chosen for `chat_advanced`; it should succeed.
+- Claim the trial on a test account: it should become Plus with a 30-day end date.
+- Use a Free test account up to its chat limit: the next message should show the limit sheet
+  with the reset date and an Upgrade button, not an error.
+- Switch a test account to Pro and send one Advanced chat message; check the Advanced count
+  rises by one on the user's detail panel, then press **Reset usage** and confirm the counts clear.
+
+Notes:
+
+- Rolling back: `alembic downgrade` of `c4e8b1a05d37` turns every Plus and Pro user into
+  `premium` (keeping their end date) and drops the plan tables, so the Plus/Pro distinction and
+  the usage counts are lost; `e1b6d3a8f245` must be downgraded first, and `alembic downgrade
+  a3f1c7d92b64` does both.
+- The cost cap counts every AI spend recorded for the user this month, including scheduled
+  jobs, so it is only as accurate as the **AI Usage & Costs** page (see the note above about
+  fallbacks).
+
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
 
