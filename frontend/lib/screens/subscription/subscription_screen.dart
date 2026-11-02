@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/plan_status.dart';
+import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
+import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:frontend/widgets/app_list_row.dart';
 
 import '../../services/localization_service.dart';
 
+/// The Upgrade screen: the user's current plan and a Free / Plus / Pro
+/// comparison built from the limits the server reports (`GET /api/plan`), so
+/// no number lives in the app, plus the owner's upgrade contact message.
 class SubscriptionScreen extends StatefulWidget {
   @override
   _SubscriptionScreenState createState() => _SubscriptionScreenState();
@@ -14,17 +20,29 @@ class SubscriptionScreen extends StatefulWidget {
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _isClaiming = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // The owner may have changed the limits or the contact message since the
+    // plan was last loaded.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Provider.of<PlanProvider>(context, listen: false).refresh();
+    });
+  }
+
   Future<void> _claimFreeTrial(BuildContext context) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final planProvider = Provider.of<PlanProvider>(context, listen: false);
     final localizations = AppLocalizations.of(context);
 
     setState(() => _isClaiming = true);
 
     final success = await authProvider.claimFreeTrial();
-
-    setState(() => _isClaiming = false);
+    // The trial is a Plus plan with its own allowances: load them now.
+    if (success) planProvider.refresh();
 
     if (!mounted) return;
+    setState(() => _isClaiming = false);
 
     if (success) {
       final scheme = Theme.of(context).colorScheme;
@@ -46,13 +64,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                localizations.welcomeToPremiumCelebration,
+                localizations.welcomeToPlusCelebration,
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: scheme.onSurface),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
-                localizations.oneMonthFreePremiumAccess,
+                localizations.oneMonthFreePlusAccess,
                 style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
@@ -84,9 +102,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: Consumer<AuthProvider>(
-          builder: (context, authProvider, child) {
-            final isPremium = authProvider.isPremium;
+        child: Consumer2<AuthProvider, PlanProvider>(
+          builder: (context, authProvider, planProvider, child) {
+            final isPaid = authProvider.isPaid;
             final hasClaimedTrial = authProvider.hasClaimedFreeTrial;
 
             return Column(
@@ -103,7 +121,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          isPremium ? localizations.premiumStatus : localizations.upgradeToPremium,
+                          isPaid ? localizations.yourPlanTitle : localizations.upgradePlan,
                           style: theme.textTheme.titleLarge?.copyWith(color: scheme.onSurface),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -113,67 +131,41 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ),
 
                 Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ── Active premium card ─────────────────────
-                        if (isPremium) ...[
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: scheme.tertiaryContainer,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Column(
-                              children: [
-                                Icon(Icons.star_rounded, color: scheme.tertiary, size: 44),
-                                const SizedBox(height: 14),
-                                Text(
-                                  localizations.premiumActive,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
-                                    color: scheme.onTertiaryContainer,
-                                  ),
-                                ),
-                                if (authProvider.subscriptionExpiresAt != null) ...[
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    '${localizations.expiresOn}: ${DateFormat('MMM dd, yyyy').format(authProvider.subscriptionExpiresAt!)}',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onTertiaryContainer),
-                                  ),
-                                ],
-                              ],
-                            ),
+                  child: RefreshIndicator(
+                    onRefresh: planProvider.refresh,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // ── Current plan card ─────────────────────────
+                          if (isPaid) ...[
+                            _buildCurrentPlanCard(context, authProvider, scheme, localizations),
+                            const SizedBox(height: 28),
+                          ],
+
+                          // ── Free-month offer (leads, per redesign) ──
+                          if (!isPaid && !hasClaimedTrial) ...[
+                            _buildOfferHero(context, scheme),
+                            const SizedBox(height: 28),
+                          ],
+
+                          // ── Free / Plus / Pro, from the server's limits ──
+                          Text(
+                            localizations.comparePlans,
+                            style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurface),
                           ),
-                          const SizedBox(height: 28),
-                        ],
+                          const SizedBox(height: 12),
+                          _buildComparison(context, planProvider, authProvider.plan, localizations),
 
-                        // ── Free-month offer (leads, per redesign) ──
-                        if (!isPremium && !hasClaimedTrial) ...[
-                          _buildOfferHero(context, scheme),
-                          const SizedBox(height: 28),
+                          // ── Upgrade contact (the only path to upgrade) ──
+                          if (!authProvider.isPro) ...[
+                            const SizedBox(height: 24),
+                            _buildContactBox(context, planProvider.status, localizations),
+                          ],
                         ],
-
-                        // ── Features — plain list ───────────────────
-                        Text(
-                          localizations.premiumFeatures,
-                          style: theme.textTheme.titleMedium?.copyWith(color: scheme.onSurface),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildFeatureList(localizations, scheme),
-
-                        // ── Contact admin (only path to upgrade) ────
-                        if (!isPremium) ...[
-                          const SizedBox(height: 24),
-                          _buildContactAdminBox(localizations),
-                        ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -181,6 +173,53 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             );
           },
         ),
+      ),
+    );
+  }
+
+  // ── The user's current paid plan ───────────────────────────────────────────
+  Widget _buildCurrentPlanCard(
+    BuildContext context,
+    AuthProvider authProvider,
+    ColorScheme scheme,
+    AppLocalizations localizations,
+  ) {
+    final planName = localizations.planName(authProvider.plan);
+    final isTrial = authProvider.isTrial;
+    final expiresAt = authProvider.subscriptionExpiresAt;
+    final endDate = authProvider.trialEndsAt ?? expiresAt;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.star_rounded, color: scheme.tertiary, size: 44),
+          const SizedBox(height: 14),
+          Text(
+            isTrial ? localizations.planTrialActive(planName) : localizations.planActive(planName),
+            key: const Key('current-plan-title'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: scheme.onTertiaryContainer,
+            ),
+          ),
+          if (endDate != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              isTrial
+                  ? localizations.planTrialEnds(DateFormat('MMM dd, yyyy').format(endDate))
+                  : '${localizations.expiresOn}: ${DateFormat('MMM dd, yyyy').format(endDate)}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onTertiaryContainer),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -240,58 +279,51 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  // ── Feature list — plain rows instead of gradient cards ─────────────────────
-  Widget _buildFeatureList(AppLocalizations localizations, ColorScheme scheme) {
-    final features = <Widget>[
-      AppListRow(
-        icon: Icons.auto_awesome_rounded,
-        title: localizations.aiBudgetSuggestions,
-        subtitle: localizations.aiBudgetSuggestionsDes,
-      ),
-      AppListRow(
-        icon: Icons.mic_rounded,
-        title: localizations.voiceInput,
-        subtitle: localizations.voiceInputDes,
-      ),
-      AppListRow(
-        icon: Icons.photo_camera_rounded,
-        title: localizations.receiptScanning,
-        subtitle: localizations.receiptScanningDes,
-      ),
-      AppListRow(
-        icon: Icons.smart_toy_rounded,
-        title: localizations.aiFinancialAssistant,
-        subtitle: localizations.aiFinancialAssistantDes,
-      ),
-      AppListRow(
-        icon: Icons.lightbulb_rounded,
-        title: localizations.aiInsights,
-        subtitle: localizations.aiInsightsDes,
-      ),
-    ];
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? Colors.black12, blurRadius: 3, offset: const Offset(0, 1)),
-        ],
-      ),
-      child: Column(
-        children: [
-          for (var i = 0; i < features.length; i++) ...[
-            if (i > 0) Divider(color: scheme.outlineVariant, height: 1, thickness: 1),
-            features[i],
-          ],
-        ],
-      ),
+  // ── Free / Plus / Pro comparison ───────────────────────────────────────────
+  Widget _buildComparison(
+    BuildContext context,
+    PlanProvider planProvider,
+    Plan currentPlan,
+    AppLocalizations localizations,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final status = planProvider.status;
+    if (status == null || status.catalog.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardTheme.color,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: planProvider.isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  Text(
+                    localizations.planDetailsUnavailable,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: planProvider.refresh,
+                    child: Text(localizations.tryAgain),
+                  ),
+                ],
+              ),
+      );
+    }
+    return PlanComparisonTable(
+      catalog: status.catalog,
+      currentPlan: currentPlan,
     );
   }
 
-  // ── Contact admin info box ─────────────────────────────────────────────────
-  Widget _buildContactAdminBox(AppLocalizations localizations) {
+  // ── Upgrade contact info box ───────────────────────────────────────────────
+  Widget _buildContactBox(BuildContext context, PlanStatus? status, AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
+    final message = status?.contactMessage(Localizations.localeOf(context).languageCode) ?? '';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
@@ -301,21 +333,184 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       ),
       child: Column(
         children: [
-          Icon(Icons.lock_outline_rounded, color: scheme.onSurfaceVariant, size: 26),
+          Icon(Icons.chat_bubble_outline_rounded, color: scheme.onSurfaceVariant, size: 26),
           const SizedBox(height: 8),
           Text(
-            localizations.contactAdmin,
+            message.isNotEmpty ? localizations.planContactTitle : localizations.contactAdmin,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
           ),
           const SizedBox(height: 4),
           Text(
-            localizations.contactSupport,
+            message.isNotEmpty ? message : localizations.contactSupport,
+            key: const Key('upgrade-contact-message'),
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The Free / Plus / Pro comparison: one row per feature, one column per plan
+/// (a number and its period, a tick for "included", a dash for "not
+/// included"), with the user's current plan's column highlighted. Everything
+/// comes from [catalog], the limits the server reports.
+class PlanComparisonTable extends StatelessWidget {
+  const PlanComparisonTable({
+    super.key,
+    required this.catalog,
+    required this.currentPlan,
+  });
+
+  final Map<Plan, Map<String, CatalogLimit>> catalog;
+  final Plan currentPlan;
+
+  static const List<Plan> _plans = [Plan.free, Plan.plus, Plan.pro];
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final features = PlanFeature.all
+        .where((f) => _plans.any((p) => catalog[p]?.containsKey(f) ?? false))
+        .toList();
+    final highlight = scheme.primaryContainer.withValues(alpha: 0.55);
+
+    Widget cell(Widget child, Plan? plan, {Alignment alignment = Alignment.center}) {
+      return Container(
+        color: plan == currentPlan ? highlight : null,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+        alignment: alignment,
+        child: child,
+      );
+    }
+
+    final rows = <TableRow>[
+      TableRow(
+        children: [
+          cell(const SizedBox.shrink(), null),
+          for (final plan in _plans)
+            cell(
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    l.planName(plan),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  if (plan == currentPlan) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      l.planCurrent,
+                      key: const Key('current-plan-marker'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.primary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              plan,
+            ),
+        ],
+      ),
+      for (final feature in features)
+        TableRow(
+          children: [
+            cell(
+              Text(
+                l.planFeatureName(feature),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
+                ),
+              ),
+              null,
+              alignment: Alignment.centerLeft,
+            ),
+            for (final plan in _plans)
+              cell(_limitCell(context, l, scheme, catalog[plan]?[feature]), plan),
+          ],
+        ),
+    ];
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Theme.of(context).cardTheme.shadowColor ?? Colors.black12, blurRadius: 3, offset: const Offset(0, 1)),
+        ],
+      ),
+      child: Table(
+        key: const Key('plan-comparison-table'),
+        // Every cell is as tall as the row's tallest, so the current plan's
+        // highlight fills the whole column.
+        defaultVerticalAlignment: TableCellVerticalAlignment.intrinsicHeight,
+        columnWidths: const {
+          0: FlexColumnWidth(2.1),
+          1: FlexColumnWidth(1),
+          2: FlexColumnWidth(1),
+          3: FlexColumnWidth(1),
+        },
+        border: TableBorder(
+          horizontalInside: BorderSide(color: scheme.outlineVariant),
+        ),
+        children: rows,
+      ),
+    );
+  }
+
+  Widget _limitCell(
+    BuildContext context,
+    AppLocalizations l,
+    ColorScheme scheme,
+    CatalogLimit? limit,
+  ) {
+    if (limit == null || limit.isLocked) {
+      return Semantics(
+        label: l.planNotIncluded,
+        child: Icon(Icons.remove_rounded, size: 20, color: scheme.outline),
+      );
+    }
+    if (limit.isIncluded || limit.quota == null) {
+      return Semantics(
+        label: l.planIncluded,
+        child: Icon(Icons.check_rounded, size: 20, color: scheme.primary),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${limit.quota}',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: scheme.onSurface,
+          ),
+        ),
+        Text(
+          limit.period == 'week' ? l.planPerWeek : l.planPerMonth,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -6,10 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/models/plan_status.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../providers/chat_provider.dart';
 import '../../models/chat.dart';
 import '../../widgets/app_drawer.dart';
@@ -54,11 +57,29 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (chatProvider.messages.isEmpty) {
         chatProvider.loadChatHistory();
       }
+      // A refusal from before this screen opened is stale: only one raised
+      // while it is open gets a sheet.
+      chatProvider.takePlanLimit();
+      chatProvider.addListener(_showPlanLimitIfAny);
+      _chatProvider = chatProvider;
     });
+  }
+
+  /// The provider is app-wide and outlives this screen, so the listener is
+  /// removed in [dispose] through this reference (no context lookup there).
+  ChatProvider? _chatProvider;
+
+  /// The plan refused a message (locked, used up, monthly AI limit): explain
+  /// it in the limit sheet.
+  void _showPlanLimitIfAny() {
+    if (!mounted) return;
+    final limit = _chatProvider?.takePlanLimit();
+    if (limit != null) showPlanLimitSheet(context, limit);
   }
 
   @override
   void dispose() {
+    _chatProvider?.removeListener(_showPlanLimitIfAny);
     _messageController.dispose();
     _scrollController.dispose();
     _typingAnimationController.dispose();
@@ -109,7 +130,9 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
+    // Chat is open to every plan (with an allowance) unless the owner left it
+    // out of this plan.
+    final chatLocked = context.watch<PlanProvider>().isLocked(PlanFeature.chat);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
@@ -187,16 +210,16 @@ class _AiChatScreenState extends State<AiChatScreen>
         ],
       ),
       body: Consumer<ChatProvider>(
-        builder: (context, chatProvider, child) => authProvider.isPremium
-            ? _buildPremiumBody(chatProvider)
-            : _buildLockedBody(chatProvider),
+        builder: (context, chatProvider, child) => chatLocked
+            ? _buildLockedBody(chatProvider)
+            : _buildChatBody(chatProvider),
       ),
     );
   }
 
-  // ── Premium ──────────────────────────────────────────────────────
+  // ── Chat ─────────────────────────────────────────────────────────
 
-  Widget _buildPremiumBody(ChatProvider chatProvider) {
+  Widget _buildChatBody(ChatProvider chatProvider) {
     final localizations = AppLocalizations.of(context);
 
     if (chatProvider.isStreaming) {
@@ -251,6 +274,10 @@ class _AiChatScreenState extends State<AiChatScreen>
                     return _buildMessageBubble(message, isStreamingMessage: isStreamingMessage);
                   },
                 ),
+        ),
+        const PlanUsageLine(
+          feature: PlanFeature.chat,
+          padding: EdgeInsets.fromLTRB(20, 4, 20, 0),
         ),
         _buildMessageInput(chatProvider),
       ],
@@ -615,7 +642,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
   }
 
-  // ── Locked (free) ────────────────────────────────────────────────
+  // ── Locked (not in the plan) ─────────────────────────────────────
 
   Widget _buildLockedBody(ChatProvider chatProvider) {
     final scheme = Theme.of(context).colorScheme;

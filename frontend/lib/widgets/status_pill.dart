@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 /// Small radius-8 badge — status labels ("EXCEEDED"), group headers, and the
-/// drawer's "3 NEW" / "FREE MONTH" premium hints (a badge that invites a
-/// look, not a padlock that says stop).
+/// drawer's "FREE MONTH" hint and plan names (a badge that invites a look,
+/// not a padlock that says stop).
 class StatusPill extends StatelessWidget {
   const StatusPill({
     super.key,

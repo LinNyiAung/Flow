@@ -1,0 +1,197 @@
+import 'package:frontend/models/user.dart';
+import 'package:frontend/utils/date_parsing.dart';
+
+/// The quota feature keys the server uses (`GET /api/plan`, limit errors).
+class PlanFeature {
+  PlanFeature._();
+
+  static const String chat = 'chat';
+  static const String chatAdvanced = 'chat_advanced';
+  static const String insightMonthly = 'insight_monthly';
+  static const String insightWeekly = 'insight_weekly';
+  static const String insightTranslation = 'insight_translation';
+  static const String entry = 'entry';
+  static const String budgetSuggestion = 'budget_suggestion';
+  static const String reports = 'reports';
+
+  /// In the order the Upgrade screen lists them.
+  static const List<String> all = [
+    chat,
+    chatAdvanced,
+    insightMonthly,
+    insightWeekly,
+    insightTranslation,
+    entry,
+    budgetSuggestion,
+    reports,
+  ];
+}
+
+int? _asInt(dynamic value) => value is num ? value.toInt() : null;
+
+/// One feature's allowance for the signed-in user this period.
+///
+/// `mode` is `locked` (not in the plan), `included` (no count) or `counted`
+/// (a quota per `period`, `week` or `month`). Locked and included features
+/// carry no counts.
+class FeatureAllowance {
+  static const String modeLocked = 'locked';
+  static const String modeIncluded = 'included';
+  static const String modeCounted = 'counted';
+
+  final String mode;
+  final int? limit;
+  final String? period;
+  final int? used;
+
+  /// Never negative: the owner can lower a limit below what a user already
+  /// used, and the app then shows "0 left", not a negative number.
+  final int? remaining;
+  final DateTime? resetsAt;
+
+  const FeatureAllowance({
+    required this.mode,
+    this.limit,
+    this.period,
+    this.used,
+    this.remaining,
+    this.resetsAt,
+  });
+
+  bool get isLocked => mode == modeLocked;
+  bool get isIncluded => mode == modeIncluded;
+  bool get isCounted => mode == modeCounted;
+
+  /// A counted allowance with nothing left this period.
+  bool get isExhausted => isCounted && (remaining ?? 1) <= 0;
+
+  factory FeatureAllowance.fromJson(Map<String, dynamic> json) {
+    final limit = _asInt(json['limit']);
+    final used = _asInt(json['used']);
+    var remaining = _asInt(json['remaining']);
+    if (remaining == null && limit != null && used != null) {
+      remaining = limit - used;
+    }
+    if (remaining != null && remaining < 0) remaining = 0;
+    return FeatureAllowance(
+      mode: json['mode'] is String ? json['mode'] as String : modeIncluded,
+      limit: limit,
+      period: json['period'] is String ? json['period'] as String : null,
+      used: used,
+      remaining: remaining,
+      resetsAt: parseInstantOrNull(json['resets_at']),
+    );
+  }
+}
+
+/// One plan's limit for one feature, from the `catalog` of `GET /api/plan`.
+class CatalogLimit {
+  final String mode;
+  final int? quota;
+  final String? period;
+
+  const CatalogLimit({required this.mode, this.quota, this.period});
+
+  bool get isLocked => mode == FeatureAllowance.modeLocked;
+  bool get isIncluded => mode == FeatureAllowance.modeIncluded;
+  bool get isCounted => mode == FeatureAllowance.modeCounted;
+
+  factory CatalogLimit.fromJson(Map<String, dynamic> json) {
+    return CatalogLimit(
+      mode: json['mode'] is String
+          ? json['mode'] as String
+          : FeatureAllowance.modeIncluded,
+      quota: _asInt(json['quota']),
+      period: json['period'] is String ? json['period'] as String : null,
+    );
+  }
+}
+
+/// `GET /api/plan`: the user's plan, trial state, each feature's allowance
+/// this period, every plan's limits (for the Upgrade screen, so no number is
+/// hard-coded in the app) and the upgrade contact message per language.
+class PlanStatus {
+  final Plan plan;
+  final DateTime? expiresAt;
+  final bool isTrial;
+  final DateTime? trialEndsAt;
+  final Map<String, FeatureAllowance> features;
+  final Map<Plan, Map<String, CatalogLimit>> catalog;
+
+  /// Language code ('en' | 'my') -> message.
+  final Map<String, String> upgradeContact;
+
+  const PlanStatus({
+    required this.plan,
+    this.expiresAt,
+    this.isTrial = false,
+    this.trialEndsAt,
+    this.features = const {},
+    this.catalog = const {},
+    this.upgradeContact = const {},
+  });
+
+  bool get isPaid => plan != Plan.free;
+  bool get isPro => plan == Plan.pro;
+
+  FeatureAllowance? feature(String key) => features[key];
+
+  /// The upgrade contact message in [languageCode], falling back to English.
+  /// Empty when the owner has not set one.
+  String contactMessage(String languageCode) {
+    final own = upgradeContact[languageCode]?.trim() ?? '';
+    if (own.isNotEmpty) return own;
+    return upgradeContact['en']?.trim() ?? '';
+  }
+
+  factory PlanStatus.fromJson(Map<String, dynamic> json) {
+    final features = <String, FeatureAllowance>{};
+    final rawFeatures = json['features'];
+    if (rawFeatures is Map) {
+      rawFeatures.forEach((key, value) {
+        if (key is String && value is Map) {
+          features[key] = FeatureAllowance.fromJson(
+            Map<String, dynamic>.from(value),
+          );
+        }
+      });
+    }
+
+    final catalog = <Plan, Map<String, CatalogLimit>>{};
+    final rawCatalog = json['catalog'];
+    if (rawCatalog is Map) {
+      rawCatalog.forEach((planName, limits) {
+        if (planName is! String || limits is! Map) return;
+        final plan = Plan.values.where((p) => p.name == planName).firstOrNull;
+        if (plan == null) return;
+        final parsed = <String, CatalogLimit>{};
+        limits.forEach((key, value) {
+          if (key is String && value is Map) {
+            parsed[key] = CatalogLimit.fromJson(
+              Map<String, dynamic>.from(value),
+            );
+          }
+        });
+        catalog[plan] = parsed;
+      });
+    }
+
+    final contact = <String, String>{};
+    final rawContact = json['upgrade_contact'];
+    if (rawContact is Map) {
+      rawContact.forEach((key, value) {
+        if (key is String && value is String) contact[key] = value;
+      });
+    }
+
+    return PlanStatus(
+      plan: Plan.fromString(json['plan'] as String?),
+      expiresAt: parseInstantOrNull(json['expires_at']),
+      isTrial: json['is_trial'] == true,
+      trialEndsAt: parseInstantOrNull(json['trial_ends_at']),
+      features: features,
+      catalog: catalog,
+      upgradeContact: contact,
+    );
+  }
+}

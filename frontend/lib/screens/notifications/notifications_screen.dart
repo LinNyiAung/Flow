@@ -179,7 +179,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // Navigate to insights screen
       Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
     } else if (notification.type == NotificationType.subscription_expired) {
-      // Premium ended: open the subscription screen so the user can renew.
+      // The plan ended: open the Upgrade screen so the user can renew.
       Navigator.pushNamed(context, '/subscription').then((_) => _refreshNotifications());
     } else if (notification.type == NotificationType.system_broadcast || // NEW
         notification.type == NotificationType.admin_announcement) {

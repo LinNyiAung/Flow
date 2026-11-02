@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart' hide formatter;
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -9,6 +11,8 @@ import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/budget.dart';
@@ -389,10 +393,12 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   }
 
   void _navigateToAISuggestion() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final localizations = AppLocalizations.of(context);
 
-    if (!authProvider.isPremium) {
+    // Not in this plan (the owner left it out): the Upgrade screen. A used-up
+    // allowance is explained by the limit sheet once the server says so.
+    if (Provider.of<PlanProvider>(context, listen: false)
+        .isLocked(PlanFeature.budgetSuggestion)) {
       Navigator.pushNamed(context, '/subscription');
       return;
     }
@@ -421,11 +427,13 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
       ),
     );
 
-    if (result != null && result is AIBudgetSuggestion) {
+    if (result is AIBudgetSuggestion) {
       setState(() {
         _nameController.text = result.suggestedName;
         _categoryBudgets = result.categoryBudgets;
       });
+    } else if (result is PlanLimitException && mounted) {
+      await showPlanLimitSheet(context, result);
     }
   }
 
@@ -482,7 +490,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   @override
   Widget build(BuildContext context) {
     final totalBudget = _calculateTotalBudget();
-    final authProvider = Provider.of<AuthProvider>(context);
+    final suggestionsLocked =
+        context.watch<PlanProvider>().isLocked(PlanFeature.budgetSuggestion);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
@@ -546,7 +555,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onTertiaryContainer),
                         ),
                       ),
-                      if (!authProvider.isPremium) ...[
+                      if (suggestionsLocked) ...[
                         const SizedBox(width: 6),
                         Icon(Icons.lock_rounded, size: 16, color: scheme.tertiary),
                       ],
@@ -556,6 +565,11 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                   Text(
                     localizations.aiWillAnalyzeAndSuggestBudgets,
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onTertiaryContainer, height: 1.5),
+                  ),
+                  const SizedBox(height: 6),
+                  const PlanUsageLine(
+                    feature: PlanFeature.budgetSuggestion,
+                    padding: EdgeInsets.zero,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(

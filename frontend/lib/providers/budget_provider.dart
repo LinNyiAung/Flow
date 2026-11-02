@@ -23,8 +23,14 @@ class BudgetProvider with ChangeNotifier {
     _selectedCurrency = null;
     _isLoading = false;
     _error = null;
+    _planLimit = null;
     notifyListeners();
   }
+
+  /// Set when the last AI suggestion request was refused by the plan (locked,
+  /// used up or the monthly AI limit); null otherwise.
+  PlanLimitException? _planLimit;
+  PlanLimitException? get planLimit => _planLimit;
 
   List<Budget> get budgets => _budgets;
   BudgetSummary? get summary => _summary;
@@ -81,6 +87,7 @@ class BudgetProvider with ChangeNotifier {
     String? userContext,
     required Currency currency,  // NEW - make it required
   }) async {
+    _planLimit = null;
     _setLoading(true);
     _setError(null);
 
@@ -98,6 +105,7 @@ class BudgetProvider with ChangeNotifier {
       _setLoading(false);
       return suggestion;
     } catch (e) {
+      if (e is PlanLimitException) _planLimit = e;
       _setError(e.toString().replaceAll('Exception: ', ''));
       _setLoading(false);
       return null;

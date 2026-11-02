@@ -2,11 +2,14 @@ import 'dart:typed_data';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
-import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/amount_entry_dialog.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -157,12 +160,26 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
       );
       if (!mounted) return;
 
+      // A silent recording is not an entry (nothing was used up): say so
+      // instead of asking the AI to read an empty text.
+      if (transcription.isSilent) {
+        setState(() {
+          _error = AppLocalizations.of(context).voiceNothingHeard;
+          _isProcessing = false;
+        });
+        return;
+      }
+
       setState(() {
-        _transcribedText = transcription;
+        _transcribedText = transcription.transcription;
       });
 
-      // Step 2: Extract multiple transaction data
-      final extractedData = await ApiService.extractMultipleTransactionsFromText(transcription);
+      // Step 2: Extract multiple transaction data. The voice token goes back
+      // with the exact transcript, so the whole voice entry is one use.
+      final extractedData = await ApiService.extractMultipleTransactionsFromText(
+        transcription.transcription,
+        voiceToken: transcription.voiceToken,
+      );
       if (!mounted) return;
 
       setState(() {
@@ -173,9 +190,13 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
+        // A plan limit is explained by the sheet below, not by the error box.
+        _error = e is PlanLimitException
+            ? null
+            : e.toString().replaceAll('Exception: ', '');
         _isProcessing = false;
       });
+      await handlePlanLimitError(context, e);
     }
   }
 
@@ -268,7 +289,10 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
+    // Voice entry is open to every plan (with an allowance) unless the owner
+    // left it out of this plan.
+    final entryLocked =
+        context.watch<PlanProvider>().isLocked(PlanFeature.entry);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
@@ -289,10 +313,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(
             children: [
-              if (!authProvider.isPremium) _buildPremiumUpsell(localizations),
+              if (entryLocked) _buildLockedUpsell(localizations),
 
-              if (authProvider.isPremium) ...[
-                SizedBox(height: 24),
+              if (!entryLocked) ...[
+                const PlanUsageLine(feature: PlanFeature.entry),
+                SizedBox(height: 16),
                 if (_extractedData == null) _buildRecordingArea(localizations),
                 if (_extractedData != null) _buildExtractedResults(localizations),
               ],
@@ -319,7 +344,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     );
   }
 
-  Widget _buildPremiumUpsell(AppLocalizations localizations) {
+  Widget _buildLockedUpsell(AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
@@ -331,12 +356,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           Icon(Icons.star_rounded, color: scheme.tertiary, size: 32),
           SizedBox(height: 12),
           Text(
-            localizations.premiumFeatureTitle,
+            localizations.planFeatureLockedTitle,
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: scheme.onTertiaryContainer),
           ),
           SizedBox(height: 8),
           Text(
-            localizations.premiumFeatureUpgradeDescVoice,
+            localizations.planUpgradeDescVoice,
             style: TextStyle(fontSize: 14, color: scheme.onTertiaryContainer),
             textAlign: TextAlign.center,
           ),

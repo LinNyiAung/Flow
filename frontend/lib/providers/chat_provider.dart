@@ -3,8 +3,21 @@ import '../models/chat.dart';
 import '../services/api_service.dart';
 import 'dart:async';
 
+/// Starts the streamed answer to one chat message ([ApiService.streamChatMessage]).
+typedef ChatStreamer = Stream<String> Function({
+  required String message,
+  List<ChatMessage>? chatHistory,
+  ResponseStyle? responseStyle,
+});
+
 class ChatProvider with ChangeNotifier {
   static const String stoppedMarker = '[Response stopped by user]';
+
+  /// Where answers come from; the real API unless a test supplies its own.
+  final ChatStreamer _streamer;
+
+  ChatProvider({ChatStreamer? streamer})
+      : _streamer = streamer ?? ApiService.streamChatMessage;
 
   List<ChatMessage> _messages = [];
   bool _isLoading = false;
@@ -23,6 +36,17 @@ class ChatProvider with ChangeNotifier {
   int _requestId = 0;
 
   ResponseStyle _responseStyle = ResponseStyle.normal;
+
+  /// The plan refused the last message (locked, used up, monthly AI limit).
+  /// The screen shows the limit sheet for it once, via [takePlanLimit].
+  PlanLimitException? _planLimit;
+
+  /// Returns the pending plan refusal, if any, and clears it.
+  PlanLimitException? takePlanLimit() {
+    final limit = _planLimit;
+    _planLimit = null;
+    return limit;
+  }
 
   List<ChatMessage> get messages => _messages;
   bool get isLoading => _isLoading;
@@ -45,6 +69,7 @@ class ChatProvider with ChangeNotifier {
     _isStreaming = false;
     _currentStreamingMessage = '';
     _streamingIndex = null;
+    _planLimit = null;
     _responseStyle = ResponseStyle.normal;
     notifyListeners();
   }
@@ -121,7 +146,7 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final stream = ApiService.streamChatMessage(
+      final stream = _streamer(
         message: message,
         chatHistory: chatHistoryToSend,
         responseStyle: _responseStyle,
@@ -134,9 +159,16 @@ class ChatProvider with ChangeNotifier {
         },
         onError: (Object error) {
           if (requestId != _requestId) return;
-          // Surface the server's error frame / HTTP error and drop the
-          // empty placeholder (partial text, if any, is kept).
-          _error = error.toString().replaceAll('Exception: ', '');
+          if (error is PlanLimitException) {
+            // Refused before anything was answered: nothing was used, so the
+            // question leaves the conversation and the limit sheet explains.
+            _planLimit = error;
+            _dropRejectedQuestion();
+          } else {
+            // Surface the server's error frame / HTTP error and drop the
+            // empty placeholder (partial text, if any, is kept).
+            _error = error.toString().replaceAll('Exception: ', '');
+          }
           _finishStreaming();
         },
         onDone: () {
@@ -153,6 +185,22 @@ class ChatProvider with ChangeNotifier {
       }
       return false;
     }
+  }
+
+  /// Removes the question and the empty answer placeholder just added by
+  /// [sendMessage] (a plan refusal means the message was never processed).
+  void _dropRejectedQuestion() {
+    final index = _streamingIndex;
+    if (index == null ||
+        index < 1 ||
+        index >= _messages.length ||
+        _messages[index].role != MessageRole.assistant ||
+        _messages[index].content.isNotEmpty ||
+        _messages[index - 1].role != MessageRole.user) {
+      return;
+    }
+    _messages.removeRange(index - 1, index + 1);
+    _streamingIndex = null;
   }
 
   /// Aborts the network request and detaches from the current stream.

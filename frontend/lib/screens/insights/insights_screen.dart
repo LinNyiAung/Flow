@@ -6,12 +6,16 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:frontend/models/budget.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/insight_errors.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../models/insight.dart';
 import '../../providers/insight_provider.dart';
 import '../../widgets/app_drawer.dart';
@@ -28,9 +32,29 @@ class _InsightsScreenState extends State<InsightsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Weekly insights are not in every plan (Free): open on the monthly
+      // insight there instead of a locked page.
+      final insightProvider =
+          Provider.of<InsightProvider>(context, listen: false);
+      if (insightProvider.insightType == 'weekly' &&
+          _isTypeLocked(insightProvider)) {
+        insightProvider.setInsightType('monthly');
+      }
       _fetchInsights();
       _fetchHealthScoreInputs();
     });
+  }
+
+  /// True when the shown insight type (weekly / monthly) is not in the user's
+  /// plan. Until the plan has loaded, weekly counts as locked for a user
+  /// without a paid plan and monthly as open.
+  bool _isTypeLocked(InsightProvider insightProvider) {
+    final isWeekly = insightProvider.insightType == 'weekly';
+    final isPaid = Provider.of<AuthProvider>(context, listen: false).isPaid;
+    return Provider.of<PlanProvider>(context, listen: false).isLocked(
+      isWeekly ? PlanFeature.insightWeekly : PlanFeature.insightMonthly,
+      whenUnknown: isWeekly && !isPaid,
+    );
   }
 
   // Health-score inputs, kept local to this screen so they never overwrite
@@ -85,10 +109,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final locale = Localizations.localeOf(context);
     final language = locale.languageCode == 'my' ? 'mm' : 'en';
 
-    await Provider.of<InsightProvider>(
+    final insightProvider = Provider.of<InsightProvider>(
       context,
       listen: false,
-    ).fetchInsights(language: language);
+    );
+    // A locked type has nothing to fetch (the server would answer 403).
+    if (_isTypeLocked(insightProvider)) return;
+    await insightProvider.fetchInsights(language: language);
   }
 
   Future<void> _regenerateInsights() async {
@@ -147,10 +174,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (!mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
+    final planLimit = insightProvider.actionPlanLimit;
     if (success) {
       messenger.showSnackBar(
         SnackBar(content: Text(localizations.insightsRegeneratedSuccessfully)),
       );
+    } else if (planLimit != null && insightProvider.insight != null) {
+      // Refused by the plan (e.g. the monthly AI limit): the limit sheet says why.
+      await showPlanLimitSheet(context, planLimit);
     } else if (insightProvider.insight != null) {
       // The previous insight is kept on screen; report the failure here.
       final raw = insightProvider.actionError;
@@ -171,7 +202,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget build(BuildContext context) {
     final insightProvider = Provider.of<InsightProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
+    // Rebuild when the plan (locks, allowances) changes.
+    context.watch<PlanProvider>();
     final localizations = AppLocalizations.of(context);
+    final typeLocked = _isTypeLocked(insightProvider);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -185,7 +219,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
         ),
         title: Text(localizations.aiInsights),
         actions: [
-          if (authProvider.isPremium)
+          // Regenerating is a paid-plan action (the server refuses Free).
+          if (authProvider.isPaid && !typeLocked)
             IconButton(
               icon: const Icon(Icons.refresh_rounded),
               tooltip: localizations.regenerate,
@@ -220,16 +255,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _fetchInsights,
-        child: authProvider.isPremium
-            ? _buildPremiumBody(insightProvider)
-            : _buildLockedBody(insightProvider),
+        child: typeLocked
+            ? _buildLockedBody(insightProvider)
+            : _buildInsightBody(insightProvider),
       ),
     );
   }
 
-  // ── Premium ──────────────────────────────────────────────────────
+  // ── Insight ──────────────────────────────────────────────────────
 
-  Widget _buildPremiumBody(InsightProvider insightProvider) {
+  Widget _buildInsightBody(InsightProvider insightProvider) {
     final localizations = AppLocalizations.of(context);
 
     if (insightProvider.isLoading ||
@@ -257,7 +292,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
       children: [
         _periodToggle(insightProvider),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
+        // A Free user's monthly insight is counted ("1 of 1 left this month");
+        // included insights show nothing here.
+        PlanUsageLine(
+          feature: insightProvider.insightType == 'monthly'
+              ? PlanFeature.insightMonthly
+              : PlanFeature.insightWeekly,
+          padding: const EdgeInsets.only(bottom: 4),
+        ),
+        const SizedBox(height: 4),
         _headerCard(insightProvider, periodLabel, scheme),
         const SizedBox(height: 12),
         if (healthScore != null) ...[
@@ -531,6 +575,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (target == 'mm' && insightProvider.insight?.contentMm == null) {
       final success = await insightProvider.translateToMyanmar();
       if (!mounted || success) return;
+      // Translation is not in every plan (Free): the limit sheet offers Upgrade.
+      final planLimit = insightProvider.actionPlanLimit;
+      if (planLimit != null) {
+        await showPlanLimitSheet(context, planLimit);
+        return;
+      }
+      if (!mounted) return;
       final localizations = AppLocalizations.of(context);
       final raw = insightProvider.actionError;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -623,7 +674,22 @@ class _InsightsScreenState extends State<InsightsScreen> {
     );
   }
 
+  /// Full-page state for a request the plan refused (nothing else to show).
+  Widget _buildPlanLimit(PlanLimitException limit) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 24),
+      children: [
+        PlanLimitSheet(
+          error: limit,
+          onUpgrade: () => Navigator.pushNamed(context, '/subscription'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildError(InsightProvider insightProvider, AppLocalizations localizations) {
+    final planLimit = insightProvider.errorPlanLimit;
+    if (planLimit != null) return _buildPlanLimit(planLimit);
     final scheme = Theme.of(context).colorScheme;
     final (message, details) =
         _friendlyInsightError(insightProvider.error!, insightProvider.errorStatusCode, localizations);
@@ -697,11 +763,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
     );
   }
 
-  // ── Locked (free) ────────────────────────────────────────────────
+  // ── Locked (not in the plan) ─────────────────────────────────────
 
   // The health score is computed locally from the user's own budget and
   // transaction data (see _computeHealthScore) — it isn't an AI feature,
-  // so it's shown for real even to non-premium users rather than faked or
+  // so it's shown for real even when the insights are locked rather than faked or
   // blurred. Only the AI-generated report sections below it are locked,
   // shown as a plain list of what's included rather than a wall of raw
   // report text run through a blur filter (which used to leak markdown
@@ -726,7 +792,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
+      physics: const AlwaysScrollableScrollPhysics(),
       children: [
+        // Keeps the other insight type one tap away (Free has the monthly one).
+        _periodToggle(insightProvider),
+        const SizedBox(height: 12),
         if (healthScore != null) ...[
           _healthScoreCard(healthScore, scheme),
           const SizedBox(height: 12),
@@ -765,7 +835,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             child: Column(
               children: [
                 Text(
-                  localizations.threeInsightsWaiting,
+                  localizations.weeklyInsightsWithPlans,
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.5),
                   textAlign: TextAlign.center,
                 ),

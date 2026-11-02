@@ -1,12 +1,15 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
-import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/amount_entry_dialog.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_list_row.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -126,9 +129,13 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
     } catch (e) {
       if (!mounted || requestId != _extractionId) return;
       setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
+        // A plan limit is explained by the sheet below, not by the error box.
+        _error = e is PlanLimitException
+            ? null
+            : e.toString().replaceAll('Exception: ', '');
         _isProcessing = false;
       });
+      await handlePlanLimitError(context, e);
     }
   }
 
@@ -240,7 +247,10 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
+    // Receipt entry is open to every plan (with an allowance) unless the
+    // owner left it out of this plan.
+    final entryLocked =
+        context.watch<PlanProvider>().isLocked(PlanFeature.entry);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
@@ -261,9 +271,10 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(
             children: [
-              if (!authProvider.isPremium) _buildPremiumUpsell(localizations),
+              if (entryLocked) _buildLockedUpsell(localizations),
 
-              if (authProvider.isPremium) ...[
+              if (!entryLocked) ...[
+                const PlanUsageLine(feature: PlanFeature.entry),
                 if (_imageBytes == null) _buildEmptyCapture(localizations),
                 if (_imageBytes != null) _buildImagePreview(localizations),
 
@@ -294,7 +305,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
     );
   }
 
-  Widget _buildPremiumUpsell(AppLocalizations localizations) {
+  Widget _buildLockedUpsell(AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
@@ -306,12 +317,12 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           Icon(Icons.star_rounded, color: scheme.tertiary, size: 32),
           SizedBox(height: 12),
           Text(
-            localizations.premiumFeatureTitle,
+            localizations.planFeatureLockedTitle,
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: scheme.onTertiaryContainer),
           ),
           SizedBox(height: 8),
           Text(
-            localizations.premiumFeatureUpgradeDescImg,
+            localizations.planUpgradeDescImg,
             style: TextStyle(fontSize: 14, color: scheme.onTertiaryContainer),
             textAlign: TextAlign.center,
           ),

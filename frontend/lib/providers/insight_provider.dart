@@ -33,13 +33,25 @@ class InsightProvider with ChangeNotifier {
   /// HTTP status of [actionError] (null for timeouts / network errors).
   int? get actionErrorStatusCode => _actionErrorStatusCode;
 
+  /// Set when [error] / [actionError] came from the plan refusing the request
+  /// (locked, used up, monthly AI limit) rather than from a failure.
+  PlanLimitException? _errorPlanLimit;
+  PlanLimitException? _actionPlanLimit;
+  PlanLimitException? get errorPlanLimit => _errorPlanLimit;
+  PlanLimitException? get actionPlanLimit => _actionPlanLimit;
+
   static int? _statusOf(Object e) => e is ApiException ? e.statusCode : null;
+
+  static PlanLimitException? _limitOf(Object e) =>
+      e is PlanLimitException ? e : null;
 
   void _clearErrors() {
     _error = null;
     _errorStatusCode = null;
+    _errorPlanLimit = null;
     _actionError = null;
     _actionErrorStatusCode = null;
+    _actionPlanLimit = null;
   }
   String get currentLanguage => _currentLanguage;
   String get insightType => _insightType;
@@ -100,6 +112,7 @@ class InsightProvider with ChangeNotifier {
       _insight = null;
       _error = _clean(e);
       _errorStatusCode = _statusOf(e);
+      _errorPlanLimit = _limitOf(e);
     }
     _isLoading = false;
     notifyListeners();
@@ -133,9 +146,11 @@ class InsightProvider with ChangeNotifier {
       if (gen != _generation) return false;
       _actionError = _clean(e);
       _actionErrorStatusCode = _statusOf(e);
+      _actionPlanLimit = _limitOf(e);
       if (_insight == null) {
         _error = _actionError;
         _errorStatusCode = _actionErrorStatusCode;
+        _errorPlanLimit = _actionPlanLimit;
       }
       _isLoading = false;
       notifyListeners();
@@ -150,6 +165,7 @@ class InsightProvider with ChangeNotifier {
     final gen = ++_generation;
     _actionError = null;
     _actionErrorStatusCode = null;
+    _actionPlanLimit = null;
     _isLoading = true;
     notifyListeners();
 
@@ -172,6 +188,7 @@ class InsightProvider with ChangeNotifier {
       // Translation failed: keep the insight that is already shown.
       _actionError = _clean(e);
       _actionErrorStatusCode = _statusOf(e);
+      _actionPlanLimit = _limitOf(e);
       _isLoading = false;
       notifyListeners();
       return false;

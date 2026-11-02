@@ -126,13 +126,13 @@ class FCMService {
 
     // ── NEW: Silent data-only message from admin subscription update ──
     if (message.data['type'] == 'subscription_updated') {
-      print('🔄 Subscription update received — refreshing user profile');
+      print('🔄 Subscription update received — refreshing user profile and plan');
       NotificationEventBus().notifySubscriptionUpdated();
       return; // Do NOT show a local notification for this silent message
     }
     // ─────────────────────────────────────────────────────────────────
 
-    // "Premium has ended": reload the profile too (the separate silent
+    // "Your plan has ended": reload the profile too (the separate silent
     // subscription_updated push may be dropped or arrive later).
     if (message.data['type'] == 'subscription_expired') {
       NotificationEventBus().notifySubscriptionUpdated();

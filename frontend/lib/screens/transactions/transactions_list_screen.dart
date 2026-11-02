@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
-import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -9,7 +10,6 @@ import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
-import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/transaction.dart';
@@ -239,7 +239,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                 }
               },
             ),
-            _buildPremiumOptionRow(
+            _buildAiOptionRow(
               icon: Icons.mic_rounded,
               title: localizations.voiceInput,
               subtitle: localizations.speakYourTransaction,
@@ -255,7 +255,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
                 }
               },
             ),
-            _buildPremiumOptionRow(
+            _buildAiOptionRow(
               icon: Icons.document_scanner_rounded,
               title: localizations.scanReceipt,
               subtitle: localizations.takeUploadPhoto,
@@ -284,15 +284,16 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     );
   }
 
-  Widget _buildPremiumOptionRow({
+  /// Voice / receipt entry: open to every plan with an allowance, locked
+  /// (with a padlock) only when the owner left it out of the user's plan.
+  Widget _buildAiOptionRow({
     required IconData icon,
     required String title,
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final isLocked = !authProvider.isPremium;
-    final localizations = AppLocalizations.of(context);
+    final isLocked = Provider.of<PlanProvider>(context, listen: false)
+        .isLocked(PlanFeature.entry);
     final scheme = Theme.of(context).colorScheme;
 
     return AppListRow(
@@ -304,11 +305,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       trailing: isLocked
           ? Padding(
               padding: const EdgeInsets.only(left: 8),
-              child: StatusPill(
-                label: localizations.premium,
-                background: scheme.tertiaryContainer,
-                foreground: scheme.tertiary,
-              ),
+              child: Icon(Icons.lock_rounded, size: 18, color: scheme.onSurfaceVariant),
             )
           : null,
     );

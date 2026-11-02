@@ -58,6 +58,15 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
       userContext: widget.userContext,
       currency: widget.currency,
     );
+    if (!mounted) return;
+
+    // Refused by the plan (locked, used up, monthly AI limit): go back to the
+    // budget form, which explains why in the limit sheet.
+    final planLimit = suggestion == null ? budgetProvider.planLimit : null;
+    if (planLimit != null) {
+      Navigator.pop(context, planLimit);
+      return;
+    }
 
     setState(() {
       _suggestion = suggestion;

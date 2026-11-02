@@ -246,17 +246,17 @@ void settingsFlows() {
       await expectSoon(find.byType(SettingsScreen), 'Feedback submit did not return to Settings');
     });
 
-    e2eTest('settings: free user claims trial → Premium Active', (t) async {
+    e2eTest('settings: free user claims trial → Plus trial', (t) async {
       await login(free);
       await drawerGo(L.subscription);
       await waitFor(find.byType(SubscriptionScreen));
       await scrollTo(find.text(L.claimOneMonthFree));
       await tap(find.text(L.claimOneMonthFree));
-      await expectSoon(find.text(L.welcomeToPremiumCelebration), 'Claim trial: no celebration dialog', timeout: const Duration(seconds: 30));
+      await expectSoon(find.text(L.welcomeToPlusCelebration), 'Claim trial: no celebration dialog', timeout: const Duration(seconds: 30));
       if (find.text(L.letsGo).evaluate().isNotEmpty) await tap(find.text(L.letsGo));
       await settle(1500);
-      await expectSoon(find.text(L.premiumActive), 'Subscription screen does not show "Premium Active" after claiming the trial');
-      step('premium unlocked in drawer/insights');
+      await expectSoon(find.text(L.planTrialActive(L.planNamePlus)), 'Subscription screen does not show the Plus trial after claiming it');
+      step('plus unlocked in drawer/insights');
       await goHome();
       await drawerGo(L.aiInsights);
       check(await waitFor(find.text(L.tryOneMonthFree), timeout: const Duration(seconds: 4), orNull: true) == false,

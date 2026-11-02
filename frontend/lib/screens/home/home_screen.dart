@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/chat_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/budgets/budget_detail_screen.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
@@ -454,7 +456,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: responsive.padding(horizontal: 16),
                   child: Consumer<ChatProvider>(
                     builder: (context, chatProvider, child) =>
-                        _buildChatTeaser(context, authProvider, chatProvider, responsive),
+                        _buildChatTeaser(context, chatProvider, responsive),
                   ),
                 ),
               ),
@@ -467,7 +469,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: responsive.padding(horizontal: 16),
                   child: Consumer2<BudgetProvider, InsightProvider>(
                     builder: (context, budgetProvider, insightProvider, child) =>
-                        _buildInsightTeaser(context, authProvider, budgetProvider, insightProvider, responsive),
+                        _buildInsightTeaser(context, budgetProvider, insightProvider, responsive),
                   ),
                 ),
               ),
@@ -1044,10 +1046,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // fetched for the Budgets preview above), (3) the generic AI-insights
   // teaser. The mockup's own example ("Food & Daily Living is 9% over its
   // cap with 22 days to go") is budget arithmetic, not an AI call, so (2)
-  // doesn't require a premium request to show something real either.
+  // doesn't require an AI request to show something real either.
   Widget _buildInsightTeaser(
     BuildContext context,
-    AuthProvider authProvider,
     BudgetProvider budgetProvider,
     InsightProvider insightProvider,
     ResponsiveHelper responsive,
@@ -1117,18 +1118,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (!authProvider.isPremium) ...[
-                  Spacer(),
-                  // Solid tertiary fill (not tertiaryContainer) — this card's
-                  // own background already IS tertiaryContainer, so a
-                  // same-tone badge would be invisible against it.
-                  StatusPill(
-                    label: localizations.premium.toUpperCase(),
-                    background: scheme.tertiary,
-                    foreground: scheme.onTertiary,
-                    dense: true,
-                  ),
-                ],
               ],
             ),
             SizedBox(height: responsive.sp8),
@@ -1174,7 +1163,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // applies to the Insight teaser.
   Widget _buildChatTeaser(
     BuildContext context,
-    AuthProvider authProvider,
     ChatProvider chatProvider,
     ResponsiveHelper responsive,
   ) {
@@ -1221,15 +1209,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (!authProvider.isPremium) ...[
-                  Spacer(),
-                  StatusPill(
-                    label: 'TRY FREE',
-                    background: scheme.tertiary,
-                    foreground: scheme.onTertiary,
-                    dense: true,
-                  ),
-                ],
               ],
             ),
             SizedBox(height: responsive.sp8),
@@ -1704,7 +1683,6 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icons.edit_rounded,
               title: localizations.manualEntry,
               subtitle: localizations.typeTransactionDetails,
-              isPremiumFeature: false,
               onTap: () async {
                 Navigator.pop(context);
                 final result = await Navigator.push(
@@ -1722,7 +1700,7 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icons.mic_rounded,
               title: localizations.voiceInput,
               subtitle: localizations.speakYourTransaction,
-              isPremiumFeature: true,
+              feature: PlanFeature.entry,
               onTap: () async {
                 Navigator.pop(context);
                 final result = await Navigator.push(
@@ -1740,7 +1718,7 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icons.document_scanner_rounded,
               title: localizations.scanReceipt,
               subtitle: localizations.takeUploadPhoto,
-              isPremiumFeature: true,
+              feature: PlanFeature.entry,
               onTap: () async {
                 Navigator.pop(context);
                 final result = await Navigator.push(
@@ -1764,11 +1742,13 @@ class _HomeScreenState extends State<HomeScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
-    bool isPremiumFeature = false,
+    String? feature,
   }) {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final isLocked = isPremiumFeature && !authProvider.isPremium;
-    final localizations = AppLocalizations.of(context);
+    // An AI option shows a padlock when the owner left it out of the user's
+    // plan (its screen then offers Upgrade); otherwise it is open and its
+    // screen shows the allowance left.
+    final isLocked = feature != null &&
+        Provider.of<PlanProvider>(context, listen: false).isLocked(feature);
     final scheme = Theme.of(context).colorScheme;
 
     return Card(
@@ -1777,17 +1757,10 @@ class _HomeScreenState extends State<HomeScreen> {
         title: title,
         subtitle: subtitle,
         onTap: onTap,
-        trailing: isLocked
-            ? Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: StatusPill(
-                  label: localizations.premium.toUpperCase(),
-                  background: scheme.tertiaryContainer,
-                  foreground: scheme.tertiary,
-                  dense: true,
-                ),
-              )
-            : Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
+        trailing: Icon(
+          isLocked ? Icons.lock_rounded : Icons.chevron_right_rounded,
+          color: scheme.onSurfaceVariant,
+        ),
       ),
     );
   }
