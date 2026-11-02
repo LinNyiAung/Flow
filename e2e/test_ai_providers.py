@@ -1619,6 +1619,11 @@ def _outbox_ai_calls(before):
     return [x for x in outbox_lines()[before:] if x.get("kind") == "ai_call"]
 
 
+def without_token(body):
+    """A transcribe-audio answer without its voice_token: the part that does not change from run to run."""
+    return {k: v for k, v in body.items() if k != "voice_token"}
+
+
 async def runner_checks():
     """Task 6: the runner (fallback, cool-off, usage tracking, status), in-process against the fakes."""
     from sqlalchemy import delete, insert, select
@@ -3237,6 +3242,8 @@ async def _budget_inprocess_checks(uid):
     health.reset()
     stubenv.clear_fake_ai()
     now = datetime.now(UTC)
+    # the route now reserves a budget_suggestion use: this is the test's Plus user (5 a month), as in the HTTP checks
+    plus_user = {"_id": uid, "subscription_type": "plus"}
     parent = {"start_date": now - timedelta(days=30), "end_date": now + timedelta(days=1), "currency": "usd",
               "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100.0, "spent_amount": 60.0,
                                     "percentage_used": 60.0, "is_exceeded": False}],
@@ -3338,7 +3345,7 @@ async def _budget_inprocess_checks(uid):
             with LogCapture("budget_service") as cap:
                 req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
                 try:
-                    await budget_routes.get_ai_budget_suggestions(req, current_user={"_id": uid})
+                    await budget_routes.get_ai_budget_suggestions(req, current_user=plus_user)
                     err = None
                 except HTTPException as e:
                     err = e
@@ -3361,7 +3368,7 @@ async def _budget_inprocess_checks(uid):
         try:
             req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
             try:
-                await budget_routes.get_ai_budget_suggestions(req, current_user={"_id": uid})
+                await budget_routes.get_ai_budget_suggestions(req, current_user=plus_user)
                 err = None
             except HTTPException as e:
                 err = e
@@ -3569,7 +3576,8 @@ async def transaction_checks():
         n0 = len(await usage(uid, "transaction_audio_transcription"))
         r = audio_post(U, language="my")
         rows = (await usage(uid, "transaction_audio_transcription"))[n0:]
-        check(r.status_code == 200 and r.json() == {"transcription": "fake transcript"} and calls(before) == ["openai", "gemini"],
+        check(r.status_code == 200 and without_token(r.json()) == {"transcription": "fake transcript"}
+              and r.json().get("voice_token") and calls(before) == ["openai", "gemini"],
               "audio_falls_back_to_gemini: 200 transcript from gemini", f"{r.status_code} {r.text[:200]} {calls(before)}")
         check(len(rows) == 1 and rows[0]["provider"] == "gemini" and rows[0]["fallback_from"] == "openai"
               and rows[0]["model_name"] == "gemini-2.5-flash",
@@ -3623,7 +3631,8 @@ async def _transaction_inprocess_checks(uid):
     saved = (settings._env, dict(settings._env_units), settings._panel)
     health.reset()
     stubenv.clear_fake_ai()
-    user = {"_id": uid, "default_currency": "usd"}
+    # the routes now reserve entry uses: this is the test's Plus user (150 a month), as in the HTTP checks above
+    user = {"_id": uid, "default_currency": "usd", "subscription_type": "plus"}
     buf = io.BytesIO()
     Image.new("RGB", (8, 8), (10, 120, 200)).save(buf, "PNG")
     png = buf.getvalue()
@@ -3691,7 +3700,8 @@ async def _transaction_inprocess_checks(uid):
             up = UploadFile(file=io.BytesIO(b"\x00\x01"), filename="note.m4a")
             res = await tr.transcribe_audio(audio=up, language=lang, current_user=user)
             kw = stubenv.LAST_KWARGS["openai"]
-            check(res == {"transcription": "fake transcript"} and kw.get("language") == want_lang and kw["model"] == "whisper-1"
+            check(without_token(res) == {"transcription": "fake transcript"} and res.get("voice_token")
+                  and kw.get("language") == want_lang and kw["model"] == "whisper-1"
                   and kw["file"][0].endswith(".m4a"), f"tx audio: language {lang!r} reaches whisper as {want_lang!r}", kw)
         up = UploadFile(file=io.BytesIO(b"\x00\x01"), filename="noext")
         await tr.transcribe_audio(audio=up, language=None, current_user=user)

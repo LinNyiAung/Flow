@@ -8,8 +8,12 @@ import uuid
 
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once
 from tz_utils import app_wall_clock_now
+from plans import quota
+from plans.access import effective_plan
+from plans.catalog import PAID_PLANS
 from sql import budgets as budgets_db
 from sql import transactions as transactions_db
+from sql import users as users_db
 from sql import goals as goals_db
 from sql.categories import get_categories_doc
 from budget_models import (
@@ -159,6 +163,9 @@ class BudgetAnalyzer:
 
     def __init__(self, user_id: str):
         self.user_id = user_id
+        # True once generate_ai_suggestions returned the AI's answer; False for the rule-based suggestions that
+        # replace it (the AI failed, or there was too little data to ask it).
+        self.used_ai = False
 
     # [FIX] Changed to async def
     async def analyze_spending_patterns(self, months: int = 3, currency: str = "usd") -> Dict:
@@ -309,11 +316,13 @@ class BudgetAnalyzer:
         # Use AI (the budget_suggestion provider chain) to generate smart suggestions; if no provider can
         # answer (none configured, all failing) the rule-based suggestions below are used instead.
         suggestions = None
+        self.used_ai = False
         if analysis["sufficient_data"]:
             try:
                 suggestions = await self._generate_with_ai(
                     analysis, period, days_in_period, include_categories, user_context, currency  # NEW parameter
                 )
+                self.used_ai = True
             except AllProvidersFailed as e:
                 logger.warning(f"AI budget suggestion unavailable for user {self.user_id}: {e}")
                 if any(f.kind != "not_configured" for f in e.failures):
@@ -1236,6 +1245,19 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
 
 
 
+async def _owner_gets_ai_budgets(user_id: str) -> bool:
+    """True when the budget's owner is on Plus or Pro right now (an expired plan counts as Free) and is not over their
+    monthly cost cap. A failed lookup means no AI: the budget is still created, from the adjusted amounts."""
+    try:
+        owner = await users_db.get_user(user_id)
+        if owner is None or effective_plan(owner) not in PAID_PLANS:
+            return False
+        return not await quota.over_cost_cap(owner)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Auto-create: cannot check the plan of user {user_id}, using the adjusted budgets: {e}")
+        return False
+
+
 async def _generate_ai_category_budgets(
     user_id: str,
     period: BudgetPeriod,
@@ -1287,6 +1309,11 @@ async def _generate_ai_category_budgets(
     category_spending = {}
     for cat_budget in parent_budget["category_budgets"]:
         category_spending[cat_budget["main_category"]] = cat_budget.get("spent_amount", 0)
+
+    # The AI path is for owners on a paid plan who are under their cost cap; everyone else gets the non-AI adjusted
+    # budgets, with no AI call. A scheduled job: it never uses an allowance, but its spend counts toward the cap.
+    if not await _owner_gets_ai_budgets(user_id):
+        return _generate_adjusted_budgets(parent_budget, days_in_period)
 
     # The budget_auto_create provider chain; if it gives no usable answer (none configured, all failing,
     # nothing valid in the answer) or anything else goes wrong, the non-AI adjusted budgets are used.

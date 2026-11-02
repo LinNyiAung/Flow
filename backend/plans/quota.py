@@ -190,6 +190,19 @@ async def reserve(user: Mapping[str, Any], feature: str, *, also: Sequence[str] 
     return Reservation(uid, [r[:3] for r in rows])
 
 
+async def give_back(r: Reservation) -> None:
+    """Release `r` (a no-op once committed or released) so that a cancelled request still gives the use back, and a
+    failed release is logged instead of hiding the error the caller is handling.
+
+    For a route that decides itself whether an answer counts (`reserve`, then `commit` or `give_back`); a
+    `use` block releases through this on an exception.
+    """
+    try:
+        await asyncio.shield(r.release())
+    except Exception:  # noqa: BLE001 - never hide the original error behind a failed release
+        logger.exception("Could not release a reserved use for user %s", r.user_id)
+
+
 @asynccontextmanager
 async def use(user: Mapping[str, Any], feature: str, *, also: Sequence[str] = (),
               now: Optional[datetime] = None) -> AsyncIterator[Reservation]:
@@ -200,11 +213,7 @@ async def use(user: Mapping[str, Any], feature: str, *, also: Sequence[str] = ()
         yield r
     except BaseException:
         if not r.committed:
-            try:
-                # shielded so a cancelled request (client gone) still gives the use back
-                await asyncio.shield(r.release())
-            except Exception:  # noqa: BLE001 - never hide the original error behind a failed release
-                logger.exception("Could not release a reserved use of %s for user %s", feature, r.user_id)
+            await give_back(r)
         raise
     r.commit()
 

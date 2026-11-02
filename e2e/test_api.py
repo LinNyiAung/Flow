@@ -718,7 +718,8 @@ def t_ai():
     r = c.post("/api/transactions/extract-from-text", headers=H(A), json={"text": "coffee 3 dollars"})
     rec("extract-from-text (AI stubbed)", "INFO", f"{r.status_code} {r.text[:150]}")
     r = c.post("/api/transactions/extract-from-text", headers=H(S["B"]), json={"text": "coffee"})
-    ok("extract-from-text requires premium", r.status_code == 403, r.status_code)
+    ok("extract-from-text is open to a Free user within the Free entry allowance (10 a month)",
+       r.status_code == 200 and r.json().get("amount") == 2.5, f"{r.status_code} {r.text[:150]}")
 
     r = c.post("/api/transactions/batch-create", headers=H(A), json=[
         {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Coffee & Snacks", "date": iso(now), "amount": 3, "currency": "usd"},

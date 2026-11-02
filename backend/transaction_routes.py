@@ -5,6 +5,7 @@ from PIL import Image
 import uuid
 import time
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import datetime, UTC, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Set
@@ -18,7 +19,8 @@ from pydantic import ValidationError
 from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
-from utils import get_current_user, get_user_balance, get_user_money_lock, require_paid
+from utils import get_current_user, get_user_balance, get_user_money_lock
+from plans import quota, voice_token
 from goal_routes import to_cents
 from recurring_transaction_service import (
     disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview,
@@ -266,6 +268,24 @@ async def _run_ai(feature: str, user_id: str, call, parse=lambda c: c, allow_emp
         # error, not warning: this path also catches our own bugs, which must be visible in the logs
         logger.error(f"{feature} request rejected for user {user_id}: {redact(f'{type(e).__name__}: {e}')}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_AI_BAD_REQUEST) from e
+
+
+@asynccontextmanager
+async def _entry_use(user: dict, text: Optional[str] = None, token: Optional[str] = None):
+    """One use of the shared "entry" allowance around an extraction: reserved before the AI call (a locked feature,
+    the cost cap or a used-up allowance raise PlanError, which no handler below may swallow), committed when the
+    block ends cleanly, released when it raises (a 503, a 400, an unusable answer).
+
+    A voice entry is one use: a valid `token` for this user and exactly this `text` (see plans.voice_token) means
+    transcribe-audio already counted it, so nothing more is reserved. Any other token is ignored, the request counts
+    normally, and a user at the cost cap gets the normal refusal.
+    """
+    if token and text is not None and voice_token.is_valid(token, user["_id"], text) \
+            and not await quota.over_cost_cap(user):
+        yield
+        return
+    async with quota.use(user, "entry"):
+        yield
 
 
 def _log_ai_usage(label: str, user_id: str, result) -> None:
@@ -761,14 +781,33 @@ _WHISPER_LANGUAGES = {"en": "en", "my": "my", "mm": "my"}
 async def transcribe_audio(
     audio: UploadFile = File(...),
     language: Optional[str] = Form(default=None),
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Transcribe audio to text with the transaction_audio provider chain (OpenAI Whisper by default).
 
     Optional multipart form field `language`: "en" or "my" (Burmese; "mm" accepted as an
     alias). When omitted, the language is auto-detected.
+
+    Uses one "entry" allowance, kept only for a non-empty transcript (silence, an error or a refusal gives it back).
+    A kept use returns a `voice_token` beside the transcription: send it as `voice_token` with the text extraction
+    of that transcript and the voice entry stays one use (plans.voice_token).
     """
+    reservation = await quota.reserve(current_user, "entry")  # outside the handlers below: a PlanError passes through
+    try:
+        out = await _transcribe_audio(audio, language, current_user)
+    except BaseException:
+        await quota.give_back(reservation)
+        raise
+    if not out["transcription"].strip():
+        await quota.give_back(reservation)
+        return out
+    reservation.commit()
+    token = voice_token.issue(current_user["_id"], out["transcription"])
+    return {**out, "voice_token": token} if token else out
+
+
+async def _transcribe_audio(audio: UploadFile, language: Optional[str], current_user: dict) -> dict:
     whisper_language = None
     if language is not None and language.strip():
         whisper_language = _WHISPER_LANGUAGES.get(language.strip().lower())
@@ -817,9 +856,14 @@ async def transcribe_audio(
 @router.post("/extract-from-text", response_model=TransactionExtraction)
 async def extract_transaction_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Extract transaction details from text with the transaction_text provider chain"""
+    """Extract transaction details from text with the transaction_text provider chain (one "entry" use)"""
+    async with _entry_use(current_user, request.text, request.voice_token):
+        return await _extract_transaction_from_text(request, current_user)
+
+
+async def _extract_transaction_from_text(request: TextExtractionRequest, current_user: dict):
     try:
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
@@ -900,9 +944,15 @@ Respond in JSON format:
 @router.post("/extract-multiple-from-text", response_model=MultipleTransactionExtraction)
 async def extract_multiple_transactions_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Extract multiple transaction details from text with the transaction_text provider chain"""
+    """Extract multiple transaction details from text with the transaction_text provider chain (one "entry" use;
+    an answer that finds no transactions still counts)"""
+    async with _entry_use(current_user, request.text, request.voice_token):
+        return await _extract_multiple_transactions_from_text(request, current_user)
+
+
+async def _extract_multiple_transactions_from_text(request: TextExtractionRequest, current_user: dict):
     try:
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
@@ -1015,9 +1065,9 @@ Respond in JSON format:
 async def batch_create_transactions(
     transactions_data: List[TransactionCreate],
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Create multiple transactions at once (one all-or-nothing insert)"""
+    """Create multiple transactions at once (one all-or-nothing insert). Not an AI call: every plan may use it."""
     new_transactions = []
     response_models = []
 
@@ -1099,12 +1149,17 @@ def process_and_resize_image(image_data: bytes) -> bytes:
 @router.post("/extract-from-image", response_model=TransactionExtraction)
 async def extract_transaction_from_image(
     image: UploadFile = File(...),
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Extract transaction details from a receipt image with the transaction_image provider chain.
+    Extract transaction details from a receipt image with the transaction_image provider chain (one "entry" use).
     (Memory Optimized: Resizes images before processing)
     """
+    async with _entry_use(current_user):
+        return await _extract_transaction_from_image(image, current_user)
+
+
+async def _extract_transaction_from_image(image: UploadFile, current_user: dict):
     try:
         # 1. Validate File Size (Content-Length Header)
         # Fail fast if the client reports a file larger than our limit

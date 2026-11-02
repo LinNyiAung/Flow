@@ -5,7 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from utils import get_current_user, require_paid
+from utils import get_current_user
+from plans import quota
 from pdf_generator import generate_financial_report_pdf
 from report_models import (
     CategoryBreakdown, CurrencyReport, FinancialReport, GoalProgress, 
@@ -412,9 +413,18 @@ async def generate_multi_currency_report(
 @router.post("/download")
 async def download_report_pdf(
     report_request: ReportRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Generate and download a financial report as PDF (single currency only for now)"""
+    """Generate and download a financial report as PDF (single currency only for now).
+
+    Needs "reports" unlocked on the user's plan (Free: 403 plan_feature_locked). By default Plus and Pro have it
+    included, so nothing is counted; if the owner makes it a counted limit, a download that fails gives its use back.
+    """
+    async with quota.use(current_user, "reports"):
+        return await _download_report_pdf(report_request, current_user)
+
+
+async def _download_report_pdf(report_request: ReportRequest, current_user: dict):
     try:
         # Determine currency
         currency = report_request.currency
