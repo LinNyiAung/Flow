@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from ai_providers.errors import AllProvidersFailed
 from models import Currency
 from finite_utils import finite_or
-from utils import get_current_user, require_premium
+from utils import get_current_user, require_paid
 
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
 from budget_service import (
@@ -102,7 +102,7 @@ def _summarize(budgets: List[dict]) -> dict:
 @router.post("/ai-suggest", response_model=AIBudgetSuggestion)
 async def get_ai_budget_suggestions(
     request: AIBudgetRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Get AI-generated budget suggestions (Premium Feature)"""
     try:

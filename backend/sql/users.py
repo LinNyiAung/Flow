@@ -23,10 +23,18 @@ def _values(fields: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ------------------------------------------------------------------ subscription rule
-def active_premium(now: datetime) -> ColumnElement:
+def _not_expired(now: datetime) -> ColumnElement:
+    return or_(users.c.subscription_expires_at.is_(None), users.c.subscription_expires_at > now)
+
+
+def active_plan(plan: str, now: datetime) -> ColumnElement:
+    """On this plan ("plus" or "pro") and not expired (no expiry date = lifetime)."""
+    return and_(users.c.subscription_type == plan, _not_expired(now))
+
+
+def active_paid(now: datetime) -> ColumnElement:
     """On a paid plan (plus or pro) and not expired (no expiry date = lifetime)."""
-    return and_(users.c.subscription_type.in_(PAID_PLANS),
-                or_(users.c.subscription_expires_at.is_(None), users.c.subscription_expires_at > now))
+    return and_(users.c.subscription_type.in_(PAID_PLANS), _not_expired(now))
 
 
 def effectively_free(now: datetime) -> ColumnElement:
@@ -147,9 +155,30 @@ async def change_password(user_id: str, password_hash: str, changed_at: datetime
 
 
 async def claim_free_trial(user_id: str, expires_at: datetime) -> bool:
+    """One-time Plus trial: the plan end and the trial marker (trial_ends_at) are the same instant."""
     return await update_user(user_id, users.c.has_claimed_free_trial.is_(False),
                              subscription_type="plus", subscription_expires_at=expires_at,
-                             has_claimed_free_trial=True) > 0
+                             trial_ends_at=expires_at, has_claimed_free_trial=True) > 0
+
+
+async def set_plan(user_id: str, plan: str, expires_at: Optional[datetime]) -> int:
+    """Admin plan change. Always clears the trial marker (and so any pending trial reminder)."""
+    return await update_user(user_id, subscription_type=plan, subscription_expires_at=expires_at, trial_ends_at=None)
+
+
+# Which column records that a trial reminder went out ("3d": ends within 3 days, "last": within the last day).
+_REMINDER_COLUMNS = {"3d": "trial_reminder_3d_at", "last": "trial_reminder_last_at"}
+
+
+async def claim_trial_reminder(user_id: str, kind: str, trial_ends_at: datetime, now: datetime) -> bool:
+    """Record that the `kind` reminder is being sent; True for exactly one caller.
+
+    Only while the user is still on the same trial (same trial_ends_at, on a paid plan) and the reminder has not
+    been recorded yet, so overlapping runs, a re-run, or an admin plan change in between never send it twice.
+    """
+    column = users.c[_REMINDER_COLUMNS[kind]]
+    return await update_user(user_id, users.c.trial_ends_at == trial_ends_at, users.c.subscription_type.in_(PAID_PLANS),
+                             column.is_(None), **{column.name: now}) > 0
 
 
 async def claim_ai_data_fresh(user_id: str) -> bool:

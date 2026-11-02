@@ -67,7 +67,9 @@ class UserListResponse(BaseModel):
 class UserStatsResponse(BaseModel):
     total_users: int
     free_users: int
-    premium_users: int
+    plus_users: int
+    pro_users: int
+    paid_users: int  # plus + pro
     new_users_last_30_days: int
     active_users_last_7_days: int
     total_transactions: int
@@ -109,7 +111,9 @@ class AdminActionLog(BaseModel):
 class SystemStatsResponse(BaseModel):
     total_users: int
     free_users: int
-    premium_users: int
+    plus_users: int
+    pro_users: int
+    paid_users: int  # plus + pro
     total_transactions: int
     total_goals: int
     total_budgets: int
@@ -125,7 +129,7 @@ class SystemStatsResponse(BaseModel):
 class BroadcastNotificationRequest(BaseModel):
     title: str
     message: str
-    target_users: Literal["all", "free", "premium"] = "all"
+    target_users: Literal["all", "free", "plus", "pro", "paid"] = "all"  # paid = plus or pro
     notification_type: NotificationType = NotificationType.SYSTEM_BROADCAST
 
     @field_validator("title", "message")

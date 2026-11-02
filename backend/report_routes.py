@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from utils import get_current_user, require_premium
+from utils import get_current_user, require_paid
 from pdf_generator import generate_financial_report_pdf
 from report_models import (
     CategoryBreakdown, CurrencyReport, FinancialReport, GoalProgress, 
@@ -412,7 +412,7 @@ async def generate_multi_currency_report(
 @router.post("/download")
 async def download_report_pdf(
     report_request: ReportRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Generate and download a financial report as PDF (single currency only for now)"""
     try:

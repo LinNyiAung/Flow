@@ -1,6 +1,7 @@
 """Plans and AI quotas: the Free/Plus/Pro schema, the plan catalogue and the premium -> plus migration (task 1),
 then the period maths, the limits store and the admin Plans API (task 2), then the quota engine, the cost cap and
-GET /api/plan (task 3, in plans_quota_checks.py).
+GET /api/plan (task 3, in plans_quota_checks.py), then plan expiry, the Plus trial and its reminders, and the admin
+usage controls (task 4, in plans_subscription_checks.py).
 
 Print-only suite: every check prints [PASS] or [BUG]; the exit code is non-zero if any check failed.
 Keep this suite LAST in run_backend_suite.SUITES (it runs alembic downgrade/upgrade on the e2e database).
@@ -260,8 +261,9 @@ def behaviour_checks():
             r = c.get("/api/insights", headers=h)
             check((r.status_code != 403) == paid, f"behaviour: {tag} user {'reaches' if paid else 'is blocked from'} a premium endpoint", r.status_code)
             s = c.get("/api/auth/subscription-status", headers=h)
-            check(s.status_code == 200 and s.json().get("is_premium") == paid and s.json().get("subscription_type") == sub,
-                  f"behaviour: subscription-status for {tag} says is_premium={paid}", s.text[:200])
+            check(s.status_code == 200 and s.json().get("is_paid") == paid and s.json().get("subscription_type") == sub
+                  and s.json().get("plan") == (sub if paid else "free"),
+                  f"behaviour: subscription-status for {tag} says is_paid={paid}", s.text[:200])
         email, h = user("trial", "free")
         r = c.post("/api/auth/claim-free-trial", headers=h)
         check(r.status_code == 200 and r.json().get("subscription_type") == "plus", "behaviour: claim-free-trial grants plus", r.text[:200])
@@ -707,11 +709,13 @@ async def plans_checks():
     """Task 2 and 3 checks under ONE event loop: the backend's async DB engine binds to the first loop it is used on."""
     from sql.db import dispose_engine
     import plans_quota_checks
+    import plans_subscription_checks
     try:
         period_checks()
         await store_checks()
         api_checks()
         await plans_quota_checks.run(sys.modules[__name__])  # task 3: quota engine, cost cap, /api/plan
+        await plans_subscription_checks.run(sys.modules[__name__])  # task 4: expiry, trial, reminders, admin usage controls
     finally:
         await dispose_engine()
 

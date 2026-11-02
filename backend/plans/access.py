@@ -63,9 +63,10 @@ class PlanError(Exception):
     """A plan check refused the request: the feature is locked, its allowance is used up, or the cost cap is reached.
 
     status: 403 for plan_feature_locked, 429 otherwise. resets_at: an aware UTC datetime (None for a locked feature).
+    feature: a quota feature key, or None for a route that only needs a paid plan (utils.require_paid).
     """
 
-    def __init__(self, code: str, feature: str, *, resets_at: Optional[datetime] = None,
+    def __init__(self, code: str, feature: Optional[str], *, resets_at: Optional[datetime] = None,
                  upgrade_available: bool = False, lang: str = "en"):
         if code not in _STATUS:
             raise ValueError(f"Unknown plan error code '{code}'")
@@ -81,10 +82,12 @@ class PlanError(Exception):
         from notification_service import translate  # imported late: it pulls in the notification stack
 
         lang = self.lang
-        name = translate(f"plan_feature_{self.feature}", lang)
+        name = translate(f"plan_feature_{self.feature}", lang) if self.feature else ""
         date = _format_date(self.resets_at, lang) if self.resets_at is not None else ""
         if self.code == LOCKED:
-            text = translate("plan_feature_locked_msg", lang, feature=name)
+            # feature None: a route that needs any paid plan and is not one of the quota features
+            text = (translate("plan_feature_locked_msg", lang, feature=name) if self.feature
+                    else translate("plan_paid_required_msg", lang))
             hint = "plan_upgrade_to_unlock"
         elif self.code == LIMIT_REACHED:
             text = translate("plan_limit_reached_msg", lang, feature=name, date=date)

@@ -15,7 +15,7 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 SUITES = ["test_api", "test_jobs", "test_jobs2", "test_regressions_all", "test_regressions2", "test_regressions3",
-          "test_round3", "test_backend_r4", "test_round5", "test_sweep", "test_load", "test_burst_pooled", "test_premium_expiry", "test_money_lock", "test_app_download", "test_ai_providers", "test_plans"]
+          "test_round3", "test_backend_r4", "test_round5", "test_sweep", "test_load", "test_burst_pooled", "test_plan_expiry", "test_money_lock", "test_app_download", "test_ai_providers", "test_plans"]
 
 # A run killed mid-check can leave the fake-AI failure control behind (stubenv.FAKE_CONTROL); the stubbed
 # server re-reads it on every fake call, so clear it before any suite starts.
@@ -69,7 +69,7 @@ for (suite, st), n in sorted(printed.items()):
     print(f"  {suite:24} {st:5} {n}")
 # Suites that only print; the others also record every check in api_results.json,
 # so counting their printed lines too would double-count.
-PRINT_ONLY = {"test_jobs2", "test_regressions2", "test_regressions3", "test_backend_r4", "test_round5", "test_premium_expiry", "test_money_lock", "test_app_download", "test_ai_providers", "test_plans"}
+PRINT_ONLY = {"test_jobs2", "test_regressions2", "test_regressions3", "test_backend_r4", "test_round5", "test_plan_expiry", "test_money_lock", "test_app_download", "test_ai_providers", "test_plans"}
 total = Counter(r[2] for r in rows)
 for (suite, st), n in printed.items():
     if suite in PRINT_ONLY:

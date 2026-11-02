@@ -15,7 +15,7 @@ from sqlalchemy.exc import DBAPIError
 from finite_utils import SafeJSONResponse, json_safe
 
 from firebase_service import initialize_firebase
-from utils import get_current_user, get_user_balance, require_premium
+from utils import get_current_user, get_user_balance, require_paid
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
 from scheduler import start_scheduler
 from pdf_generator import generate_financial_report_pdf
@@ -293,7 +293,7 @@ def _sse(payload: dict) -> str:
 @app.post("/api/chat/stream")
 async def stream_chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """
     Stream chat response from AI (Server-Sent Events, media type text/event-stream).
@@ -370,7 +370,7 @@ async def stream_chat_with_ai(
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Chat with AI about financial data (deprecated - use /stream)"""
     raise HTTPException(
@@ -523,7 +523,7 @@ async def get_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Get latest AI-generated financial insights.
 
@@ -615,7 +615,7 @@ async def regenerate_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored."""
     try:
@@ -647,7 +647,7 @@ async def regenerate_insights(
 async def translate_insights_to_myanmar(
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Translate the latest weekly or monthly insight to Myanmar.
 
@@ -682,7 +682,7 @@ async def translate_insights_to_myanmar(
 
 @app.post("/api/insights/generate-weekly")
 async def manually_generate_weekly_insights(
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain)"""
     try:

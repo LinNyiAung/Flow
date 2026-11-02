@@ -25,6 +25,8 @@ class NotificationType(str, Enum):
     SYSTEM_BROADCAST = "system_broadcast"  # NEW
     ADMIN_ANNOUNCEMENT = "admin_announcement"  # NEW
     SUBSCRIPTION_EXPIRED = "subscription_expired"
+    TRIAL_ENDING_SOON = "trial_ending_soon"
+    TRIAL_ENDS_TODAY = "trial_ends_today"
 
 def parse_notification_type(value) -> NotificationType:
     """

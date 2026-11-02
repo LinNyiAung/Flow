@@ -86,9 +86,14 @@ def _spend_window_start(user: Mapping[str, Any], now: datetime) -> datetime:
     return start
 
 
+async def month_spend(user: Mapping[str, Any], now: Optional[datetime] = None) -> float:
+    """The user's AI spend in USD in the cost cap's window: since the later of this month's start and the last reset."""
+    now = _now(now)
+    return await ai_usage_db.user_cost_since(_user_id(user), _spend_window_start(user, now))
+
+
 async def _at_cost_cap(user: Mapping[str, Any], plan: str, now: datetime) -> bool:
-    spend = await ai_usage_db.user_cost_since(_user_id(user), _spend_window_start(user, now))
-    return spend >= store.cost_cap(plan)
+    return await month_spend(user, now) >= store.cost_cap(plan)
 
 
 async def over_cost_cap(user: Mapping[str, Any], now: Optional[datetime] = None) -> bool:

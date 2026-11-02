@@ -808,7 +808,7 @@ def t_admin():
     r = c.get("/api/admin/ai-usage/users", headers=H(AD), params={"start_date": iso(now - timedelta(days=1)), "end_date": iso(now)})
     ok("ai-usage/users accepts a date range", r.status_code == 200, f"{r.status_code} {r.text[:150]}")
     r = c.post("/api/admin/broadcast-notification", headers=H(AD),
-               json={"title": "Hello", "message": "hi", "target_users": "premium"})
+               json={"title": "Hello", "message": "hi", "target_users": "paid"})
     ok("broadcast (default type)", r.status_code == 200, r.text[:200])
     rec("broadcast result", "INFO", r.text[:200])
     r = c.get("/api/notifications", headers=H(S["A"]))

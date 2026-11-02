@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
-from utils import get_current_user, get_user_balance, get_user_money_lock, require_premium
+from utils import get_current_user, get_user_balance, get_user_money_lock, require_paid
 from goal_routes import to_cents
 from recurring_transaction_service import (
     disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview,
@@ -761,7 +761,7 @@ _WHISPER_LANGUAGES = {"en": "en", "my": "my", "mm": "my"}
 async def transcribe_audio(
     audio: UploadFile = File(...),
     language: Optional[str] = Form(default=None),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """
     Transcribe audio to text with the transaction_audio provider chain (OpenAI Whisper by default).
@@ -817,7 +817,7 @@ async def transcribe_audio(
 @router.post("/extract-from-text", response_model=TransactionExtraction)
 async def extract_transaction_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Extract transaction details from text with the transaction_text provider chain"""
     try:
@@ -900,7 +900,7 @@ Respond in JSON format:
 @router.post("/extract-multiple-from-text", response_model=MultipleTransactionExtraction)
 async def extract_multiple_transactions_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Extract multiple transaction details from text with the transaction_text provider chain"""
     try:
@@ -1015,7 +1015,7 @@ Respond in JSON format:
 async def batch_create_transactions(
     transactions_data: List[TransactionCreate],
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """Create multiple transactions at once (one all-or-nothing insert)"""
     new_transactions = []
@@ -1099,7 +1099,7 @@ def process_and_resize_image(image_data: bytes) -> bytes:
 @router.post("/extract-from-image", response_model=TransactionExtraction)
 async def extract_transaction_from_image(
     image: UploadFile = File(...),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(require_paid)
 ):
     """
     Extract transaction details from a receipt image with the transaction_image provider chain.

@@ -44,6 +44,8 @@ users = Table(
     Column("premium_ended_at", TS),
     Column("trial_ends_at", TS),  # set while the plan is the free-trial grant; NULL otherwise
     Column("usage_reset_at", TS),  # admin "reset usage": allowances and cost cap count from here
+    Column("trial_reminder_3d_at", TS),  # when the "trial ends soon" reminder went out (each reminder is sent at most once)
+    Column("trial_reminder_last_at", TS),  # when the "last day of the trial" reminder went out
     Column("has_claimed_free_trial", Boolean, nullable=False, server_default=text("false")),
     Column("default_currency", Text, nullable=False, server_default="usd"),
     Column("language", Text, nullable=False, server_default="en"),
