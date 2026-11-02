@@ -417,11 +417,11 @@ async def download_report_pdf(
 ):
     """Generate and download a financial report as PDF (single currency only for now).
 
-    Needs "reports" unlocked on the user's plan (Free: 403 plan_feature_locked). By default Plus and Pro have it
-    included, so nothing is counted; if the owner makes it a counted limit, a download that fails gives its use back.
+    Needs "reports" unlocked on the user's plan (Free: 403 plan_feature_locked). That is the only gate: the PDF is not
+    an AI action, so nothing is counted and the hidden AI cost cap does not apply.
     """
-    async with quota.use(current_user, "reports"):
-        return await _download_report_pdf(report_request, current_user)
+    quota.require_unlocked(current_user, "reports")
+    return await _download_report_pdf(report_request, current_user)
 
 
 async def _download_report_pdf(report_request: ReportRequest, current_user: dict):

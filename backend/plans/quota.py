@@ -190,6 +190,19 @@ async def reserve(user: Mapping[str, Any], feature: str, *, also: Sequence[str] 
     return Reservation(uid, [r[:3] for r in rows])
 
 
+def require_unlocked(user: Mapping[str, Any], feature: str, *, now: Optional[datetime] = None) -> None:
+    """Raise PlanError (403 plan_feature_locked) when `feature` is locked on the user's effective plan; otherwise nothing.
+
+    For a user action that is not an AI call (the Reports PDF): no allowance is reserved and the hidden cost cap, which
+    only guards AI spend, is not consulted, even if the owner made the feature a counted limit.
+    """
+    if feature not in FEATURES:
+        raise ValueError(f"Unknown quota feature '{feature}'")
+    plan = effective_plan(user, _now(now))
+    if store.limits(plan)[feature].mode == "locked":
+        raise PlanError(LOCKED, feature, upgrade_available=_upgrade_available(plan, feature), lang=user_language(user))
+
+
 async def give_back(r: Reservation) -> None:
     """Release `r` (a no-op once committed or released) so that a cancelled request still gives the use back, and a
     failed release is logged instead of hiding the error the caller is handling.

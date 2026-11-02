@@ -360,23 +360,38 @@ async def run(t):
             child = db.budgets.find_one({"_id": child_id}) if child_id else None
             alloc = next((x["allocated_amount"] for x in (child or {}).get("category_budgets", [])
                           if x["main_category"] == "Food & Daily Living"), None)
-            return len(calls), alloc, used(uid, "budget_suggestion"), child is not None and child.get("parent_budget_id") == parent_id
+            note = db.notifications.find_one({"user_id": uid, "type": "budget_auto_created"})
+            ai_wording = ("AI optimization" in (note.get("message") or "")) if note else None  # None: no notification
+            return (len(calls), alloc, used(uid, "budget_suggestion"),
+                    child is not None and child.get("parent_budget_id") == parent_id, ai_wording)
 
         # an AI-optimised budget for the fake answer is 450; the non-AI adjusted budget of 50 spent 0 is 40
+        # (AI calls, child allocation, budget_suggestion uses, child created, notification uses the AI wording)
         got = await auto_create("free")
-        check(got == (0, 40.0, 0, True),
-              "auto_create_ai_only_paid: a Free owner's auto-create makes no AI call and uses the adjusted budget (40)", got)
+        check(got == (0, 40.0, 0, True, False),
+              "auto_create_ai_only_paid: a Free owner's auto-create makes no AI call and uses the adjusted budget (40), "
+              "and the notification has the non-AI wording", got)
         got = await auto_create("plus", "plus")
-        check(got == (1, 450, 0, True),
-              "auto_create_ai_only_paid: a Plus owner's auto-create makes one AI call and uses its answer (450); no allowance used", got)
+        check(got == (1, 450, 0, True, True),
+              "auto_create_ai_only_paid: a Plus owner's auto-create makes one AI call and uses its answer (450); no allowance used; "
+              "the notification has the AI wording", got)
         got = await auto_create("pro", "pro")
-        check(got == (1, 450, 0, True), "auto_create_ai_only_paid: a Pro owner's auto-create makes one AI call", got)
+        check(got == (1, 450, 0, True, True), "auto_create_ai_only_paid: a Pro owner's auto-create makes one AI call", got)
         got = await auto_create("expired", "plus", datetime.now(UTC) - timedelta(days=1))
-        check(got == (0, 40.0, 0, True),
-              "auto_create_ai_only_paid: an owner whose Plus ended yesterday is Free at once: no AI call", got)
+        check(got == (0, 40.0, 0, True, False),
+              "auto_create_ai_only_paid: an owner whose Plus ended yesterday is Free at once: no AI call, non-AI wording", got)
         got = await auto_create("overcap", "plus", cost=5.0)
-        check(got == (0, 40.0, 0, True),
-              "auto_create_ai_only_paid: a Plus owner over their cost cap gets the adjusted budget, no AI call", got)
+        check(got == (0, 40.0, 0, True, False),
+              "auto_create_ai_only_paid: a Plus owner over their cost cap gets the adjusted budget, no AI call, non-AI wording", got)
+        from ai_providers import health
+        fake_all("server")
+        try:
+            got = await auto_create("fallback", "plus")
+        finally:
+            stubenv.clear_fake_ai()
+            health.reset()
+        check(got[0] >= 1 and got[1:] == (40.0, 0, True, False),
+              "auto_create_ai_only_paid: a Plus owner whose AI fails falls back to the adjusted budget with the non-AI wording", got)
 
         # ---- report_download_locked_free: the PDF needs Reports, which Free does not have
         r = c.post("/api/reports/download", headers=fh, json={"period": "month", "currency": "usd"})
@@ -397,6 +412,20 @@ async def run(t):
               "report_download_locked_free: a Plus plan that ended yesterday is locked at once", f"{r.status_code} {r.text[:120]}")
         r = c.post("/api/reports/generate", headers=fh, json={"period": "month", "currency": "usd"})
         check(r.status_code == 200, "report_download: the report data endpoint stays open to Free (only the PDF is gated)", r.status_code)
+
+        # the PDF is not an AI action: the hidden AI cost cap does not apply and nothing is counted
+        capid, caph = register("report-cap")
+        set_plan(capid, "plus")
+        add_cost(capid, 5.0)  # far over Plus's 1.00 cap
+        r = c.post("/api/reports/download", headers=caph, json={"period": "month", "currency": "usd"})
+        r2 = c.post("/api/chat/stream", headers=caph, json={"message": "hi"})
+        with t.connect() as conn:
+            counted = conn.execute("SELECT count(*) FROM usage_counters WHERE user_id = %s AND feature = 'reports'", (capid,)).fetchone()[0]
+        check(r.status_code == 200 and r.content[:4] == b"%PDF" and counted == 0,
+              "report_download: a Plus user over the cost cap can still download the PDF, and nothing is counted",
+              f"{r.status_code} {r.text[:120]} rows {counted}")
+        check(plan_error(r2, 429, "plan_cost_cap", "chat"),
+              "report_download: the same user is over the cap for AI (chat 429 plan_cost_cap)", f"{r2.status_code} {r2.text[:120]}")
     finally:
         try:
             reset_ai()
