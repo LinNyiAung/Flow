@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+from contextlib import aclosing
 from datetime import datetime, timedelta, UTC
 from typing import List, Optional
 
@@ -41,9 +42,6 @@ from sql import notifications as notifications_db
 from sql import chat as chat_db
 from sql import insights as insights_db
 from ai_chatbot import financial_chatbot, ChatServiceError
-from ai_chatbot_gemini import gemini_financial_chatbot
-from ai_usage_service import track_ai_usage
-from ai_usage_models import AIFeatureType, AIProviderType
 from config import settings
 
 from transaction_routes import router as transaction_router
@@ -57,6 +55,11 @@ from feedback_routes import router as feedback_router
 # NEW: App version routers
 from app_version_routes import admin_router as app_version_admin_router
 from app_version_routes import user_router as app_version_user_router
+
+# AI provider switching: admin API and the settings cache it feeds
+from ai_admin_routes import router as ai_admin_router
+from ai_providers import settings as ai_provider_settings
+from ai_providers.errors import redact
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
@@ -72,12 +75,21 @@ app.include_router(feedback_router)
 # NEW: Register app version routes
 app.include_router(app_version_admin_router)
 app.include_router(app_version_user_router)
+app.include_router(ai_admin_router)
 
 
 @app.on_event("startup")
 async def startup_db_client():
     await initialize_categories()
     await initialize_admin()
+
+    # Admin-panel AI settings: load once, then refresh every minute. A database blip must not stop the API
+    # from booting; until a load succeeds the server's environment / built-in settings apply (the refresh retries).
+    try:
+        await ai_provider_settings.load_panel()
+    except Exception as e:
+        print(f"⚠️ Could not load the AI provider settings at startup ({type(e).__name__}); will retry")
+    app.state.ai_settings_refresh = ai_provider_settings.start_refresh_loop()
 
     try:
         from scheduler import start_scheduler
@@ -89,6 +101,8 @@ async def startup_db_client():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    if hasattr(app.state, "ai_settings_refresh"):
+        app.state.ai_settings_refresh.cancel()
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown()
         print("🛑 Scheduler shut down successfully")
@@ -242,14 +256,13 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str):
 
 
 def _invalidate_ai_caches(user_id: str) -> None:
-    """Drop BOTH providers' cached vector stores for the user (they rebuild lazily)."""
-    for bot in (financial_chatbot, gemini_financial_chatbot):
-        if bot is None:
-            continue
-        try:
-            bot.refresh_user_data(user_id)
-        except Exception as e:
-            print(f"⚠️ Failed to invalidate AI cache for user {user_id}: {e}")
+    """Drop the chatbot's cached vector store for the user (it rebuilds lazily)."""
+    if financial_chatbot is None:
+        return
+    try:
+        financial_chatbot.refresh_user_data(user_id)
+    except Exception as e:
+        print(f"⚠️ Failed to invalidate AI cache for user {user_id}: {e}")
 
 
 def _sse(payload: dict) -> str:
@@ -269,12 +282,13 @@ async def stream_chat_with_ai(
       - final: {"chunk": "", "done": true, "full_response": "...", "timestamp": ...}
       - error: {"error": "<user-friendly message>", "done": true, "timestamp": ...}
     On error the exchange is NOT saved to chat history.
+
+    The answer comes from the "chat" feature's provider chain (admin panel / server settings), which also
+    records the usage. `ai_provider` in the body (sent by old apps) is validated and ignored.
     """
     user_id = current_user["_id"]
-    model_name = "unknown-model"  # Fallback
 
-    # The ai_data_stale flag is shared by both providers, so when it is set invalidate
-    # BOTH providers' caches. Clearing it with a conditional update first means a data
+    # Clearing the ai_data_stale flag with a conditional update first means a data
     # change that lands after this point re-sets the flag and is picked up next time.
     try:
         if await users_db.claim_ai_data_fresh(user_id):
@@ -282,19 +296,6 @@ async def stream_chat_with_ai(
             print(f"🔄 AI data was stale for user {user_id}; invalidated cached vector stores")
     except Exception as e:
         print(f"⚠️ Failed to refresh stale AI data: {e}")
-
-    if chat_request.ai_provider == AIProvider.GEMINI:
-        chatbot = gemini_financial_chatbot
-        if chatbot is None:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Gemini AI service is currently unavailable")
-        model_name = getattr(chatbot, 'gemini_model', 'gemini-2.5-flash')
-        provider = AIProviderType.GEMINI
-    else:
-        chatbot = financial_chatbot
-        if chatbot is None:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OpenAI AI service is currently unavailable")
-        model_name = getattr(chatbot, 'gpt_model', 'gpt-4o-mini')
-        provider = AIProviderType.OPENAI
 
     chat_history = None
     if chat_request.chat_history:
@@ -304,35 +305,26 @@ async def stream_chat_with_ai(
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
 
     async def generate_stream():
-        nonlocal model_name
-        input_tokens = output_tokens = total_tokens = 0
         full_response = ""
         error_message = None
 
         try:
-            stream = chatbot.stream_chat(
+            # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
+            async with aclosing(financial_chatbot.stream_chat(
                 user_id=user_id,
                 message=chat_request.message,
                 chat_history=chat_history,
                 response_style=response_style
-            )
-
-            async for chunk_text, usage_data in stream:
-                if chunk_text:
-                    full_response += chunk_text
-                    yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
-                    await asyncio.sleep(0.01)
-
-                if usage_data:
-                    input_tokens = usage_data.get('input_tokens') or 0
-                    output_tokens = usage_data.get('output_tokens') or 0
-                    total_tokens = usage_data.get('total_tokens') or (input_tokens + output_tokens)
-                    if usage_data.get('model_name'):
-                        model_name = usage_data['model_name']
+            )) as stream:
+                async for chunk_text, _usage in stream:  # usage is already tracked by the provider runner
+                    if chunk_text:
+                        full_response += chunk_text
+                        yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
+                        await asyncio.sleep(0.01)
         except ChatServiceError as e:
             error_message = e.user_message
         except Exception as e:
-            print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {e}")
+            print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {redact(str(e))}")
             error_message = ChatServiceError.DEFAULT_MESSAGE
 
         if error_message:
@@ -340,24 +332,9 @@ async def stream_chat_with_ai(
             yield _sse({"error": error_message, "done": True, "timestamp": datetime.now(UTC).isoformat()})
             return
 
-        # Track usage BEFORE the final frame: the client may disconnect as soon as it
-        # sees done:true, which would cancel anything after the yield.
-        if input_tokens > 0 or output_tokens > 0:
-            try:
-                await track_ai_usage(
-                    user_id=user_id,
-                    feature_type=AIFeatureType.CHAT,
-                    provider=provider,
-                    model_name=model_name,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
-            except Exception as e:
-                print(f"⚠️ Failed to track chat AI usage: {e}")
-
         if full_response:
-            # Saved before the "done" frame for the same reason.
+            # Saved BEFORE the "done" frame: the client may disconnect as soon as it
+            # sees done:true, which would cancel anything after the yield.
             await save_chat_session(user_id, chat_request.message, full_response)
 
         yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
@@ -422,29 +399,11 @@ async def refresh_ai_data(
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     current_user: dict = Depends(get_current_user)
 ):
-    """Manually refresh user's AI data"""
+    """Manually refresh user's AI data. `ai_provider` (sent by old apps) is validated and ignored: one chatbot."""
     try:
-        # Refresh based on provider
-        if ai_provider == AIProvider.GEMINI:
-            if gemini_financial_chatbot:
-                gemini_financial_chatbot.refresh_user_data(current_user["_id"])
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Gemini AI service is currently unavailable"
-                )
-        else:
-            if financial_chatbot:
-                financial_chatbot.refresh_user_data(current_user["_id"])
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="OpenAI AI service is currently unavailable"
-                )
-
-        return {"message": f"AI data refreshed successfully for {ai_provider.value}"}
-    except HTTPException:
-        raise
+        if financial_chatbot:
+            financial_chatbot.refresh_user_data(current_user["_id"])
+        return {"message": "AI data refreshed successfully"}
     except Exception as e:
         print(f"Refresh AI data error: {str(e)}")
         raise HTTPException(
@@ -456,15 +415,16 @@ async def refresh_ai_data(
 # ==================== AI INSIGHTS ====================
 
 
-async def _generate_insight(user_id: str, insight_type: str, ai_provider: str):
+async def _generate_insight(user_id: str, insight_type: str):
+    """One insight on the insight_weekly / insight_monthly provider chain (the admin AI settings decide)."""
     from insights_service import generate_weekly_insight, generate_monthly_insight
 
     if insight_type == "monthly":
-        return await generate_monthly_insight(user_id, ai_provider)
-    return await generate_weekly_insight(user_id, ai_provider)
+        return await generate_monthly_insight(user_id)
+    return await generate_weekly_insight(user_id)
 
 
-async def _ensure_myanmar_translation(insight: dict, ai_provider: str, user_id: str) -> dict:
+async def _ensure_myanmar_translation(insight: dict, user_id: str) -> dict:
     """Translate (and cache) content_mm if missing. Placeholders never hit the paid API."""
     if insight.get("content_mm"):
         return insight
@@ -473,7 +433,6 @@ async def _ensure_myanmar_translation(insight: dict, ai_provider: str, user_id: 
 
     myanmar_content = await translate_insight_to_myanmar(
         insight["content"],
-        ai_provider,
         user_id=user_id,
         # None (legacy docs without the flag) falls back to text detection
         is_placeholder=insight.get("is_placeholder"),
@@ -545,13 +504,16 @@ async def get_insights(
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
-    """Get latest AI-generated financial insights"""
+    """Get latest AI-generated financial insights.
+
+    `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is shown.
+    """
     user_id = current_user["_id"]
     try:
         from insights_service import latest_valid_insight, user_has_insight_data, _latest_real_insight
 
         # Legacy insights with content None / "" are treated as missing (skipped here).
-        latest_insight = await latest_valid_insight(user_id, ai_provider.value, insight_type)
+        latest_insight = await latest_valid_insight(user_id, insight_type)
 
         # A stored "welcome" placeholder is replaced once the user has real data (incl.
         # transactions in the current, incomplete period). If they don't, but they have
@@ -560,10 +522,10 @@ async def get_insights(
         if latest_insight and latest_insight.get("is_placeholder"):
             try:
                 if await user_has_insight_data(user_id, insight_type):
-                    print(f"🔄 Replacing placeholder {insight_type} {ai_provider.value} insight for user {user_id} (user now has data)")
+                    print(f"🔄 Replacing placeholder {insight_type} insight for user {user_id} (user now has data)")
                     regenerated = None
                     try:
-                        regenerated = await _generate_insight(user_id, insight_type, ai_provider.value)
+                        regenerated = await _generate_insight(user_id, insight_type)
                     except Exception as gen_error:
                         # AI down / rate limited: something stored is still worth showing.
                         print(f"⚠️ Regenerating {insight_type} insight for user {user_id} failed "
@@ -571,12 +533,12 @@ async def get_insights(
                     if _insight_has_content(regenerated):
                         latest_insight = regenerated
                     else:
-                        latest_real = await _latest_real_insight(user_id, ai_provider.value, insight_type)
+                        latest_real = await _latest_real_insight(user_id, insight_type)
                         if latest_real:
                             latest_insight = latest_real
                         # else: keep showing the stored placeholder
                 else:
-                    latest_real = await _latest_real_insight(user_id, ai_provider.value, insight_type)
+                    latest_real = await _latest_real_insight(user_id, insight_type)
                     if latest_real:
                         latest_insight = latest_real
             except Exception as refresh_error:
@@ -585,8 +547,8 @@ async def get_insights(
 
         if not latest_insight:
             # Nothing stored at all: generation errors are surfaced (429/503/500).
-            print(f"🔄 No {insight_type} insight found, generating first {ai_provider.value} insight for user {user_id}")
-            latest_insight = await _generate_insight(user_id, insight_type, ai_provider.value)
+            print(f"🔄 No {insight_type} insight found, generating the first one for user {user_id}")
+            latest_insight = await _generate_insight(user_id, insight_type)
             if not _insight_has_content(latest_insight):
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -594,7 +556,7 @@ async def get_insights(
                 )
 
         if language == "mm":
-            latest_insight = await _ensure_myanmar_translation(latest_insight, ai_provider.value, user_id)
+            latest_insight = await _ensure_myanmar_translation(latest_insight, user_id)
 
         return _insight_response(latest_insight)
 
@@ -612,15 +574,16 @@ async def delete_insights(
     insight_type: Optional[str] = Query(default=None, pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(get_current_user)
 ):
-    """Delete cached insights"""
-    try:
-        deleted = await insights_db.delete_for_user(
-            current_user["_id"], ai_provider.value if ai_provider else None, insight_type
-        )
+    """Delete cached insights.
 
-        provider_msg = f" for {ai_provider.value}" if ai_provider else ""
+    `ai_provider` (sent by old apps) is validated and ignored: reads show the newest insight of any
+    provider, so clearing only one provider's rows would leave another provider's insight on screen.
+    """
+    try:
+        deleted = await insights_db.delete_for_user(current_user["_id"], None, insight_type)
+
         type_msg = f" {insight_type}" if insight_type else ""
-        return {"message": f"Deleted {deleted}{type_msg} insights{provider_msg}", "deleted_count": deleted}
+        return {"message": f"Deleted {deleted}{type_msg} insights", "deleted_count": deleted}
     except Exception as e:
         print(f"Error deleting insights: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete insights")
@@ -633,11 +596,11 @@ async def regenerate_insights(
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
-    """Force regenerate insights (admin/testing purpose)"""
+    """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored."""
     try:
-        print(f"🔄 Force regenerating {insight_type} {ai_provider.value} insights for user {current_user['_id']}")
+        print(f"🔄 Force regenerating {insight_type} insights for user {current_user['_id']}")
 
-        new_insight = await _generate_insight(current_user["_id"], insight_type, ai_provider.value)
+        new_insight = await _generate_insight(current_user["_id"], insight_type)
 
         if not _insight_has_content(new_insight):
             raise HTTPException(
@@ -646,9 +609,9 @@ async def regenerate_insights(
             )
 
         if language == "mm":
-            new_insight = await _ensure_myanmar_translation(new_insight, ai_provider.value, current_user["_id"])
+            new_insight = await _ensure_myanmar_translation(new_insight, current_user["_id"])
 
-        print(f"✅ {insight_type.title()} {ai_provider.value} insights regenerated successfully")
+        print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
         return _insight_response(new_insight)
     except HTTPException:
         raise
@@ -665,21 +628,25 @@ async def translate_insights_to_myanmar(
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
     current_user: dict = Depends(require_premium)
 ):
-    """Translate the latest weekly or monthly insight to Myanmar"""
+    """Translate the latest weekly or monthly insight to Myanmar.
+
+    `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is
+    translated on the insight_translation provider chain.
+    """
     try:
         from insights_service import latest_valid_insight
 
         # Legacy insights without content can't be translated: skipped.
-        insight = await latest_valid_insight(current_user["_id"], ai_provider.value, insight_type)
+        insight = await latest_valid_insight(current_user["_id"], insight_type)
 
         if not insight:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No {insight_type} {ai_provider.value} insights found to translate")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No {insight_type} insights found to translate")
 
         if insight.get("content_mm"):
             return {"message": "Myanmar translation already exists", "already_translated": True}
 
-        print(f"🔄 Translating {insight_type} insights to Myanmar using {ai_provider.value} for user {current_user['_id']}")
-        await _ensure_myanmar_translation(insight, ai_provider.value, current_user["_id"])
+        print(f"🔄 Translating {insight_type} insights to Myanmar for user {current_user['_id']}")
+        await _ensure_myanmar_translation(insight, current_user["_id"])
 
         return {"message": "Translation completed successfully", "already_translated": False}
 
@@ -696,25 +663,22 @@ async def translate_insights_to_myanmar(
 async def manually_generate_weekly_insights(
     current_user: dict = Depends(require_premium)
 ):
-    """Manually trigger weekly insights generation for current user"""
+    """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain)"""
     try:
-        from insights_service import generate_weekly_insight
+        from insights_service import generate_weekly_insight, is_rate_limit_error
 
-        results = {}
-
-        for provider in ["openai", "gemini"]:
-            try:
-                insight = await generate_weekly_insight(
-                    current_user["_id"],
-                    provider
-                )
-                results[provider] = "success" if insight else "failed"
-            except Exception as e:
-                from insights_service import is_rate_limit_error
-
-                print(f"❌ Manual weekly insight ({provider}) failed: {type(e).__name__}: {e}")
-                # No raw exception text in the response.
-                results[provider] = "rate_limited" if is_rate_limit_error(e) else "error"
+        # Same shape as before ({provider: outcome}), keyed by the provider that answered, or by the
+        # feature's main provider when nothing was generated.
+        provider = ai_provider_settings.resolve("insight_weekly").main.provider
+        try:
+            insight = await generate_weekly_insight(current_user["_id"])
+            outcome = "success" if insight else "failed"
+            provider = (insight or {}).get("ai_provider") or provider
+        except Exception as e:
+            print(f"❌ Manual weekly insight failed: {type(e).__name__}: {redact(str(e))}")
+            # No raw exception text in the response.
+            outcome = "rate_limited" if is_rate_limit_error(e) else "error"
+        results = {provider: outcome}
 
         return {
             "message": "Weekly insights generation completed",
@@ -722,7 +686,7 @@ async def manually_generate_weekly_insights(
         }
 
     except Exception as e:
-        print(f"Error in manual weekly generation: {str(e)}")
+        print(f"Error in manual weekly generation: {redact(str(e))}")
         raise _insight_http_error(e, "generate weekly insights")
 
 

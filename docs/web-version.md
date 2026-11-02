@@ -114,3 +114,21 @@ every item below should be repeated against the live address with a test account
 - Wide window: the app is a centred 440 px column. Phone width: it fills the screen.
 - Backend asleep (cold start): the "waking up" hint appears.
 - Switching to another browser tab and back refreshes premium status and the unread badge.
+
+## 5. AI providers (backend)
+
+The backend can run each AI feature on OpenAI, Gemini or Claude. Deploying this version runs
+the Alembic migration, revision `a3f1c7d92b64`
+(`backend/alembic/versions/20261029_a3f1c7d92b64_ai_provider_switching.py`), which adds
+`ai_feature_settings` and `ai_provider_status`. The full list is in [postgres-migration-plan.md](postgres-migration-plan.md),
+section "Deploying on Render", "AI providers". In short, on the backend service:
+
+- Set `ANTHROPIC_API_KEY` to turn Claude on, and optionally `CLAUDE_MODEL`
+  (default `claude-sonnet-5-5`). `OPENAI_API_KEY` and `GOOGLE_API_KEY` work as before.
+- Optionally pick a provider per feature with `AI_<FEATURE>_PROVIDER`, `AI_<FEATURE>_MODEL`
+  and `AI_<FEATURE>_BACKUPS` (comma-separated `provider[:model]`, or `none`). Features:
+  `CHAT`, `INSIGHT_WEEKLY`, `INSIGHT_MONTHLY`, `INSIGHT_TRANSLATION`, `BUDGET_SUGGESTION`,
+  `BUDGET_AUTO_CREATE`, `TRANSACTION_TEXT`, `TRANSACTION_IMAGE`, `TRANSACTION_AUDIO`.
+  Voice input (`TRANSACTION_AUDIO`) cannot use Claude (no audio input).
+- The admin panel's **AI Providers** page overrides these variables and takes effect
+  immediately; variable changes need a restart. With nothing set, the built-in defaults apply.

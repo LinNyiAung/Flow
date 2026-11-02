@@ -169,6 +169,61 @@ bootstrap super admin (`ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD`).
    contribute to a goal, create a budget, send an AI chat message, open the admin panel.
 4. Delete the MongoDB Atlas cluster once you are happy.
 
+### AI providers
+
+The backend can use OpenAI, Gemini or Claude for each AI feature. This release's deploy runs
+the Alembic migration, revision `a3f1c7d92b64`
+(`backend/alembic/versions/20261029_a3f1c7d92b64_ai_provider_switching.py`; via the Pre-Deploy
+Command above), which adds the tables `ai_feature_settings` and `ai_provider_status`.
+
+- API keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY` (Gemini) and the new `ANTHROPIC_API_KEY`
+  (Claude). A provider without a key is skipped.
+- Default models: `OPENAI_MODEL`, `GEMINI_MODEL` and the new `CLAUDE_MODEL` (default
+  `claude-sonnet-5-5`) set the built-in model for chat and the weekly/monthly insights, and the
+  model used when a provider is named without one; the other built-in models are fixed
+  (photo `gpt-4o`, voice `whisper-1`, insight translation `gemini-2.5-pro`, budgets and text
+  `gpt-4o-mini`).
+- Per feature (optional): `AI_<FEATURE>_PROVIDER` (`openai`, `gemini` or `claude`),
+  `AI_<FEATURE>_MODEL` and `AI_<FEATURE>_BACKUPS`. `_BACKUPS` is a comma-separated list of
+  `provider[:model]`, or `none` for no backups; left unset, every other configured provider
+  is a backup. `_MODEL` and `_BACKUPS` are ignored unless `_PROVIDER` is set.
+  `<FEATURE>` is one of `CHAT`, `INSIGHT_WEEKLY`, `INSIGHT_MONTHLY`, `INSIGHT_TRANSLATION`,
+  `BUDGET_SUGGESTION`, `BUDGET_AUTO_CREATE`, `TRANSACTION_TEXT`, `TRANSACTION_IMAGE`,
+  `TRANSACTION_AUDIO`. Example: `AI_CHAT_PROVIDER=claude`, `AI_CHAT_BACKUPS=gemini,openai`.
+- `TRANSACTION_AUDIO` (voice input) cannot use Claude, because Claude has no audio input.
+  An invalid or disallowed environment setting is ignored with a log warning and the default
+  applies (for example `AI_TRANSACTION_AUDIO_PROVIDER=claude` is ignored).
+- Order of precedence: the admin panel's **AI Providers** page, then these environment
+  variables, then the built-in default (chat and insights on Gemini, budgets and transaction
+  text/photo/voice on OpenAI). Panel changes apply right away (within about a minute across
+  instances); changing an environment variable needs a restart (Render redeploys on save).
+- OpenAI speech-to-text models (`whisper*`, `*transcribe*`) can only be used for voice input, and
+  voice input on OpenAI needs one of them; the panel offers only the models each feature can use
+  and refuses others. A model the provider rejects at run time (for example a model name typed
+  under "Other…" that the endpoint does not support) falls back to the backups and shows on the
+  provider's status card.
+
+After the deploy, check by hand (needs the real keys, so the automated suites cannot):
+
+- On the **AI Providers** page, press **Test** for each provider; each should succeed.
+- Get one chat answer from each provider: switch chat to that provider on the panel, send a
+  message from the app, then press **Use server setting**.
+- Run one Claude JSON feature, such as a budget suggestion or a transaction from text, with
+  Claude as its main provider.
+- Send one voice note with Gemini as the voice input provider.
+- If you pick Claude Haiku for any feature, run one JSON feature on it (for example a budget
+  suggestion), because the client always sends `output_config.effort` with Claude requests.
+- When a key is out of credit, confirm the provider's status card shows a billing error.
+
+Notes:
+
+- The **AI Usage & Costs** page counts only the provider that answered. Tokens spent on attempts that
+  failed before a fallback (for example a cut-off or unusable answer) are not shown, so the page
+  can undercount spend when fallbacks happen.
+- Rolling back: after `alembic downgrade` to the previous revision, `ai_usage` rows with provider
+  `claude` stay in the table, and the previous version's per-user usage detail may reject them
+  (it does not know `claude`). Delete or remap those rows if the old version must show them.
+
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
 

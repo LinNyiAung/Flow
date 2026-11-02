@@ -674,7 +674,7 @@ def t_ai():
 
     r = c.post("/api/chat/stream", headers=H(A), json={"message": "How much did I spend?"})
     fr = frames_of(r) if r.status_code == 200 else []
-    ok("chat stream (fake OpenAI) streams chunks and a done frame",
+    ok("chat stream (fake AI, built-in chat provider) streams chunks and a done frame",
        r.status_code == 200 and len(fr) >= 2 and fr[-1].get("done") and "Fake answer" in (fr[-1].get("full_response") or ""),
        f"{r.status_code} {str(fr[-1:])[:250]}")
     rec("chat stream content-type", "INFO", r.headers.get("content-type"))
@@ -686,26 +686,32 @@ def t_ai():
         f"{len(h)} stored messages after 3 exchanges")
     bug("client-supplied assistant messages persisted into server history", any("INJECTED" in (m.get("content") or "") for m in h), "")
 
+    # Chat ignores ai_provider (old apps still send it): the "chat" feature's provider chain answers
+    # (built-in default gemini, via the async Gemini fake), and the exchange is saved.
     r = c.post("/api/chat/stream", headers=H(A), json={"message": "hi", "ai_provider": "gemini"})
-    if r.status_code == 200:
-        fr = frames_of(r)
-        last = fr[-1] if fr else {}
-        bug("Gemini failure not surfaced as an error frame", "error" not in last, str(last)[:250])
-        h2 = c.get("/api/chat/history", headers=H(A), params={"limit": 50}).json()
-        bug("failed AI exchange persisted into chat history", len(h2) != len(h), f"{len(h)} -> {len(h2)}")
-    else:
-        rec("gemini stream", "INFO", f"{r.status_code} {r.text[:150]}")
+    fr = frames_of(r) if r.status_code == 200 else []
+    last = fr[-1] if fr else {}
+    ok("chat with ai_provider=gemini streams a normal reply (field ignored)",
+       r.status_code == 200 and len(fr) >= 2 and not any("error" in f for f in fr) and last.get("done")
+       and "Fake answer" in (last.get("full_response") or ""), f"{r.status_code} {str(fr[-1:])[:250]}")
+    h2 = c.get("/api/chat/history", headers=H(A), params={"limit": 50}).json()
+    ok("successful exchange with ai_provider=gemini saved to chat history", len(h2) == len(h) + 2,
+       f"{len(h)} -> {len(h2)}")
     r = c.post("/api/chat", headers=H(A), json={"message": "x"})
     ok("deprecated /api/chat -> 410", r.status_code == 410, r.status_code)
     ok("chat history", c.get("/api/chat/history", headers=H(A)).status_code == 200, "")
     ok("clear chat history", c.delete("/api/chat/history", headers=H(A)).status_code == 200, "")
 
+    # Insights run on the insight_weekly / insight_monthly provider chains (built-in default: gemini fake);
+    # one row per user per period, whatever ai_provider an old app sends.
     r = c.get("/api/insights", headers=H(A), params={"insight_type": "weekly"})
-    ok("GET weekly insight (fake OpenAI)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:200]}")
+    ok("GET weekly insight (fake AI, built-in insight provider)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:200]}")
+    weekly_rows = db.insights.count_documents({"user_id": S["A_id"], "insight_type": "weekly"})
+    ok("first weekly insight stores one row (not one per provider)", weekly_rows == 1, f"{weekly_rows} rows")
     r = c.get("/api/insights", headers=H(A), params={"insight_type": "monthly"})
-    ok("GET monthly insight (fake OpenAI)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:300]}")
+    ok("GET monthly insight (fake AI, built-in insight provider)", r.status_code == 200 and r.json().get("content"), f"{r.status_code} {r.text[:300]}")
     r = c.post("/api/insights/translate-myanmar", headers=H(A), params={"insight_type": "monthly"})
-    mm = db.insights.find_one({"user_id": S["A_id"], "insight_type": "monthly", "ai_provider": "openai"}, sort=[("generated_at", -1)])
+    mm = db.insights.find_one({"user_id": S["A_id"], "insight_type": "monthly"}, sort=[("generated_at", -1)])
     ok("translate-myanmar translates the requested (monthly) insight", r.status_code == 200 and mm and mm.get("content_mm"),
        f"{r.status_code} {r.text[:150]}")
     r = c.post("/api/transactions/extract-from-text", headers=H(A), json={"text": "coffee 3 dollars"})
@@ -947,6 +953,9 @@ def t_regression():
         ok("feedback list filters by status", r.status_code == 200 and all(f["status"] == "reviewed" for f in r.json()), f"{r.status_code} {r.text[:150]}")
         r = c.get("/api/admin/ai-usage/stats", headers=H(AD))
         ok("AI usage recorded from fake chats/insights", r.status_code == 200 and (r.json().get("total_requests") or 0) > 0, f"{r.status_code} {r.text[:150]}")
+        cbp = r.json().get("cost_by_provider") if r.status_code == 200 else None
+        ok("AI usage stats report cost per provider", isinstance(cbp, dict) and cbp and "openai_total_cost" not in r.json()
+           and all(k in ("openai", "gemini", "claude") for k in cbp), f"{cbp}")
         r = c.get("/api/admin/users", headers=H(AD), params={"search": "bob+flow"})
         ok("admin search finds literal 'bob+flow'", r.status_code == 200 and len(r.json()) == 1, r.text[:150])
 

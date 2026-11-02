@@ -9,6 +9,8 @@ import uuid
 import warnings
 from datetime import datetime, timedelta, UTC
 
+# The insight checks need an AI that answers: the stubenv fakes (as in the full suite, which sets this too).
+os.environ.setdefault("E2E_FAKE_AI", "1")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stubenv  # noqa: E402
 
@@ -167,23 +169,12 @@ async def main():
     if tz_err:
         rec("monthly insight job skips premium users with an expiry date (naive/aware compare)", "BUG", tz_err[:2])
 
-    # ---------------- from here on: fake OpenAI that answers, to exercise post-AI code paths
-    import openai
-    from types import SimpleNamespace as NS
-
-    class FakeCompletions:
-        async def create(self, *a, **k):
-            return NS(choices=[NS(message=NS(content="## Fake insight\nYou spent money."), finish_reason="stop")],
-                      usage=NS(prompt_tokens=10, completion_tokens=5, total_tokens=15))
-
-    class FakeAsyncOpenAI:
-        def __init__(self, *a, **k):
-            self.chat = NS(completions=FakeCompletions())
-
-    openai.AsyncOpenAI = FakeAsyncOpenAI
+    # ---------------- from here on: an AI that answers, to exercise post-AI code paths. Insights run on the
+    # provider runner, whose clients use the stubenv fakes (the suite runs with E2E_FAKE_AI=1).
 
     # ---------------- monthly insight directly (missing await claim)
-    exc, out, na = await run_job("monthly-one", ins.generate_monthly_insight, A, "openai")
+    # One insight per user on the insight_monthly provider chain (no provider argument any more).
+    exc, out, na = await run_job("monthly-one", ins.generate_monthly_insight, A)
     mi = await I.count_documents({"user_id": A, "insight_type": "monthly"})
     rec("monthly insight saved with a working AI", "PASS" if mi else "BUG", "" if mi else "no monthly insight document created even though AI answered")
     coroutine_err = [l for l in out.splitlines() if "coroutine" in l]
@@ -194,7 +185,7 @@ async def main():
 
     # ---------------- un-awaited notify in weekly insight path
     n0 = await N.count_documents({"user_id": A})
-    exc, out, na = await run_job("weekly-one", ins.generate_weekly_insight, A, "openai")
+    exc, out, na = await run_job("weekly-one", ins.generate_weekly_insight, A)
     await asyncio.sleep(0.5)
     n1 = await N.count_documents({"user_id": A})
     wi = await I.count_documents({"user_id": A, "insight_type": "weekly", "is_placeholder": False})

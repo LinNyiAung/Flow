@@ -4,9 +4,10 @@ import {
   AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar,
   DollarSign, Target, Send, Menu, X, Settings, Lock, User, MessageSquare,
   Smartphone, Plus, Edit2, ToggleLeft, ToggleRight, Download, CheckCircle,
-  AlertTriangle, Globe, Apple, ExternalLink
+  AlertTriangle, Globe, Apple, ExternalLink, Bot
 } from 'lucide-react';
 import AIUsageStats from './AIUsageStats';
+import AISettings from './AISettings';
 import FeedbackManagement from './FeedbackManagement';
 import ErrorBoundary from './ErrorBoundary';
 import {
@@ -1120,6 +1121,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     { id: 'broadcast', icon: Send, label: 'Broadcast' },
     { id: 'app-versions', icon: Smartphone, label: 'App Versions' },
     { id: 'ai-usage', icon: Zap, label: 'AI Usage & Costs' },
+    { id: 'ai', icon: Bot, label: 'AI Providers' },
     { id: 'feedback', icon: MessageSquare, label: 'Feedback' },
     { id: 'settings', icon: Settings, label: 'Settings' },
     ...(isSuper ? [
@@ -1274,6 +1276,9 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
         {/* AI Usage Tab */}
         {activeTab === 'ai-usage' && <AIUsageStats token={token} />}
+
+        {/* AI Providers Tab */}
+        {activeTab === 'ai' && <AISettings token={token} adminRole={admin.role} />}
 
         {/* Feedback Tab */}
         {activeTab === 'feedback' && <FeedbackManagement token={token} adminRole={admin.role} />}

@@ -28,7 +28,7 @@ void insightFlows() {
       ], timeout: const Duration(seconds: 90));
       check(r == 0, 'Insights: stored weekly insight not rendered (state $r: ${visibleTexts().take(15).join(' | ')})');
       // ignore: avoid_print
-      print('E2E_INFO|insight provider=${insightProvider().aiProvider} type=${insightProvider().insightType}');
+      print('E2E_INFO|insight type=${insightProvider().insightType}');
       check(hasText(L.healthScoreTitle) || await scrollTo(find.text(L.healthScoreTitle), maxSwipes: 4),
           'Insights: Financial Health score card missing');
       step('monthly tab');
@@ -91,14 +91,12 @@ void insightFlows() {
 
 void chatFlows() {
   group('10 AI chat', () {
-    e2eTest('chat: suggested question with failing Gemini → friendly error, no empty bubble; clear', (t) async {
+    e2eTest('chat: suggested question with failing AI → friendly error, no empty bubble; clear', (t) async {
       await login(premium);
       await drawerGo(L.aiAssistant);
       await waitFor(find.byType(AiChatScreen));
       await settle(2500);
       final p = chatProvider();
-      // ignore: avoid_print
-      print('E2E_INFO|chat provider=${p.aiProvider}');
       if (p.messages.isNotEmpty) {
         step('clear existing history first');
         await tap(find.byTooltip(L.clearHistory));

@@ -8,6 +8,26 @@ const fmtInt = (v) => num(v).toLocaleString();
 const fmtCost = (v, digits = 4) => `$${num(v).toFixed(digits)}`;
 const initial = (s) => (typeof s === 'string' && s.length ? s.charAt(0).toUpperCase() : '?');
 
+// Providers in a stable order: the three known ones first, then any other, alphabetically.
+const KNOWN_PROVIDERS = ['openai', 'gemini', 'claude'];
+const PROVIDER_LABELS = { openai: 'OpenAI', gemini: 'Gemini', claude: 'Claude' };
+const PROVIDER_COLORS = {
+  openai: { text: 'text-cyan-400', icon: 'text-cyan-500', bg: 'bg-cyan-500/10' },
+  gemini: { text: 'text-pink-400', icon: 'text-pink-500', bg: 'bg-pink-500/10' },
+  claude: { text: 'text-orange-400', icon: 'text-orange-500', bg: 'bg-orange-500/10' },
+};
+const OTHER_PROVIDER_COLORS = { text: 'text-slate-300', icon: 'text-slate-400', bg: 'bg-slate-500/10' };
+const providerLabel = (p) => PROVIDER_LABELS[p] ?? String(p);
+const providerColors = (p) => PROVIDER_COLORS[p] ?? OTHER_PROVIDER_COLORS;
+const costMap = (obj) => (obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {});
+const orderedProviders = (...maps) => {
+  const present = new Set(maps.flatMap((m) => Object.keys(costMap(m))));
+  return [
+    ...KNOWN_PROVIDERS.filter((p) => present.has(p)),
+    ...[...present].filter((p) => !KNOWN_PROVIDERS.includes(p)).sort(),
+  ];
+};
+
 const isFeatureStats = (obj) => obj && typeof obj === 'object' && !Array.isArray(obj);
 
 const InlineError = ({ message, onRetry }) => (
@@ -194,6 +214,7 @@ const AIUsageStats = ({ token }) => {
   const error = result.key === queryKey ? result.error : null;
   const stats = data?.stats;
   const userUsage = data?.userUsage ?? [];
+  const userProviders = orderedProviders(stats?.cost_by_provider, ...userUsage.map((u) => u.cost_by_provider));
   const records = detail.key === detailKey ? detail.records : [];
   const detailError = detail.key === detailKey ? detail.error : null;
 
@@ -286,8 +307,10 @@ const AIUsageStats = ({ token }) => {
                   { label: 'Total Tokens', value: fmtInt(stats.total_tokens), icon: TrendingUp, color: 'text-violet-500', bg: 'bg-violet-500/10' },
                   { label: 'Total Cost', value: fmtCost(stats.total_cost_usd), icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
                   { label: 'Active Users', value: fmtInt(stats.total_users), icon: Users, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-                  { label: 'OpenAI Cost', value: fmtCost(stats.openai_total_cost), icon: DollarSign, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
-                  { label: 'Gemini Cost', value: fmtCost(stats.gemini_total_cost), icon: DollarSign, color: 'text-pink-500', bg: 'bg-pink-500/10' },
+                  ...orderedProviders(stats.cost_by_provider).map((p) => ({
+                    label: `${providerLabel(p)} Cost`, value: fmtCost(costMap(stats.cost_by_provider)[p]),
+                    icon: DollarSign, color: providerColors(p).icon, bg: providerColors(p).bg,
+                  })),
                   { label: 'Weekly Insights', value: fmtInt(stats.weekly_insights_requests), icon: Calendar, color: 'text-orange-500', bg: 'bg-orange-500/10' },
                   { label: 'Chat Requests', value: fmtInt(stats.chat_requests), icon: Zap, color: 'text-yellow-500', bg: 'bg-yellow-500/10' }
                 ].map((stat) => (
@@ -354,11 +377,12 @@ const AIUsageStats = ({ token }) => {
 
                 <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 overflow-hidden">
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse min-w-[1200px]">
+                    {/* min-width grows with the provider columns; the wrapper scrolls sideways instead of the page */}
+                    <table className="w-full border-collapse" style={{ minWidth: 1000 + userProviders.length * 100 }}>
                       <thead>
                         <tr className="bg-slate-900/50 border-b border-white/5">
-                          {['User', 'Requests', 'Tokens (In/Out)', 'Total Cost', 'OpenAI', 'Gemini', 'Chat', 'Insights', 'Actions'].map((header, i) => (
-                            <th key={i} className={`px-6 py-4 text-left text-slate-400 text-xs font-semibold uppercase ${i === 8 ? 'text-center' : ''}`}>
+                          {['User', 'Requests', 'Tokens (In/Out)', 'Total Cost', ...userProviders.map(providerLabel), 'Chat', 'Insights', 'Actions'].map((header, i, all) => (
+                            <th key={i} className={`px-6 py-4 text-left text-slate-400 text-xs font-semibold uppercase ${i === all.length - 1 ? 'text-center' : ''}`}>
                               {header}
                             </th>
                           ))}
@@ -386,8 +410,9 @@ const AIUsageStats = ({ token }) => {
                             <td className="px-6 py-5">
                               <div className="text-sm font-bold text-emerald-400">{fmtCost(user.total_cost_usd)}</div>
                             </td>
-                            <td className="px-6 py-5 text-sm text-cyan-400">{fmtCost(user.openai_cost)}</td>
-                            <td className="px-6 py-5 text-sm text-pink-400">{fmtCost(user.gemini_cost)}</td>
+                            {userProviders.map((p) => (
+                              <td key={p} className={`px-6 py-5 text-sm ${providerColors(p).text}`}>{fmtCost(costMap(user.cost_by_provider)[p])}</td>
+                            ))}
                             <td className="px-6 py-5 text-sm text-slate-300">{fmtInt(user.chat_requests_count)}</td>
                             <td className="px-6 py-5">
                               <div className="text-sm text-slate-300">{fmtInt(user.weekly_insights_count)}W</div>
@@ -495,7 +520,8 @@ const AIUsageStats = ({ token }) => {
                         {String(record.feature_type ?? '').replace(/_/g, ' ')}
                       </div>
                       <div className="text-xs text-slate-400">
-                        {String(record.provider ?? '').toUpperCase()} - {record.model_name}
+                        {providerLabel(record.provider ?? '')} · {record.model_name}
+                        {record.fallback_from ? ` (backup for ${providerLabel(record.fallback_from)})` : ''}
                       </div>
                     </div>
                     <div className="text-xs text-slate-500">

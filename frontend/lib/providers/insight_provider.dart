@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/models/chat.dart';
 import '../models/insight.dart';
 import '../services/api_service.dart';
 
@@ -11,7 +10,6 @@ class InsightProvider with ChangeNotifier {
   String? _actionError;
   int? _actionErrorStatusCode;
   String _currentLanguage = 'en';
-  AIProvider _aiProvider = AIProvider.gemini;
   String _insightType = 'weekly';
 
   /// Bumped on [reset] and on every new load; responses that arrive for an
@@ -44,7 +42,6 @@ class InsightProvider with ChangeNotifier {
     _actionErrorStatusCode = null;
   }
   String get currentLanguage => _currentLanguage;
-  AIProvider get aiProvider => _aiProvider;
   String get insightType => _insightType;
 
   /// Clears all per-user state (called on logout / user switch).
@@ -54,7 +51,6 @@ class InsightProvider with ChangeNotifier {
     _isLoading = false;
     _clearErrors();
     _currentLanguage = 'en';
-    _aiProvider = AIProvider.gemini;
     _insightType = 'weekly';
     notifyListeners();
   }
@@ -64,16 +60,6 @@ class InsightProvider with ChangeNotifier {
       _generation++;
       _insightType = type;
       _insight = null; // never show the other period's insight
-      _clearErrors();
-      notifyListeners();
-    }
-  }
-
-  void setAIProvider(AIProvider provider) {
-    if (provider != _aiProvider) {
-      _generation++;
-      _aiProvider = provider;
-      _insight = null;
       _clearErrors();
       notifyListeners();
     }
@@ -104,7 +90,6 @@ class InsightProvider with ChangeNotifier {
     try {
       final result = await ApiService.getInsights(
         language: lang,
-        aiProvider: _aiProvider,
         insightType: type,
       );
       if (gen != _generation) return;
@@ -135,7 +120,6 @@ class InsightProvider with ChangeNotifier {
     try {
       final result = await ApiService.regenerateInsights(
         language: lang,
-        aiProvider: _aiProvider,
         insightType: type,
       );
       if (gen != _generation) return false;
@@ -171,12 +155,10 @@ class InsightProvider with ChangeNotifier {
 
     try {
       await ApiService.translateInsightsToMyanmar(
-        aiProvider: _aiProvider,
         insightType: type,
       );
       final result = await ApiService.getInsights(
         language: 'mm',
-        aiProvider: _aiProvider,
         insightType: type,
       );
       if (gen != _generation) return false;
@@ -200,7 +182,7 @@ class InsightProvider with ChangeNotifier {
     _error = null;
     _errorStatusCode = null;
     try {
-      await ApiService.deleteInsights(aiProvider: _aiProvider);
+      await ApiService.deleteInsights();
       _generation++;
       _insight = null;
       notifyListeners();

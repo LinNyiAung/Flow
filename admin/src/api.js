@@ -139,6 +139,26 @@ export async function apiRequest(path, { token, method = 'GET', body, params, au
   return data;
 }
 
+// ─── AI providers ─────────────────────────────────────────────────────────────
+const enc = encodeURIComponent;
+
+/** Providers (with `configured`) and every feature's effective setting and `known_models` ({provider: [models]}). */
+export const getAISettings = (token) => apiRequest('/api/admin/ai/settings', { token });
+
+/** body: { main: {provider, model}, backups: [{provider, model}] | null }  (null = default backups, [] = none) */
+export const updateAISetting = (token, feature, body) =>
+  apiRequest(`/api/admin/ai/settings/${enc(feature)}`, { token, method: 'PUT', body });
+
+/** Remove the admin-panel setting ("use server setting"). */
+export const resetAISetting = (token, feature) =>
+  apiRequest(`/api/admin/ai/settings/${enc(feature)}`, { token, method: 'DELETE' });
+
+export const getAIStatus = (token) => apiRequest('/api/admin/ai/status', { token });
+
+/** Sends one tiny request to the provider. Resolves to { ok: true } or { ok: false, error }. */
+export const testAIProvider = (token, provider, model = null) =>
+  apiRequest(`/api/admin/ai/test/${enc(provider)}`, { token, method: 'POST', body: { model } });
+
 // ─── Roles ────────────────────────────────────────────────────────────────────
 /** admin and super_admin can make changes; moderators are read-only. */
 export const canWrite = (role) => role === 'admin' || role === 'super_admin';
