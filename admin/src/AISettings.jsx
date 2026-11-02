@@ -43,11 +43,8 @@ const toDraft = (row, knownModels) => {
   };
 };
 
-/** The model to pick when the provider of a target changes. */
-const suggestModel = (featureKey, provider, knownModels) => {
-  if (featureKey === 'transaction_audio' && provider === 'openai') return 'whisper-1';
-  return (knownModels[provider] ?? [])[0] ?? '';
-};
+/** The model to pick when the provider of a target changes: the first one the feature offers for it. */
+const suggestModel = (provider, knownModels) => (knownModels[provider] ?? [])[0] ?? '';
 
 const toBody = (draft) => ({
   main: { provider: draft.main.provider, model: draft.main.model.trim() },
@@ -181,10 +178,11 @@ const StatusCard = ({ provider, status, writable, testing, testResult, onTest })
 };
 
 // ─── Feature rows ─────────────────────────────────────────────────────────────
+// `knownModels` is the feature's own list ({provider: [models]}), so each picker offers only models that feature can use.
 const TargetEditor = ({ target, onChange, allowed, knownModels, configured, label }) => {
   const models = knownModels[target.provider] ?? [];
   const onProvider = (provider) => {
-    const model = suggestModel(label.featureKey, provider, knownModels);
+    const model = suggestModel(provider, knownModels);
     onChange({ provider, model, other: false });
   };
   const onModelSelect = (value) => {
@@ -265,7 +263,7 @@ const FeatureCard = ({ row, providers, knownModels, writable, busy, message, onS
     for (const onlyNew of [true, false]) {
       for (const p of allowed) {
         if (onlyNew && usedProviders.has(p)) continue;
-        const models = row.key === 'transaction_audio' && p === 'openai' ? ['whisper-1'] : (knownModels[p] ?? []);
+        const models = knownModels[p] ?? [];
         for (const m of models) {
           if (!taken.has(`${p}:${m}`)) {
             return { ...d, backups: [...d.backups, { provider: p, model: m, other: false }] };
@@ -318,7 +316,7 @@ const FeatureCard = ({ row, providers, knownModels, writable, busy, message, onS
             allowed={allowed}
             knownModels={knownModels}
             configured={configured}
-            label={{ text: `${row.label} main`, featureKey: row.key }}
+            label={{ text: `${row.label} main` }}
           />
         </div>
 
@@ -357,7 +355,7 @@ const FeatureCard = ({ row, providers, knownModels, writable, busy, message, onS
                     allowed={allowed}
                     knownModels={knownModels}
                     configured={configured}
-                    label={{ text: `${row.label} backup ${i + 1}`, featureKey: row.key }}
+                    label={{ text: `${row.label} backup ${i + 1}` }}
                   />
                 </div>
               ))}
@@ -534,7 +532,6 @@ const AISettings = ({ token, adminRole }) => {
     return <div className="flex items-center justify-center p-20"><RefreshCw size={32} className="animate-spin text-blue-500" /></div>;
   }
 
-  const knownModels = Object.fromEntries((config?.providers ?? []).map((p) => [p.id, p.known_models ?? []]));
   const statusById = Object.fromEntries((status?.providers ?? []).map((p) => [p.id, p]));
 
   return (
@@ -602,7 +599,7 @@ const AISettings = ({ token, adminRole }) => {
                 key={`${row.key}|${JSON.stringify(row.effective)}`}
                 row={row}
                 providers={config.providers}
-                knownModels={knownModels}
+                knownModels={row.known_models ?? {}}
                 writable={writable}
                 busy={busyFeature === row.key}
                 message={messages[row.key]}

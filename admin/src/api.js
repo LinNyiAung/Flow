@@ -142,7 +142,7 @@ export async function apiRequest(path, { token, method = 'GET', body, params, au
 // ─── AI providers ─────────────────────────────────────────────────────────────
 const enc = encodeURIComponent;
 
-/** Providers (with `configured`, `known_models`) and every feature's effective setting. */
+/** Providers (with `configured`) and every feature's effective setting and `known_models` ({provider: [models]}). */
 export const getAISettings = (token) => apiRequest('/api/admin/ai/settings', { token });
 
 /** body: { main: {provider, model}, backups: [{provider, model}] | null }  (null = default backups, [] = none) */
