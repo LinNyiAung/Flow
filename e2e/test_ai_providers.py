@@ -30,6 +30,38 @@ def check(ok, name, detail=""):
     print(("[PASS] " if ok else "[BUG] ") + name + (f" -- {detail}" if detail and not ok else ""), flush=True)
 
 
+class LogCapture:
+    """with LogCapture("budget_service") as cap: ... -> cap.records (every level, that logger and its children)."""
+
+    def __init__(self, name=None):
+        import logging
+
+        records = self.records = []
+
+        class _Handler(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        self._logger = logging.getLogger(name)
+        self._handler = _Handler()
+        self._old_level = None
+
+    def __enter__(self):
+        import logging
+        self._old_level = self._logger.level
+        self._logger.setLevel(logging.DEBUG)
+        self._logger.addHandler(self._handler)
+        return self
+
+    def __exit__(self, *exc):
+        self._logger.removeHandler(self._handler)
+        self._logger.setLevel(self._old_level)
+        return False
+
+    def at(self, level):
+        return [r for r in self.records if r.levelno == level]
+
+
 def outbox_lines():
     if not os.path.exists(stubenv.OUTBOX):
         return []
@@ -90,7 +122,7 @@ async def call(provider, stream=False, json_mode=False):
         kw = {"response_format": {"type": "json_object"}} if json_mode else {}
         c = openai.AsyncOpenAI()
         r = await c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}],
-                                            max_tokens=100, stream=stream, **kw)
+                                            max_completion_tokens=100, stream=stream, **kw)
         if not stream:
             return r.choices[0].message.content, r
         return "".join([ch.choices[0].delta.content async for ch in r if ch.choices]), r
@@ -177,6 +209,8 @@ async def kind_checks():
         "model_not_found": {"openai": 404, "gemini": 404, "claude": 404},
         "bad_request": {"openai": 400, "gemini": 400, "claude": 400},
         "echo_key": {"openai": 401, "gemini": 401, "claude": 401},
+        "invalid_model": {"openai": 400, "gemini": 400, "claude": 400},
+        "unsupported_param": {"openai": 400, "gemini": 400, "claude": 400},
     }
     for kind_name, per in table.items():
         for p, status in per.items():
@@ -193,6 +227,18 @@ async def kind_checks():
     stubenv.set_fake_ai(openai="bad_request")
     kind, info = await outcome("openai")
     check(info and info[2] == "invalid image", "bad_request message is 'invalid image'", info)
+    # F1: the fake OpenAI chat endpoint refuses max_tokens like OpenAI's reasoning models do
+    stubenv.clear_fake_ai()
+    try:
+        await openai.AsyncOpenAI().chat.completions.create(model="gpt-4o-mini", messages=[], max_tokens=5)
+        check(False, "fake openai: max_tokens is refused (unsupported_parameter)", "no error")
+    except stubenv.FakeAPIError as e:
+        check(e.status_code == 400 and e.code == "unsupported_parameter" and e.param == "max_tokens",
+              "fake openai: max_tokens is refused (unsupported_parameter)", (e.status_code, e.code, e.param))
+    stubenv.set_fake_ai(openai="invalid_model")
+    kind, info = await outcome("openai")
+    check(kind == "err" and info[0] == 400 and info[1] is None and "Invalid model" in info[2],
+          "invalid_model is a 400 with no code", info)
     stubenv.set_fake_ai(gemini="echo_key")
     kind, info = await outcome("gemini")
     check(info and info[2] == "Incorrect API key provided: sk-e2eSECRETabcdef123", "echo_key message carries the fake key", info)
@@ -300,9 +346,20 @@ def _resolution_checks():
         "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio"},
         "catalogue: feature keys", sorted(features.FEATURES))
     check(features.KNOWN_MODELS == {
-        "openai": ["gpt-4o-mini", "gpt-4o", "whisper-1"],
+        "openai": ["gpt-4o-mini", "gpt-4o"],
         "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
-        "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"]}, "catalogue: known models")
+        "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"]}, "catalogue: known models",
+        features.KNOWN_MODELS)
+    # F1: known models per feature: voice input on OpenAI offers only whisper-1, nothing else offers it
+    km = {k: features.known_models(k) for k in features.FEATURES}
+    check(km["transaction_audio"] == {"openai": ["whisper-1"], "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"]},
+          "known_models_per_feature: audio offers whisper-1 on openai, the gemini models on gemini", km["transaction_audio"])
+    check(all(m == {p: features.KNOWN_MODELS[p] for p in features.FEATURES[k].allowed}
+              for k, m in km.items() if k != "transaction_audio")
+          and not any("whisper-1" in ms for k, m in km.items() if k != "transaction_audio" for ms in m.values()),
+          "known_models_per_feature: other features offer their allowed providers' models, never whisper-1", km)
+    km["chat"]["openai"].append("x")
+    check("x" not in features.known_models("chat")["openai"], "known_models_per_feature: returns a copy")
     check(all("claude" in s.allowed for k, s in features.FEATURES.items() if k != "transaction_audio")
           and "claude" not in features.FEATURES["transaction_audio"].allowed
           and all(s.key == k for k, s in features.FEATURES.items()), "catalogue: claude allowed except audio")
@@ -363,6 +420,20 @@ def _resolution_checks():
         check(s is None and warned, "env_claude_audio_rejected", f"{s} {len(warned)} warnings")
     finally:
         logging.getLogger().removeHandler(cap)
+    # F6: a backups list that parses to nothing is invalid (logged, the unit ignored), not "no backups"
+    for raw in (",", " , ,", ",,"):
+        cap = Capture()
+        logging.getLogger().addHandler(cap)
+        try:
+            s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "openai", "AI_CHAT_BACKUPS": raw})
+            warned = [r for r in cap.records if r.levelno == logging.WARNING and "AI_CHAT_" in r.getMessage()]
+        finally:
+            logging.getLogger().removeHandler(cap)
+        check(s is None and warned, f"env_backups_empty_list_ignored: AI_CHAT_BACKUPS={raw!r} is invalid and logged",
+              f"{s} {[r.getMessage() for r in warned]}")
+    s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "openai", "AI_CHAT_BACKUPS": "gemini,"})
+    check(s is not None and s.backups == (T("gemini", "gemini-2.5-flash"),),
+          "env_backups: a trailing comma after a real entry is still fine", s)
     check(settings.parse_env("chat", {"AI_CHAT_PROVIDER": "bogus"}) is None, "env: unknown provider skipped")
     check(settings.parse_env("chat", {}) is None, "env: nothing set gives None")
 
@@ -487,6 +558,36 @@ def _resolution_checks():
     check(len(e) == 1, "validate: empty model", e)
     e = settings.validate("transaction_audio", FeatureSetting(T("openai", "whisper-1"), (T("claude", "claude-haiku-5-5"),), "panel"))
     check(len(e) == 1, "validate: backup provider not allowed", e)
+
+    # F1: OpenAI speech-to-text models only for voice input, and voice input on OpenAI only with one of them
+    V = lambda f, main, *backups: settings.validate(f, FeatureSetting(T(*main), tuple(T(*b) for b in backups), "panel"))  # noqa: E731
+    for model in ("whisper-1", "Whisper-2", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"):
+        e = V("chat", ("openai", model))
+        check(len(e) == 1 and "voice input" in e[0], f"validate_audio_model_elsewhere: chat main openai {model} rejected", e)
+    e = V("budget_suggestion", ("gemini", "gemini-2.5-flash"), ("openai", "whisper-1"))
+    check(len(e) == 1 and e[0].startswith("backup 1"), "validate_audio_model_elsewhere: a whisper backup is rejected too", e)
+    for model in ("gpt-4o-mini", "gpt-4o", "o4-mini"):
+        e = V("transaction_audio", ("openai", model))
+        check(len(e) == 1 and "speech-to-text" in e[0], f"validate_audio_needs_stt: audio main openai {model} rejected", e)
+    e = V("transaction_audio", ("gemini", "gemini-2.5-flash"), ("openai", "gpt-4o"))
+    check(len(e) == 1 and e[0].startswith("backup 1"), "validate_audio_needs_stt: an openai chat model as audio backup is rejected", e)
+    for main in (("openai", "whisper-1"), ("openai", "gpt-4o-transcribe"), ("openai", "gpt-4o-mini-transcribe"),
+                 ("gemini", "gemini-2.5-flash"), ("gemini", "gemini-live-whatever")):
+        e = V("transaction_audio", main)
+        check(e == [], f"validate_audio_ok: audio main {main[0]} {main[1]} is accepted", e)
+    check(V("chat", ("openai", "gpt-5-mini")) == [] and V("chat", ("gemini", "gemini-2.5-pro")) == [],
+          "validate: ordinary chat models (typed under Other) are still accepted")
+
+    # F7: a model name that looks like an API key is rejected, and the message does not repeat it
+    for secret in ("sk-proj-abcdef1234567890", "sk-ant-api03-abcdefgh", "AIzaSyAbcdefghijk123"):
+        e = V("chat", ("openai", secret))
+        check(len(e) == 1 and "API key" in e[0] and secret not in " ".join(e),
+              f"validate_key_like_model: {secret[:6]}... rejected without echoing it", e)
+        e = V("chat", ("gemini", "gemini-2.5-flash"), ("openai", secret), ("openai", secret))
+        check(e and all(secret not in m for m in e) and any("API key" in m for m in e),
+              f"validate_key_like_model: {secret[:6]}... as a repeated backup never appears in a message", e)
+    s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "openai", "AI_CHAT_MODEL": "sk-proj-abcdef1234567890"})
+    check(s is None, "validate_key_like_model: an env model that looks like a key is ignored", s)
 
 
 def migration_checks():
@@ -703,9 +804,60 @@ def error_checks():
     check(f is not None and f.kind == "billing", "classify_openai_429_insufficient_quota_is_billing", f)
     f = classify(stubenv.FakeAPIError(402, None, "payment required"), "gemini", "m")
     check(f is not None and f.kind == "billing", "classify: 402 alone is billing", f)
-    f = classify(genai_errors.ClientError(429, {"error": {"code": 429, "message": "prepayment credits depleted",
+    f = classify(genai_errors.ClientError(429, {"error": {"code": 429, "message": "Resource has been exhausted (e.g. check quota).",
                                                           "status": "RESOURCE_EXHAUSTED"}}), "gemini", "m")
     check(f is not None and f.kind == "rate_limit", "classify: 429 without an explicit billing signal is rate_limit", f)
+
+    # F4: Gemini reports depleted prepaid credits as a 429; that is billing (someone must top up), not a rate limit
+    for msg in ("Your prepayment credits are depleted. Please go to AI Studio to manage your project and billing.",
+                "prepayment credits depleted", "Your project's credits have been depleted",
+                "This project needs prepay credits to continue"):
+        e = genai_errors.ClientError(429, {"error": {"code": 429, "message": msg, "status": "RESOURCE_EXHAUSTED"}})
+        f = classify(e, "gemini", "gemini-2.5-flash")
+        check(f is not None and f.kind == "billing", f"classify_gemini_depleted_credits_429_is_billing: {msg[:30]}", f)
+        f = classify(stubenv.FakeAPIError(429, None, msg), "gemini", "m")
+        check(f is not None and f.kind == "billing", f"classify: a plain 429 with depleted credits is billing: {msg[:30]}", f)
+    import inspect
+    check("402 RESOURCE_EXHAUSTED" not in inspect.getsource(errors), "errors.py: no stale '402' Gemini comment")
+
+    # F1: a 400 that is about the model (OpenAI's structured error: param "model", or code
+    # unsupported_parameter / model_not_found) is specific to the provider+model pair: model_not_found
+    def oai_400(body):
+        return openai.BadRequestError(f"Error code: 400 - {body}", response=httpx.Response(400, request=req), body=body)
+
+    cases = {
+        "openai Invalid model (param model)": ({"message": "Invalid model gpt-4o-mini. The model argument should be left "
+                                                           "blank.", "type": "invalid_request_error", "param": "model",
+                                                "code": None}, "model_not_found"),
+        "openai unsupported_parameter max_tokens": ({"message": "Unsupported parameter: 'max_tokens' is not supported with "
+                                                                "this model. Use 'max_completion_tokens' instead.",
+                                                     "type": "invalid_request_error", "param": "max_tokens",
+                                                     "code": "unsupported_parameter"}, "model_not_found"),
+        "openai 400 code model_not_found": ({"message": "That model is not available here", "type": "invalid_request_error",
+                                             "param": None, "code": "model_not_found"}, "model_not_found"),
+        "openai 400 bad messages stays request-level": ({"message": "Invalid 'messages[0].content'", "type":
+                                                         "invalid_request_error", "param": "messages[0].content",
+                                                         "code": "invalid_value"}, None),
+        "openai 400 bad image stays request-level": ({"message": "You uploaded an unsupported image.", "type":
+                                                      "invalid_request_error", "param": None, "code": "invalid_image_format"},
+                                                     None),
+    }
+    for label, (body, want) in cases.items():
+        e = oai_400(body)
+        f = classify(e, "openai", "gpt-4o-mini")
+        check((f.kind if f else None) == want and (f is None or (f.provider, f.model) == ("openai", "gpt-4o-mini")),
+              f"classify_model_level_400: {label} -> {want}", (e.code, e.param, f))
+    f = classify(stubenv.FakeAPIError(400, None, "Invalid model.", param="model"), "openai", "whisper-x")
+    check(f is not None and f.kind == "model_not_found", "classify_model_level_400: fake invalid_model -> model_not_found", f)
+    f = classify(stubenv.FakeAPIError(422, "unsupported_parameter", "x", param="model"), "openai", "m")
+    check(f is None, "classify_model_level_400: only a 400 qualifies (422 stays request-level)", f)
+    # Anthropic and Gemini report an unknown model as a 404 (not_found_error / NOT_FOUND): already model_not_found
+    e = anthropic.NotFoundError("model: claude-typo", response=httpx.Response(404, request=req),
+                                body={"type": "error", "error": {"type": "not_found_error", "message": "model: claude-typo"}})
+    check(classify(e, "claude", "claude-typo").kind == "model_not_found", "classify: anthropic 404 not_found_error (model) -> model_not_found")
+    e = genai_errors.ClientError(404, {"error": {"code": 404, "message": "models/gemini-typo is not found for API version "
+                                                                         "v1beta", "status": "NOT_FOUND"}})
+    check(classify(e, "gemini", "gemini-typo").kind == "model_not_found", "classify: genai 404 NOT_FOUND (model) -> model_not_found")
     f = classify(stubenv.FakeAPIError(400, None, "Please check your billing details"), "x", "m")
     check(f is not None and f.kind == "billing", "classify: non-429 billing wording is still billing", f)
 
@@ -746,6 +898,15 @@ def error_checks():
     check(redact("a" * 290 + " sk-e2eSECRETabcdef123").count("sk-") == 0,
           "redact: a key near the truncation point is redacted before truncating")
     check(redact("plain message") == "plain message", "redact: leaves ordinary text alone")
+    # F8: words that merely contain "sk-" or "AIza" are left alone; keys after punctuation are still caught
+    for text in ("risk-assessment failed for task-1234567890", "the disk-cleanup-service and desk-booking-tool",
+                 "MAIzaBCDEFGHIJKLMNOP is not a key"):
+        check(redact(text) == text, f"redact_word_boundary: {text[:24]!r} is unchanged", redact(text))
+    for text in ("key=sk-proj-abcdef123456 end", "key:sk-ant-api03-abcdefgh end", "(AIzaSyAbcdefghijk123) end",
+                 "_sk-proj-abcdef123456 end", "\"sk-proj-********abcd\" end"):
+        out = redact(text)
+        check("[redacted]" in out and "abcdef1" not in out and "AIzaSy" not in out and "abcdefgh" not in out,
+              f"redact_word_boundary: a key after punctuation is still redacted: {text[:12]!r}", out)
     f = classify(stubenv.FakeAPIError(401, "invalid_api_key", "Incorrect API key provided: sk-e2eSECRETabcdef123"), "openai", "m")
     check("sk-e2e" not in f.message and "[redacted]" in f.message, "classify: failure message is redacted", f.message)
 
@@ -855,7 +1016,7 @@ async def health_checks():
         health.reset()
         for kind in ("refusal", "unusable", "timeout"):
             health.mark_failure(PF("gemini", "gemini-2.5-flash", kind, ""), t0)
-        check(health.is_available(T("gemini", "gemini-2.5-flash"), t0), "health: refusal, unusable and timeout never cool off")
+        check(health.is_available(T("gemini", "gemini-2.5-flash"), t0), "health: refusal, unusable and a single timeout never cool off")
 
         # server needs two in a row
         health.reset()
@@ -875,6 +1036,33 @@ async def health_checks():
             health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0)
         health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0 + 400)
         check(health.is_available(g, t0 + 401), "server_needs_two: the counter restarts after a provider cool-off")
+
+        # F2: timeouts count in the same streak as server errors: two in a row cool the whole provider for 300 s
+        health.reset()
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "timeout", ""), t0)
+        check(health.is_available(g, t0 + 1), "timeouts_cool_provider: one timeout leaves the target available")
+        health.mark_failure(PF("gemini", "gemini-2.5-pro", "timeout", ""), t0 + 1)
+        check(not health.is_available(g, t0 + 2) and not health.is_available(T("gemini", "gemini-2.5-pro"), t0 + 2)
+              and health.is_available(T("openai", "gpt-4o"), t0 + 2)
+              and not health.is_available(g, t0 + 300) and health.is_available(g, t0 + 302),
+              "timeouts_cool_provider: two timeouts in a row cool every gemini model for 300 s")
+        snap = health.snapshot(t0 + 2)
+        check(snap["gemini"]["cooling_until"] is not None and abs(snap["gemini"]["cooling_until"] - (t0 + 301)) < 1e-6,
+              "timeouts_cool_provider: the status snapshot shows the provider cooling", snap["gemini"])
+        health.mark_success(g)
+        check(health.is_available(g, t0 + 3) and health.is_available(T("gemini", "gemini-2.5-pro"), t0 + 3),
+              "timeouts_cool_provider: a success clears the cool-off")
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "timeout", ""), t0 + 4)
+        check(health.is_available(g, t0 + 5), "timeouts_cool_provider: after a success the streak starts again from zero")
+        health.reset()
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "server", ""), t0)
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "timeout", ""), t0 + 1)
+        check(not health.is_available(g, t0 + 2), "timeouts_cool_provider: a server error then a timeout also cool it")
+        health.reset()
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "timeout", ""), t0)
+        health.mark_success(g)
+        health.mark_failure(PF("gemini", "gemini-2.5-flash", "timeout", ""), t0 + 1)
+        check(health.is_available(g, t0 + 2), "timeouts_cool_provider: a success in between resets the streak")
 
         # default clock
         health.reset()
@@ -1027,8 +1215,37 @@ async def client_checks():
     # openai and gemini request shapes
     await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi", json_schema={"type": "object"}, max_tokens=77))
     k = stubenv.LAST_KWARGS["openai"]
-    check(k["response_format"] == {"type": "json_object"} and k["max_tokens"] == 77 and k["model"] == "gpt-4o-mini",
+    check(k["response_format"] == {"type": "json_object"} and k.get("max_completion_tokens") == 77 and k["model"] == "gpt-4o-mini",
           "openai: json_schema -> response_format json_object", k)
+    # F1: chat completions send max_completion_tokens (accepted by gpt-4o and the reasoning models), never max_tokens
+    check("max_tokens" not in k, "openai_max_completion_tokens: complete() never sends max_tokens", sorted(k))
+    async for _ in get_client("openai").stream("gpt-4o-mini", Prompt("s", "hi", max_tokens=88)):
+        pass
+    k = stubenv.LAST_KWARGS["openai"]
+    check(k.get("max_completion_tokens") == 88 and "max_tokens" not in k,
+          "openai_max_completion_tokens: stream() sends max_completion_tokens", sorted(k))
+    await get_client("openai").ping("gpt-4o-mini")
+    k = stubenv.LAST_KWARGS["openai"]
+    check(k.get("max_completion_tokens") == 16 and "max_tokens" not in k,
+          "openai_max_completion_tokens: ping sends max_completion_tokens 16", sorted(k))
+    import inspect
+    check("max_tokens=" not in inspect.getsource(openai_client) and '"max_tokens"' not in inspect.getsource(openai_client),
+          "openai_max_completion_tokens: the openai client source has no max_tokens parameter left")
+
+    # F2: SDK clients are built with an explicit timeout and fewer retries
+    oai = get_client("openai")._client().init_kwargs
+    check(oai.get("timeout") == 60 and oai.get("max_retries") == 1,
+          "sdk_timeouts: openai client timeout 60 s, max_retries 1", {k: v for k, v in oai.items() if k != "api_key"})
+    get_client("claude")._messages()
+    ant = get_client("claude")._sdk[1].init_kwargs
+    check(ant.get("timeout") == 60 and ant.get("max_retries") == 1,
+          "sdk_timeouts: anthropic client timeout 60 s, max_retries 1", {k: v for k, v in ant.items() if k != "api_key"})
+    get_client("gemini")._models()
+    gem = get_client("gemini")._sdk[1].init_kwargs
+    opts = gem.get("http_options")
+    check(opts is not None and stubenv._field(opts, "timeout") == 60_000 and stubenv._field(opts, "retry_options") is None,
+          "sdk_timeouts: gemini http_options timeout 60000 ms (60 s), no retries (the SDK default)",
+          {k: v for k, v in gem.items() if k != "api_key"})
     await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi"))
     check("response_format" not in stubenv.LAST_KWARGS["openai"], "openai: no response_format without json_schema")
     async for _ in get_client("openai").stream("gpt-4o-mini", Prompt("s", "hi")):
@@ -1446,6 +1663,43 @@ async def _runner_checks(uid):
     check(health.is_available(T("claude", "claude-sonnet-5-5")),
           "health_unchanged: not_configured does not cool the target")
 
+    # F5: an unconfigured main never counts as "available", so a cooling backup is still tried (all unhealthy -> in order)
+    health.reset()
+    one_backup = FeatureSetting(T("claude", "claude-sonnet-5-5"), (T("openai", "gpt-4o-mini"),), "panel")
+    await settings.save_panel("chat", one_backup, "t6@x")
+    health.mark_failure(runner.ProviderFailure("openai", "gpt-4o-mini", "rate_limit", "429"))
+    old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        listed = list(runner._targets("chat"))
+        r, called = await go(setting=one_backup)
+    finally:
+        if old_key is not None:
+            os.environ["ANTHROPIC_API_KEY"] = old_key
+    check(listed == [T("claude", "claude-sonnet-5-5"), T("openai", "gpt-4o-mini")],
+          "unconfigured_main_cooling_backup: _targets falls back to the whole chain in order", listed)
+    check(isinstance(r, runner.RunResult) and r.target == T("openai", "gpt-4o-mini") and r.fallback_from == "claude"
+          and called == ["openai"], "unconfigured_main_cooling_backup: the cooling backup still answers", (r, called))
+    health.reset()
+    health.mark_failure(runner.ProviderFailure("openai", "gpt-4o-mini", "rate_limit", "429"))
+    listed = list(runner._targets("chat"))
+    check(listed == [T("claude", "claude-sonnet-5-5")],
+          "unconfigured_main_cooling_backup: with a configured main the cooling backup is still skipped", listed)
+
+    # F1: a model-level 400 (OpenAI "Invalid model" / unsupported max_tokens) falls back, cools only that pair and
+    # shows in the provider status
+    for kind in ("invalid_model", "unsupported_param"):
+        health.reset()
+        await execute_status_delete()
+        oai_main = FeatureSetting(T("openai", "gpt-5-mini"), (T("gemini", "gemini-2.5-flash"),), "panel")
+        r, called = await go(setting=oai_main, **{"openai@gpt-5-mini": kind})
+        st = await ai_settings.get_provider_status()
+        check(isinstance(r, runner.RunResult) and r.target == T("gemini", "gemini-2.5-flash") and r.fallback_from == "openai"
+              and called == ["openai", "gemini"], f"model_level_400_falls_back: {kind} -> gemini answers", (r, called))
+        check(not health.is_available(T("openai", "gpt-5-mini")) and health.is_available(T("openai", "gpt-4o-mini")),
+              f"model_level_400_falls_back: {kind} cools only openai/gpt-5-mini")
+        check((st.get("openai") or {}).get("last_error"), f"model_level_400_falls_back: {kind} is persisted to the status",
+              st.get("openai"))
+
     # cooled_target_skipped_next_time (the fakes are cleared: claude would answer if it were called)
     health.reset()
     await go(claude="billing")
@@ -1773,15 +2027,25 @@ async def admin_api_checks():
         check(r.status_code == 200 and set(feats) == set(ADMIN_FEATURES) and len(body["features"]) == 9
               and chat["effective"]["source"] == "default" and provs.get("claude", {}).get("configured") is True,
               "settings_get_moderator_ok", f"{r.status_code} {r.text[:300]}")
-        check(set(provs) == set(ADMIN_PROVIDERS) and all(set(p) == {"id", "label", "configured", "known_models"}
-                                                         for p in provs.values())
-              and provs["claude"]["known_models"] == ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
-              "settings_get: provider shape and known models", provs)
+        check(set(provs) == set(ADMIN_PROVIDERS) and all(set(p) == {"id", "label", "configured"} for p in provs.values()),
+              "settings_get: provider shape (known models are per feature)", provs)
         check(chat.get("effective") == {"main": {"provider": "gemini", "model": "gemini-2.5-flash"},
                                         "backups": None, "source": "default"}
               and chat.get("panel") is None and chat.get("allowed") == ["openai", "gemini", "claude"]
-              and chat.get("label") and set(chat) == {"key", "label", "allowed", "effective", "default_chain", "panel"},
+              and chat.get("label")
+              and set(chat) == {"key", "label", "allowed", "effective", "default_chain", "panel", "known_models"},
               "settings_get: feature shape", chat)
+        # F1: each feature row lists the models its picker offers, per allowed provider
+        audio = feats["transaction_audio"]
+        check(audio.get("known_models") == {"openai": ["whisper-1"], "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"]},
+              "settings_get_known_models_per_feature: audio offers only whisper-1 on openai", audio.get("known_models"))
+        check(chat.get("known_models") == {"openai": ["gpt-4o-mini", "gpt-4o"], "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
+                                           "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"]}
+              and all(set(f["known_models"]) == set(f["allowed"]) for f in feats.values())
+              and not any("whisper-1" in ms for k, f in feats.items() if k != "transaction_audio"
+                          for ms in f["known_models"].values()),
+              "settings_get_known_models_per_feature: other features never offer whisper-1",
+              {k: f.get("known_models") for k, f in feats.items()})
         check(chat.get("default_chain") == [{"provider": "openai", "model": "gpt-4o-mini"},
                                             {"provider": "claude", "model": "claude-sonnet-5-5"}],
               "settings_get: default_chain is what null backups expand to", chat.get("default_chain"))
@@ -1844,6 +2108,35 @@ async def admin_api_checks():
             check(r.status_code == 422, f"settings_put_422: {label}", f"{r.status_code} {r.text[:160]}")
         r = c.put("/api/admin/ai/settings/chat", headers=AD, content=b"not json")
         check(r.status_code == 422, "settings_put_422: not JSON", r.status_code)
+
+        # F1: a model the feature cannot use is a 422 with a readable message (shown inline by the admin page)
+        r = put("transaction_audio", {"main": {"provider": "openai", "model": "gpt-4o-mini"}, "backups": None})
+        d = r.json().get("detail") if r.status_code == 422 else None
+        check(r.status_code == 422 and isinstance(d, list) and len(d) == 1 and isinstance(d[0], str)
+              and "speech-to-text" in d[0] and "gpt-4o-mini" in d[0],
+              "settings_put_model_mismatch_422: audio on openai gpt-4o-mini", f"{r.status_code} {r.text[:300]}")
+        r = put("chat", {"main": claude, "backups": [{"provider": "openai", "model": "whisper-1"}]})
+        d = r.json().get("detail") if r.status_code == 422 else None
+        check(r.status_code == 422 and isinstance(d, list) and len(d) == 1 and d[0].startswith("backup 1")
+              and "voice input" in d[0], "settings_put_model_mismatch_422: whisper-1 as a chat backup", f"{r.status_code} {r.text[:300]}")
+        r = put("transaction_audio", {"main": {"provider": "openai", "model": "gpt-4o-transcribe"},
+                                      "backups": [{"provider": "gemini", "model": "gemini-2.5-pro"}]})
+        check(r.status_code == 200, "settings_put: audio accepts an openai *transcribe* model and any gemini model",
+              f"{r.status_code} {r.text[:300]}")
+        c.delete("/api/admin/ai/settings/transaction_audio", headers=AD)
+
+        # F7: a model name that looks like an API key is a 422 that never echoes it, and nothing is stored or logged
+        secret = "sk-proj-t7PASTEDkey1234567890"
+        r = put("chat", {"main": {"provider": "openai", "model": secret}, "backups": None})
+        check(r.status_code == 422 and secret not in r.text and "API key" in r.text,
+              "settings_put_key_like_model_422: rejected without echoing the key", f"{r.status_code} {r.text[:300]}")
+        r = put("chat", {"main": claude, "backups": [{"provider": "gemini", "model": "AIzaSyT7pastedKEY12345"}]})
+        check(r.status_code == 422 and "AIzaSy" not in r.text, "settings_put_key_like_model_422: a key-like backup too",
+              f"{r.status_code} {r.text[:300]}")
+        g = c.get("/api/admin/ai/settings", headers=AD)
+        check(secret not in g.text and "AIzaSyT7" not in g.text
+              and {f["key"]: f for f in g.json()["features"]}["chat"]["effective"]["main"] == claude,
+              "settings_put_key_like_model_422: the saved setting is unchanged and no key is returned", g.text[:300])
 
         r = put("chat", {"main": {"provider": "openai", "model": " gpt-4o "}, "backups": None})
         j = r.json() if r.status_code == 200 else {}
@@ -2477,17 +2770,20 @@ async def _insight_inprocess_checks(uid):
                 row = await gen(uid)
                 kw = stubenv.LAST_KWARGS[provider]
                 if provider == "openai":
-                    got = (kw.get("max_tokens"), kw.get("temperature"), kw["messages"][0]["content"][:40])
+                    got = (kw.get("max_completion_tokens"), kw.get("temperature"), kw["messages"][0]["content"][:40])
                 elif provider == "gemini":
                     got = (kw["config"].max_output_tokens, kw["config"].temperature, (kw["config"].system_instruction or "")[:40])
                 else:
                     got = (kw.get("max_tokens"), kw.get("temperature", "absent"), (kw.get("system") or "")[:40])
                 want_temp = "absent" if provider == "claude" else 0.7
-                persona = "You are Flow Finance AI" if feature == "insight_weekly" else "You are Toe Pwar AI"
+                persona = "You are Toe Pwar AI"  # F9: weekly too (was "Flow Finance AI")
                 check(row and row["ai_provider"] == provider and got[0] == limits[provider] and got[1] == want_temp
                       and got[2].startswith(persona) and kw.get("model") == model,
                       f"insights prompt: {feature} on {provider} sends max tokens {limits[provider]}, temperature {want_temp}",
                       (row and row.get("ai_provider"), got, kw.get("model")))
+
+        check("Flow Finance AI" not in open(ins.__file__, encoding="utf-8").read(),
+              "insights persona: no 'Flow Finance AI' left in insights_service (F9)")
 
         # translation: per-provider limits, temperature 0.3 as before, the default model is gemini-2.5-pro
         settings.set_panel_cache({})
@@ -2499,8 +2795,8 @@ async def _insight_inprocess_checks(uid):
         use("insight_translation", "openai", "gpt-4o-mini")
         await ins.translate_insight_to_myanmar("## Hi\nYou spent $5.", user_id=uid, is_placeholder=False)
         kw = stubenv.LAST_KWARGS["openai"]
-        check(kw.get("max_tokens") == 8000 and kw.get("temperature") == 0.3, "translation: openai 8000 tokens, temperature 0.3",
-              (kw.get("max_tokens"), kw.get("temperature")))
+        check(kw.get("max_completion_tokens") == 8000 and kw.get("temperature") == 0.3, "translation: openai 8000 tokens, temperature 0.3",
+              (kw.get("max_completion_tokens"), kw.get("temperature")))
         use("insight_translation", "claude", "claude-sonnet-5-5")
         await ins.translate_insight_to_myanmar("## Hi\nYou spent $5.", user_id=uid, is_placeholder=False)
         kw = stubenv.LAST_KWARGS["claude"]
@@ -2581,6 +2877,27 @@ async def _insight_inprocess_checks(uid):
         stubenv.clear_fake_ai()
         import ai_chatbot
         check(not hasattr(ai_chatbot.financial_chatbot, "gpt_model"), "insights: FinancialChatbot.gpt_model is gone (R1)")
+
+        # F10: the manual weekly-insight route logs the failure text redacted
+        import contextlib
+        import io
+
+        import main as backend_main
+        orig_weekly = ins.generate_weekly_insight
+
+        async def weekly_fails(user_id):
+            raise RuntimeError("upstream refused key sk-proj-t9MANUALkey1234567 for this request")
+        ins.generate_weekly_insight = weekly_fails
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                res = await backend_main.manually_generate_weekly_insights(current_user={"_id": uid})
+        finally:
+            ins.generate_weekly_insight = orig_weekly
+        printed = out.getvalue()
+        check(res.get("results") and list(res["results"].values()) == ["error"] and "Manual weekly insight failed" in printed
+              and "t9MANUAL" not in printed and "[redacted]" in printed,
+              "manual_weekly_logs_redacted: the failure is printed with the key redacted", (res, printed[-300:]))
     finally:
         runner.run, ins.users_db.list_fields = orig_run, orig_list
         stubenv.clear_fake_ai()
@@ -2689,6 +3006,27 @@ async def budget_checks():
               f"{r.status_code} {r.text[:300]}")
         admin_reset(c, AD)
 
+        # --- F3: a request-level provider error is a 400 with a fixed message: no provider text, no fallback
+        import transaction_routes as _tr
+        for provider, model in (("claude", "claude-sonnet-5-5"), ("openai", "gpt-4o-mini")):
+            put("budget_suggestion", provider, model)
+            stubenv.set_fake_ai(**{provider: "bad_request"})
+            before = len(outbox_lines())
+            n0 = len(await usage(uid, "budget_suggestion"))
+            r = c.post("/api/budgets/ai-suggest", headers=U, json=suggest_body)
+            check(r.status_code == 400 and r.json().get("detail") == _tr._AI_BAD_REQUEST
+                  and "invalid image" not in r.text and "Error code" not in r.text and calls(before) == [provider]
+                  and len(await usage(uid, "budget_suggestion")) == n0,
+                  f"budget_bad_request_400: {provider} bad_request -> fixed 400, no provider text, no fallback",
+                  f"{r.status_code} {r.text[:300]} {calls(before)}")
+            admin_reset(c, AD)
+        put("budget_suggestion", "claude", "claude-sonnet-5-5")
+        stubenv.set_fake_ai(claude="odd_error")
+        r = c.post("/api/budgets/ai-suggest", headers=U, json=suggest_body)
+        check(r.status_code == 400 and r.json().get("detail") == _tr._AI_BAD_REQUEST and "odd provider" not in r.text,
+              "budget_bad_request_400: an exception without a status is the same fixed 400", f"{r.status_code} {r.text[:300]}")
+        admin_reset(c, AD)
+
         # --- not enough data: basic suggestions, no AI call at all
         uid2, U2 = premium_user("few", n_tx=3)
         before = len(outbox_lines())
@@ -2767,7 +3105,7 @@ async def _budget_inprocess_checks(uid):
                         bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")).category_budgets
                 kw = stubenv.LAST_KWARGS[provider]
                 if provider == "openai":
-                    got = (kw.get("max_tokens"), kw.get("temperature"), (kw.get("response_format") or {}).get("type"))
+                    got = (kw.get("max_completion_tokens"), kw.get("temperature"), (kw.get("response_format") or {}).get("type"))
                 elif provider == "gemini":
                     got = (kw["config"].max_output_tokens, kw["config"].temperature, kw["config"].response_mime_type)
                 else:
@@ -2820,6 +3158,32 @@ async def _budget_inprocess_checks(uid):
               "budget suggest: every provider failing -> basic suggestions plus a warning",
               ([x.allocated_amount for x in s.category_budgets], s.warnings))
         stubenv.clear_fake_ai()
+
+        # --- F3: any other exception escaping the runner is logged redacted at error level and becomes a fixed 400
+        import logging
+        orig_run = bs._runner.run
+
+        async def rejects(*a, **k):
+            raise RuntimeError("Error code: 413 - request_too_large for key sk-proj-t10BUDGETkey1234567")
+        bs._runner.run = rejects
+        use("budget_suggestion", "claude", "claude-sonnet-5-5")
+        try:
+            with LogCapture("budget_service") as cap:
+                req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
+                try:
+                    await budget_routes.get_ai_budget_suggestions(req, current_user={"_id": uid})
+                    err = None
+                except HTTPException as e:
+                    err = e
+        finally:
+            bs._runner.run = orig_run
+        errs = [r.getMessage() for r in cap.at(logging.ERROR)]
+        check(err is not None and err.status_code == 400
+              and err.detail == "The AI service could not process this request. Please check it and try again."
+              and "413" not in str(err.detail),
+              "budget_rejected_400: the route answers the fixed 400", err and (err.status_code, err.detail))
+        check(len(errs) == 1 and "[redacted]" in errs[0] and not any("t10BUDGET" in r.getMessage() for r in cap.records),
+              "budget_rejected_400: one redacted error-level log line", [(r.levelname, r.getMessage()) for r in cap.records])
 
         # --- the route: AllProvidersFailed that reaches it is a 503 with a fixed message, never a 500 with provider text
         orig = bs.BudgetAnalyzer.generate_ai_suggestions
@@ -2940,6 +3304,29 @@ async def transaction_checks():
               "text_bad_json_falls_back: 200 from openai after claude's bad JSON", f"{r.status_code} {r.text[:200]} {calls(before)}")
         check(len(rows) == 1 and rows[0]["provider"] == "openai" and rows[0]["fallback_from"] == "claude",
               "text_bad_json_falls_back: the usage row has fallback_from claude", [(x["provider"], x["fallback_from"]) for x in rows])
+        admin_reset(c, AD)
+
+        # --- F1: a model-level 400 (a model typed under "Other..." that the endpoint can't use) falls back to the
+        # backup and shows on the status card: the model cools and the provider's last error is set
+        r = put("transaction_text", "openai", "gpt-5-mini", backups=[{"provider": "gemini", "model": "gemini-2.5-flash"}])
+        check(r.status_code == 200, "tx setup: PUT transaction_text = openai gpt-5-mini, backup gemini", f"{r.status_code} {r.text[:200]}")
+        for kind in ("invalid_model", "unsupported_param"):
+            stubenv.clear_fake_ai()
+            # a successful Test of the pair clears its cool-off from the previous round
+            admin_reset_status = c.post("/api/admin/ai/test/openai", headers=AD, json={"model": "gpt-5-mini"})
+            stubenv.set_fake_ai(**{"openai@gpt-5-mini": kind})
+            before = len(outbox_lines())
+            r = c.post("/api/transactions/extract-from-text", headers=U, json={"text": "coffee 2.5 dollars"})
+            st = {p["id"]: p for p in c.get("/api/admin/ai/status", headers=AD).json()["providers"]}["openai"]
+            check(r.status_code == 200 and r.json().get("amount") == 2.5 and calls(before) == ["openai", "gemini"]
+                  and admin_reset_status.status_code == 200,
+                  f"tx_model_level_400_falls_back: {kind} on openai gpt-5-mini -> 200 from gemini",
+                  f"{r.status_code} {r.text[:200]} {calls(before)}")
+            check(st["state"] == "failing" and [m["model"] for m in st["cooling_models"]] == ["gpt-5-mini"]
+                  and st["cooling_until"] is None and st["last_error"],
+                  f"tx_model_level_400_falls_back: {kind} shows on the status card (gpt-5-mini cooling, last error)", st)
+        stubenv.clear_fake_ai()
+        c.post("/api/admin/ai/test/openai", headers=AD, json={"model": "gpt-5-mini"})  # un-cool the pair for later checks
         admin_reset(c, AD)
 
         # --- image_extract_on_claude
@@ -3080,7 +3467,7 @@ async def _transaction_inprocess_checks(uid):
     def kw_of(provider):
         kw = stubenv.LAST_KWARGS[provider]
         if provider == "openai":
-            return (kw.get("max_tokens"), kw.get("temperature"), (kw.get("response_format") or {}).get("type"))
+            return (kw.get("max_completion_tokens"), kw.get("temperature"), (kw.get("response_format") or {}).get("type"))
         if provider == "gemini":
             return (kw["config"].max_output_tokens, kw["config"].temperature, kw["config"].response_mime_type)
         fmt = (kw.get("output_config") or {}).get("format") or {}
@@ -3224,6 +3611,29 @@ async def _transaction_inprocess_checks(uid):
         src = open(tr.__file__, encoding="utf-8").read()
         check(not any(s in src for s in ("gpt-4o", "whisper-1", "AsyncOpenAI", "track_ai_usage", "OPENAI_API_KEY")),
               "transaction_routes: no direct OpenAI call, hard-coded model, key check or own usage tracking is left")
+
+        # --- F11: the "request rejected -> 400" path is logged at error level, redacted
+        import logging
+        orig_run = tr._runner.run
+
+        async def rejects(*a, **k):
+            raise RuntimeError("provider said no for key sk-proj-t11LOGGEDkey123456")
+        tr._runner.run = rejects
+        try:
+            with LogCapture("transaction_routes") as cap:
+                try:
+                    await tr._run_ai("transaction_text", uid, call=None)
+                    err = None
+                except tr.HTTPException as e:
+                    err = e
+        finally:
+            tr._runner.run = orig_run
+        errs = [r.getMessage() for r in cap.at(logging.ERROR)]
+        check(err is not None and err.status_code == 400 and err.detail == tr._AI_BAD_REQUEST
+              and len(errs) == 1 and "transaction_text" in errs[0] and "[redacted]" in errs[0]
+              and not any("t11LOGGED" in r.getMessage() for r in cap.records),
+              "tx_rejected_logged_at_error: one redacted error-level log line, the fixed 400",
+              (err and (err.status_code, err.detail), [(r.levelname, r.getMessage()) for r in cap.records]))
     finally:
         stubenv.clear_fake_ai()
         health.reset()

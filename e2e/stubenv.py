@@ -91,7 +91,9 @@ FAKE_CONTROL = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".data",
 # (the next N calls fail that way, then the entry is removed). See _raise_for / _begin for what each kind does.
 FAKE_PROVIDERS = ("openai", "gemini", "claude")
 _RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_not_found", "bad_request", "echo_key",
-                 "odd_error")  # odd_error: a plain exception with no status at all (a request-level error classify() can't place)
+                 "odd_error",  # odd_error: a plain exception with no status at all (a request-level error classify() can't place)
+                 "invalid_model",  # OpenAI's 400 for a model the endpoint can't use (param "model", no code)
+                 "unsupported_param")  # OpenAI's 400 code unsupported_parameter (e.g. max_tokens on a reasoning model)
 # An odd successful answer, not an error. length_once: a reply cut off at the output limit (OpenAI finish_reason
 # "length", Gemini MAX_TOKENS, Claude stop_reason "max_tokens"), on the first matching call only.
 _ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once")
@@ -100,13 +102,15 @@ FAKE_KINDS = _RAISING_KINDS + _ANSWER_KINDS  # later tasks add kinds here
 
 
 class FakeAPIError(Exception):
-    """What a fake provider SDK raises: an HTTP-style error with a status, a provider code and a message."""
+    """What a fake provider SDK raises: an HTTP-style error with a status, a provider code, a message and (like
+    OpenAI's structured errors) the request parameter at fault."""
 
-    def __init__(self, status_code, code, message):
+    def __init__(self, status_code, code, message, param=None):
         super().__init__(f"Error code: {status_code} - {message}")
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.param = param
 
 
 def _check_control(kinds):
@@ -144,7 +148,7 @@ def set_fake_ai(**kinds):
     """Make fake providers fail on demand, e.g. set_fake_ai(claude="billing", openai="timeout").
 
     Replaces the whole control file, so providers not named succeed. Kinds: billing, auth, rate_limit, server,
-    timeout, model_not_found, bad_request, echo_key (raise); refusal (claude), empty, bad_json (odd successful
+    timeout, model_not_found, bad_request, echo_key, odd_error, invalid_model, unsupported_param (raise); refusal (claude), empty, bad_json (odd successful
     answer); fail_mid_stream (streaming calls only); length_once (a reply cut off at the output limit, on the
     first matching call only). Model-scoped keys need dict unpacking:
     set_fake_ai(**{"claude@claude-typo": "model_not_found"}); a count limits a failure:
@@ -192,6 +196,15 @@ def _raise_for(provider, kind):
         raise FakeAPIError(401, "invalid_api_key", "Incorrect API key provided: sk-e2eSECRETabcdef123")
     if kind == "odd_error":
         raise ValueError("odd provider text: cannot use this request")
+    if kind == "invalid_model":
+        raise FakeAPIError(400, None, "Invalid model. The model argument should be left blank.", param="model")
+    if kind == "unsupported_param":
+        raise _unsupported_max_tokens()
+
+
+def _unsupported_max_tokens():
+    return FakeAPIError(400, "unsupported_parameter", "Unsupported parameter: 'max_tokens' is not supported with this "
+                        "model. Use 'max_completion_tokens' instead.", param="max_tokens")
 
 
 LAST_KWARGS = {}  # provider id -> the keyword arguments of its latest fake SDK call (in-process checks read this)
@@ -286,7 +299,9 @@ class _FakeCompletions:
     async def create(self, *a, stream=False, **k):
         LAST_KWARGS["openai"] = dict(k, stream=stream)
         kind = _begin("openai", "chat.completions.create", k.get("model"), streaming=stream, stream=stream)
-        usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
+        if "max_tokens" in k:  # like OpenAI's reasoning models: only max_completion_tokens is accepted
+            raise _unsupported_max_tokens()
+        usage =_ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
         wants_json = (k.get("response_format") or {}).get("type") == "json_object"
         text = _answer_text(kind, json.dumps(k.get("messages", [])), wants_json)
         finish = "length" if kind == "length_once" else "stop"
@@ -316,6 +331,7 @@ class _FakeTranscriptions:
 
 class FakeAsyncOpenAI:
     def __init__(self, *a, **k):
+        self.init_kwargs = dict(k)  # checks read the timeout / retry settings the client was built with
         self.chat = _ns(completions=_FakeCompletions())
         self.audio = _ns(transcriptions=_FakeTranscriptions())
         self.embeddings = _Raiser("openai.embeddings")
@@ -376,6 +392,7 @@ class _FakeGeminiModels:
 
 class FakeGenaiClient:
     def __init__(self, *a, **k):
+        self.init_kwargs = dict(k)
         self.aio = _ns(models=_FakeGeminiModels())
         self.models = _Raiser("gemini.models")
         self.files = _Raiser("gemini.files")
@@ -473,6 +490,7 @@ class _FakeClaudeMessages:
 
 class FakeAsyncAnthropic:
     def __init__(self, *a, **k):
+        self.init_kwargs = dict(k)
         self.beta = _ns(messages=_FakeClaudeMessages())
         self.messages = _Raiser("claude.messages")
 

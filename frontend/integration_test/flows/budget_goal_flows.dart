@@ -149,7 +149,7 @@ void budgetFlows() {
       check(find.text(renamed).evaluate().isEmpty, 'Deleted budget still listed');
     });
 
-    e2eTest('budgets: AI suggestion (premium, fake OpenAI) fails gracefully; free → paywall', (t) async {
+    e2eTest('budgets: AI suggestion (premium, fake AI) fills the budget form; free → paywall', (t) async {
       await login(premium);
       await openBudgets();
       await tap(find.byTooltip(L.createNewBudget));
@@ -159,25 +159,23 @@ void budgetFlows() {
       await waitFor(find.byType(AIBudgetSuggestionScreen));
       final r = await waitAny([find.text(L.failedToGenerateSuggestion), find.text(L.suggestedBudgetPlan)],
           timeout: const Duration(seconds: 100));
-      check(r >= 0, 'AI budget suggestion neither showed a result nor an error within 100 s (${visibleTexts().take(20).join(' | ')})');
+      // The fake budget_suggestion provider always answers (a plan with "Food & Daily Living" at 450).
+      check(r == 1, 'AI budget suggestion did not show the fake plan within 100 s (${visibleTexts().take(20).join(' | ')})');
       if (r == 1) {
-        // The fake budget_suggestion provider answers with a two-category plan.
-        final hasCats = find.text(L.useThisBudget).evaluate().isNotEmpty || await scrollTo(find.text(L.useThisBudget), maxSwipes: 6);
-        // ignore: avoid_print
-        print('E2E_INFO|AI suggestion shown; useThisBudget visible=$hasCats; texts=${visibleTexts().take(30).join(' | ')}');
-      }
-      if (r == 0) {
-        step('try again');
-        await tap(find.text(L.tryAgain));
-        await waitAny([find.text(L.failedToGenerateSuggestion), find.text(L.useThisBudget)],
-            timeout: const Duration(seconds: 100));
-      } else if (r == 1 && find.text(L.useThisBudget).evaluate().isNotEmpty) {
-        // Open the plan in the budget form but do not save it: a saved budget would change the seeded data
-        // the later tests count on.
-        step('use AI plan');
-        await tap(find.text(L.useThisBudget));
-        await waitFor(find.byType(CreateBudgetScreen));
-        await settle(800);
+        final hasUse = find.text(L.useThisBudget).evaluate().isNotEmpty || await scrollTo(find.text(L.useThisBudget), maxSwipes: 6);
+        check(hasUse, 'AI suggestion: no "${L.useThisBudget}" button (${visibleTexts().take(30).join(' | ')})');
+        if (hasUse) {
+          // Open the plan in the budget form but do not save it: a saved budget would change the seeded data
+          // the later tests count on.
+          step('use AI plan');
+          await tap(find.text(L.useThisBudget));
+          await waitFor(find.byType(CreateBudgetScreen));
+          await settle(800);
+          final planCategory = find.descendant(of: find.byType(CreateBudgetScreen), matching: find.text('Food & Daily Living'));
+          check(await scrollTo(planCategory, maxSwipes: 8),
+              '"Use this budget" did not carry the AI plan into the budget form: no "Food & Daily Living" category '
+              '(${visibleTexts().take(30).join(' | ')})');
+        }
       }
       await goHome();
       await logout();

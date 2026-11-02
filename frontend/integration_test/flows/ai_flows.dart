@@ -91,7 +91,7 @@ void insightFlows() {
 
 void chatFlows() {
   group('10 AI chat', () {
-    e2eTest('chat: suggested question with failing Gemini → friendly error, no empty bubble; clear', (t) async {
+    e2eTest('chat: suggested question with failing AI → friendly error, no empty bubble; clear', (t) async {
       await login(premium);
       await drawerGo(L.aiAssistant);
       await waitFor(find.byType(AiChatScreen));
