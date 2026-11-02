@@ -67,7 +67,7 @@ from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
 from plans import periods, quota
 from plans import store as plan_store
-from plans.access import LIMIT_REACHED, PlanError, effective_plan
+from plans.access import COST_CAP, LIMIT_REACHED, PlanError, effective_plan
 from tz_utils import as_utc
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
@@ -665,7 +665,9 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict]) -> dict:
     - A stored placeholder with still no data is not regenerated: the latest older real insight is shown if there is one.
     - If generation fails, the latest older insight is shown and nothing is counted; with nothing stored the error
       is surfaced, as for Plus and Pro.
-    PlanError (the month's use is gone, the hidden cost cap) passes through. `latest` is the newest stored insight.
+    - If the month's use is gone or the hidden cost cap is reached, the latest older real insight is shown (200, nothing
+      counted); with none stored the 429 PlanError is raised. An owner-locked insight is still a 403.
+    `latest` is the newest stored insight.
     """
     from insights_service import _latest_real_insight, user_has_insight_data
 
@@ -681,7 +683,12 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict]) -> dict:
     generated = None
     try:
         generated = await _generate_counted(user, "monthly")
-    except PlanError:
+    except PlanError as e:
+        # Blocked from generating this month's insight (the month's use is gone, the hidden cost cap): an older real
+        # insight costs nothing to show, so it is returned instead of the 429. With none stored the refusal stands.
+        # A locked insight (the owner locked it for Free) stays a 403.
+        if e.code in (LIMIT_REACHED, COST_CAP) and real:
+            return real
         raise
     except Exception as e:  # AI down, rate limited, unusable answer: fall back to what is stored
         error = e

@@ -244,6 +244,33 @@ async def run(t):
         check(plan_error(r, 429, "plan_cost_cap", "insight_monthly") and not calls and used(gid, "insight_monthly") == 0,
               "free_monthly_refused: a Free user at the cost cap gets 429 plan_cost_cap and no AI call",
               f"{r.status_code} {r.text[:160]} {len(calls)} calls")
+        # blocked, but an older real insight is stored: it is shown (200), nothing is counted, no AI call
+        lo_id, lo_h = register("limit-older")
+        lo_old = store_insight(lo_id, age=timedelta(days=40))
+        set_used(lo_id, "insight_monthly", 1)
+        r, calls = calls_of(lambda: get(lo_h))
+        check(r.status_code == 200 and r.json().get("id") == lo_old and not calls and used(lo_id, "insight_monthly") == 1,
+              "free_monthly_refused_older_shown: with the month's use gone and an older insight stored, GET is 200 with that older insight "
+              "(no AI call, nothing more counted)", f"{r.status_code} {r.text[:160]} {len(calls)} calls used={used(lo_id, 'insight_monthly')}")
+        co_id, co_h = register("capped-older")
+        co_old = store_insight(co_id, age=timedelta(days=40))
+        add_cost(co_id, 0.5)
+        r, calls = calls_of(lambda: get(co_h))
+        check(r.status_code == 200 and r.json().get("id") == co_old and not calls and used(co_id, "insight_monthly") == 0
+              and used(co_id, "insight_monthly", "week") == 0,
+              "free_monthly_refused_older_shown: at the cost cap with an older insight stored, GET is 200 with that older insight "
+              "(no AI call, nothing counted)", f"{r.status_code} {r.text[:160]} {len(calls)} calls")
+        r, calls = calls_of(lambda: get(co_h, language="mm"))
+        check(r.status_code == 200 and r.json().get("translation_locked") is True and r.json().get("content_mm") is None and not calls,
+              "free_monthly_refused_older_shown: the older insight is still English only for ?language=mm (translation_locked true)",
+              f"{r.status_code} {r.text[:160]}")
+        po_id, po_h = register("capped-placeholder-only")  # only a welcome placeholder stored: not an insight to fall back to
+        store_insight(po_id, placeholder=True, content="## Welcome to Toe Pwar!\nGet Started with Your Financial Journey")
+        add_cost(po_id, 0.5)
+        r, calls = calls_of(lambda: get(po_h))
+        check(plan_error(r, 429, "plan_cost_cap", "insight_monthly") and not calls,
+              "free_monthly_refused: with only a placeholder stored (no older real insight) the cost-cap 429 stands",
+              f"{r.status_code} {r.text[:160]}")
         capped_stored = store_insight(gid)
         r, calls = calls_of(lambda: get(gh))
         check(r.status_code == 200 and r.json().get("id") == capped_stored and not calls,
