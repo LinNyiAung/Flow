@@ -3063,7 +3063,9 @@ async def _insight_inprocess_checks(uid):
         out = io.StringIO()
         try:
             with contextlib.redirect_stdout(out):
-                res = await backend_main.manually_generate_weekly_insights(current_user={"_id": uid})
+                # the route reads the plan from the user (the route is Plus and Pro only)
+                res = await backend_main.manually_generate_weekly_insights(
+                    current_user={"_id": uid, "subscription_type": "plus", "subscription_expires_at": None})
         finally:
             ins.generate_weekly_insight = orig_weekly
         printed = out.getvalue()

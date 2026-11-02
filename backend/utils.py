@@ -209,16 +209,21 @@ async def get_user_money_lock(user_id: str) -> AsyncIterator[None]:
             yield
 
 
-def paid_required(feature: Optional[str] = None):
-    """Dependency factory: the route needs a paid plan (Plus or Pro) right now.
+def ensure_paid(user: dict, feature: Optional[str] = None) -> None:
+    """Raise the plan_feature_locked 403 unless the user is on a paid plan (Plus or Pro) right now.
 
     An expired paid plan counts as free at once (plans.access.effective_plan), without waiting for the hourly
     expiry job. Free users get the same 403 as a locked quota feature: code plan_feature_locked,
     upgrade_available true and a message in their language. `feature` is the route's quota feature key, or None.
     """
+    if effective_plan(user) not in PAID_PLANS:
+        raise PlanError(LOCKED, feature, upgrade_available=True, lang=user_language(user))
+
+
+def paid_required(feature: Optional[str] = None):
+    """Dependency factory: the route needs a paid plan (Plus or Pro) right now (see ensure_paid)."""
     async def dependency(current_user: dict = Depends(get_current_user)):
-        if effective_plan(current_user) not in PAID_PLANS:
-            raise PlanError(LOCKED, feature, upgrade_available=True, lang=user_language(current_user))
+        ensure_paid(current_user, feature)
         return current_user
     return dependency
 

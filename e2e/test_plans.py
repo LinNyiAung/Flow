@@ -2,7 +2,8 @@
 then the period maths, the limits store and the admin Plans API (task 2), then the quota engine, the cost cap and
 GET /api/plan (task 3, in plans_quota_checks.py), then plan expiry, the Plus trial and its reminders, and the admin
 usage controls (task 4, in plans_subscription_checks.py), then chat quotas and Pro's Advanced chat (task 5, in
-plans_chat_checks.py), then the entry, budget and report gates and the voice token (task 6, in plans_entry_checks.py).
+plans_chat_checks.py), then the entry, budget and report gates and the voice token (task 6, in plans_entry_checks.py),
+then the insight routes and scheduled jobs by plan and the per-request insight language (task 7, in plans_insight_checks.py).
 
 Print-only suite: every check prints [PASS] or [BUG]; the exit code is non-zero if any check failed.
 Keep this suite LAST in run_backend_suite.SUITES (it runs alembic downgrade/upgrade on the e2e database).
@@ -711,6 +712,7 @@ async def plans_checks():
     from sql.db import dispose_engine
     import plans_chat_checks
     import plans_entry_checks
+    import plans_insight_checks
     import plans_quota_checks
     import plans_subscription_checks
     try:
@@ -721,6 +723,7 @@ async def plans_checks():
         await plans_subscription_checks.run(sys.modules[__name__])  # task 4: expiry, trial, reminders, admin usage controls
         await plans_chat_checks.run(sys.modules[__name__])  # task 5: chat quotas and Pro's Advanced chat
         await plans_entry_checks.run(sys.modules[__name__])  # task 6: entry, budget and report gates; voice counts once
+        await plans_insight_checks.run(sys.modules[__name__])  # task 7: insights by plan; language chosen per request
     finally:
         await dispose_engine()
 

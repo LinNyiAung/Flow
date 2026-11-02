@@ -2,6 +2,8 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
+from plans import quota
+from plans.access import effective_plan
 from plans.catalog import PAID_PLANS
 from sql import budgets as budgets_db
 from sql import transactions as transactions_db
@@ -9,7 +11,7 @@ from sql import goals as goals_db
 from sql import insights as insights_db
 from sql import users as users_db
 from tz_utils import (
-    app_today, app_wall_clock_now, as_utc, get_app_timezone, is_expired, previous_week_range,
+    app_today, app_wall_clock_now, as_utc, get_app_timezone, previous_week_range,
     week_before_previous_range, previous_month_range, month_before_previous_range,
     current_week_to_date_range, current_month_to_date_range,
 )
@@ -41,6 +43,22 @@ def get_week_date_range():
 def get_previous_week_date_range():
     """Start/end of the week BEFORE the most recent complete week (for comparison)."""
     return week_before_previous_range()
+
+
+# What effective_plan and quota.over_cost_cap read from a user (plus "_id", which list_fields always selects).
+USER_PLAN_FIELDS = ["subscription_type", "subscription_expires_at", "usage_reset_at"]
+
+
+async def _skip_user(user: dict) -> bool:
+    """True when a scheduled insight job must skip this user: their paid plan has ended (they count as Free at once,
+    without waiting for the hourly expiry job) or their AI spend this month has reached their plan's hidden cost cap."""
+    if effective_plan(user) not in PAID_PLANS:
+        logger.info(f"⏭️ Skipping user {user['_id']} - subscription expired")
+        return True
+    if await quota.over_cost_cap(user):
+        logger.info(f"⏭️ Skipping user {user['_id']} - monthly AI cost cap reached")
+        return True
+    return False
 
 
 def _has_content(text) -> bool:
@@ -677,18 +695,23 @@ Total Transactions: {total_tx}
 
 
 async def generate_weekly_insights_for_all_users():
-    """Generate weekly insights for all premium users using Bounded Concurrency"""
+    """Generate weekly insights for all Plus and Pro users using Bounded Concurrency.
+
+    Free users are never included (weekly insights are locked for them), a Plus or Pro plan that has ended counts as
+    Free, and a user at their plan's hidden monthly cost cap is skipped for the rest of the month. The jobs never use
+    an allowance; their spend lands in ai_usage (the runner records it with the user id) and counts towards the cap.
+    """
     logger.info("🔄 Starting weekly insights generation (Concurrent Mode)...")
 
-    # 1. Fetch all premium users quickly to release DB cursor
-    # Projection only gets necessary fields to save memory
-    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type.in_(PAID_PLANS))
+    # 1. Fetch all Plus and Pro users quickly to release DB cursor
+    # Projection only gets necessary fields to save memory (the plan check and the cost cap read these)
+    users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
 
     if not users:
-        logger.info("ℹ️ No premium users found for weekly insights.")
+        logger.info("ℹ️ No Plus or Pro users found for weekly insights.")
         return
 
-    logger.info(f"📊 Processing {len(users)} premium users for weekly insights...")
+    logger.info(f"📊 Processing {len(users)} Plus and Pro users for weekly insights...")
 
     # 2. Semaphore to limit concurrency (5 users at a time = 5 concurrent AI calls).
     sem = asyncio.Semaphore(5)
@@ -702,9 +725,7 @@ async def generate_weekly_insights_for_all_users():
 
         async with sem:  # Wait for a free slot in the semaphore
             try:
-                # Check subscription validity
-                if is_expired(user.get("subscription_expires_at")):
-                    logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
+                if await _skip_user(user):
                     return
 
                 # One insight per user, on the insight_weekly provider chain (background: the
@@ -1382,17 +1403,21 @@ Total Transactions: {total_tx}
 
 
 async def generate_monthly_insights_for_all_users():
-    """Generate monthly insights for all premium users using Bounded Concurrency"""
+    """Generate monthly insights for all Plus and Pro users using Bounded Concurrency.
+
+    Free users get their monthly insight on demand instead (see main._free_monthly_insight), so this job never
+    spends on them. Same user selection and cost-cap skip as the weekly job.
+    """
     logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
 
-    # 1. Fetch all premium users
-    users = await users_db.list_fields(["subscription_expires_at"], users_db.users.c.subscription_type.in_(PAID_PLANS))
+    # 1. Fetch all Plus and Pro users
+    users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
 
     if not users:
-        logger.info("ℹ️ No premium users found for monthly insights.")
+        logger.info("ℹ️ No Plus or Pro users found for monthly insights.")
         return
 
-    logger.info(f"📊 Processing {len(users)} premium users for monthly insights...")
+    logger.info(f"📊 Processing {len(users)} Plus and Pro users for monthly insights...")
 
     # 2. Semaphore to limit concurrency
     sem = asyncio.Semaphore(5)
@@ -1406,9 +1431,7 @@ async def generate_monthly_insights_for_all_users():
 
         async with sem:
             try:
-                # Check subscription validity
-                if is_expired(user.get("subscription_expires_at")):
-                    logger.info(f"⏭️ Skipping user {user_id} - subscription expired")
+                if await _skip_user(user):
                     return
 
                 # One insight per user, on the insight_monthly provider chain (background: the

@@ -158,9 +158,9 @@ async def run(t):
         d = r.json().get("detail") if r.status_code == 403 else None
         check(r.status_code == 403 and isinstance(d, dict) and d.get("code") == "plan_feature_locked",
               "expired_plus_is_free_now: weekly insights give 403 plan_feature_locked", f"{r.status_code} {r.text[:200]}")
-        check(isinstance(d, dict) and set(d) == DETAIL_KEYS and d["feature"] is None and d["resets_at"] is None
+        check(isinstance(d, dict) and set(d) == DETAIL_KEYS and d["feature"] == "insight_weekly" and d["resets_at"] is None
               and d["upgrade_available"] is True and d["message"] and not MYANMAR.search(d["message"]),
-              "expired_plus_is_free_now: the body has the plan-error shape (feature null, upgrade available, English message)", d)
+              "expired_plus_is_free_now: the body has the plan-error shape (feature insight_weekly, upgrade available, English message)", d)
         check(row(uid, "subscription_type")[0] == "plus", "expired_plus_is_free_now: the stored plan is still plus (no job has run)")
         uid_ok, h_ok = register("live-plus")
         set_plan(uid_ok, "plus", datetime.now(UTC) + timedelta(days=2))

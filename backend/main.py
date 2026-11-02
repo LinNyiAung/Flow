@@ -16,7 +16,7 @@ from starlette.background import BackgroundTask
 from finite_utils import SafeJSONResponse, json_safe
 
 from firebase_service import initialize_firebase
-from utils import get_current_user, get_user_balance, require_paid
+from utils import ensure_paid, get_current_user, get_user_balance
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
 from scheduler import start_scheduler
 from pdf_generator import generate_financial_report_pdf
@@ -65,9 +65,10 @@ from ai_providers.errors import redact
 # Plans and AI quotas: admin API and the limits cache it feeds
 from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
-from plans import quota
+from plans import periods, quota
 from plans import store as plan_store
 from plans.access import LIMIT_REACHED, PlanError, effective_plan
+from tz_utils import as_utc
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
@@ -519,20 +520,77 @@ async def _generate_insight(user_id: str, insight_type: str):
     return await generate_weekly_insight(user_id)
 
 
-async def _ensure_myanmar_translation(insight: dict, user_id: str) -> dict:
-    """Translate (and cache) content_mm if missing. Placeholders never hit the paid API."""
+def _is_new_real_insight(insight: Optional[dict]) -> bool:
+    """A freshly generated, non-placeholder insight: the only result that uses an allowance. A welcome
+    placeholder, an older insight returned for a quiet period (is_reused) and an empty result do not."""
+    return (_insight_has_content(insight) and not insight.get("is_placeholder")
+            and not insight.get("is_reused"))
+
+
+async def _generate_counted(user: dict, insight_type: str):
+    """One on-demand insight, reserved on the plan first (a locked insight type, the hidden cost cap or a used-up
+    allowance raise PlanError, which no handler may swallow) and counted only when the result is a new real insight.
+
+    An included insight reserves nothing but is still refused at the cost cap. A placeholder, an older insight
+    reused for a quiet period, an empty result or any failure gives the reservation back.
+    """
+    reservation = await quota.reserve(user, f"insight_{insight_type}")
+    try:
+        insight = await _generate_insight(user["_id"], insight_type)
+    except BaseException:
+        await quota.give_back(reservation)
+        raise
+    if _is_new_real_insight(insight):
+        reservation.commit()
+    else:
+        await quota.give_back(reservation)
+    return insight
+
+
+def _translation_locked(user: dict) -> bool:
+    """True when the user's plan does not include insight translation: Free never gets one (whatever the owner sets for
+    it), and any plan whose insight_translation limit the owner locked."""
+    plan = effective_plan(user)
+    return plan == "free" or plan_store.limits(plan)["insight_translation"].mode == "locked"
+
+
+def _needs_translation_call(insight: dict) -> bool:
+    """True when showing the insight in Myanmar needs an AI call: no stored translation and not a welcome placeholder."""
+    from insights_service import _is_placeholder_text
+
     if insight.get("content_mm"):
-        return insight
+        return False
+    flag = insight.get("is_placeholder")
+    return not (flag or (flag is None and _is_placeholder_text(insight["content"])))
+
+
+async def _ensure_myanmar_translation(insight: dict, user: dict) -> dict:
+    """Translate (and cache) content_mm if missing. Placeholders never hit the paid API and a stored translation costs
+    nothing; only a real translation call is reserved on the user's plan (the cost cap applies) and counted."""
+    if not _needs_translation_call(insight):
+        if insight.get("content_mm"):
+            return insight
+        # A welcome placeholder: the canned translation, no AI call and nothing to reserve.
+        reservation = None
+    else:
+        reservation = await quota.reserve(user, "insight_translation")  # PlanError: locked, cost cap, used up
 
     from insights_service import translate_insight_to_myanmar
 
-    myanmar_content = await translate_insight_to_myanmar(
-        insight["content"],
-        user_id=user_id,
-        # None (legacy docs without the flag) falls back to text detection
-        is_placeholder=insight.get("is_placeholder"),
-    )
-    await insights_db.set_translation(insight["_id"], myanmar_content)
+    try:
+        myanmar_content = await translate_insight_to_myanmar(
+            insight["content"],
+            user_id=user["_id"],
+            # None (legacy docs without the flag) falls back to text detection
+            is_placeholder=insight.get("is_placeholder"),
+        )
+        await insights_db.set_translation(insight["_id"], myanmar_content)
+    except BaseException:
+        if reservation:
+            await quota.give_back(reservation)
+        raise
+    if reservation:
+        reservation.commit()
     insight["content_mm"] = myanmar_content
     return insight
 
@@ -575,7 +633,10 @@ def _insight_has_content(insight: Optional[dict]) -> bool:
     return isinstance(content, str) and bool(content.strip())
 
 
-def _insight_response(insight: dict) -> InsightResponse:
+def _insight_response(insight: dict, translation_locked: bool = False, plan_translates: bool = True) -> InsightResponse:
+    """translation_locked: Myanmar was requested but the plan has no translation (reported to the app).
+    plan_translates False: the plan has no translation at all, so a Myanmar text stored earlier (for example while the
+    user was on Plus) is not handed out."""
     if not _insight_has_content(insight):
         # Never build a response from a legacy/empty document (content=None -> 500).
         raise HTTPException(
@@ -586,9 +647,57 @@ def _insight_response(insight: dict) -> InsightResponse:
         id=insight["_id"],
         user_id=insight["user_id"],
         content=insight["content"],
-        content_mm=insight.get("content_mm"),
+        content_mm=insight.get("content_mm") if plan_translates else None,
         generated_at=insight["generated_at"],
-        expires_at=insight.get("expires_at")
+        expires_at=insight.get("expires_at"),
+        translation_locked=translation_locked,
+    )
+
+
+async def _free_monthly_insight(user: dict, latest: Optional[dict]) -> dict:
+    """The monthly insight a Free user sees: generated on demand, once per calendar month (app timezone).
+
+    - A real (non-placeholder) monthly insight generated this month, by this on-demand call or by the scheduler while
+      the user was on a paid plan, is shown and nothing is counted.
+    - Otherwise one insight is generated, covering the same period the scheduled monthly job would cover if it ran now
+      (generate_monthly_insight is the job's own function). A real insight counts as the month's use; a welcome
+      placeholder (no data yet) and an older insight reused for a quiet month do not.
+    - A stored placeholder with still no data is not regenerated: the latest older real insight is shown if there is one.
+    - If generation fails, the latest older insight is shown and nothing is counted; with nothing stored the error
+      is surfaced, as for Plus and Pro.
+    PlanError (the month's use is gone, the hidden cost cap) passes through. `latest` is the newest stored insight.
+    """
+    from insights_service import _latest_real_insight, user_has_insight_data
+
+    user_id = user["_id"]
+    real = await _latest_real_insight(user_id, "monthly")
+    this_month = periods.period_start("month", datetime.now(UTC))
+    if real and real.get("generated_at") and periods.period_start("month", as_utc(real["generated_at"])) == this_month:
+        return real
+    if latest and latest.get("is_placeholder") and not await user_has_insight_data(user_id, "monthly"):
+        return real or latest
+
+    error: Optional[Exception] = None
+    generated = None
+    try:
+        generated = await _generate_counted(user, "monthly")
+    except PlanError:
+        raise
+    except Exception as e:  # AI down, rate limited, unusable answer: fall back to what is stored
+        error = e
+        print(f"⚠️ Generating the monthly insight for user {user_id} failed "
+              f"({type(e).__name__}: {redact(str(e))}); falling back to the stored insight")
+    if _insight_has_content(generated):
+        return generated
+    fallback = real or latest
+    if _insight_has_content(fallback):
+        return fallback
+    # Nothing stored to show: surface the failure (429 / 503 / 500) as for any first generation.
+    if error is not None:
+        raise error
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Couldn't generate your monthly insight right now. Please try again later.",
     )
 
 
@@ -597,18 +706,32 @@ async def get_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
     """Get latest AI-generated financial insights.
 
     `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is shown.
+
+    By plan: weekly insights are locked for Free (403). A Free user's monthly insight is generated on demand, once a
+    month (see _free_monthly_insight). `language` is the display language asked for by this request (not the profile's):
+    Myanmar is translated once and stored for Plus and Pro; Free is never translated and gets English with
+    translation_locked true.
     """
     user_id = current_user["_id"]
+    if insight_type == "weekly":
+        quota.require_unlocked(current_user, "insight_weekly")  # outside the handlers below: a PlanError passes through
+    plan_translates = not _translation_locked(current_user)
+    translation_locked = language == "mm" and not plan_translates
     try:
         from insights_service import latest_valid_insight, user_has_insight_data, _latest_real_insight
 
         # Legacy insights with content None / "" are treated as missing (skipped here).
         latest_insight = await latest_valid_insight(user_id, insight_type)
+
+        if effective_plan(current_user) == "free" and insight_type == "monthly":
+            # Free is never translated: English only, whatever language was asked for (no translation call).
+            latest_insight = await _free_monthly_insight(current_user, latest_insight)
+            return _insight_response(latest_insight, translation_locked, plan_translates=False)
 
         # A stored "welcome" placeholder is replaced once the user has real data (incl.
         # transactions in the current, incomplete period). If they don't, but they have
@@ -620,9 +743,10 @@ async def get_insights(
                     print(f"🔄 Replacing placeholder {insight_type} insight for user {user_id} (user now has data)")
                     regenerated = None
                     try:
-                        regenerated = await _generate_insight(user_id, insight_type)
+                        regenerated = await _generate_counted(current_user, insight_type)
                     except Exception as gen_error:
-                        # AI down / rate limited: something stored is still worth showing.
+                        # AI down / rate limited / the cost cap reached (a PlanError): something stored is still
+                        # worth showing, and nothing was generated.
                         print(f"⚠️ Regenerating {insight_type} insight for user {user_id} failed "
                               f"({type(gen_error).__name__}: {gen_error}); falling back to the stored insight")
                     if _insight_has_content(regenerated):
@@ -643,19 +767,19 @@ async def get_insights(
         if not latest_insight:
             # Nothing stored at all: generation errors are surfaced (429/503/500).
             print(f"🔄 No {insight_type} insight found, generating the first one for user {user_id}")
-            latest_insight = await _generate_insight(user_id, insight_type)
+            latest_insight = await _generate_counted(current_user, insight_type)
             if not _insight_has_content(latest_insight):
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=f"Couldn't generate your {insight_type} insight right now. Please try again later.",
                 )
 
-        if language == "mm":
-            latest_insight = await _ensure_myanmar_translation(latest_insight, user_id)
+        if language == "mm" and plan_translates:
+            latest_insight = await _ensure_myanmar_translation(latest_insight, current_user)
 
-        return _insight_response(latest_insight)
+        return _insight_response(latest_insight, translation_locked, plan_translates)
 
-    except HTTPException:
+    except (HTTPException, PlanError):
         raise
     except Exception as e:
         print(f"❌ Error getting insights: {type(e).__name__}: {e}")
@@ -689,13 +813,21 @@ async def regenerate_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored."""
+    """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored.
+
+    Locked for Free (403, whatever the type): regenerating is a paid-plan action. Plus and Pro are refused at the hidden
+    cost cap. `language` is the display language of this request (see GET /api/insights).
+    """
+    # Outside the handlers below: a PlanError passes through
+    ensure_paid(current_user, f"insight_{insight_type}")
+    plan_translates = not _translation_locked(current_user)
+    translation_locked = language == "mm" and not plan_translates
     try:
         print(f"🔄 Force regenerating {insight_type} insights for user {current_user['_id']}")
 
-        new_insight = await _generate_insight(current_user["_id"], insight_type)
+        new_insight = await _generate_counted(current_user, insight_type)
 
         if not _insight_has_content(new_insight):
             raise HTTPException(
@@ -703,12 +835,12 @@ async def regenerate_insights(
                 detail=f"Couldn't regenerate your {insight_type} insight right now. Please try again later.",
             )
 
-        if language == "mm":
-            new_insight = await _ensure_myanmar_translation(new_insight, current_user["_id"])
+        if language == "mm" and plan_translates:
+            new_insight = await _ensure_myanmar_translation(new_insight, current_user)
 
         print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
-        return _insight_response(new_insight)
-    except HTTPException:
+        return _insight_response(new_insight, translation_locked, plan_translates)
+    except (HTTPException, PlanError):
         raise
     except Exception as e:
         print(f"❌ Error regenerating insights: {type(e).__name__}: {e}")
@@ -721,13 +853,17 @@ async def regenerate_insights(
 async def translate_insights_to_myanmar(
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
     """Translate the latest weekly or monthly insight to Myanmar.
 
     `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is
-    translated on the insight_translation provider chain.
+    translated on the insight_translation provider chain. Locked for Free (403); Plus and Pro are refused at
+    the hidden cost cap when a translation call is needed.
     """
+    # Outside the handlers below: a PlanError passes through
+    ensure_paid(current_user, "insight_translation")
+    quota.require_unlocked(current_user, "insight_translation")
     try:
         from insights_service import latest_valid_insight
 
@@ -741,11 +877,11 @@ async def translate_insights_to_myanmar(
             return {"message": "Myanmar translation already exists", "already_translated": True}
 
         print(f"🔄 Translating {insight_type} insights to Myanmar for user {current_user['_id']}")
-        await _ensure_myanmar_translation(insight, current_user["_id"])
+        await _ensure_myanmar_translation(insight, current_user)
 
         return {"message": "Translation completed successfully", "already_translated": False}
 
-    except HTTPException:
+    except (HTTPException, PlanError):
         raise
     except Exception as e:
         print(f"❌ Translation error: {type(e).__name__}: {e}")
@@ -756,19 +892,25 @@ async def translate_insights_to_myanmar(
 
 @app.post("/api/insights/generate-weekly")
 async def manually_generate_weekly_insights(
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain)"""
+    """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain).
+
+    Locked for Free (403); Plus and Pro are refused at the hidden cost cap."""
+    # Outside the handlers below: a PlanError passes through
+    ensure_paid(current_user, "insight_weekly")
     try:
-        from insights_service import generate_weekly_insight, is_rate_limit_error
+        from insights_service import is_rate_limit_error
 
         # Same shape as before ({provider: outcome}), keyed by the provider that answered, or by the
         # feature's main provider when nothing was generated.
         provider = ai_provider_settings.resolve("insight_weekly").main.provider
         try:
-            insight = await generate_weekly_insight(current_user["_id"])
+            insight = await _generate_counted(current_user, "weekly")
             outcome = "success" if insight else "failed"
             provider = (insight or {}).get("ai_provider") or provider
+        except PlanError:
+            raise
         except Exception as e:
             print(f"❌ Manual weekly insight failed: {type(e).__name__}: {redact(str(e))}")
             # No raw exception text in the response.
@@ -780,6 +922,8 @@ async def manually_generate_weekly_insights(
             "results": results
         }
 
+    except PlanError:
+        raise
     except Exception as e:
         print(f"Error in manual weekly generation: {redact(str(e))}")
         raise _insight_http_error(e, "generate weekly insights")
