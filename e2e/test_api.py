@@ -232,7 +232,8 @@ def t_subscription():
     section("Subscription / free trial")
     r = c.get("/api/auth/subscription-status", headers=H(S["A"]))
     ok("subscription-status (free user)", r.status_code == 200, r.text)
-    r = c.post("/api/chat/stream", headers=H(S["A"]), json={"message": "hi"})
+    # Chat is open to Free (counted: see test_plans); weekly insights are still a paid-only endpoint.
+    r = c.get("/api/insights", headers=H(S["A"]), params={"insight_type": "weekly"})
     ok("premium endpoint blocked for free user", r.status_code == 403, r.status_code)
 
     r = c.post("/api/auth/claim-free-trial", headers=H(S["A"]))
@@ -258,7 +259,7 @@ def t_subscription():
     # expired premium is blocked
     tok, uid, _, _ = register_verified("Exp", "expired@example.com", "secret123")
     db.users.update_one({"_id": uid}, {"$set": {"subscription_type": "plus", "subscription_expires_at": datetime.now(UTC) - timedelta(days=1)}})
-    r = c.post("/api/chat/stream", headers=H(tok), json={"message": "hi"})
+    r = c.get("/api/insights", headers=H(tok), params={"insight_type": "weekly"})
     ok("expired premium blocked from premium endpoints", r.status_code == 403, r.status_code)
 
 

@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import DBAPIError
+from starlette.background import BackgroundTask
 
 from finite_utils import SafeJSONResponse, json_safe
 
@@ -64,8 +65,9 @@ from ai_providers.errors import redact
 # Plans and AI quotas: admin API and the limits cache it feeds
 from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
+from plans import quota
 from plans import store as plan_store
-from plans.access import PlanError
+from plans.access import LIMIT_REACHED, PlanError, effective_plan
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
@@ -290,22 +292,58 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+async def _reserve_chat(user: dict, mode: str):
+    """Reserve one chat use -> (reservation, mode_used, advanced_exhausted). Raises PlanError (chat locked, used up,
+    or the cost cap reached), which the app-level handler turns into a 403 / 429.
+
+    Advanced is answered only for a Pro user with Advanced allowance left; it reserves chat and chat_advanced together.
+    When Advanced is used up the message is answered as Standard and flagged advanced_exhausted. Anyone else asking
+    for Advanced (Free, Plus, or a Pro plan whose Advanced the owner locked) is simply answered as Standard.
+    """
+    advanced_exhausted = False
+    if mode == "advanced" and effective_plan(user) == "pro":
+        try:
+            return await quota.reserve(user, "chat", also=("chat_advanced",)), "advanced", False
+        except PlanError as e:
+            if e.feature != "chat_advanced":
+                raise  # chat itself is locked or used up, or the cost cap: Standard would be refused too
+            advanced_exhausted = e.code == LIMIT_REACHED
+    return await quota.reserve(user, "chat"), "standard", advanced_exhausted
+
+
+async def _give_back(reservation: "quota.Reservation") -> None:
+    """Release a chat use that was not kept (a no-op once committed or released). Never raises: a failed release is
+    logged, so it can't break the stream or hide the original error."""
+    try:
+        await reservation.release()
+    except Exception as e:  # noqa: BLE001
+        print(f"❌ Could not give back a chat use for user {reservation.user_id}: {type(e).__name__}: {redact(str(e))}")
+
+
 @app.post("/api/chat/stream")
 async def stream_chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Stream chat response from AI (Server-Sent Events, media type text/event-stream).
 
     Frames (each `data: <json>\\n\\n`):
+      - meta (always first, once): {"chunk": "", "done": false, "mode_used": "standard"|"advanced",
+                                    "advanced_exhausted": bool, "timestamp": ...}
       - chunk: {"chunk": "...", "done": false, "timestamp": ...}
       - final: {"chunk": "", "done": true, "full_response": "...", "timestamp": ...}
       - error: {"error": "<user-friendly message>", "done": true, "timestamp": ...}
     On error the exchange is NOT saved to chat history.
 
-    The answer comes from the "chat" feature's provider chain (admin panel / server settings), which also
-    records the usage. `ai_provider` in the body (sent by old apps) is validated and ignored.
+    Each message uses one chat (and, answered as Advanced, one chat_advanced) allowance. It is reserved before the
+    stream starts, so a refusal is a normal 403 / 429 with the plan-error body. The use is kept once the first chunk
+    of the answer has been sent (a client that disconnects after that still used it) and given back when the AI fails
+    before it, or the client leaves before it.
+
+    The answer comes from the "chat" feature's provider chain, or "chat_advanced" for an Advanced answer (admin
+    panel / server settings); the runner records the usage. `ai_provider` in the body (sent by old apps) is
+    validated and ignored.
     """
     user_id = current_user["_id"]
 
@@ -325,54 +363,78 @@ async def stream_chat_with_ai(
 
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
 
+    # Last step before the response: nothing may raise between the reservation and handing it to the stream.
+    reservation, mode_used, advanced_exhausted = await _reserve_chat(current_user, chat_request.mode)
+    feature = "chat_advanced" if mode_used == "advanced" else "chat"
+
     async def generate_stream():
         full_response = ""
         error_message = None
 
         try:
-            # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
-            async with aclosing(financial_chatbot.stream_chat(
-                user_id=user_id,
-                message=chat_request.message,
-                chat_history=chat_history,
-                response_style=response_style
-            )) as stream:
-                async for chunk_text, _usage in stream:  # usage is already tracked by the provider runner
-                    if chunk_text:
-                        full_response += chunk_text
-                        yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
-                        await asyncio.sleep(0.01)
-        except ChatServiceError as e:
-            error_message = e.user_message
-        except Exception as e:
-            print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {redact(str(e))}")
-            error_message = ChatServiceError.DEFAULT_MESSAGE
+            yield _sse({"chunk": "", "done": False, "mode_used": mode_used, "advanced_exhausted": advanced_exhausted,
+                        "timestamp": datetime.now(UTC).isoformat()})
+            try:
+                # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
+                async with aclosing(financial_chatbot.stream_chat(
+                    user_id=user_id,
+                    message=chat_request.message,
+                    chat_history=chat_history,
+                    response_style=response_style,
+                    feature=feature,
+                )) as stream:
+                    async for chunk_text, _usage in stream:  # usage is already tracked by the provider runner
+                        if chunk_text:
+                            full_response += chunk_text
+                            yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
+                            # Resumed only once that chunk was sent: from here the message has used its allowance.
+                            if not reservation.committed:
+                                reservation.commit()
+                            await asyncio.sleep(0.01)
+            except ChatServiceError as e:
+                error_message = e.user_message
+            except Exception as e:
+                print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {redact(str(e))}")
+                error_message = ChatServiceError.DEFAULT_MESSAGE
 
-        if error_message:
-            # Do not persist failed exchanges.
-            yield _sse({"error": error_message, "done": True, "timestamp": datetime.now(UTC).isoformat()})
-            return
+            if error_message:
+                # Do not persist failed exchanges. A failure before the first chunk gives the use back (a no-op once
+                # a chunk was sent).
+                await _give_back(reservation)
+                yield _sse({"error": error_message, "done": True, "timestamp": datetime.now(UTC).isoformat()})
+                return
 
-        if full_response:
-            # Saved BEFORE the "done" frame: the client may disconnect as soon as it
-            # sees done:true, which would cancel anything after the yield.
-            await save_chat_session(user_id, chat_request.message, full_response)
+            if full_response:
+                # Saved BEFORE the "done" frame: the client may disconnect as soon as it
+                # sees done:true, which would cancel anything after the yield.
+                await save_chat_session(user_id, chat_request.message, full_response)
 
-        yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
+            yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
+        finally:
+            # The client left (or the stream was cancelled) before the first chunk was sent: give the use back.
+            # Shielded so a cancelled request still completes the release.
+            if not reservation.committed:
+                await asyncio.shield(_give_back(reservation))
+
+    async def release_unsent():
+        # Also run after the response ends: a client gone before the stream started never runs generate_stream's
+        # finally. A no-op when the use was kept or already given back.
+        await _give_back(reservation)
 
     return StreamingResponse(
         generate_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        background=BackgroundTask(release_unsent),
     )
 
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Chat with AI about financial data (deprecated - use /stream)"""
+    """Chat with AI about financial data (deprecated - use /stream). Makes no AI call, so it uses no allowance."""
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail="This endpoint is deprecated. Please use /api/chat/stream instead."

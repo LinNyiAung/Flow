@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
 
@@ -27,6 +27,9 @@ class ChatRequest(BaseModel):
     chat_history: Optional[List[ChatMessage]] = None
     response_style: Optional[ResponseStyle] = ResponseStyle.NORMAL
     ai_provider: Optional[AIProvider] = AIProvider.OPENAI  # NEW
+    # Pro's Standard / Advanced switch. The server answers Advanced only for a Pro user with Advanced left; otherwise
+    # it answers as Standard and says so in the stream's first frame (mode_used, advanced_exhausted).
+    mode: Literal["standard", "advanced"] = "standard"
 
 class ChatResponse(BaseModel):
     response: str

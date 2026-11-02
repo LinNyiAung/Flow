@@ -33,6 +33,8 @@ def _spec(key, label, allowed, provider, model, usage_type):
 
 FEATURES: dict[str, FeatureSpec] = {s.key: s for s in (
     _spec("chat", "AI chat", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.CHAT),
+    # Pro's Advanced chat: the same chatbot (persona, prompt, max tokens) on its own chain. Its usage rows are chat rows.
+    _spec("chat_advanced", "Advanced chat", _ALL, "claude", "claude-sonnet-5-5", AIFeatureType.CHAT),
     _spec("insight_weekly", "Weekly insight", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.WEEKLY_INSIGHT),
     _spec("insight_monthly", "Monthly insight", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.MONTHLY_INSIGHT),
     _spec("insight_translation", "Insight translation", _ALL, "gemini", "gemini-2.5-pro", AIFeatureType.TRANSLATION),
@@ -75,6 +77,7 @@ def is_openai_audio_model(model: str) -> bool:
 # Claude "effort" level sent per feature (Claude only).
 CLAUDE_EFFORT: dict[str, str] = {
     "chat": "low",
+    "chat_advanced": "low",
     "transaction_text": "low",
     "transaction_image": "low",
     "budget_suggestion": "low",

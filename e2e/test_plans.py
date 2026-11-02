@@ -1,7 +1,8 @@
 """Plans and AI quotas: the Free/Plus/Pro schema, the plan catalogue and the premium -> plus migration (task 1),
 then the period maths, the limits store and the admin Plans API (task 2), then the quota engine, the cost cap and
 GET /api/plan (task 3, in plans_quota_checks.py), then plan expiry, the Plus trial and its reminders, and the admin
-usage controls (task 4, in plans_subscription_checks.py).
+usage controls (task 4, in plans_subscription_checks.py), then chat quotas and Pro's Advanced chat (task 5, in
+plans_chat_checks.py).
 
 Print-only suite: every check prints [PASS] or [BUG]; the exit code is non-zero if any check failed.
 Keep this suite LAST in run_backend_suite.SUITES (it runs alembic downgrade/upgrade on the e2e database).
@@ -708,6 +709,7 @@ def api_checks():
 async def plans_checks():
     """Task 2 and 3 checks under ONE event loop: the backend's async DB engine binds to the first loop it is used on."""
     from sql.db import dispose_engine
+    import plans_chat_checks
     import plans_quota_checks
     import plans_subscription_checks
     try:
@@ -716,6 +718,7 @@ async def plans_checks():
         api_checks()
         await plans_quota_checks.run(sys.modules[__name__])  # task 3: quota engine, cost cap, /api/plan
         await plans_subscription_checks.run(sys.modules[__name__])  # task 4: expiry, trial, reminders, admin usage controls
+        await plans_chat_checks.run(sys.modules[__name__])  # task 5: chat quotas and Pro's Advanced chat
     finally:
         await dispose_engine()
 
