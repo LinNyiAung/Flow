@@ -13,7 +13,7 @@ import 'transaction_flows.dart';
 void recurringFlows() {
   group('04 Recurring', () {
     e2eTest('recurring: add transaction with Repeat monthly + preview', (t) async {
-      await login(premium);
+      await login(plus);
       await openAddTransaction();
       await typeAmount('45');
       await tap(find.byType(ActionChip).first);
@@ -40,14 +40,14 @@ void recurringFlows() {
       check(hasTextContaining('of the month'), 'Repeat row does not summarise the monthly schedule');
       await saveAdd();
       await expectSoon(find.byType(HomeScreen), 'Saving a recurring transaction did not return to Home');
-      final api = (await apiTransactions(premium, limit: 30)).where((x) => x['description'] == note).toList();
+      final api = (await apiTransactions(plus, limit: 30)).where((x) => x['description'] == note).toList();
       check(api.length == 1 && api.first['recurrence']?['enabled'] == true &&
               api.first['recurrence']?['config']?['frequency'] == 'monthly',
           'Recurring transaction not stored with a monthly recurrence: ${api.map((x) => x['recurrence'])}');
     });
 
     e2eTest('recurring: open + close repeat sheet quickly (preview race)', (t) async {
-      await login(premium);
+      await login(plus);
       await openAddTransaction();
       for (var i = 0; i < 3; i++) {
         step('open repeat sheet #$i and close immediately');
@@ -66,7 +66,7 @@ void recurringFlows() {
     });
 
     e2eTest('recurring: edit seeded monthly rent → weekly', (t) async {
-      await login(premium);
+      await login(plus);
       await openTransactionsList();
       step('find rent');
       final rent = find.text('-\$900.00');
@@ -93,7 +93,7 @@ void recurringFlows() {
       await scrollTo(find.text(L.updateTransactionButton));
       await tap(find.text(L.updateTransactionButton));
       await expectSoon(find.byType(TransactionsListScreen), 'Updating the recurring rent did not return to the list');
-      final api = (await apiTransactions(premium, limit: 300))
+      final api = (await apiTransactions(plus, limit: 300))
           .where((x) => x['description'] == 'Apartment rent' && x['parent_transaction_id'] == null)
           .toList();
       check(api.isNotEmpty && api.first['recurrence']?['config']?['frequency'] == 'weekly',

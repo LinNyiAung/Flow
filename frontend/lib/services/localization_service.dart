@@ -1118,6 +1118,12 @@ class AppLocalizations {
       'planContactTitle': 'Ready to upgrade?',
       'planDetailsUnavailable': 'Plan details aren\'t available right now.',
       'voiceNothingHeard': 'We didn\'t catch anything. Please try again.',
+      'chatModeStandard': 'Standard',
+      'chatModeAdvanced': 'Advanced',
+      'chatAdvancedUsedUp': 'Advanced is used up until {date}. This answer came from Standard.',
+      'chatAdvancedUsedUpNoDate': 'Advanced is used up for now. This answer came from Standard.',
+      'insightLangEnglish': 'English',
+      'insightLangMyanmar': 'မြန်မာ',
     },
     'my': {
       // Home Screen
@@ -2137,6 +2143,12 @@ class AppLocalizations {
       'planContactTitle': 'အဆင့်မြှင့်ရန် အဆင်သင့်ပြီလား?',
       'planDetailsUnavailable': 'အစီအစဉ် အသေးစိတ်ကို ယခု မရရှိနိုင်ပါ။',
       'voiceNothingHeard': 'ဘာမှ မကြားလိုက်ရပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
+      'chatModeStandard': 'Standard',
+      'chatModeAdvanced': 'Advanced',
+      'chatAdvancedUsedUp': 'Advanced အသုံးပြုခွင့် {date} အထိ ကုန်သွားပါပြီ။ ဤအဖြေကို Standard မှ ပေးထားပါသည်။',
+      'chatAdvancedUsedUpNoDate': 'Advanced အသုံးပြုခွင့် ယခုအတွက် ကုန်သွားပါပြီ။ ဤအဖြေကို Standard မှ ပေးထားပါသည်။',
+      'insightLangEnglish': 'English',
+      'insightLangMyanmar': 'မြန်မာ',
     }
   };
 
@@ -3201,6 +3213,12 @@ class AppLocalizations {
   String get planContactTitle => translate('planContactTitle');
   String get planDetailsUnavailable => translate('planDetailsUnavailable');
   String get voiceNothingHeard => translate('voiceNothingHeard');
+  String get chatModeStandard => translate('chatModeStandard');
+  String get chatModeAdvanced => translate('chatModeAdvanced');
+  String chatAdvancedUsedUp(String date) => translate('chatAdvancedUsedUp').replaceAll('{date}', date);
+  String get chatAdvancedUsedUpNoDate => translate('chatAdvancedUsedUpNoDate');
+  String get insightLangEnglish => translate('insightLangEnglish');
+  String get insightLangMyanmar => translate('insightLangMyanmar');
 
   /// Display name of a quota feature key (`chat`, `entry`, ...) as the server reports it.
   String planFeatureName(String feature) => translate('planFeature_$feature');

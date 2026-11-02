@@ -31,11 +31,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Weekly insights are not in every plan (Free): open on the monthly
-      // insight there instead of a locked page.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final insightProvider =
           Provider.of<InsightProvider>(context, listen: false);
+      // The remembered English / မြန်မာ choice, before the first request.
+      await insightProvider.loadPreferredLanguage();
+      if (!mounted) return;
+      // Weekly insights are not in every plan (Free): open on the monthly
+      // insight there instead of a locked page.
       if (insightProvider.insightType == 'weekly' &&
           _isTypeLocked(insightProvider)) {
         insightProvider.setInsightType('monthly');
@@ -105,17 +108,33 @@ class _InsightsScreenState extends State<InsightsScreen> {
     );
   }
 
-  Future<void> _fetchInsights() async {
-    final locale = Localizations.localeOf(context);
-    final language = locale.languageCode == 'my' ? 'mm' : 'en';
+  /// True when the plan has no insight translation (Free), so မြန်မာ is
+  /// locked and insights are shown in English.
+  bool _translationLocked() {
+    final isPaid = Provider.of<AuthProvider>(context, listen: false).isPaid;
+    return !isPaid ||
+        Provider.of<PlanProvider>(context, listen: false).isLocked(PlanFeature.insightTranslation);
+  }
 
+  /// The language the server is asked for: the toggle's choice, which starts
+  /// on the app language; always English without translation. It is not the
+  /// profile language.
+  String _wantedLanguage(InsightProvider insightProvider) {
+    final appLanguage = Localizations.localeOf(context).languageCode == 'my' ? 'mm' : 'en';
+    return insightProvider.wantedLanguage(
+      translationAvailable: !_translationLocked(),
+      appLanguage: appLanguage,
+    );
+  }
+
+  Future<void> _fetchInsights() async {
     final insightProvider = Provider.of<InsightProvider>(
       context,
       listen: false,
     );
     // A locked type has nothing to fetch (the server would answer 403).
     if (_isTypeLocked(insightProvider)) return;
-    await insightProvider.fetchInsights(language: language);
+    await insightProvider.fetchInsights(language: _wantedLanguage(insightProvider));
   }
 
   Future<void> _regenerateInsights() async {
@@ -123,8 +142,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       context,
       listen: false,
     );
-    final locale = Localizations.localeOf(context);
-    final language = locale.languageCode == 'my' ? 'mm' : 'en';
+    final language = _wantedLanguage(insightProvider);
     final localizations = AppLocalizations.of(context);
 
     // Keep a reference to the progress dialog's own route: it is removed by
@@ -346,7 +364,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            _translateChip(insightProvider, scheme),
+            _languageToggle(insightProvider, scheme),
           ],
         ),
       ),
@@ -534,69 +552,93 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   // In the header, next to the period label, rather than below the full
   // report — buried under a long scroll of sections, it wasn't reachable
-  // without scrolling all the way down.
-  Widget _translateChip(InsightProvider insightProvider, ColorScheme scheme) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => _toggleInsightLanguage(insightProvider),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          border: Border.all(color: scheme.tertiary),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.translate_rounded, size: 15, color: scheme.tertiary),
-            const SizedBox(width: 5),
-            Text(
-              // Shows the language a tap switches *to*, matching the
-              // mockup's translate toggle.
-              insightProvider.currentLanguage == 'mm' ? 'ENGLISH' : 'မြန်မာ',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: scheme.onTertiaryContainer,
-                letterSpacing: 0.2,
+  // without scrolling all the way down. The language is chosen here, not by
+  // the app language; for a plan without translation (Free) မြန်မာ carries a
+  // lock and opens the Upgrade screen.
+  Widget _languageToggle(InsightProvider insightProvider, ColorScheme scheme) {
+    final localizations = AppLocalizations.of(context);
+    final locked = _translationLocked();
+
+    Widget seg(String language, String label, {bool lock = false}) {
+      final selected = insightProvider.currentLanguage == language;
+      return InkWell(
+        key: ValueKey('insight-lang-$language'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: selected ? null : () => _selectInsightLanguage(insightProvider, language),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? scheme.tertiary : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (lock) ...[
+                Icon(Icons.lock_rounded, size: 12, color: scheme.onTertiaryContainer),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? scheme.onTertiary : scheme.onTertiaryContainer,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.tertiary),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          seg('en', localizations.insightLangEnglish),
+          seg('mm', localizations.insightLangMyanmar, lock: locked),
+        ],
       ),
     );
   }
 
-  /// Mirrors the mockup's `toggleInsightLang` action: flips to the other
-  /// language if the insight already carries that translation, otherwise
-  /// fetches the Myanmar translation on demand.
-  Future<void> _toggleInsightLanguage(InsightProvider insightProvider) async {
-    final target = insightProvider.currentLanguage == 'mm' ? 'en' : 'mm';
-    if (target == 'mm' && insightProvider.insight?.contentMm == null) {
-      final success = await insightProvider.translateToMyanmar();
-      if (!mounted || success) return;
-      // Translation is not in every plan (Free): the limit sheet offers Upgrade.
-      final planLimit = insightProvider.actionPlanLimit;
-      if (planLimit != null) {
-        await showPlanLimitSheet(context, planLimit);
-        return;
-      }
-      if (!mounted) return;
-      final localizations = AppLocalizations.of(context);
-      final raw = insightProvider.actionError;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            raw == null
-                ? localizations.failedToRegenerateInsights
-                : _friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1,
-          ),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    } else {
-      insightProvider.setLanguage(target);
+  /// A tap on English / မြန်မာ. The insight is shown in that language (a
+  /// Myanmar translation that does not exist yet is made once by the server
+  /// and stored). Without translation in the plan, မြန်မာ opens the Upgrade
+  /// screen and the insight stays in English.
+  Future<void> _selectInsightLanguage(InsightProvider insightProvider, String language) async {
+    if (language == 'mm' && _translationLocked()) {
+      await Navigator.pushNamed(context, '/subscription');
+      return;
     }
+    final success = await insightProvider.showLanguage(language);
+    if (!mounted || success) return;
+    // The server says the plan has no translation (the app's plan was out of
+    // date) or the limit sheet explains a limit; otherwise show the failure.
+    if (insightProvider.insight?.translationLocked == true) {
+      await Navigator.pushNamed(context, '/subscription');
+      return;
+    }
+    final planLimit = insightProvider.actionPlanLimit;
+    if (planLimit != null) {
+      await showPlanLimitSheet(context, planLimit);
+      return;
+    }
+    final localizations = AppLocalizations.of(context);
+    final raw = insightProvider.actionError;
+    if (raw == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
   }
 
   Widget _periodToggle(InsightProvider insightProvider) {

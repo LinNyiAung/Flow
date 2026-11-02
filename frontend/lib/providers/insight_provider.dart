@@ -1,8 +1,32 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/insight.dart';
 import '../services/api_service.dart';
 
+/// Loads the latest insight ([ApiService.getInsights]).
+typedef InsightFetcher = Future<Insight> Function({
+  required String language,
+  required String insightType,
+});
+
 class InsightProvider with ChangeNotifier {
+  /// Shared-preferences key of the English / မြန်မာ choice.
+  static const String languagePrefsKey = 'insight_language';
+
+  /// Where insights come from; the real API unless a test supplies its own.
+  final InsightFetcher _fetcher;
+
+  InsightProvider({InsightFetcher? fetcher})
+      : _fetcher = fetcher ?? _apiFetcher;
+
+  static Future<Insight> _apiFetcher({
+    required String language,
+    required String insightType,
+  }) =>
+      ApiService.getInsights(language: language, insightType: insightType);
+
   Insight? _insight;
   bool _isLoading = false;
   String? _error;
@@ -63,6 +87,7 @@ class InsightProvider with ChangeNotifier {
     _isLoading = false;
     _clearErrors();
     _currentLanguage = 'en';
+    _preferredLanguage = null; // read again from the device for the next user
     _insightType = 'weekly';
     notifyListeners();
   }
@@ -77,10 +102,80 @@ class InsightProvider with ChangeNotifier {
     }
   }
 
-  void setLanguage(String language) {
-    if (language != _currentLanguage) {
+  /// The language the user last chose with the Insights toggle ('en' | 'mm'),
+  /// remembered on the device; null until they choose one.
+  String? _preferredLanguage;
+
+  /// Reads the remembered language choice.
+  Future<void> loadPreferredLanguage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(languagePrefsKey);
+      _preferredLanguage = saved == 'en' || saved == 'mm' ? saved : null;
+    } catch (e) {
+      debugPrint('Could not read the insight language: $e');
+    }
+  }
+
+  Future<void> _rememberLanguage(String language) async {
+    _preferredLanguage = language;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(languagePrefsKey, language);
+    } catch (e) {
+      debugPrint('Could not save the insight language: $e');
+    }
+  }
+
+  /// The language to ask the server for: the remembered choice, starting on
+  /// the app language ([appLanguage], 'en' | 'mm'). A plan without
+  /// translation (Free) always gets English.
+  String wantedLanguage({required bool translationAvailable, required String appLanguage}) =>
+      translationAvailable ? (_preferredLanguage ?? appLanguage) : 'en';
+
+  /// Shows the insight in [language] ('en' | 'mm'). Myanmar that the insight
+  /// does not carry yet is fetched from the server, which translates once and
+  /// stores it; flipping back and forth afterwards costs nothing. On failure
+  /// the insight on screen is kept and the failure is in [actionError] /
+  /// [actionPlanLimit]. Returns true when [language] is now shown.
+  Future<bool> showLanguage(String language) async {
+    if (language == _currentLanguage) return true;
+    final current = _insight;
+    if (language == 'en' || (current != null && current.contentMm != null)) {
       _currentLanguage = language;
       notifyListeners();
+      unawaited(_rememberLanguage(language));
+      return true;
+    }
+
+    final type = _insightType;
+    final gen = ++_generation;
+    _actionError = null;
+    _actionErrorStatusCode = null;
+    _actionPlanLimit = null;
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final result = await _fetcher(language: language, insightType: type);
+      if (gen != _generation) return false;
+      _insight = result;
+      // A plan without translation answers in English and says so.
+      final shown = result.translationLocked || result.contentMm == null ? 'en' : language;
+      _currentLanguage = shown;
+      _isLoading = false;
+      notifyListeners();
+      if (shown == language) unawaited(_rememberLanguage(language));
+      return shown == language;
+    } catch (e) {
+      if (gen != _generation) return false;
+      // Translation failed: keep the insight that is already shown.
+      _actionError = _clean(e);
+      _actionErrorStatusCode = _statusOf(e);
+      _actionPlanLimit = _limitOf(e);
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
   }
 
@@ -100,13 +195,11 @@ class InsightProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await ApiService.getInsights(
-        language: lang,
-        insightType: type,
-      );
+      final result = await _fetcher(language: lang, insightType: type);
       if (gen != _generation) return;
       _insight = result;
-      _currentLanguage = lang;
+      // A plan without translation answers in English and says so.
+      _currentLanguage = result.translationLocked ? 'en' : lang;
     } catch (e) {
       if (gen != _generation) return;
       _insight = null;
@@ -137,7 +230,7 @@ class InsightProvider with ChangeNotifier {
       );
       if (gen != _generation) return false;
       _insight = result;
-      _currentLanguage = lang;
+      _currentLanguage = result.translationLocked ? 'en' : lang;
       _insightType = type;
       _isLoading = false;
       notifyListeners();
@@ -152,43 +245,6 @@ class InsightProvider with ChangeNotifier {
         _errorStatusCode = _actionErrorStatusCode;
         _errorPlanLimit = _actionPlanLimit;
       }
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
-  }
-
-  /// Translates the CURRENT insight type (weekly or monthly) to Myanmar and
-  /// refetches that same type.
-  Future<bool> translateToMyanmar() async {
-    final type = _insightType;
-    final gen = ++_generation;
-    _actionError = null;
-    _actionErrorStatusCode = null;
-    _actionPlanLimit = null;
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      await ApiService.translateInsightsToMyanmar(
-        insightType: type,
-      );
-      final result = await ApiService.getInsights(
-        language: 'mm',
-        insightType: type,
-      );
-      if (gen != _generation) return false;
-      _insight = result;
-      _currentLanguage = 'mm';
-      _isLoading = false;
-      notifyListeners();
-      return true;
-    } catch (e) {
-      if (gen != _generation) return false;
-      // Translation failed: keep the insight that is already shown.
-      _actionError = _clean(e);
-      _actionErrorStatusCode = _statusOf(e);
-      _actionPlanLimit = _limitOf(e);
       _isLoading = false;
       notifyListeners();
       return false;

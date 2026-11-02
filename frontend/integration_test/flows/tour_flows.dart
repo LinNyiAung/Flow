@@ -385,11 +385,11 @@ void tourFlows() {
   });
 
   group('14 Large text tour', () {
-    e2eTest('tour: premium user, large font scale (run with font_scale 1.3 + E2E_LARGE_TEXT)', (t) async {
+    e2eTest('tour: Plus user, large font scale (run with font_scale 1.3 + E2E_LARGE_TEXT)', (t) async {
       final scale = MediaQuery.textScalerOf(t.element(find.byType(Scaffold).first)).scale(10) / 10;
       // ignore: avoid_print
       print('E2E_INFO|text scale = $scale');
-      await login(premium);
+      await login(plus);
       await mainScreenTour(L);
     }, timeout: const Duration(minutes: 15), skip: !kLargeText);
 

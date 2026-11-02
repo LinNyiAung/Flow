@@ -22,6 +22,10 @@ enum NotificationType {
   system_broadcast,  // NEW
   admin_announcement,  // NEW
   subscription_expired,
+  // ignore: constant_identifier_names
+  trial_ending_soon,
+  // ignore: constant_identifier_names
+  trial_ends_today,
 }
 
 class AppNotification {

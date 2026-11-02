@@ -1140,11 +1140,14 @@ class ApiService {
     required String message,
     List<ChatMessage>? chatHistory,
     ResponseStyle? responseStyle,
+    ChatMode mode = ChatMode.standard,
+    void Function(ChatStreamMeta meta)? onMeta,
   }) async* {
     final chatRequest = ChatRequest(
       message: message,
       chatHistory: chatHistory,
       responseStyle: responseStyle ?? ResponseStyle.normal,
+      mode: mode,
     );
 
     final request = http.Request('POST', Uri.parse('$baseUrl/api/chat/stream'));
@@ -1222,6 +1225,12 @@ class ApiService {
 
           if (data['error'] != null) {
             throw ApiException(data['error'].toString());
+          }
+
+          // The first frame says which model answers (Advanced can fall back
+          // to Standard) and carries no text.
+          if (data.containsKey('mode_used')) {
+            onMeta?.call(ChatStreamMeta.fromFrame(data));
           }
 
           final chunk = data['chunk'];

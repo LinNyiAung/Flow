@@ -9,6 +9,7 @@ import 'package:frontend/providers/app_version_provider.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/feedback_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
@@ -126,7 +127,18 @@ class _MyAppState extends State<MyApp> {
     _planProvider.addListener(_onPlanChanged);
   }
 
+  /// Pro users (with Advanced left in their plan) get the Standard / Advanced
+  /// switch in chat; everyone else is always answered by Standard.
+  void _syncAdvancedChat() {
+    _chatProvider.setAdvancedAvailable(
+      _authProvider.isAuthenticated &&
+          _authProvider.isPro &&
+          !_planProvider.isLocked(PlanFeature.chatAdvanced),
+    );
+  }
+
   void _onAuthChanged() {
+    _syncAdvancedChat();
     final userId = _authProvider.user?.id;
     if (userId == _planUserId) return;
     _planUserId = userId;
@@ -136,6 +148,7 @@ class _MyAppState extends State<MyApp> {
   void _onPlanChanged() {
     final status = _planProvider.status;
     if (status != null) _authProvider.applyPlanStatus(status);
+    _syncAdvancedChat();
   }
 
   void _refreshOnResume() {

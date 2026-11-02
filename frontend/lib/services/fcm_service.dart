@@ -226,6 +226,8 @@ class FCMService {
         return Color(0xFF667eea);
       case 'admin_announcement':
       case 'subscription_expired':
+      case 'trial_ending_soon':
+      case 'trial_ends_today':
         return Color(0xFFFF9800);
       default:
         return Color(0xFF667eea);

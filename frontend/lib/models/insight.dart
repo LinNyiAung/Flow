@@ -8,6 +8,10 @@ class Insight {
   final DateTime generatedAt;
   final DateTime? expiresAt;
 
+  /// Myanmar was asked for but the plan has no translation: [content] is the
+  /// English text and [contentMm] is null.
+  final bool translationLocked;
+
   Insight({
     required this.id,
     required this.userId,
@@ -15,6 +19,7 @@ class Insight {
     this.contentMm,
     required this.generatedAt,
     this.expiresAt,
+    this.translationLocked = false,
   });
 
   factory Insight.fromJson(Map<String, dynamic> json) {
@@ -25,6 +30,7 @@ class Insight {
       contentMm: json['content_mm'],
       generatedAt: parseInstantOrNull(json['generated_at']) ?? DateTime.now(),
       expiresAt: parseInstantOrNull(json['expires_at']),
+      translationLocked: json['translation_locked'] == true,
     );
   }
 }

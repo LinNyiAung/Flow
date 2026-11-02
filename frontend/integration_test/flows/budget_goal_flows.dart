@@ -58,7 +58,7 @@ Future<void> manageFunds({required bool add, required String amount}) async {
 void budgetFlows() {
   group('05 Budgets', () {
     e2eTest('budgets: list + detail', (t) async {
-      await login(premium);
+      await login(plus);
       await openBudgets();
       step('seeded budgets listed');
       for (final n in ['Monthly essentials', 'Weekly fun']) {
@@ -93,7 +93,7 @@ void budgetFlows() {
     });
 
     e2eTest('budgets: create (2 categories) → edit (rename + allocation) → delete', (t) async {
-      await login(premium);
+      await login(plus);
       await openBudgets();
       final name = 'E2E budget ${_stamp()}';
       step('create');
@@ -149,8 +149,8 @@ void budgetFlows() {
       check(find.text(renamed).evaluate().isEmpty, 'Deleted budget still listed');
     });
 
-    e2eTest('budgets: AI suggestion (premium, fake AI) fills the budget form; free → paywall', (t) async {
-      await login(premium);
+    e2eTest('budgets: AI suggestion (Plus, fake AI) fills the budget form; Free gets one a month, then the limit sheet', (t) async {
+      await login(plus);
       await openBudgets();
       await tap(find.byTooltip(L.createNewBudget));
       await waitFor(find.byType(CreateBudgetScreen));
@@ -179,13 +179,38 @@ void budgetFlows() {
       }
       await goHome();
       await logout();
-      step('free user');
+      step('free user: one suggestion a month, then the limit sheet');
       await login(free);
       await openBudgets();
       await tap(find.byTooltip(L.createNewBudget));
       await waitFor(find.byType(CreateBudgetScreen));
+      final usage = find.byKey(const Key('plan-usage-budget_suggestion'));
+      await expectSoon(find.text(L.planUsageLeftMonth(1, 1)), 'Free budget suggestion: no "1 of 1 left this month" line');
+      check(find.byType(SubscriptionScreen).evaluate().isEmpty, 'Free user was sent to the paywall before using the one suggestion');
       await tap(find.text(L.generateAiBudget));
-      await expectSoon(find.byType(SubscriptionScreen), 'Free user tapping "Generate AI budget" not sent to the paywall');
+      await waitFor(find.byType(AIBudgetSuggestionScreen));
+      final fr = await waitAny([find.text(L.failedToGenerateSuggestion), find.text(L.suggestedBudgetPlan)],
+          timeout: const Duration(seconds: 100));
+      check(fr == 1, 'Free user: the one AI budget suggestion did not show the fake plan (${visibleTexts().take(20).join(' | ')})');
+      if (fr == 1) {
+        await scrollTo(find.text(L.useThisBudget), maxSwipes: 6);
+        await tap(find.text(L.useThisBudget));
+        await waitFor(find.byType(CreateBudgetScreen));
+        await settle(1500);
+        check(usage.evaluate().isNotEmpty && hasText(L.planUsageLeftMonth(0, 1)),
+            'Free budget suggestion: usage line did not drop to "0 of 1 left this month" after using it (${visibleTexts().take(30).join(' | ')})');
+        step('second suggestion → limit sheet');
+        await scrollTo(find.text(L.generateAiBudget), dy: 300, maxSwipes: 6);
+        await tap(find.text(L.generateAiBudget));
+        final sheet = await waitFor(find.byKey(const Key('plan-limit-title')), timeout: const Duration(seconds: 30), orNull: true);
+        check(sheet, 'Free user\'s second AI budget suggestion showed no limit sheet (${visibleTexts().take(20).join(' | ')})');
+        if (sheet) {
+          check(hasText(L.planLimitReachedTitle), 'Limit sheet title is not "${L.planLimitReachedTitle}"');
+          check(find.byKey(const Key('plan-limit-upgrade')).evaluate().isNotEmpty, 'Limit sheet has no Upgrade button');
+          await tap(find.byKey(const Key('plan-limit-upgrade')));
+          await expectSoon(find.byType(SubscriptionScreen), 'Upgrade on the budget limit sheet did not open the Upgrade screen');
+        }
+      }
     });
   });
 }
@@ -193,7 +218,7 @@ void budgetFlows() {
 void goalFlows() {
   group('06 Goals', () {
     e2eTest('goals: list incl. overdue + achieved; extend overdue date', (t) async {
-      await login(premium);
+      await login(plus);
       await openGoals();
       step('overdue Trip to Bagan');
       check(await scrollTo(find.text('Trip to Bagan'), maxSwipes: 6), 'Goals: "Trip to Bagan" missing');
@@ -243,7 +268,7 @@ void goalFlows() {
     });
 
     e2eTest('goals: create → contribute → withdraw → over-withdraw → delete', (t) async {
-      await login(premium);
+      await login(plus);
       await openGoals();
       final name = 'E2E goal ${_stamp()}';
       step('create');

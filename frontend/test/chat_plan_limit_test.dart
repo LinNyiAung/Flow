@@ -16,7 +16,7 @@ Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 20))
 void main() {
   test('a message the plan refuses leaves the conversation and raises the limit', () async {
     final provider = ChatProvider(
-      streamer: ({required message, chatHistory, responseStyle}) =>
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) =>
           Stream<String>.error(_limit()),
     );
 
@@ -38,7 +38,7 @@ void main() {
   test('earlier messages stay when a later one is refused', () async {
     var calls = 0;
     final provider = ChatProvider(
-      streamer: ({required message, chatHistory, responseStyle}) {
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) {
         calls++;
         return calls == 1
             ? Stream<String>.fromIterable(['Hello ', 'there'])
@@ -59,7 +59,7 @@ void main() {
 
   test('any other failure still shows an error and keeps the question', () async {
     final provider = ChatProvider(
-      streamer: ({required message, chatHistory, responseStyle}) =>
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) =>
           Stream<String>.error(ApiException('The AI is busy.', statusCode: 503)),
     );
 
@@ -74,7 +74,7 @@ void main() {
 
   test('reset forgets a pending refusal', () async {
     final provider = ChatProvider(
-      streamer: ({required message, chatHistory, responseStyle}) =>
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) =>
           Stream<String>.error(_limit()),
     );
     await provider.sendMessage('hello');
