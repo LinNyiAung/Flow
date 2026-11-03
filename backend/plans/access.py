@@ -63,7 +63,7 @@ class PlanError(Exception):
     """A plan check refused the request: the feature is locked, its allowance is used up, or the cost cap is reached.
 
     status: 403 for plan_feature_locked, 429 otherwise. resets_at: an aware UTC datetime (None for a locked feature).
-    feature: a quota feature key, or None for a route that only needs a paid plan (utils.require_paid).
+    feature: a quota feature key, or None for a route that only needs a paid plan (utils.ensure_paid).
     """
 
     def __init__(self, code: str, feature: Optional[str], *, resets_at: Optional[datetime] = None,

@@ -6,7 +6,7 @@ is valid for the same user and the same text, the extraction does not reserve a 
 
 Token format: "<expiry>.<signature>"
   expiry     unix time in whole seconds (decimal digits) at which the token stops being valid, 15 minutes after issue
-  signature  URL-safe base64 (no padding) of HMAC-SHA256(SECRET_KEY, "<user_id>|<sha256 hex of the text>|<expiry>")
+  signature  URL-safe base64 (no padding) of HMAC-SHA256(SECRET_KEY, "voice-token-v1|<user_id>|<sha256 hex of the text>|<expiry>")
 The text is the transcript with surrounding whitespace stripped (UTF-8), on both the issuing and the checking side.
 The signing key is the app's existing JWT secret (config.settings.SECRET_KEY); without one no token is issued and
 none is valid. The token is opaque to the app: it stores it next to the transcript and sends it back unchanged.
@@ -21,6 +21,7 @@ from config import settings
 
 TTL_SECONDS = 15 * 60
 MAX_TOKEN_LENGTH = 512
+_DOMAIN = "voice-token-v1"
 
 
 def _key() -> bytes:
@@ -29,7 +30,9 @@ def _key() -> bytes:
 
 def _signature(user_id: str, text: str, expiry: int) -> str:
     digest = hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
-    mac = hmac.new(_key(), f"{user_id}|{digest}|{expiry}".encode("utf-8"), hashlib.sha256).digest()
+    # "voice-token-v1|" separates this MAC from any other use of the shared secret (the JWT signing key)
+    message = f"{_DOMAIN}|{user_id}|{digest}|{expiry}"
+    mac = hmac.new(_key(), message.encode("utf-8"), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(mac).rstrip(b"=").decode("ascii")
 
 

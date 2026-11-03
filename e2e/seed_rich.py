@@ -95,7 +95,7 @@ for key in ("plus", "free", "pro", "myanmar"):
                                           "target_date": (today - timedelta(days=4)).isoformat()})
     c.post("/api/goals", headers=H, json={"name": "Pay off card", "target_amount": 2_000_000, "goal_type": "debt_reduction", "initial_contribution": 250_000, "currency": "mmk"})
     c.post("/api/feedback", headers=H, json={"category": "feature_request", "message": "Dark mode for charts please", "rating": 4})
-    if big:  # premium users: stored insights so the screen has content without AI
+    if big:  # Plus/Pro users: stored insights so the screen has content without AI
         for prov in ("openai", "gemini"):
             for typ in ("weekly", "monthly"):
                 db.insights.insert_one({"_id": str(uuid.uuid4()), "user_id": ACCOUNTS[key]["id"], "ai_provider": prov, "insight_type": typ,

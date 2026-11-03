@@ -1,7 +1,7 @@
 """Paid-plan state: one definition of "on a paid plan", the expiry job and the Plus-trial reminders.
 
 A user is on a paid plan while subscription_type is "plus" or "pro" and subscription_expires_at is unset (lifetime)
-or in the future. Feature access (plans.access.effective_plan, utils.require_paid) checks that live;
+or in the future. Feature access (plans.access.effective_plan, utils.ensure_paid) checks that live;
 expire_paid_plans() additionally downgrades expired users to "free" so the stored data, admin counts and broadcast
 targeting stay truthful.
 

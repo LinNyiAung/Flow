@@ -87,13 +87,16 @@ const errorLines = (err) => {
 const LimitCell = ({ plan, feature, lim, chatLocked, onChange }) => {
   const label = `${planLabel(plan)} ${featureLabel(feature)}`;
   const advancedBlocked = feature === 'chat_advanced' && chatLocked && lim.mode !== 'locked';
+  // The server never translates insights for Free, so this cell is always Locked.
+  const alwaysLocked = plan === 'free' && feature === 'insight_translation';
   return (
     <div className="min-w-0">
       <div className="xl:hidden text-xs font-semibold text-slate-400 uppercase mb-1.5">{planLabel(plan)}</div>
       <div className="grid grid-cols-1 gap-2 min-w-0">
         <select
           aria-label={`${label} mode`}
-          value={lim.mode}
+          value={alwaysLocked ? 'locked' : lim.mode}
+          disabled={alwaysLocked}
           onChange={(e) => onChange({ ...lim, mode: e.target.value })}
           className={field}
         >
@@ -124,6 +127,7 @@ const LimitCell = ({ plan, feature, lim, chatLocked, onChange }) => {
           </div>
         )}
       </div>
+      {alwaysLocked && <p className="mt-1.5 text-xs text-slate-500">Always locked: Free never gets translated insights.</p>}
       {advancedBlocked && (
         <p className="mt-1.5 text-xs text-amber-300 flex items-start gap-1.5">
           <AlertTriangle size={13} className="flex-shrink-0 mt-px" />

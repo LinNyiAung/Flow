@@ -226,6 +226,22 @@ async def run(t):
               and not voice_token.is_valid(tok, vid, "fake transcript.")
               and voice_token.is_valid(voice_token.issue(vid, "x"), vid, "x") and not voice_token.is_valid(None, vid, "x"),
               "voice_token: valid only for the user and the text it was issued for")
+        # domain separation: the MAC covers "voice-token-v1|user|sha256(text)|expiry", not the bare "user|sha256|expiry"
+        import base64
+        import hashlib
+        import hmac
+        from config import settings
+        exp_x = int(time.time()) + 600
+        digest = hashlib.sha256("fake transcript".encode("utf-8")).hexdigest()
+
+        def mac_token(message):
+            mac = hmac.new((settings.SECRET_KEY or "").encode(), message.encode("utf-8"), hashlib.sha256).digest()
+            return f"{exp_x}." + base64.urlsafe_b64encode(mac).rstrip(b"=").decode("ascii")
+
+        check(voice_token.is_valid(mac_token(f"voice-token-v1|{vid}|{digest}|{exp_x}"), vid, "fake transcript")
+              and not voice_token.is_valid(mac_token(f"{vid}|{digest}|{exp_x}"), vid, "fake transcript"),
+              "voice_token_domain_separated: only a MAC over the 'voice-token-v1|' prefixed message validates; the old unprefixed "
+              "format does not")
 
         # the token is what lets the follow-up through at the very limit its own transcription filled
         lid, lh = register("voice-limit")

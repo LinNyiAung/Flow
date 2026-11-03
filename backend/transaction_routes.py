@@ -796,10 +796,11 @@ async def transcribe_audio(
     reservation = await quota.reserve(current_user, "entry")  # outside the handlers below: a PlanError passes through
     try:
         out = await _transcribe_audio(audio, language, current_user)
+        empty = not out["transcription"].strip()  # inside the try: a malformed result still gives the use back
     except BaseException:
         await quota.give_back(reservation)
         raise
-    if not out["transcription"].strip():
+    if empty:
         await quota.give_back(reservation)
         return out
     reservation.commit()

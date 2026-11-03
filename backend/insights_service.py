@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
 from plans import quota
+from plans import store as plan_store
 from plans.access import effective_plan
 from plans.catalog import PAID_PLANS
 from sql import budgets as budgets_db
@@ -49,11 +50,16 @@ def get_previous_week_date_range():
 USER_PLAN_FIELDS = ["subscription_type", "subscription_expires_at", "usage_reset_at"]
 
 
-async def _skip_user(user: dict) -> bool:
-    """True when a scheduled insight job must skip this user: their paid plan has ended (they count as Free at once,
-    without waiting for the hourly expiry job) or their AI spend this month has reached their plan's hidden cost cap."""
-    if effective_plan(user) not in PAID_PLANS:
+async def _skip_user(user: dict, feature: str) -> bool:
+    """True when a scheduled insight job (`feature`: insight_weekly / insight_monthly) must skip this user: their paid
+    plan has ended (they count as Free at once, without waiting for the hourly expiry job), the owner locked that
+    insight type on their plan, or their AI spend this month has reached their plan's hidden cost cap."""
+    plan = effective_plan(user)
+    if plan not in PAID_PLANS:
         logger.info(f"⏭️ Skipping user {user['_id']} - subscription expired")
+        return True
+    if plan_store.limits(plan)[feature].mode == "locked":
+        logger.info(f"⏭️ Skipping user {user['_id']} - {feature} is locked on the {plan} plan")
         return True
     if await quota.over_cost_cap(user):
         logger.info(f"⏭️ Skipping user {user['_id']} - monthly AI cost cap reached")
@@ -698,7 +704,8 @@ async def generate_weekly_insights_for_all_users():
     """Generate weekly insights for all Plus and Pro users using Bounded Concurrency.
 
     Free users are never included (weekly insights are locked for them), a Plus or Pro plan that has ended counts as
-    Free, and a user at their plan's hidden monthly cost cap is skipped for the rest of the month. The jobs never use
+    Free, a plan whose insight_weekly the owner locked is skipped, and a user at their plan's hidden monthly cost cap
+    is skipped for the rest of the month. The jobs never use
     an allowance; their spend lands in ai_usage (the runner records it with the user id) and counts towards the cap.
     """
     logger.info("🔄 Starting weekly insights generation (Concurrent Mode)...")
@@ -725,7 +732,7 @@ async def generate_weekly_insights_for_all_users():
 
         async with sem:  # Wait for a free slot in the semaphore
             try:
-                if await _skip_user(user):
+                if await _skip_user(user, "insight_weekly"):
                     return
 
                 # One insight per user, on the insight_weekly provider chain (background: the
@@ -1406,7 +1413,7 @@ async def generate_monthly_insights_for_all_users():
     """Generate monthly insights for all Plus and Pro users using Bounded Concurrency.
 
     Free users get their monthly insight on demand instead (see main._free_monthly_insight), so this job never
-    spends on them. Same user selection and cost-cap skip as the weekly job.
+    spends on them. Same user selection, locked-plan skip (insight_monthly) and cost-cap skip as the weekly job.
     """
     logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
 
@@ -1431,7 +1438,7 @@ async def generate_monthly_insights_for_all_users():
 
         async with sem:
             try:
-                if await _skip_user(user):
+                if await _skip_user(user, "insight_monthly"):
                     return
 
                 # One insight per user, on the insight_monthly provider chain (background: the

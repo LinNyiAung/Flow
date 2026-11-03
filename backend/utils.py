@@ -220,14 +220,4 @@ def ensure_paid(user: dict, feature: Optional[str] = None) -> None:
         raise PlanError(LOCKED, feature, upgrade_available=True, lang=user_language(user))
 
 
-def paid_required(feature: Optional[str] = None):
-    """Dependency factory: the route needs a paid plan (Plus or Pro) right now (see ensure_paid)."""
-    async def dependency(current_user: dict = Depends(get_current_user)):
-        ensure_paid(current_user, feature)
-        return current_user
-    return dependency
-
-
-require_paid = paid_required()
-
 

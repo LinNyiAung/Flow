@@ -107,6 +107,9 @@ def _validate(plan_rows: Any, caps: Any, contact: Any):
             lim = _limit(f"{plan}.{feature}", feats[feature], errors)
             if lim is not None:
                 rows[plan][feature] = lim
+        trans = rows[plan].get("insight_translation")
+        if plan == "free" and trans is not None and trans.mode != "locked":
+            errors.append("free.insight_translation: Free never gets translated insights, so it must stay locked")
         chat, adv = rows[plan].get("chat"), rows[plan].get("chat_advanced")
         if chat is not None and adv is not None and chat.mode == "locked" and adv.mode != "locked":
             errors.append(f"{plan}.chat_advanced: can only be available when chat is not locked")
