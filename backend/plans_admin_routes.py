@@ -1,16 +1,21 @@
-"""Admin API for plans: every plan's per-feature limits, monthly AI cost cap and the upgrade contact texts.
+"""Admin API for plans: every plan's per-feature limits, monthly AI cost cap and the upgrade contact texts, and the
+users' upgrade requests (at the end of this file).
 
 Moderators can view; admins and super admins can change. A change applies in this process at once and in
 other workers within a minute (plans.store refreshes every 60 s). Every change is written to the admin action log.
 """
-from typing import Dict, Optional
+from datetime import datetime, UTC
+from typing import Dict, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt
 
 from admin_utils import log_admin_action, require_admin_or_super, require_moderator_or_above
 from plans import store
+from plans.access import effective_plan
 from plans.catalog import FEATURES, PLANS, Limit
+from sql import upgrade_requests as requests_db
+from sql import users as users_db
 
 router = APIRouter(prefix="/api/admin/plans", tags=["admin", "plans"])
 
@@ -112,3 +117,73 @@ async def put_plans(body: PlansBody, current_admin: dict = Depends(require_admin
         details=_changes(before, after),
     )
     return after
+
+
+# ==================== UPGRADE REQUESTS ====================
+# Users ask for Plus or Pro from the app (POST /api/plan/upgrade-request); the owner sees the requests here, changes
+# the user's plan by hand (which marks the request done by itself, see admin_routes.update_user_subscription) or
+# dismisses it. Moderators can view; admins and super admins can handle.
+
+requests_router = APIRouter(prefix="/api/admin/upgrade-requests", tags=["admin", "plans"])
+
+
+def _request_row(row: dict) -> dict:
+    plan = effective_plan({"subscription_type": row["subscription_type"],
+                           "subscription_expires_at": row["subscription_expires_at"]})
+    return {
+        "id": row["_id"],
+        "user_id": row["user_id"],
+        "name": row["user_name"],
+        "email": row["user_email"],
+        "current_plan": plan,
+        "requested_plan": row["plan"],
+        "note": row["note"],
+        "created_at": row["created_at"].isoformat(),
+        "status": row["status"],
+        "handled_at": row["handled_at"].isoformat() if row["handled_at"] else None,
+    }
+
+
+@requests_router.get("")
+async def list_upgrade_requests(
+    status_filter: Literal["pending", "done", "dismissed"] = Query("pending", alias="status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    current_admin: dict = Depends(require_moderator_or_above),
+):
+    """Requests in one status (default pending), each with the user's name, email and current effective plan."""
+    rows = await requests_db.list_with_users(status_filter, skip, limit)
+    return [_request_row(r) for r in rows]
+
+
+async def _handle(request_id: str, new_status: str, action: str, current_admin: dict) -> dict:
+    request = await requests_db.get(request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade request not found")
+    row = await requests_db.mark(request_id, new_status, current_admin["_id"], datetime.now(UTC))
+    if row is None:  # handled in the meantime, or already handled
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This request has already been handled")
+    user = await users_db.get_user(request["user_id"])
+    await log_admin_action(
+        admin_id=current_admin["_id"],
+        admin_email=current_admin["email"],
+        action=action,
+        target_user_id=request["user_id"],
+        target_user_email=user["email"] if user else None,
+        details=f"Upgrade request for {request['plan']}: {new_status}",
+    )
+    return {"id": row["_id"], "status": row["status"], "handled_at": row["handled_at"].isoformat()}
+
+
+@requests_router.post("/{request_id}/done")
+async def mark_upgrade_request_done(request_id: str = Path(...),
+                                    current_admin: dict = Depends(require_admin_or_super)):
+    """The owner has dealt with the request (for instance by changing the user's plan by hand)."""
+    return await _handle(request_id, "done", "upgrade_request_done", current_admin)
+
+
+@requests_router.post("/{request_id}/dismiss")
+async def dismiss_upgrade_request(request_id: str = Path(...),
+                                  current_admin: dict = Depends(require_admin_or_super)):
+    """Turn the request down without changing the user's plan."""
+    return await _handle(request_id, "dismissed", "upgrade_request_dismissed", current_admin)

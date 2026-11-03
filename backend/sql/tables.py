@@ -345,6 +345,26 @@ usage_counters = Table(
     CheckConstraint("used >= 0", name="used_non_negative"),
 )
 
+# Upgrades are manual (no payments): a user asks for Plus or Pro from the app and the owner handles it in the admin
+# panel. At most one pending request per user; a request is kept (done / dismissed) as history.
+upgrade_requests = Table(
+    "upgrade_requests", metadata,
+    Column("id", Text, primary_key=True),
+    _user_fk(),
+    Column("plan", Text, nullable=False),
+    Column("note", Text),
+    Column("status", Text, nullable=False, server_default="pending"),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    Column("handled_at", TS),
+    Column("handled_by", Text),  # admin id (no foreign key: the record outlives a deleted admin)
+    CheckConstraint("plan IN ('plus','pro')", name="plan"),
+    CheckConstraint("status IN ('pending','done','dismissed')", name="status"),
+    CheckConstraint("note IS NULL OR char_length(note) <= 500", name="note_length"),
+)
+Index("uq_upgrade_requests_pending_user", upgrade_requests.c.user_id, unique=True,
+      postgresql_where=upgrade_requests.c.status == "pending")
+Index("ix_upgrade_requests_status_created", upgrade_requests.c.status, upgrade_requests.c.created_at.desc())
+
 admins = Table(
     "admins", metadata,
     Column("id", Text, primary_key=True),

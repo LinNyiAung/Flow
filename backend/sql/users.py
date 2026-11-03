@@ -1,6 +1,6 @@
 """User accounts: lookups, updates and the atomic (conditional) updates the auth flows need."""
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 
 from sqlalchemy import and_, delete, func, insert, or_, select, update
@@ -81,7 +81,10 @@ async def list_fields(columns: Iterable[str], *conditions: ColumnElement) -> Lis
     return rows_to_docs(await fetch_all(stmt))
 
 
-async def admin_list(search: Optional[str], subscription_type: Optional[str], skip: int, limit: int) -> List[Dict[str, Any]]:
+async def admin_list(search: Optional[str], subscription_type: Optional[str], skip: int, limit: int,
+                     now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Users for the admin list. `subscription_type` filters by the plan a user has at `now` (an expired Plus is free)."""
+    now = now or datetime.now(timezone.utc)
     stmt = select(users)
     if search and search.strip():
         # Literal (not pattern) substring match, case-insensitive.
@@ -89,7 +92,7 @@ async def admin_list(search: Optional[str], subscription_type: Optional[str], sk
         stmt = stmt.where(or_(func.strpos(func.lower(users.c.name), needle) > 0,
                               func.strpos(func.lower(users.c.email), needle) > 0))
     if subscription_type:
-        stmt = stmt.where(users.c.subscription_type == subscription_type)
+        stmt = stmt.where(effectively_free(now) if subscription_type == "free" else active_plan(subscription_type, now))
     stmt = stmt.order_by(users.c.created_at.desc(), users.c.id).offset(skip).limit(limit)
     return rows_to_docs(await fetch_all(stmt))
 

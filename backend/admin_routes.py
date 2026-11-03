@@ -48,8 +48,9 @@ from subscription_service import active_paid_filter, active_plan_filter, effecti
 from models import Currency, SubscriptionType
 from plans import periods, quota, store
 from plans.access import effective_plan
-from plans.catalog import FEATURES, PERIODS
+from plans.catalog import FEATURES, PERIODS, PLAN_RANK
 from sql import plans as plans_db
+from sql import upgrade_requests as upgrade_requests_db
 from sqlalchemy.exc import IntegrityError
 from sql import admins as admins_db
 from sql import users as users_db
@@ -550,7 +551,9 @@ async def get_all_users(
     subscription_type: Optional[SubscriptionType] = Query(None)
 ):
     """Get all users with pagination and filters"""
-    users = await users_db.admin_list(search, subscription_type.value if subscription_type else None, skip, limit)
+    # The plan filter, like the badge, is about the plan a user has now (an expired Plus is Free).
+    now = datetime.now(UTC)
+    users = await users_db.admin_list(search, subscription_type.value if subscription_type else None, skip, limit, now)
 
     user_list = []
     for user in users:
@@ -578,6 +581,7 @@ async def get_all_users(
             name=user["name"],
             email=user["email"],
             subscription_type=SubscriptionType(user.get("subscription_type", "free")),
+            effective_plan=SubscriptionType(effective_plan(user, now)),
             subscription_expires_at=user.get("subscription_expires_at"),
             default_currency=Currency(user.get("default_currency", "usd")),
             created_at=user["created_at"],
@@ -629,6 +633,7 @@ async def get_user_detail(
         name=user["name"],
         email=user["email"],
         subscription_type=SubscriptionType(user.get("subscription_type", "free")),
+        effective_plan=SubscriptionType(effective_plan(user)),
         subscription_expires_at=user.get("subscription_expires_at"),
         default_currency=Currency(user.get("default_currency", "usd")),
         language=user.get("language", "en"),
@@ -658,8 +663,16 @@ async def update_user_subscription(
 
     # Always store timezone-aware UTC. Any admin change ends the free-trial marker (and with it the trial reminders):
     # a plan an admin sets is never shown or treated as a trial.
-    await users_db.set_plan(user_id, subscription_data.subscription_type.value,
-                            _to_aware_utc(subscription_data.subscription_expires_at))
+    expires_at = _to_aware_utc(subscription_data.subscription_expires_at)
+    await users_db.set_plan(user_id, subscription_data.subscription_type.value, expires_at)
+
+    # A pending upgrade request for this plan (or a lower one) is answered by this change. Judged by the plan the
+    # user really has afterwards, so setting a plan that has already ended does not count.
+    new_plan = effective_plan({"subscription_type": subscription_data.subscription_type.value,
+                               "subscription_expires_at": expires_at})
+    pending = await upgrade_requests_db.get_pending(user_id)
+    if pending and PLAN_RANK[new_plan] >= PLAN_RANK[pending["plan"]]:
+        await upgrade_requests_db.mark_user_done(user_id, current_admin["_id"], datetime.now(UTC))
 
     # Send a silent FCM data-only message so the app refreshes instantly.
     # Blocking firebase call runs in a threadpool so the event loop isn't blocked.
@@ -876,7 +889,8 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
         new_users_this_week=new_users_this_week,
         new_users_this_month=new_users_this_month,
         active_users_today=len(active_today),
-        active_users_this_week=len(active_week)
+        active_users_this_week=len(active_week),
+        pending_upgrade_requests=await upgrade_requests_db.count_pending()
     )
 
 

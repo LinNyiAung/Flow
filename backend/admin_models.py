@@ -55,7 +55,8 @@ class UserListResponse(BaseModel):
     id: str
     name: str
     email: str
-    subscription_type: SubscriptionType
+    subscription_type: SubscriptionType  # as stored; an expired Plus/Pro stays here until the hourly expiry job
+    effective_plan: SubscriptionType  # the plan the user has now (plans.access.effective_plan): what the badge shows
     subscription_expires_at: Optional[datetime] = None
     default_currency: Currency
     created_at: datetime
@@ -80,7 +81,8 @@ class UserDetailResponse(BaseModel):
     id: str
     name: str
     email: str
-    subscription_type: SubscriptionType
+    subscription_type: SubscriptionType  # as stored
+    effective_plan: SubscriptionType  # the plan the user has now
     subscription_expires_at: Optional[datetime] = None
     default_currency: Currency
     language: str
@@ -124,7 +126,8 @@ class SystemStatsResponse(BaseModel):
     new_users_this_month: int
     active_users_today: int
     active_users_this_week: int
-    
+    pending_upgrade_requests: int = 0
+
     
 class BroadcastNotificationRequest(BaseModel):
     title: str

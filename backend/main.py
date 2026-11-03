@@ -63,6 +63,7 @@ from ai_providers import settings as ai_provider_settings
 from ai_providers.errors import redact
 
 # Plans and AI quotas: admin API and the limits cache it feeds
+from plans_admin_routes import requests_router as upgrade_requests_admin_router
 from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
 from plans import periods, quota
@@ -86,6 +87,7 @@ app.include_router(app_version_admin_router)
 app.include_router(app_version_user_router)
 app.include_router(ai_admin_router)
 app.include_router(plans_admin_router)
+app.include_router(upgrade_requests_admin_router)
 app.include_router(plans_router)
 
 

@@ -81,6 +81,7 @@ NOTIFICATION_TRANSLATIONS = {
         "plan_cost_cap_msg": "You've reached this month's AI limit; it resets on {date}.",
         "plan_upgrade_to_unlock": "Upgrade your plan to use it.",
         "plan_upgrade_for_more": "Upgrade your plan to get more.",
+        "plan_upgrade_request_already": "You're already on the {plan} plan or a higher one.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -136,6 +137,7 @@ NOTIFICATION_TRANSLATIONS = {
         "plan_cost_cap_msg": "ဤလအတွက် AI အသုံးပြုမှု ကန့်သတ်ချက်သို့ ရောက်ရှိသွားပါပြီ။ {date} တွင် ပြန်လည်စတင်ပါမည်။",
         "plan_upgrade_to_unlock": "အသုံးပြုရန် သင်၏ အစီအစဉ်ကို အဆင့်မြှင့်တင်ပါ။",
         "plan_upgrade_for_more": "ပိုမိုအသုံးပြုရန် သင်၏ အစီအစဉ်ကို အဆင့်မြှင့်တင်ပါ။",
+        "plan_upgrade_request_already": "သင်သည် {plan} အစီအစဉ် သို့မဟုတ် ၎င်းထက်မြင့်သော အစီအစဉ်ကို အသုံးပြုနေပြီးဖြစ်ပါသည်။",
     }
 }
 

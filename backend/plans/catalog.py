@@ -9,6 +9,7 @@ from typing import Dict, Optional
 
 PLANS = ("free", "plus", "pro")
 PAID_PLANS = ("plus", "pro")
+PLAN_RANK = {"free": 0, "plus": 1, "pro": 2}  # a higher plan includes everything a lower one has
 
 # One entry per metered (or gated) thing a user can do with AI or a paid report.
 FEATURES = ("chat", "chat_advanced", "insight_monthly", "insight_weekly", "insight_translation",
