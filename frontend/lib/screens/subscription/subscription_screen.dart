@@ -3,6 +3,7 @@ import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -11,7 +12,9 @@ import '../../services/localization_service.dart';
 
 /// The Upgrade screen: the user's current plan and a Free / Plus / Pro
 /// comparison built from the limits the server reports (`GET /api/plan`), so
-/// no number lives in the app, plus the owner's upgrade contact message.
+/// no number lives in the app, plus a "Request Plus / Request Pro" button for
+/// each higher plan (upgrades are manual: the owner sees the request in the
+/// admin panel) and the owner's upgrade contact message.
 class SubscriptionScreen extends StatefulWidget {
   @override
   _SubscriptionScreenState createState() => _SubscriptionScreenState();
@@ -28,6 +31,32 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) Provider.of<PlanProvider>(context, listen: false).refresh();
     });
+  }
+
+  /// Asks for [plan]: a dialog for an optional note, then the request. A
+  /// refused request (e.g. the user already has that plan) shows the server's
+  /// message in a snackbar.
+  Future<void> _requestUpgrade(Plan plan) async {
+    final planProvider = Provider.of<PlanProvider>(context, listen: false);
+    final localizations = AppLocalizations.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final note = await showDialog<String>(
+      context: context,
+      builder: (_) => _UpgradeRequestDialog(plan: plan),
+    );
+    if (note == null) return; // cancelled
+
+    try {
+      await planProvider.requestUpgrade(plan, note: note);
+    } catch (e) {
+      final message = e is ApiException && e.message.trim().isNotEmpty
+          ? e.message
+          : localizations.upgradeRequestFailed;
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+      // The plan may have changed since the screen loaded: show what is true.
+      planProvider.refresh();
+    }
   }
 
   Future<void> _claimFreeTrial(BuildContext context) async {
@@ -159,7 +188,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           const SizedBox(height: 12),
                           _buildComparison(context, planProvider, authProvider.plan, localizations),
 
-                          // ── Upgrade contact (the only path to upgrade) ──
+                          // ── Ask for a higher plan ──
+                          if (!authProvider.isPro && planProvider.status != null) ...[
+                            const SizedBox(height: 16),
+                            _buildUpgradeRequests(context, planProvider, authProvider.plan, localizations),
+                          ],
+
+                          // ── Upgrade contact ──
                           if (!authProvider.isPro) ...[
                             const SizedBox(height: 24),
                             _buildContactBox(context, planProvider.status, localizations),
@@ -320,6 +355,65 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
+  // ── "Request Plus" / "Request Pro" ─────────────────────────────────────────
+  // One card per plan above the user's own. After a request, that plan's card
+  // says when it was requested; asking for the other plan moves it there.
+  Widget _buildUpgradeRequests(
+    BuildContext context,
+    PlanProvider planProvider,
+    Plan currentPlan,
+    AppLocalizations localizations,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final pending = planProvider.upgradeRequest;
+    final plans = requestablePlans(currentPlan);
+    return Column(
+      children: [
+        for (final plan in plans)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardTheme.color,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: pending?.plan == plan
+                  ? Row(
+                      children: [
+                        Icon(Icons.check_circle_outline_rounded, color: scheme.primary, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            localizations.upgradeRequestedOn(
+                              DateFormat('MMM d, yyyy').format(pending!.createdAt.toLocal()),
+                            ),
+                            key: Key('upgrade-requested-${plan.name}'),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurface,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.tonal(
+                        key: Key('request-${plan.name}'),
+                        onPressed: planProvider.isRequestingUpgrade ? null : () => _requestUpgrade(plan),
+                        child: Text(localizations.upgradeRequestButton(localizations.planName(plan))),
+                      ),
+                    ),
+            ),
+          ),
+      ],
+    );
+  }
+
   // ── Upgrade contact info box ───────────────────────────────────────────────
   Widget _buildContactBox(BuildContext context, PlanStatus? status, AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
@@ -349,6 +443,79 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The paid plans a user on [current] can ask for: the ones above it (Pro
+/// counts as Plus, so a Pro user has none).
+List<Plan> requestablePlans(Plan current) =>
+    [Plan.plus, Plan.pro].where((p) => p.index > current.index).toList();
+
+/// Asks for an optional note and closes with it (trimmed; empty when none).
+/// Closes with null when cancelled; the caller sends the request.
+class _UpgradeRequestDialog extends StatefulWidget {
+  const _UpgradeRequestDialog({required this.plan});
+
+  final Plan plan;
+
+  @override
+  State<_UpgradeRequestDialog> createState() => _UpgradeRequestDialogState();
+}
+
+class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
+  final TextEditingController _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final planName = l.planName(widget.plan);
+    return AlertDialog(
+      title: Text(l.upgradeRequestButton(planName)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l.upgradeRequestIntro(planName),
+              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('upgrade-request-note'),
+              controller: _note,
+              maxLength: 500,
+              minLines: 2,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                labelText: l.upgradeRequestNoteLabel,
+                hintText: l.upgradeRequestNoteHint,
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l.dialogCancel),
+        ),
+        FilledButton(
+          key: const Key('upgrade-request-send'),
+          onPressed: () => Navigator.pop(context, _note.text.trim()),
+          child: Text(l.upgradeRequestSend),
+        ),
+      ],
     );
   }
 }

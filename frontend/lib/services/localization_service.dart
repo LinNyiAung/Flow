@@ -1117,6 +1117,13 @@ class AppLocalizations {
       'planNotIncluded': 'Not included',
       'planContactTitle': 'Ready to upgrade?',
       'planDetailsUnavailable': 'Plan details aren\'t available right now.',
+      'upgradeRequestButton': 'Request {plan}',
+      'upgradeRequestIntro': 'We\'ll let the team know you\'d like {plan}. They\'ll be in touch to set it up.',
+      'upgradeRequestNoteLabel': 'Note (optional)',
+      'upgradeRequestNoteHint': 'Anything you\'d like us to know',
+      'upgradeRequestSend': 'Send',
+      'upgradeRequestedOn': 'Requested on {date}. We\'ll be in touch.',
+      'upgradeRequestFailed': 'Couldn\'t send your request. Please try again.',
       'voiceNothingHeard': 'We didn\'t catch anything. Please try again.',
       'voiceRetryHint': 'Your recording was already read, so trying again does not use another entry.',
       'chatModeStandard': 'Standard',
@@ -2143,6 +2150,13 @@ class AppLocalizations {
       'planNotIncluded': 'မပါဝင်ပါ',
       'planContactTitle': 'အဆင့်မြှင့်ရန် အဆင်သင့်ပြီလား?',
       'planDetailsUnavailable': 'အစီအစဉ် အသေးစိတ်ကို ယခု မရရှိနိုင်ပါ။',
+      'upgradeRequestButton': '{plan} တောင်းဆိုရန်',
+      'upgradeRequestIntro': 'သင် {plan} ကို အသုံးပြုလိုကြောင်း ကျွန်ုပ်တို့အဖွဲ့ကို အသိပေးပါမည်။ စီစဉ်ပေးရန် သင့်ထံ ဆက်သွယ်ပါမည်။',
+      'upgradeRequestNoteLabel': 'မှတ်ချက် (မဖြည့်လည်းရသည်)',
+      'upgradeRequestNoteHint': 'ပြောလိုသည်များရှိပါက ရေးပါ',
+      'upgradeRequestSend': 'ပို့မည်',
+      'upgradeRequestedOn': '{date} တွင် တောင်းဆိုထားပါသည်။ ကျွန်ုပ်တို့ ဆက်သွယ်ပါမည်။',
+      'upgradeRequestFailed': 'သင့်တောင်းဆိုမှုကို မပို့နိုင်ပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
       'voiceNothingHeard': 'ဘာမှ မကြားလိုက်ရပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
       'voiceRetryHint': 'သင့်အသံသွင်းချက်ကို ဖတ်ပြီးပြီဖြစ်၍ ထပ်ကြိုးစားခြင်းသည် အသုံးပြုခွင့် ထပ်မံမကုန်ပါ။',
       'chatModeStandard': 'Standard',
@@ -3214,6 +3228,13 @@ class AppLocalizations {
   String get planNotIncluded => translate('planNotIncluded');
   String get planContactTitle => translate('planContactTitle');
   String get planDetailsUnavailable => translate('planDetailsUnavailable');
+  String upgradeRequestButton(String plan) => translate('upgradeRequestButton').replaceAll('{plan}', plan);
+  String upgradeRequestIntro(String plan) => translate('upgradeRequestIntro').replaceAll('{plan}', plan);
+  String get upgradeRequestNoteLabel => translate('upgradeRequestNoteLabel');
+  String get upgradeRequestNoteHint => translate('upgradeRequestNoteHint');
+  String get upgradeRequestSend => translate('upgradeRequestSend');
+  String upgradeRequestedOn(String date) => translate('upgradeRequestedOn').replaceAll('{date}', date);
+  String get upgradeRequestFailed => translate('upgradeRequestFailed');
   String get voiceNothingHeard => translate('voiceNothingHeard');
   String get voiceRetryHint => translate('voiceRetryHint');
   String get chatModeStandard => translate('chatModeStandard');

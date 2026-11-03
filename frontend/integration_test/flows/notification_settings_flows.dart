@@ -141,6 +141,65 @@ void notificationFlows() {
   });
 }
 
+/// Free account Felix asks for an upgrade. Runs before group 12, whose
+/// trial-claim flow turns Felix into a Plus trial user.
+void upgradeRequestFlows() {
+  group('11b Upgrade request', () {
+    e2eTest('upgrade: Free user requests Plus, then Pro replaces the request', (t) async {
+      await login(free);
+      await drawerGo(L.subscription);
+      await waitFor(find.byType(SubscriptionScreen));
+      final requestPlus = find.text(L.upgradeRequestButton(L.planNamePlus));
+      final requestPro = find.text(L.upgradeRequestButton(L.planNamePro));
+
+      step('Request Plus: dialog with a note, then Send');
+      await scrollTo(requestPlus);
+      check(requestPro.evaluate().isNotEmpty, 'Upgrade screen: no "Request Pro" button for a Free user');
+      await tap(requestPlus);
+      await waitFor(find.byKey(const Key('upgrade-request-note')));
+      await enter(find.byKey(const Key('upgrade-request-note')), 'E2E: please upgrade me');
+      await hideKeyboard();
+      await tapKey('upgrade-request-send');
+      await expectSoon(find.byKey(const Key('upgrade-requested-plus')),
+          'Request Plus: the Plus card does not say it was requested',
+          timeout: const Duration(seconds: 20));
+      check(hasTextContaining('Requested on'), 'Request Plus: no "Requested on <date>" text');
+      check(requestPlus.evaluate().isEmpty, 'Request Plus: the button is still there after requesting');
+      check(requestPro.evaluate().isNotEmpty, 'Request Plus: the Pro button disappeared');
+
+      step('the server holds the pending request');
+      final token = await apiToken(free);
+      var plan = await apiGet(token, '/api/plan');
+      var pending = plan['upgrade_request'];
+      check(pending != null && pending['plan'] == 'plus' && pending['note'] == 'E2E: please upgrade me',
+          'Server upgrade_request after asking for Plus: $pending');
+
+      step('the request survives leaving and reopening the screen');
+      await back();
+      await drawerGo(L.subscription);
+      await waitFor(find.byType(SubscriptionScreen));
+      await expectSoon(find.byKey(const Key('upgrade-requested-plus')),
+          'Upgrade screen forgot the Plus request after reopening');
+
+      step('Request Pro replaces it');
+      await scrollTo(requestPro);
+      await tap(requestPro);
+      await waitFor(find.byKey(const Key('upgrade-request-note')));
+      await tapKey('upgrade-request-send');
+      await expectSoon(find.byKey(const Key('upgrade-requested-pro')),
+          'Request Pro: the Pro card does not say it was requested',
+          timeout: const Duration(seconds: 20));
+      check(find.byKey(const Key('upgrade-requested-plus')).evaluate().isEmpty,
+          'Request Pro: the Plus card still says requested');
+      check(requestPlus.evaluate().isNotEmpty, 'Request Pro: the Plus button did not come back');
+      plan = await apiGet(token, '/api/plan');
+      pending = plan['upgrade_request'];
+      check(pending != null && pending['plan'] == 'pro' && pending['note'] == null,
+          'Server upgrade_request after asking for Pro: $pending');
+    });
+  });
+}
+
 void settingsFlows() {
   group('12 Settings', () {
     e2eTest('settings: edit profile name (and restore)', (t) async {

@@ -8,6 +8,7 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +17,7 @@ PlanStatus _status({
   Plan plan = Plan.free,
   int chatRemaining = 3,
   Map<String, String> contact = const {'en': 'Message us on Viber', 'my': 'Viber ဖြင့် ဆက်သွယ်ပါ'},
+  UpgradeRequest? upgradeRequest,
 }) {
   FeatureAllowance counted(int limit, int remaining, String period) =>
       FeatureAllowance(
@@ -55,8 +57,12 @@ PlanStatus _status({
       }),
     },
     upgradeContact: contact,
+    upgradeRequest: upgradeRequest,
   );
 }
+
+UpgradeRequest _request(Plan plan, {String? note, DateTime? at}) =>
+    UpgradeRequest(plan: plan, note: note, createdAt: at ?? DateTime.utc(2026, 11, 3, 9));
 
 void main() {
   setUp(() {
@@ -164,13 +170,145 @@ void main() {
     });
   });
 
+  group('Upgrade request state', () {
+    test('GET /api/plan upgrade_request is parsed; none or a bad one is null', () {
+      final withRequest = PlanStatus.fromJson({
+        'plan': 'free',
+        'upgrade_request': {'plan': 'plus', 'note': 'Please', 'created_at': '2026-11-03T09:00:00+00:00'},
+      });
+      expect(withRequest.upgradeRequest!.plan, Plan.plus);
+      expect(withRequest.upgradeRequest!.note, 'Please');
+      expect(withRequest.upgradeRequest!.createdAt.toUtc(), DateTime.utc(2026, 11, 3, 9));
+
+      expect(PlanStatus.fromJson({'plan': 'free', 'upgrade_request': null}).upgradeRequest, isNull);
+      expect(PlanStatus.fromJson({'plan': 'free'}).upgradeRequest, isNull);
+      // A blank note is no note; an unknown plan or a missing date is no request.
+      expect(
+        PlanStatus.fromJson({
+          'plan': 'free',
+          'upgrade_request': {'plan': 'pro', 'note': '  ', 'created_at': '2026-11-03T09:00:00+00:00'},
+        }).upgradeRequest!.note,
+        isNull,
+      );
+      expect(
+        PlanStatus.fromJson({
+          'plan': 'free',
+          'upgrade_request': {'plan': 'gold', 'created_at': '2026-11-03T09:00:00+00:00'},
+        }).upgradeRequest,
+        isNull,
+      );
+      expect(PlanStatus.fromJson({'plan': 'free', 'upgrade_request': {'plan': 'plus'}}).upgradeRequest, isNull);
+    });
+
+    test('requestablePlans: the paid plans above the user\'s own', () {
+      expect(requestablePlans(Plan.free), [Plan.plus, Plan.pro]);
+      expect(requestablePlans(Plan.plus), [Plan.pro]);
+      expect(requestablePlans(Plan.pro), isEmpty);
+    });
+
+    test('a request shows in the status at once, and a request for the other plan replaces it', () async {
+      final sent = <(Plan, String?)>[];
+      final provider = PlanProvider(
+        loader: () async => _status(),
+        requester: (plan, note) async {
+          sent.add((plan, note));
+          return _request(plan, note: note);
+        },
+      );
+      await provider.refresh();
+      expect(provider.upgradeRequest, isNull);
+
+      final first = await provider.requestUpgrade(Plan.plus, note: 'hello');
+      expect(first.plan, Plan.plus);
+      expect(provider.upgradeRequest!.plan, Plan.plus);
+      expect(provider.upgradeRequest!.note, 'hello');
+      expect(provider.status!.plan, Plan.free); // the rest of the status is untouched
+      expect(provider.feature(PlanFeature.chat)!.remaining, 3);
+
+      await provider.requestUpgrade(Plan.pro);
+      expect(provider.upgradeRequest!.plan, Plan.pro);
+      expect(provider.upgradeRequest!.note, isNull);
+      expect(sent, [(Plan.plus, 'hello'), (Plan.pro, null)]);
+      provider.dispose();
+    });
+
+    test('a refused request throws and leaves the status as it was', () async {
+      final provider = PlanProvider(
+        loader: () async => _status(upgradeRequest: _request(Plan.plus)),
+        requester: (plan, note) async => throw ApiException('You\'re already on the Pro plan or a higher one.', statusCode: 400),
+      );
+      await provider.refresh();
+
+      await expectLater(
+        provider.requestUpgrade(Plan.pro),
+        throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('already'))),
+      );
+
+      expect(provider.upgradeRequest!.plan, Plan.plus);
+      expect(provider.isRequestingUpgrade, isFalse);
+      provider.dispose();
+    });
+
+    test('isRequestingUpgrade is true while it is sent, and a second tap joins the first', () async {
+      final gate = Completer<UpgradeRequest>();
+      var calls = 0;
+      final provider = PlanProvider(
+        loader: () async => _status(),
+        requester: (plan, note) {
+          calls++;
+          return gate.future;
+        },
+      );
+      await provider.refresh();
+
+      final first = provider.requestUpgrade(Plan.plus);
+      final second = provider.requestUpgrade(Plan.plus);
+      expect(provider.isRequestingUpgrade, isTrue);
+      gate.complete(_request(Plan.plus));
+      await Future.wait([first, second]);
+
+      expect(calls, 1);
+      expect(provider.isRequestingUpgrade, isFalse);
+      expect(provider.upgradeRequest!.plan, Plan.plus);
+      provider.dispose();
+    });
+
+    test('reset drops the request, and a late answer for the old user is ignored', () async {
+      final gate = Completer<UpgradeRequest>();
+      final provider = PlanProvider(
+        loader: () async => _status(),
+        requester: (plan, note) => gate.future,
+      );
+      await provider.refresh();
+
+      final inFlight = provider.requestUpgrade(Plan.plus);
+      provider.reset(); // logout / another user
+      gate.complete(_request(Plan.plus));
+      await inFlight;
+      expect(provider.status, isNull);
+      expect(provider.isRequestingUpgrade, isFalse);
+
+      // The next user's plan does not inherit it.
+      await provider.refresh();
+      expect(provider.upgradeRequest, isNull);
+      provider.dispose();
+    });
+  });
+
   group('Upgrade screen', () {
-    Future<void> openScreen(WidgetTester tester, PlanStatus status, Locale locale) async {
+    Future<void> openScreen(
+      WidgetTester tester,
+      PlanStatus status,
+      Locale locale, {
+      Future<UpgradeRequest> Function(Plan plan, String? note)? requester,
+    }) async {
       await tester.pumpWidget(
         MultiProvider(
           providers: [
             ChangeNotifierProvider(create: (_) => AuthProvider()),
-            ChangeNotifierProvider(create: (_) => PlanProvider(loader: () async => status)),
+            ChangeNotifierProvider(
+              create: (_) => PlanProvider(loader: () async => status, requester: requester),
+            ),
           ],
           child: MaterialApp(
             locale: locale,
@@ -276,6 +414,93 @@ void main() {
         expect(table.width, lessThanOrEqualTo(320));
       });
     }
+
+    testWidgets('a Free user can ask for Plus: note dialog, then the card says when', (tester) async {
+      final sent = <(Plan, String?)>[];
+      await openScreen(
+        tester,
+        _status(),
+        const Locale('en'),
+        requester: (plan, note) async {
+          sent.add((plan, note));
+          return _request(plan, note: note, at: DateTime(2026, 11, 3, 12));
+        },
+      );
+
+      expect(find.text('Request Plus'), findsOneWidget);
+      expect(find.text('Request Pro'), findsOneWidget);
+      expect(find.textContaining('Requested on'), findsNothing);
+
+      await tester.ensureVisible(find.byKey(const Key('request-plus')));
+      await tester.tap(find.byKey(const Key('request-plus')));
+      await tester.pumpAndSettle();
+      // The dialog: title, an optional note, Send.
+      expect(find.byKey(const Key('upgrade-request-note')), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('upgrade-request-note')), '  Please upgrade me  ');
+      await tester.tap(find.byKey(const Key('upgrade-request-send')));
+      await tester.pumpAndSettle();
+
+      expect(sent, [(Plan.plus, 'Please upgrade me')]);
+      expect(find.byKey(const Key('upgrade-requested-plus')), findsOneWidget);
+      expect(find.text('Requested on Nov 3, 2026. We\'ll be in touch.'), findsOneWidget);
+      expect(find.text('Request Plus'), findsNothing);
+      expect(find.text('Request Pro'), findsOneWidget);
+
+      // Asking for Pro moves the "requested" card to Pro.
+      await tester.ensureVisible(find.byKey(const Key('request-pro')));
+      await tester.tap(find.byKey(const Key('request-pro')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('upgrade-request-send')));
+      await tester.pumpAndSettle();
+
+      expect(sent.last, (Plan.pro, ''));
+      expect(find.byKey(const Key('upgrade-requested-pro')), findsOneWidget);
+      expect(find.byKey(const Key('upgrade-requested-plus')), findsNothing);
+      expect(find.text('Request Plus'), findsOneWidget);
+    });
+
+    testWidgets('cancelling the dialog sends nothing; a refused request shows a snackbar', (tester) async {
+      var calls = 0;
+      await openScreen(
+        tester,
+        _status(),
+        const Locale('en'),
+        requester: (plan, note) async {
+          calls++;
+          throw ApiException('You\'re already on the Plus plan or a higher one.', statusCode: 400);
+        },
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('request-plus')));
+      await tester.tap(find.byKey(const Key('request-plus')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(calls, 0);
+      expect(find.byKey(const Key('request-plus')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('request-plus')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('upgrade-request-send')));
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+      expect(find.text('You\'re already on the Plus plan or a higher one.'), findsOneWidget);
+      expect(find.byKey(const Key('request-plus')), findsOneWidget); // nothing was recorded
+    });
+
+    testWidgets('the request texts are in Myanmar', (tester) async {
+      await openScreen(
+        tester,
+        _status(upgradeRequest: _request(Plan.plus, at: DateTime(2026, 11, 3, 12))),
+        const Locale('my'),
+      );
+
+      expect(find.byKey(const Key('upgrade-requested-plus')), findsOneWidget);
+      expect(find.textContaining('တောင်းဆိုထားပါသည်'), findsOneWidget);
+      expect(find.text('Requested on Nov 3, 2026. We\'ll be in touch.'), findsNothing);
+      expect(find.byKey(const Key('request-pro')), findsOneWidget);
+      expect(find.text('Request Pro'), findsNothing);
+    });
 
     testWidgets('falls back to the generic contact text when the owner set none',
         (tester) async {

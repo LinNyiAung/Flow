@@ -32,6 +32,7 @@ void main() {
   insightFlows(); //         09
   chatFlows(); //            10
   notificationFlows(); //    11
+  upgradeRequestFlows(); //  11b (before 12: its trial claim makes Felix a Plus user)
   settingsFlows(); //        12
   tourFlows(); //            13 + 14
 }

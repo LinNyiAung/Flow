@@ -829,6 +829,35 @@ class ApiService {
     }
   }
 
+  /// Asks the owner for [plan] (Plus or Pro); [note] is optional. A request
+  /// that is already pending is replaced. The server answers 400 (with a
+  /// readable message) when the user already has that plan or a higher one.
+  static Future<UpgradeRequest> requestUpgrade({
+    required Plan plan,
+    String? note,
+  }) async {
+    final trimmed = note?.trim() ?? '';
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/plan/upgrade-request'),
+      headers: await _getHeaders(),
+      body: jsonEncode({
+        'plan': plan.name,
+        if (trimmed.isNotEmpty) 'note': trimmed,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final request = UpgradeRequest.tryParse(jsonDecode(response.body));
+      if (request != null) return request;
+      throw ApiException(
+        'Failed to send the upgrade request',
+        statusCode: response.statusCode,
+      );
+    } else {
+      throw apiError(response, 'Failed to send the upgrade request');
+    }
+  }
+
   static void _notifyPlanUsage() => onPlanUsageChanged?.call();
 
   // Notification Preferences

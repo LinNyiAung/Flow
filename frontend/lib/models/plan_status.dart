@@ -107,9 +107,35 @@ class CatalogLimit {
   }
 }
 
+/// The user's pending request to be moved to Plus or Pro (`upgrade_request` of
+/// `GET /api/plan`, and the answer of `POST /api/plan/upgrade-request`).
+/// Upgrades are manual: the owner sees the request in the admin panel.
+class UpgradeRequest {
+  final Plan plan;
+  final String? note;
+  final DateTime createdAt;
+
+  const UpgradeRequest({required this.plan, this.note, required this.createdAt});
+
+  /// Null when [json] is not a request (no pending request, or an unreadable one).
+  static UpgradeRequest? tryParse(dynamic json) {
+    if (json is! Map) return null;
+    final plan = Plan.fromString(json['plan'] as String?);
+    final createdAt = parseInstantOrNull(json['created_at']);
+    if (plan == Plan.free || createdAt == null) return null;
+    final note = json['note'];
+    return UpgradeRequest(
+      plan: plan,
+      note: note is String && note.trim().isNotEmpty ? note : null,
+      createdAt: createdAt,
+    );
+  }
+}
+
 /// `GET /api/plan`: the user's plan, trial state, each feature's allowance
 /// this period, every plan's limits (for the Upgrade screen, so no number is
-/// hard-coded in the app) and the upgrade contact message per language.
+/// hard-coded in the app), the upgrade contact message per language and the
+/// pending upgrade request, if any.
 class PlanStatus {
   final Plan plan;
   final DateTime? expiresAt;
@@ -121,6 +147,9 @@ class PlanStatus {
   /// Language code ('en' | 'my') -> message.
   final Map<String, String> upgradeContact;
 
+  /// The user's pending request for Plus or Pro; null when there is none.
+  final UpgradeRequest? upgradeRequest;
+
   const PlanStatus({
     required this.plan,
     this.expiresAt,
@@ -129,7 +158,20 @@ class PlanStatus {
     this.features = const {},
     this.catalog = const {},
     this.upgradeContact = const {},
+    this.upgradeRequest,
   });
+
+  /// This status with [request] as the pending upgrade request (null clears it).
+  PlanStatus withUpgradeRequest(UpgradeRequest? request) => PlanStatus(
+        plan: plan,
+        expiresAt: expiresAt,
+        isTrial: isTrial,
+        trialEndsAt: trialEndsAt,
+        features: features,
+        catalog: catalog,
+        upgradeContact: upgradeContact,
+        upgradeRequest: request,
+      );
 
   bool get isPaid => plan != Plan.free;
   bool get isPro => plan == Plan.pro;
@@ -192,6 +234,7 @@ class PlanStatus {
       features: features,
       catalog: catalog,
       upgradeContact: contact,
+      upgradeRequest: UpgradeRequest.tryParse(json['upgrade_request']),
     );
   }
 }
