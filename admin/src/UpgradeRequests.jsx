@@ -60,7 +60,7 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
   const refresh = () => setRefreshKey((k) => k + 1);
 
   const handle = async (item, action) => {
-    if (action === 'dismiss' && !window.confirm(`Dismiss ${item.name || item.email}'s request for ${planLabel(item.requested_plan)}?`)) return;
+    if (action === 'dismiss' && !window.confirm(`Dismiss ${item.name || item.email}'s request for ${planLabel(item.requested_plan)}? They will be notified that it was closed.`)) return;
     setBusyId(item.id);
     setNotice(null);
     try {
@@ -141,7 +141,9 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <PlanBadge plan={item.current_plan} />
-                        {item.is_trial && <span className="text-xs text-slate-400">(trial)</span>}
+                        {item.is_trial && (
+                          <span className="text-xs text-slate-400">{item.trial_ends_at ? `On trial until ${fmtDate(item.trial_ends_at)}` : 'On trial'}</span>
+                        )}
                         <span className="text-slate-500">→</span>
                         <PlanBadge plan={item.requested_plan} />
                       </div>
