@@ -242,6 +242,10 @@ admin panel. This release's deploy runs two Alembic migrations, both applied by 
   `users.trial_reminder_3d_at` and `users.trial_reminder_last_at`, so the hourly job sends each
   trial reminder (3 days before the trial ends, and on its last day) at most once.
 
+Only `plan_limits` and `plan_settings` are seeded (the default limits and cost caps below).
+`app_settings` (the upgrade contact message) and `usage_counters` start empty, so the contact
+message is blank until the owner sets it on the Plans page.
+
 No new environment variables. The default limits (all editable afterwards, see below):
 
 | Feature | Free | Plus | Pro |
@@ -272,10 +276,16 @@ Where the owner changes things in the admin panel:
   moment: spend towards the cap is measured from the later of the 1st of the month and the reset
   time. It deletes no `ai_usage` rows. There are no per-user custom limits; Reset usage is how
   to give someone more.
-- **AI Providers** page: the Advanced chat model for Pro is chosen on the `chat_advanced`
-  feature. Its built-in default is Claude (`claude-sonnet-5-5`), so `ANTHROPIC_API_KEY` must be
-  set, or another provider chosen, for Advanced to work. A Pro user whose Advanced allowance is
-  used up gets Standard answers, and a non-Pro user is never answered as Advanced.
+- **AI Providers** page: the Advanced chat model for Pro is chosen for the **Advanced chat**
+  feature (stored as `chat_advanced`). Its built-in default is Claude (`claude-sonnet-5-5`), so
+  `ANTHROPIC_API_KEY` must be set, or another provider chosen, for Advanced to work. A Pro user
+  whose Advanced allowance is used up gets Standard answers, and a non-Pro user is never answered
+  as Advanced.
+- **Free never gets translated insights.** The Free column of insight translation is always
+  locked: the Plans page greys that cell out and the server refuses to save it any other way.
+- **Scheduled insights follow the plan's locks.** The weekly and monthly insight jobs still
+  serve Plus and Pro users only, and now also skip a user whose plan has that insight type set to
+  locked on the Plans page (as well as users at their cost cap or whose plan has ended).
 
 After the deploy, check by hand (needs the real keys and the app, so the automated suites
 cannot):
@@ -284,12 +294,17 @@ cannot):
   shows on the app's Upgrade screen.
 - Confirm an existing former-Premium user now shows **Plus** (user list and detail panel) with
   the same end date.
-- On **AI Providers**, press **Test** for the model chosen for `chat_advanced`; it should succeed.
+- On **AI Providers**, press **Test** on the card of the provider chosen for the **Advanced
+  chat** feature (Claude by default). Test is a button on each provider's card and checks only
+  that provider's key and its default chat model (`CLAUDE_MODEL`, default `claude-sonnet-5-5`
+  for Claude), not the model chosen for a feature. Confirm the chosen model itself by sending one
+  Advanced message in the Pro step below.
 - Claim the trial on a test account: it should become Plus with a 30-day end date.
 - Use a Free test account up to its chat limit: the next message should show the limit sheet
   with the reset date and an Upgrade button, not an error.
 - Switch a test account to Pro and send one Advanced chat message; check the Advanced count
-  rises by one on the user's detail panel, then press **Reset usage** and confirm the counts clear.
+  rises by one on the user's detail panel, then press **Reset usage** and confirm the counts clear
+  (admins and super admins only; moderators see a user's usage read-only).
 
 Notes:
 
