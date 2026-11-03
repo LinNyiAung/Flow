@@ -160,7 +160,7 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
                       ) : (
                         <>
                           <div className="text-xs text-slate-500 mb-0.5">No Viber number: email them</div>
-                          <a href={`mailto:${item.email}`} className="text-blue-400 hover:text-blue-300 break-all">{item.email}</a>
+                          <a href={`mailto:${encodeURIComponent(item.email)}`} className="text-blue-400 hover:text-blue-300 break-all">{item.email}</a>
                         </>
                       )}
                     </td>

@@ -64,11 +64,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       );
       messenger.showSnackBar(SnackBar(content: Text(localizations.upgradeRequestThanks)));
     } catch (e) {
-      // 422 is the server's validation (pydantic text, English): either the
-      // Viber number or the note, which the dialog checks first too. Say which
-      // in the app's language.
+      // 422 is the server's validation: either the Viber number or the note,
+      // which the dialog checks first too. The message names the field
+      // ("viber_number: …"); say which in the app's language.
       final message = e is ApiException && e.statusCode == 422
-          ? (e.message.contains('Viber')
+          ? (e.message.contains('viber_number')
               ? localizations.upgradeRequestViberInvalid
               : localizations.upgradeRequestNoteTooLong)
           : e is ApiException && e.message.trim().isNotEmpty

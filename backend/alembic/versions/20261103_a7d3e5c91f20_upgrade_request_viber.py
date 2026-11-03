@@ -1,4 +1,4 @@
-﻿"""upgrade request contact: the user's Viber number
+"""upgrade request contact: the user's Viber number
 
 Adds upgrade_requests.viber_number, the number the user gave on their request so the owner can contact them on Viber
 (null: the owner uses the account email).

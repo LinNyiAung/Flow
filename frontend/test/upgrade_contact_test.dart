@@ -533,7 +533,7 @@ void main() {
           _status(),
           locale: locale,
           requester: (plan, note, viber) async =>
-              throw ApiException('Enter a Viber number with its country code, like +959123456789', statusCode: 422),
+              throw ApiException('viber_number: Enter a Viber number with its country code, like +959123456789', statusCode: 422),
         );
         await tester.ensureVisible(find.byKey(const Key('request-plus')));
         await tester.tap(find.byKey(const Key('request-plus')));
