@@ -1,204 +1,228 @@
+"""Add realistic sample transactions to one account through the public API.
+
+Run it yourself; it asks for the account's email and password in this
+terminal (or reads MOCK_ACCESS_TOKEN) and shows a summary before it writes.
+
+    python generate_mock_data.py --api-url https://your-backend.example.com
+    python generate_mock_data.py --api-url ... --months 3 --dry-run
+"""
+import argparse
+import getpass
 import os
-import requests
 import random
-from datetime import datetime, timedelta, UTC
-import json
+import sys
+import time
+from datetime import datetime, timedelta, timezone
 
-# Configuration
-API_BASE_URL = "http://10.80.21.130:8000"
-ACCESS_TOKEN = os.environ.get("MOCK_ACCESS_TOKEN", "")
+import requests
 
-# Realistic transaction templates matching your database.py categories
-MOCK_TRANSACTIONS = {
-    "inflow": [
-        {"main": "Income", "sub": "Salary", "amount_range": (3000, 5000), "description": "Monthly salary deposit"},
-        {"main": "Income", "sub": "Bonus", "amount_range": (500, 2000), "description": "Performance bonus"},
-        {"main": "Income", "sub": "Freelance", "amount_range": (200, 1500), "description": "Freelance project payment"},
-        {"main": "Income", "sub": "Business", "amount_range": (300, 2000), "description": "Business income"},
-        {"main": "Income", "sub": "Investment Returns", "amount_range": (50, 500), "description": "Investment returns"},
-        {"main": "Refunds", "sub": "Purchase Refund", "amount_range": (20, 200), "description": "Product return refund"},
-        {"main": "Refunds", "sub": "Tax Refund", "amount_range": (500, 2000), "description": "Tax refund"},
-        {"main": "Gifts", "sub": "Birthday", "amount_range": (50, 300), "description": "Birthday gift money"},
-    ],
-    "outflow": [
-        # Food & Dining
-        {"main": "Food & Dining", "sub": "Groceries", "amount_range": (50, 150), "description": "Weekly grocery shopping"},
-        {"main": "Food & Dining", "sub": "Restaurants", "amount_range": (15, 80), "description": "Dinner at restaurant"},
-        {"main": "Food & Dining", "sub": "Fast Food", "amount_range": (8, 25), "description": "Quick lunch"},
-        {"main": "Food & Dining", "sub": "Coffee & Tea", "amount_range": (4, 12), "description": "Coffee shop"},
-        {"main": "Food & Dining", "sub": "Alcohol & Bars", "amount_range": (20, 100), "description": "Drinks with friends"},
-        
-        # Transportation
-        {"main": "Transportation", "sub": "Gas & Fuel", "amount_range": (40, 80), "description": "Gas station fill-up"},
-        {"main": "Transportation", "sub": "Parking", "amount_range": (5, 20), "description": "Parking fee"},
-        {"main": "Transportation", "sub": "Public Transport", "amount_range": (2, 10), "description": "Bus/subway fare"},
-        {"main": "Transportation", "sub": "Taxi & Uber", "amount_range": (10, 40), "description": "Uber/Lyft ride"},
-        {"main": "Transportation", "sub": "Car Maintenance", "amount_range": (50, 300), "description": "Car service"},
-        
-        # Shopping
-        {"main": "Shopping", "sub": "Clothing", "amount_range": (30, 200), "description": "New clothes"},
-        {"main": "Shopping", "sub": "Electronics", "amount_range": (50, 800), "description": "Electronics purchase"},
-        {"main": "Shopping", "sub": "Books", "amount_range": (10, 50), "description": "Books"},
-        {"main": "Shopping", "sub": "Home & Garden", "amount_range": (20, 150), "description": "Home supplies"},
-        {"main": "Shopping", "sub": "Sports & Recreation", "amount_range": (30, 200), "description": "Sports equipment"},
-        
-        # Entertainment
-        {"main": "Entertainment", "sub": "Movies & Theater", "amount_range": (12, 50), "description": "Movie tickets"},
-        {"main": "Entertainment", "sub": "Music", "amount_range": (10, 100), "description": "Concert/music"},
-        {"main": "Entertainment", "sub": "Games", "amount_range": (20, 70), "description": "Video games"},
-        {"main": "Entertainment", "sub": "Hobbies", "amount_range": (15, 100), "description": "Hobby supplies"},
-        {"main": "Entertainment", "sub": "Sports Events", "amount_range": (30, 150), "description": "Sports event tickets"},
-        
-        # Bills & Utilities
-        {"main": "Bills & Utilities", "sub": "Phone", "amount_range": (40, 80), "description": "Mobile phone bill"},
-        {"main": "Bills & Utilities", "sub": "Internet", "amount_range": (50, 100), "description": "Internet service"},
-        {"main": "Bills & Utilities", "sub": "Electricity", "amount_range": (80, 200), "description": "Electric bill"},
-        {"main": "Bills & Utilities", "sub": "Water", "amount_range": (30, 80), "description": "Water bill"},
-        {"main": "Bills & Utilities", "sub": "Gas", "amount_range": (40, 120), "description": "Gas utility"},
-        {"main": "Bills & Utilities", "sub": "Cable TV", "amount_range": (50, 100), "description": "Cable/streaming"},
-        
-        # Health & Fitness
-        {"main": "Health & Fitness", "sub": "Doctor", "amount_range": (30, 200), "description": "Doctor visit"},
-        {"main": "Health & Fitness", "sub": "Dentist", "amount_range": (50, 300), "description": "Dental checkup"},
-        {"main": "Health & Fitness", "sub": "Pharmacy", "amount_range": (10, 80), "description": "Prescription medicine"},
-        {"main": "Health & Fitness", "sub": "Gym", "amount_range": (30, 80), "description": "Gym membership"},
-        {"main": "Health & Fitness", "sub": "Health Insurance", "amount_range": (200, 500), "description": "Health insurance"},
-        
-        # Travel
-        {"main": "Travel", "sub": "Hotels", "amount_range": (100, 400), "description": "Hotel stay"},
-        {"main": "Travel", "sub": "Flights", "amount_range": (200, 800), "description": "Airline ticket"},
-        {"main": "Travel", "sub": "Car Rental", "amount_range": (40, 150), "description": "Rental car"},
-        
-        # Education
-        {"main": "Education", "sub": "Books", "amount_range": (20, 100), "description": "Textbooks"},
-        {"main": "Education", "sub": "Courses", "amount_range": (50, 500), "description": "Online course"},
-        {"main": "Education", "sub": "Training", "amount_range": (100, 1000), "description": "Professional training"},
-        
-        # Personal Care
-        {"main": "Personal Care", "sub": "Haircut", "amount_range": (25, 70), "description": "Haircut and styling"},
-        {"main": "Personal Care", "sub": "Cosmetics", "amount_range": (15, 80), "description": "Cosmetics"},
-        {"main": "Personal Care", "sub": "Spa & Massage", "amount_range": (50, 150), "description": "Spa treatment"},
-        
-        # Gifts & Donations
-        {"main": "Gifts & Donations", "sub": "Gifts", "amount_range": (20, 150), "description": "Gift purchase"},
-        {"main": "Gifts & Donations", "sub": "Charity", "amount_range": (10, 200), "description": "Charitable donation"},
-        
-        # Financial
-        {"main": "Financial", "sub": "Bank Fees", "amount_range": (5, 35), "description": "Bank service fee"},
-        {"main": "Financial", "sub": "Insurance", "amount_range": (100, 400), "description": "Insurance premium"},
-        {"main": "Financial", "sub": "Investments", "amount_range": (100, 1000), "description": "Investment contribution"},
-    ]
-}
+YANGON = timezone(timedelta(hours=6, minutes=30))
 
-def generate_random_date(start_days_ago=90, end_days_ago=0):
-    """Generate a random date within the specified range"""
-    today = datetime.now(UTC)
-    start_date = today - timedelta(days=start_days_ago)
-    end_date = today - timedelta(days=end_days_ago)
-    
-    time_between = end_date - start_date
-    random_days = random.randint(0, time_between.days)
-    random_seconds = random.randint(0, 86400)
-    
-    random_date = start_date + timedelta(days=random_days, seconds=random_seconds)
-    return random_date
+# Amounts are in kyat; other currencies are converted with these rough rates.
+MMK_PER_UNIT = {"mmk": 1, "usd": 4200, "thb": 120}
 
-def create_transaction(token, transaction_data):
-    """Create a single transaction via API"""
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    
-    response = requests.post(
-        f"{API_BASE_URL}/api/transactions",
-        headers=headers,
-        json=transaction_data
-    )
-    
-    if response.status_code == 200:
-        return True, response.json()
-    else:
-        return False, response.text
+# Things that happen once a month: (type, main, sub, description, day of month, (min, max) MMK, chance)
+MONTHLY = [
+    ("inflow", "Employment Income", "Salary", "Monthly salary", 1, None, 1.0),
+    ("outflow", "Housing & Utilities", "Rent", "Apartment rent", 3, None, 1.0),
+    ("outflow", "Housing & Utilities", "Internet", "Home internet bill", 5, (35000, 35000), 1.0),
+    ("outflow", "Housing & Utilities", "Electricity", "Electricity bill", 8, (25000, 65000), 1.0),
+    ("outflow", "Housing & Utilities", "Water", "Water bill", 8, (4000, 9000), 1.0),
+    ("outflow", "Entertainment & Leisure", "Subscriptions", "Netflix subscription", 12, (15000, 15000), 1.0),
+    ("outflow", "Health & Insurance", "Fitness & Gym", "Gym membership", 2, (50000, 50000), 1.0),
+    ("inflow", "Self-Employment & Business", "Freelance Income", "Freelance design project", 18, (150000, 500000), 0.6),
+    ("inflow", "Gifts & Support", "Family Support", "Money from family", 20, (50000, 150000), 0.25),
+    ("outflow", "Financial Expenses", "Bank Fees", "Bank service charge", 28, (1000, 3000), 1.0),
+]
 
-def generate_mock_transactions(token, count=50, days_back=90):
-    """Generate multiple mock transactions"""
-    created = 0
-    failed = 0
-    
-    print(f"Generating {count} mock transactions...")
-    print("-" * 50)
-    
-    for i in range(count):
-        # Randomly choose transaction type (more outflows than inflows)
-        trans_type = random.choices(["inflow", "outflow"], weights=[1, 4])[0]
-        
-        # Select random transaction template
-        template = random.choice(MOCK_TRANSACTIONS[trans_type])
-        
-        # Generate random amount within range
-        amount = round(random.uniform(*template["amount_range"]), 2)
-        
-        # Generate random date
-        transaction_date = generate_random_date(days_back, 0)
-        
-        # Create transaction data
-        transaction_data = {
-            "type": trans_type,
-            "main_category": template["main"],
-            "sub_category": template["sub"],
-            "date": transaction_date.isoformat(),
-            "description": template["description"],
-            "amount": amount
-        }
-        
-        # Create transaction
-        success, result = create_transaction(token, transaction_data)
-        
-        if success:
-            created += 1
-            print(f"✅ [{i+1}/{count}] Created: {trans_type} | {template['main']} | ${amount:.2f}")
-        else:
+# Everyday things: (type, main, sub, descriptions, times per month (min, max), (min, max) MMK)
+EVERYDAY = [
+    ("outflow", "Food & Daily Living", "Groceries", ["Groceries at City Mart", "Groceries at Ocean", "Market shopping", "Weekly groceries"], (4, 5), (35000, 90000)),
+    ("outflow", "Food & Daily Living", "Restaurants", ["Dinner with friends", "Lunch at restaurant", "Hot pot dinner", "Family dinner"], (3, 6), (15000, 45000)),
+    ("outflow", "Food & Daily Living", "Fast Food", ["KFC", "Lotteria", "Burger lunch", "Noodle shop lunch"], (3, 5), (6000, 18000)),
+    ("outflow", "Food & Daily Living", "Coffee & Snacks", ["Coffee", "Bubble tea", "Tea shop", "Snacks"], (8, 14), (2500, 7000)),
+    ("outflow", "Transportation", "Taxi", ["Grab ride", "Taxi home", "Taxi to office"], (5, 10), (4000, 15000)),
+    ("outflow", "Transportation", "Public Transport", ["YBS bus fare", "Bus fare"], (6, 12), (300, 1000)),
+    ("outflow", "Housing & Utilities", "Mobile Phone", ["Phone top-up", "Mobile data pack"], (2, 3), (5000, 15000)),
+    ("outflow", "Shopping & Lifestyle", "Home Supplies", ["Household supplies", "Cleaning supplies", "Toiletries"], (1, 2), (8000, 35000)),
+    ("outflow", "Shopping & Lifestyle", "Clothing", ["New shirt", "Clothes shopping", "Longyi"], (0, 2), (25000, 120000)),
+    ("outflow", "Health & Insurance", "Pharmacy", ["Pharmacy", "Vitamins", "Cold medicine"], (0, 2), (4000, 25000)),
+    ("outflow", "Entertainment & Leisure", "Movies & Streaming", ["Cinema tickets", "Movie night"], (0, 1), (8000, 20000)),
+    ("outflow", "Education & Self-Improvement", "Books", ["Books", "E-book"], (0, 1), (8000, 25000)),
+]
+
+# Occasional bigger things: (type, main, sub, description, chance per month, (min, max) MMK)
+OCCASIONAL = [
+    ("outflow", "Shopping & Lifestyle", "Electronics", "New headphones", 0.15, (150000, 400000)),
+    ("outflow", "Health & Insurance", "Doctor Visits", "Clinic visit", 0.3, (20000, 60000)),
+    ("outflow", "Education & Self-Improvement", "Online Courses", "Online course", 0.25, (30000, 120000)),
+    ("outflow", "Other & Adjustments", "Miscellaneous", "Donation at pagoda", 0.4, (5000, 30000)),
+    ("outflow", "Travel & Vacation", "Accommodation", "Weekend trip hotel", 0.15, (80000, 250000)),
+    ("outflow", "Entertainment & Leisure", "Events & Concerts", "Concert ticket", 0.1, (30000, 80000)),
+    ("inflow", "Employment Income", "Bonus", "Performance bonus", 0.1, (300000, 800000)),
+    ("inflow", "Refunds & Reimbursements", "Expense Reimbursement", "Office expense reimbursement", 0.25, (20000, 80000)),
+]
+
+
+def login(api_url):
+    token = os.environ.get("MOCK_ACCESS_TOKEN", "").strip()
+    if token:
+        r = requests.get(f"{api_url}/api/auth/me", headers=_headers(token), timeout=60)
+        if r.status_code != 200:
+            sys.exit(f"MOCK_ACCESS_TOKEN was refused ({r.status_code}). Unset it to sign in with email and password.")
+        return token, r.json()
+    email = input("Email: ").strip()
+    password = getpass.getpass("Password (not shown): ")
+    r = requests.post(f"{api_url}/api/auth/login", json={"email": email, "password": password}, timeout=60)
+    if r.status_code != 200:
+        sys.exit(f"Sign-in failed ({r.status_code}): {r.text[:200]}")
+    body = r.json()
+    return body["access_token"], body["user"]
+
+
+def _headers(token):
+    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+
+def known_categories(api_url, token):
+    known = set()
+    for kind in ("inflow", "outflow"):
+        r = requests.get(f"{api_url}/api/categories/{kind}", headers=_headers(token), timeout=60)
+        r.raise_for_status()
+        for cat in r.json():
+            for sub in cat["sub_categories"]:
+                known.add((kind, cat["main_category"], sub))
+    return known
+
+
+def _when(year, month, day, now):
+    """A realistic local time on that day, or None if it is in the future."""
+    hour = random.randint(7, 21)
+    minute = random.randint(0, 59)
+    try:
+        at = datetime(year, month, day, hour, minute, tzinfo=YANGON)
+    except ValueError:
+        return None
+    return at if at <= now else None
+
+
+def _amount(lo, hi, currency):
+    mmk = random.uniform(lo, hi)
+    if currency == "mmk":
+        return float(max(100, round(mmk / 100) * 100))
+    return round(mmk / MMK_PER_UNIT[currency], 2) or 0.01
+
+
+def build_plan(months, currency, known, now):
+    salary = random.randrange(1_200_000, 1_800_001, 50_000)
+    rent = random.randrange(300_000, 450_001, 25_000)
+    fixed = {"Salary": (salary, salary), "Rent": (rent, rent)}
+    plan, skipped = [], set()
+
+    def add(kind, main, sub, desc, at, lo, hi):
+        if at is None:
+            return
+        if (kind, main, sub) not in known:
+            skipped.add(f"{main} / {sub}")
+            return
+        plan.append({
+            "type": kind, "main_category": main, "sub_category": sub,
+            "date": at.isoformat(), "description": desc,
+            "amount": _amount(lo, hi, currency), "currency": currency,
+        })
+
+    first = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    for back in range(months - 1, -1, -1):
+        y, m = first.year, first.month - back
+        while m < 1:
+            y, m = y - 1, m + 12
+        days = (datetime(y + (m == 12), m % 12 + 1, 1) - datetime(y, m, 1)).days
+
+        for kind, main, sub, desc, day, rng, chance in MONTHLY:
+            if random.random() <= chance:
+                lo, hi = rng or fixed[sub]
+                add(kind, main, sub, desc, _when(y, m, min(day, days), now), lo, hi)
+        for kind, main, sub, descs, (nmin, nmax), (lo, hi) in EVERYDAY:
+            for _ in range(random.randint(nmin, nmax)):
+                add(kind, main, sub, random.choice(descs), _when(y, m, random.randint(1, days), now), lo, hi)
+        for kind, main, sub, desc, chance, (lo, hi) in OCCASIONAL:
+            if random.random() < chance:
+                add(kind, main, sub, desc, _when(y, m, random.randint(1, days), now), lo, hi)
+
+    plan.sort(key=lambda t: t["date"])
+    return plan, skipped
+
+
+def post_all(api_url, token, plan):
+    created = failed = 0
+    for i, tx in enumerate(plan, 1):
+        error = _post_one(api_url, token, tx)
+        if error:
             failed += 1
-            print(f"❌ [{i+1}/{count}] Failed: {result}")
-    
-    print("-" * 50)
-    print(f"✅ Successfully created: {created}")
-    print(f"❌ Failed: {failed}")
-    print(f"📊 Total: {count}")
+            print(f"  [{i}/{len(plan)}] failed: {tx['date'][:10]} {tx['sub_category']}: {error}")
+        else:
+            created += 1
+            if i % 25 == 0 or i == len(plan):
+                print(f"  [{i}/{len(plan)}] added")
+    return created, failed
+
+
+def _post_one(api_url, token, tx):
+    """Post one transaction, retrying network errors, 429 and 5xx. Returns an error text or None."""
+    error = None
+    for attempt in range(3):
+        try:
+            r = requests.post(f"{api_url}/api/transactions", headers=_headers(token), json=tx, timeout=60)
+        except requests.RequestException as e:
+            error = str(e)
+        else:
+            if r.status_code == 200:
+                return None
+            error = f"{r.status_code} {r.text[:150]}"
+            if r.status_code < 500 and r.status_code != 429:
+                return error
+        time.sleep(2 * (attempt + 1))
+    return error
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--api-url", default=os.environ.get("MOCK_API_BASE_URL", "http://localhost:8000"),
+                   help="backend base URL (default: MOCK_API_BASE_URL or http://localhost:8000)")
+    p.add_argument("--months", type=int, default=3, help="months of history, including this month (default 3)")
+    p.add_argument("--currency", choices=sorted(MMK_PER_UNIT), help="default: the account's default currency")
+    p.add_argument("--dry-run", action="store_true", help="show what would be added, write nothing")
+    p.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+    args = p.parse_args()
+    api_url = args.api_url.rstrip("/")
+    if not 1 <= args.months <= 24:
+        sys.exit("--months must be between 1 and 24")
+
+    print(f"Backend: {api_url}")
+    token, user = login(api_url)
+    currency = args.currency or (user.get("default_currency") or "mmk").lower()
+    known = known_categories(api_url, token)
+    plan, skipped = build_plan(args.months, currency, known, datetime.now(YANGON))
+
+    inflow = sum(t["amount"] for t in plan if t["type"] == "inflow")
+    outflow = sum(t["amount"] for t in plan if t["type"] == "outflow")
+    print(f"\nAccount:  {user.get('email')}")
+    print(f"Adds:     {len(plan)} transactions over {args.months} month(s), in {currency.upper()}")
+    print(f"Income:   {inflow:,.2f}   Spending: {outflow:,.2f}")
+    if skipped:
+        print(f"Skipped (category not on this server): {', '.join(sorted(skipped))}")
+    if args.dry_run:
+        for t in plan:
+            print(f"  {t['date'][:10]}  {t['type']:<7} {t['sub_category']:<22} {t['amount']:>14,.2f}  {t['description']}")
+        print("\nDry run: nothing was written.")
+        return
+    if not args.yes and input("\nAdd these to the account? Type yes: ").strip().lower() != "yes":
+        print("Nothing was written.")
+        return
+
+    created, failed = post_all(api_url, token, plan)
+    print(f"\nAdded {created}, failed {failed}.")
+
 
 if __name__ == "__main__":
-    # Configuration for 3 months of data
-    NUM_TRANSACTIONS = 150  # ~50 transactions per month (1-2 per day)
-    DAYS_BACK = 90  # Last 3 months (Aug 10 - Nov 10, 2025)
-    
-    print("=" * 60)
-    print("📊 FLOW FINANCE - MOCK DATA GENERATOR")
-    print("=" * 60)
-    print(f"📅 Date Range: Last {DAYS_BACK} days (3 months)")
-    print(f"📝 Transactions: {NUM_TRANSACTIONS} transactions")
-    print(f"📍 Today: November 10, 2025")
-    print("=" * 60)
-    
-    # Make sure to set your token
-    if not ACCESS_TOKEN:
-        print("\n⚠️  SETUP REQUIRED ⚠️")
-        print("-" * 60)
-        print("Please follow these steps:")
-        print("\n1️⃣  Start your FastAPI server:")
-        print("   python main.py")
-        print("\n2️⃣  Login to get your access token:")
-        print("   curl -X POST http://localhost:8000/api/auth/login \\")
-        print("     -H 'Content-Type: application/json' \\")
-        print("     -d '{\"email\":\"your@email.com\",\"password\":\"your_password\"}'")
-        print("\n3️⃣  Copy the 'access_token' from the response")
-        print("\n4️⃣  Put the token in the MOCK_ACCESS_TOKEN environment variable:")
-        print("   PowerShell: $env:MOCK_ACCESS_TOKEN = \"<access_token>\"")
-        print("   bash:       export MOCK_ACCESS_TOKEN=\"<access_token>\"")
-        print("\n5️⃣  Run this script again:")
-        print("   python generate_mock_data.py")
-        print("=" * 60)
-    else:
-        print("\n🚀 Starting data generation...")
-        print()
-        generate_mock_transactions(ACCESS_TOKEN, NUM_TRANSACTIONS, DAYS_BACK)
+    main()
