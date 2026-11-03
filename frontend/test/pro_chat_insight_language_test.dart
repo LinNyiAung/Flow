@@ -363,6 +363,63 @@ void main() {
       expect(p.currentLanguage, 'en');
     });
 
+    test('the note can be closed: hidden for this insight, the remembered language untouched', () async {
+      SharedPreferences.setMockInitialValues({InsightProvider.languagePrefsKey: 'mm'});
+      final asked = <String>[];
+      final p = InsightProvider(fetcher: ({required language, required insightType}) async {
+        asked.add(language);
+        return _insight(unavailable: language == 'mm' ? _capNote : null);
+      });
+      await p.loadPreferredLanguage();
+      await p.fetchInsights(language: 'mm');
+      expect(p.translationNote, isNotNull);
+      var notified = 0;
+      p.addListener(() => notified++);
+
+      p.dismissTranslationNote();
+
+      expect(p.translationNote, isNull);
+      expect(notified, 1);
+      expect(p.insight, isNotNull); // the insight itself stays
+      expect(p.currentLanguage, 'en');
+      await _settle();
+      expect((await SharedPreferences.getInstance()).getString(InsightProvider.languagePrefsKey), 'mm');
+      expect(p.wantedLanguage(translationAvailable: true, appLanguage: 'en'), 'mm');
+
+      p.dismissTranslationNote(); // nothing to close any more: no extra rebuild
+      expect(notified, 1);
+
+      // A later load that is refused again brings the note back for that insight.
+      await p.fetchInsights(language: 'mm');
+      expect(p.translationNote, isNotNull);
+    });
+
+    test('next_insight_at is read from the response (an instant, or missing)', () {
+      final withDate = Insight.fromJson({
+        'id': 'i',
+        'user_id': 'u',
+        'content': 'English',
+        'generated_at': '2026-11-02T00:00:00Z',
+        'next_insight_at': '2026-11-09T22:30:00Z',
+      });
+      expect(withDate.nextInsightAt?.toUtc(), DateTime.utc(2026, 11, 9, 22, 30));
+
+      final none = Insight.fromJson({
+        'id': 'i',
+        'user_id': 'u',
+        'content': 'English',
+        'generated_at': '2026-11-02T00:00:00Z',
+        'next_insight_at': null,
+      });
+      expect(none.nextInsightAt, isNull);
+      expect(Insight.fromJson({
+        'id': 'i',
+        'user_id': 'u',
+        'content': 'English',
+        'generated_at': '2026-11-02T00:00:00Z',
+      }).nextInsightAt, isNull);
+    });
+
     test('a refused translation does not stick once Myanmar is available again', () async {
       var refuse = true;
       final p = InsightProvider(

@@ -379,13 +379,18 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                         ],
                       ),
                       // The recording was transcribed but reading it failed:
-                      // retry with the same transcript, no new recording.
+                      // retry with the same transcript, no new recording. The
+                      // "no extra entry" promise is made only while the voice
+                      // token is valid.
                       if (_extraction != null && !_isProcessing && _extractedData == null) ...[
-                        SizedBox(height: 8),
-                        Text(
-                          localizations.voiceRetryHint,
-                          style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
-                        ),
+                        if (_extraction!.retryIsFree()) ...[
+                          SizedBox(height: 8),
+                          Text(
+                            localizations.voiceRetryHint,
+                            key: const ValueKey('voice-retry-hint'),
+                            style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
+                          ),
+                        ],
                         SizedBox(height: 8),
                         FilledButton.icon(
                           key: const ValueKey('voice-extraction-retry'),

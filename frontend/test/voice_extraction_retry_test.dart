@@ -60,6 +60,54 @@ void main() {
       );
     });
 
+    group('the "no extra entry" hint is only shown while the voice token is valid', () {
+      VoiceExtraction withToken(String? token) => VoiceExtraction(
+            TranscriptionResult(transcription: 'coffee', voiceToken: token),
+            extractor: (text, {voiceToken}) async => _result(),
+          );
+      final expiry = DateTime.utc(2026, 11, 3, 12, 0, 0);
+      final token = '${expiry.millisecondsSinceEpoch ~/ 1000}.c2ln';
+
+      test('before the expiry: the retry is free', () {
+        final e = withToken(token);
+        expect(e.retryIsFree(now: expiry.subtract(const Duration(minutes: 14))), isTrue);
+        expect(e.retryIsFree(now: expiry.subtract(const Duration(seconds: 1))), isTrue);
+      });
+
+      test('exactly at the expiry second the server still accepts it', () {
+        expect(withToken(token).retryIsFree(now: expiry), isTrue);
+      });
+
+      test('after the expiry: no promise', () {
+        final e = withToken(token);
+        expect(e.retryIsFree(now: expiry.add(const Duration(seconds: 1))), isFalse);
+        expect(e.retryIsFree(now: expiry.add(const Duration(hours: 2))), isFalse);
+      });
+
+      test('without a token: no promise', () {
+        expect(withToken(null).retryIsFree(now: expiry.subtract(const Duration(minutes: 1))), isFalse);
+      });
+
+      test('a token that does not look like one: no promise', () {
+        final before = expiry.subtract(const Duration(minutes: 1));
+        for (final bad in ['', 'garbage', '12345', '.sig', 'abc.sig', '-5.sig', '1700000000.']) {
+          expect(withToken(bad).retryIsFree(now: before), isFalse, reason: bad);
+        }
+      });
+
+      test('the expiry is read as unix seconds', () {
+        expect(VoiceExtraction.tokenExpiry('1700000000.sig'), DateTime.utc(2023, 11, 14, 22, 13, 20));
+        expect(VoiceExtraction.tokenExpiry(null), isNull);
+      });
+
+      test('the clock defaults to now: a token from the past is not free, one from the future is', () {
+        final past = DateTime.now().toUtc().subtract(const Duration(minutes: 1)).millisecondsSinceEpoch ~/ 1000;
+        final future = DateTime.now().toUtc().add(const Duration(minutes: 10)).millisecondsSinceEpoch ~/ 1000;
+        expect(withToken('$past.sig').retryIsFree(), isFalse);
+        expect(withToken('$future.sig').retryIsFree(), isTrue);
+      });
+    });
+
     test('the request body carries the token next to the exact transcript', () {
       expect(
         ApiService.extractTextBody('coffee 3 dollars', voiceToken: '1700000000.sig'),

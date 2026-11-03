@@ -14,6 +14,7 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/insight_errors.dart';
+import 'package:frontend/widgets/insight_notes.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../models/insight.dart';
@@ -284,18 +285,17 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 _languageToggle(insightProvider, scheme),
               ],
             ),
+            // When the next insight arrives (the weekly / monthly schedule, or
+            // the start of next month for a Free user's on-demand insight).
+            NextInsightLine(nextAt: insightProvider.insight?.nextInsightAt),
             // Myanmar was asked for but the server refused to translate it (a
-            // limit): the English insight is shown and this says why.
+            // limit): the English insight is shown and this says why. It can
+            // be closed.
             if (note != null && note.message.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(
-                note.message,
-                key: const ValueKey('insight-translation-note'),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onTertiaryContainer,
-                ),
+              const SizedBox(height: 6),
+              InsightTranslationNote(
+                message: note.message,
+                onClose: insightProvider.dismissTranslationNote,
               ),
             ],
           ],

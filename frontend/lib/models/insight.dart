@@ -50,6 +50,10 @@ class Insight {
   /// [contentMm] is null and this says why. Null normally.
   final TranslationUnavailable? translationUnavailable;
 
+  /// When the next insight of this type arrives (the server computes it from
+  /// the schedule); null when the server sent none.
+  final DateTime? nextInsightAt;
+
   Insight({
     required this.id,
     required this.userId,
@@ -59,6 +63,7 @@ class Insight {
     this.expiresAt,
     this.translationLocked = false,
     this.translationUnavailable,
+    this.nextInsightAt,
   });
 
   factory Insight.fromJson(Map<String, dynamic> json) {
@@ -72,6 +77,7 @@ class Insight {
       translationLocked: json['translation_locked'] == true,
       translationUnavailable:
           TranslationUnavailable.tryParse(json['translation_unavailable']),
+      nextInsightAt: parseInstantOrNull(json['next_insight_at']),
     );
   }
 }

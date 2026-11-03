@@ -40,6 +40,19 @@ Future<void> sendChat(String text) async {
   await settle(800);
 }
 
+/// The "Next insight: ..." line under the insight header, or null when it is not on screen.
+String? nextInsightText() {
+  final f = find.byKey(const ValueKey('insight-next'));
+  if (f.evaluate().isEmpty) return null;
+  return (f.evaluate().first.widget as Text).data;
+}
+
+/// What the line should read for the insight on screen, from the date the server sent.
+String? expectedNextInsightText() {
+  final at = insightProvider().insight?.nextInsightAt;
+  return at == null ? null : L.insightNextOn(L.formatPlanDay(at));
+}
+
 /// Opens Insights and waits for the (fake AI) insight text to show; true when it did.
 Future<bool> openInsightWithContent(String contentMarker) async {
   await drawerGo(L.aiInsights);
@@ -78,6 +91,10 @@ void insightFlows() {
       check(r == 0, 'Insights: stored weekly insight not rendered (state $r: ${visibleTexts().take(15).join(' | ')})');
       // ignore: avoid_print
       print('E2E_INFO|insight type=${insightProvider().insightType}');
+      step('next insight line');
+      check(insightProvider().insight?.nextInsightAt != null, 'Insights (Plus): the server sent no next_insight_at');
+      check(nextInsightText() != null && nextInsightText() == expectedNextInsightText(),
+          'Insights (Plus): the "Next insight" line should read "${expectedNextInsightText()}", was "${nextInsightText()}"');
       check(hasText(L.healthScoreTitle) || await scrollTo(find.text(L.healthScoreTitle), maxSwipes: 4),
           'Insights: Financial Health score card missing');
       step('monthly tab');
@@ -122,6 +139,9 @@ void insightFlows() {
       check(usageText('insight_monthly') == L.planUsageLeftMonth(0, 1),
           'Insights (Free): the usage line should read "${L.planUsageLeftMonth(0, 1)}" once the month\'s insight exists, was "${usageText('insight_monthly')}"');
       check(find.byTooltip(L.regenerate).evaluate().isEmpty, 'Insights (Free): a Free user can regenerate');
+      final freeNext = insightProvider().insight?.nextInsightAt;
+      check(freeNext != null && freeNext.toLocal().isAfter(DateTime.now()) && nextInsightText() == expectedNextInsightText(),
+          'Insights (Free): the "Next insight" line (start of next month) should read "${expectedNextInsightText()}", was "${nextInsightText()}"');
       step('weekly is locked with an Upgrade path');
       await tap(find.text(L.weekly).first);
       check(await waitFor(find.text(L.whatYoullGetTitle), timeout: const Duration(seconds: 15), orNull: true),
@@ -282,7 +302,17 @@ void chatFlows() {
       if (!sheet) return;
       check(find.text(L.planLimitReachedTitle).evaluate().isNotEmpty, 'Limit sheet title is not "${L.planLimitReachedTitle}"');
       check(find.text(L.planFeatureName('chat')).evaluate().isNotEmpty, 'Limit sheet does not say which feature ran out');
-      check(find.byKey(const Key('plan-limit-body')).evaluate().isNotEmpty, 'Limit sheet has no explanation / reset date');
+      final limitBody = find.byKey(const Key('plan-limit-body')).evaluate().isEmpty
+          ? ''
+          : (find.byKey(const Key('plan-limit-body')).evaluate().first.widget as Text).data ?? '';
+      check(limitBody.startsWith(L.planLimitReachedBody(L.planFeatureName('chat'))) &&
+              RegExp(r'\d{1,2} [A-Z][a-z]+ \d{4}\.$').hasMatch(limitBody),
+          'Limit sheet text should be "${L.planLimitReachedBody(L.planFeatureName('chat'))} It resets on 1 December 2026." (app wording, long date), was "$limitBody"');
+      final box = (find.byType(TextField).last.evaluate().first.widget as TextField).controller;
+      check(box?.text == 'E2E free question 6',
+          'Free chat: the refused question did not come back into the input box (was "${box?.text}")');
+      check(box?.selection.baseOffset == 'E2E free question 6'.length && box?.selection.isCollapsed == true,
+          'Free chat: the cursor is not at the end of the restored question');
       check(chatProvider().messages.length == 10, 'Free chat: the refused 6th question stayed in the conversation (${chatProvider().messages.length} messages)');
       check(chatProvider().error == null, 'Free chat: the limit shows an error banner as well: ${chatProvider().error}');
       step('Upgrade opens the Upgrade screen');
@@ -351,7 +381,7 @@ void chatFlows() {
           .evaluate()
           .map((e) => (e.widget as Text).data ?? '')
           .join(' ');
-      check(RegExp(r'[A-Z][a-z]{2} \d{1,2}, \d{4}').hasMatch(noteTexts),
+      check(RegExp(r'\d{1,2} [A-Z][a-z]+ \d{4}').hasMatch(noteTexts),
           'AI chat (Pro): the note does not carry the reset date taken from the plan: "$noteTexts"');
       check(usageText('chat_advanced') == null && usageText('chat') != null,
           'AI chat (Pro): after the fall-back the Standard line should show, not the Advanced one');

@@ -72,6 +72,15 @@ class InsightProvider with ChangeNotifier {
   TranslationUnavailable? _translationNote;
   TranslationUnavailable? get translationNote => _translationNote;
 
+  /// The close button on the note: hides it for the insight on screen. The
+  /// remembered language is not touched; the next load shows the note again if
+  /// the translation is still refused.
+  void dismissTranslationNote() {
+    if (_translationNote == null) return;
+    _translationNote = null;
+    notifyListeners();
+  }
+
   /// Shows [result], asked for in [requested]. A plan without translation, or
   /// a refused translation, leaves English on screen.
   void _show(Insight result, String requested) {
