@@ -5,18 +5,19 @@ import {
   AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar,
   DollarSign, Target, Send, Menu, X, Settings, Lock, User, MessageSquare,
   Smartphone, Plus, Edit2, ToggleLeft, ToggleRight, Download, CheckCircle,
-  AlertTriangle, Globe, Apple, ExternalLink, Bot, Layers
+  AlertTriangle, Globe, Apple, ExternalLink, Bot, Layers, ArrowUpCircle
 } from 'lucide-react';
 import AIUsageStats from './AIUsageStats';
 import AISettings from './AISettings';
 import PlansSettings from './PlansSettings';
+import UpgradeRequests from './UpgradeRequests';
 import FeedbackManagement from './FeedbackManagement';
 import ErrorBoundary from './ErrorBoundary';
 import {
   apiRequest, errorMessage, onUnauthorized, loadStoredSession, storeSession, clearSession,
-  canWrite, isSuperAdmin, parseLocalDate, toLocalDateInput, getUserUsage, resetUserUsage,
+  canWrite, isSuperAdmin, parseLocalDate, toLocalDateInput, getUserUsage, resetUserUsage, getUpgradeRequests,
 } from './api';
-import { PLANS, planLabel, featureLabel } from './planLabels';
+import { PLANS, PLAN_BADGE, planLabel, featureLabel } from './planLabels';
 
 const enc = encodeURIComponent;
 const USERS_PAGE_SIZE = 50;
@@ -29,6 +30,7 @@ const api = {
     apiRequest('/api/admin/login', { method: 'POST', body: { email, password }, auth: false }),
   getMe: (token) => apiRequest('/api/admin/me', { token }),
   getUsers: (token, params = {}) => apiRequest('/api/admin/users', { token, params }),
+  getUser: (token, userId) => apiRequest(`/api/admin/users/${enc(userId)}`, { token }),
   updateUserSubscription: (token, userId, data) =>
     apiRequest(`/api/admin/users/${enc(userId)}/subscription`, { token, method: 'PUT', body: data }),
   getUserStats: (token) => apiRequest('/api/admin/stats/users', { token }),
@@ -1043,11 +1045,6 @@ const BROADCAST_TARGETS = [
   { value: 'pro', label: 'Pro Users', statKey: 'pro_users', sentence: 'all Pro users' },
   { value: 'paid', label: 'Paid Users', statKey: 'paid_users', sentence: 'all paid users (Plus and Pro)' },
 ];
-const PLAN_BADGE = {
-  free: 'bg-slate-500/15 border-slate-500/30 text-slate-400',
-  plus: 'bg-amber-500/15 border-amber-500/30 text-amber-500',
-  pro: 'bg-violet-500/15 border-violet-500/30 text-violet-400',
-};
 const PLAN_DURATIONS = [{ label: '1 Month', days: 30 }, { label: '3 Months', days: 90 }, { label: '6 Months', days: 180 }, { label: '1 Year', days: 365 }];
 const EMPTY_BROADCAST_FORM = { title: '', message: '', target_users: 'all', notification_type: 'system_broadcast' };
 
@@ -1074,6 +1071,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   const [createAdminForm, setCreateAdminForm] = useState({ name: '', email: '', password: '', role: 'admin' });
   const [createAdminLoading, setCreateAdminLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState(0);  // count shown on the Upgrade Requests sidebar item
 
   const isSuper = isSuperAdmin(admin.role);
   const writable = canWrite(admin.role);
@@ -1141,6 +1139,16 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   }, [token, activeTab, userFilters.search, userFilters.subscription_type, isSuper, loadKey]);
 
   const reload = () => setRefreshKey((k) => k + 1);
+
+  // Pending upgrade requests (sidebar badge): re-read when changing tab and after anything that reloads the data
+  // (a plan change answers a request by itself). A failure just leaves the old count.
+  useEffect(() => {
+    let cancelled = false;
+    getUpgradeRequests(token, { status: 'pending', limit: 200 })
+      .then((data) => { if (!cancelled && Array.isArray(data)) setPendingRequests(data.length); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, activeTab, refreshKey]);
 
   const handleSearch = () => {
     setUserFilters({ search: searchQuery.trim(), subscription_type: subscriptionFilter });
@@ -1250,6 +1258,12 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     setSelectedUser(user);
   };
 
+  // Open a user's detail panel from elsewhere (the upgrade requests list) by id.
+  const openUserById = async (userId) => {
+    try { openUser(await api.getUser(token, userId)); }
+    catch (error) { alert(errorMessage(error, 'Failed to load the user')); }
+  };
+
   const handleDeleteUser = async (userId) => {
     if (!window.confirm('Delete this user? Cannot be undone.')) return;
     try { await api.deleteUser(token, userId); alert('User deleted'); reload(); setSelectedUser(null); }
@@ -1264,6 +1278,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     { id: 'ai-usage', icon: Zap, label: 'AI Usage & Costs' },
     { id: 'ai', icon: Bot, label: 'AI Providers' },
     { id: 'plans', icon: Layers, label: 'Plans' },
+    { id: 'upgrade-requests', icon: ArrowUpCircle, label: 'Upgrade Requests', badge: pendingRequests },
     { id: 'feedback', icon: MessageSquare, label: 'Feedback' },
     { id: 'settings', icon: Settings, label: 'Settings' },
     ...(isSuper ? [
@@ -1319,7 +1334,12 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                   : 'bg-transparent border border-transparent text-slate-400 hover:bg-blue-500/10'
               }`}>
               <tab.icon size={20} />
-              {tab.label}
+              <span className="flex-1">{tab.label}</span>
+              {tab.badge > 0 && (
+                <span aria-label={`${tab.badge} pending`} className="min-w-[22px] px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-900 text-xs font-bold text-center">
+                  {tab.badge > 99 ? '99+' : tab.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -1382,6 +1402,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                 { label: 'Total Transactions', value: stats.total_transactions, icon: DollarSign, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
                 { label: 'Total Goals', value: stats.total_goals, icon: Target, color: 'text-orange-500', bg: 'bg-orange-500/10' },
                 { label: 'Active Today', value: systemStats.active_users_today, icon: Zap, color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
+                { label: 'Pending Upgrade Requests', value: systemStats.pending_upgrade_requests, icon: ArrowUpCircle, color: 'text-amber-400', bg: 'bg-amber-500/10' },
               ].map((stat, index) => (
                 <div key={stat.label} className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-5 md:p-7 rounded-2xl border border-white/5 shadow-xl hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 animate-slideIn" style={{ animationDelay: `${index * 100}ms` }}>
                   <div className="flex justify-between items-start mb-4 md:mb-5">
@@ -1426,6 +1447,11 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
         {/* Plans Tab */}
         {activeTab === 'plans' && <PlansSettings token={token} adminRole={admin.role} />}
+
+        {/* Upgrade Requests Tab */}
+        {activeTab === 'upgrade-requests' && (
+          <UpgradeRequests token={token} adminRole={admin.role} onOpenUser={openUserById} onChanged={reload} />
+        )}
 
         {/* Feedback Tab */}
         {activeTab === 'feedback' && <FeedbackManagement token={token} adminRole={admin.role} />}
@@ -1489,10 +1515,14 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                               </div>
                             </td>
                             <td className="px-6 py-5">
-                              <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-semibold border ${PLAN_BADGE[user.subscription_type] ?? PLAN_BADGE.free}`}>
-                                {user.subscription_type !== 'free' && <Crown size={14} />}
-                                {String(user.subscription_type || 'free').toUpperCase()}
+                              {/* The plan the user has now: an expired Plus reads Free (the stored plan is only rewritten by the hourly expiry job). */}
+                              <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-semibold border ${PLAN_BADGE[user.effective_plan ?? user.subscription_type] ?? PLAN_BADGE.free}`}>
+                                {(user.effective_plan ?? user.subscription_type) !== 'free' && <Crown size={14} />}
+                                {String(user.effective_plan ?? user.subscription_type ?? 'free').toUpperCase()}
                               </div>
+                              {user.effective_plan === 'free' && user.subscription_type !== 'free' && (
+                                <div className="text-[11px] text-slate-500 mt-1">{planLabel(user.subscription_type)} expired</div>
+                              )}
                             </td>
                             <td className="px-6 py-5">
                               <div className="text-sm text-slate-300 mb-1">{fmtNum(user.total_transactions)} transactions</div>
@@ -1737,11 +1767,17 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
                     <div className="flex items-center gap-2">
                       <Crown size={18} className={selectedUser.subscription_type === 'pro' ? 'text-violet-400' : 'text-amber-500'} />
-                      <span className={`text-sm font-semibold ${selectedUser.subscription_type === 'pro' ? 'text-violet-300' : 'text-amber-400'}`}>{planLabel(selectedUser.subscription_type)} Active</span>
+                      <span className={`text-sm font-semibold ${selectedUser.subscription_type === 'pro' ? 'text-violet-300' : 'text-amber-400'}`}>{planLabel(selectedUser.subscription_type)} {(selectedUser.effective_plan ?? selectedUser.subscription_type) === 'free' ? 'Expired' : 'Active'}</span>
                     </div>
                     {selectedUser.subscription_expires_at && <div className="text-xs text-slate-300/80">Expires: {new Date(selectedUser.subscription_expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
                   </div>
-                  {selectedUser.subscription_expires_at && <div className="text-xs text-slate-300/70">{Math.max(0, Math.ceil((new Date(selectedUser.subscription_expires_at) - new Date()) / (1000 * 60 * 60 * 24)))} days remaining</div>}
+                  {selectedUser.subscription_expires_at && (
+                    <div className="text-xs text-slate-300/70">
+                      {(selectedUser.effective_plan ?? selectedUser.subscription_type) === 'free'
+                        ? 'Now on the Free plan'
+                        : `${Math.max(0, Math.ceil((new Date(selectedUser.subscription_expires_at) - new Date()) / (1000 * 60 * 60 * 24)))} days remaining`}
+                    </div>
+                  )}
                 </div>
               )}
               {writable && (

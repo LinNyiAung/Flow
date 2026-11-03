@@ -173,6 +173,21 @@ export const getUserUsage = (token, userId) => apiRequest(`/api/admin/users/${en
 export const resetUserUsage = (token, userId) =>
   apiRequest(`/api/admin/users/${enc(userId)}/reset-usage`, { token, method: 'POST' });
 
+// ─── Upgrade requests ─────────────────────────────────────────────────────────
+/**
+ * status: 'pending' (default) | 'done' | 'dismissed'. Resolves to
+ * [{ id, user_id, name, email, current_plan, requested_plan, note, created_at, status, handled_at }].
+ */
+export const getUpgradeRequests = (token, params = {}) =>
+  apiRequest('/api/admin/upgrade-requests', { token, params });
+
+/** Admins only. 409 when the request is not pending any more. */
+export const markUpgradeRequestDone = (token, id) =>
+  apiRequest(`/api/admin/upgrade-requests/${enc(id)}/done`, { token, method: 'POST' });
+
+export const dismissUpgradeRequest = (token, id) =>
+  apiRequest(`/api/admin/upgrade-requests/${enc(id)}/dismiss`, { token, method: 'POST' });
+
 // ─── Roles ────────────────────────────────────────────────────────────────────
 /** admin and super_admin can make changes; moderators are read-only. */
 export const canWrite = (role) => role === 'admin' || role === 'super_admin';

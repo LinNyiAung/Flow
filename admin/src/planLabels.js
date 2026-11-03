@@ -23,5 +23,12 @@ export const FEATURE_LABELS = {
   reports: 'Reports',
 };
 
-export const planLabel = (plan) => PLAN_LABELS[plan] ?? String(plan);
+// Badge colours per plan (Tailwind classes), shared by the users list and the upgrade requests list.
+export const PLAN_BADGE = {
+  free: 'bg-slate-500/15 border-slate-500/30 text-slate-400',
+  plus: 'bg-amber-500/15 border-amber-500/30 text-amber-500',
+  pro: 'bg-violet-500/15 border-violet-500/30 text-violet-400',
+};
+
+export const planLabel =(plan) => PLAN_LABELS[plan] ?? String(plan);
 export const featureLabel = (feature) => FEATURE_LABELS[feature] ?? String(feature);
