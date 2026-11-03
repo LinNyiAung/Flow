@@ -32,6 +32,7 @@ const toDraft = (data) => ({
     }];
   })),
   contact: { en: data.upgrade_contact?.en ?? '', my: data.upgrade_contact?.my ?? '' },
+  owner: { email: data.owner_contact?.email ?? '', viber: data.owner_contact?.viber ?? '' },
 });
 
 const toBody = (draft) => ({
@@ -46,7 +47,16 @@ const toBody = (draft) => ({
     }];
   })),
   upgrade_contact: { en: draft.contact.en, my: draft.contact.my },
+  owner_contact: { email: draft.owner.email.trim(), viber: draft.owner.viber.trim() },
 });
+
+// The same rules as the server (plans/contact.py), so a typo is caught before saving. The server's 422 stays the source of truth.
+const validEmail = (text) => !text.trim() || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text.trim());
+const validViber = (text) => {
+  const digits = text.replace(/[\s\-.()]/g, '');
+  if (!digits) return true;
+  return /^\+[0-9]{8,15}$/.test(digits.startsWith('09') ? `+95${digits.slice(1)}` : digits);
+};
 
 const validCost = (text) => /^\d+(\.\d+)?$/.test(text.trim()) && Number(text) <= 999999;
 
@@ -65,6 +75,10 @@ const findProblems = (draft, features) => {
       out.push(`${planLabel(plan)} · ${featureLabel('chat_advanced')}: can only be available when Chat is not locked`);
     }
     if (!validCost(p.cost)) out.push(`${planLabel(plan)}: the cost cap must be an amount in USD from 0 to 999999`);
+  }
+  if (!validEmail(draft.owner.email)) out.push('Your email: enter a valid email address');
+  if (!validViber(draft.owner.viber)) {
+    out.push('Your Viber number: enter it with the country code, like +959123456789 (or 09 123 456 789)');
   }
   return out;
 };
@@ -155,6 +169,23 @@ const ContactField = ({ id, label, value, disabled, lang, onChange }) => (
   </div>
 );
 
+const OwnerField = ({ id, label, type, placeholder, hint, maxLength, value, disabled, onChange }) => (
+  <div className="min-w-0">
+    <label htmlFor={id} className="block text-sm font-semibold text-slate-300 mb-2">{label}</label>
+    <input
+      id={id}
+      type={type}
+      value={value}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className={field}
+    />
+    {hint && <div className="text-xs text-slate-500 mt-1.5">{hint}</div>}
+  </div>
+);
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 const PlansSettings = ({ token, adminRole }) => {
   const writable = canWrite(adminRole);
@@ -207,6 +238,7 @@ const PlansSettings = ({ token, adminRole }) => {
   }));
   const setCost = (plan, cost) => setDraft((d) => ({ ...d, plans: { ...d.plans, [plan]: { ...d.plans[plan], cost } } }));
   const setContact = (lang, text) => setDraft((d) => ({ ...d, contact: { ...d.contact, [lang]: text } }));
+  const setOwner = (key, text) => setDraft((d) => ({ ...d, owner: { ...d.owner, [key]: text } }));
 
   const handleSave = async () => {
     setBusy(true);
@@ -327,6 +359,19 @@ const PlansSettings = ({ token, adminRole }) => {
             <div className={`${card} p-5 mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4`}>
               <ContactField id="contact-en" label="English" lang="en" value={draft.contact.en} disabled={!writable || busy} onChange={(t) => setContact('en', t)} />
               <ContactField id="contact-my" label="Myanmar" lang="my" value={draft.contact.my} disabled={!writable || busy} onChange={(t) => setContact('my', t)} />
+            </div>
+
+            <h2 className="text-xl font-bold text-slate-100 mb-1">Your contact details</h2>
+            <p className="text-slate-400 text-sm mb-4">
+              Your own email and Viber number. The app shows them next to the message above so users can reach you directly,
+              and adds them to the notice a user gets when you close their upgrade request. Leave one empty to hide it.
+            </p>
+            <div className={`${card} p-5 mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4`}>
+              <OwnerField id="owner-email" label="Email" type="email" placeholder="you@example.com" maxLength={254}
+                value={draft.owner.email} disabled={!writable || busy} onChange={(t) => setOwner('email', t)} />
+              <OwnerField id="owner-viber" label="Viber number" type="tel" placeholder="09 123 456 789" maxLength={30}
+                hint="With the country code, like +959123456789. A Myanmar number starting with 09 is converted to +959…"
+                value={draft.owner.viber} disabled={!writable || busy} onChange={(t) => setOwner('viber', t)} />
             </div>
           </fieldset>
 

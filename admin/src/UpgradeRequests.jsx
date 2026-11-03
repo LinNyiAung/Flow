@@ -15,6 +15,9 @@ const STATUS_PILL = {
   dismissed: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
 };
 
+// What to contact the user with: the Viber number they gave, otherwise the email of their account.
+const viberLink = (number) => `viber://chat?number=${encodeURIComponent(number)}`;
+
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
 const PlanBadge = ({ plan }) => (
@@ -123,11 +126,11 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse min-w-[900px]">
+            <table className="w-full border-collapse min-w-[1000px]">
               <thead>
                 <tr className="bg-slate-900/50 border-b border-white/5">
-                  {['User', 'Plan', 'Note', status === 'pending' ? 'Requested' : 'Handled', 'Actions'].map((header, i) => (
-                    <th key={header} className={`px-6 py-4 text-left text-slate-400 text-xs font-semibold tracking-wider uppercase ${i === 4 ? 'text-center' : ''}`}>{header}</th>
+                  {['User', 'Plan', 'Contact', 'Note', status === 'pending' ? 'Requested' : 'Handled', 'Actions'].map((header, i) => (
+                    <th key={header} className={`px-6 py-4 text-left text-slate-400 text-xs font-semibold tracking-wider uppercase ${i === 5 ? 'text-center' : ''}`}>{header}</th>
                   ))}
                 </tr>
               </thead>
@@ -147,6 +150,19 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
                         <span className="text-slate-500">→</span>
                         <PlanBadge plan={item.requested_plan} />
                       </div>
+                    </td>
+                    <td className="px-6 py-5 text-sm">
+                      {item.viber_number ? (
+                        <>
+                          <div className="text-xs text-slate-500 mb-0.5">Contact on Viber</div>
+                          <a href={viberLink(item.viber_number)} className="text-blue-400 hover:text-blue-300 break-all">{item.viber_number}</a>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-xs text-slate-500 mb-0.5">No Viber number: email them</div>
+                          <a href={`mailto:${item.email}`} className="text-blue-400 hover:text-blue-300 break-all">{item.email}</a>
+                        </>
+                      )}
                     </td>
                     <td className="px-6 py-5 text-sm text-slate-300 max-w-xs whitespace-pre-wrap break-words">
                       {item.note || <span className="text-slate-500">No note</span>}
