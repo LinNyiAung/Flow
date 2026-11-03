@@ -169,11 +169,19 @@ void upgradeRequestFlows() {
       final requestPlus = find.text(L.upgradeRequestButton(L.planNamePlus));
       final requestPro = find.text(L.upgradeRequestButton(L.planNamePro));
 
-      step('Request Plus: dialog with a note, then Send');
+      step('Request Plus: dialog with a Viber number and a note, then Send');
       await scrollTo(requestPlus);
       check(requestPro.evaluate().isNotEmpty, 'Upgrade screen: no "Request Pro" button for a Free user');
       await tap(requestPlus);
       await waitFor(find.byKey(const Key('upgrade-request-note')));
+      check(find.byKey(const Key('upgrade-request-viber')).evaluate().isNotEmpty,
+          'Request dialog: no Viber number field');
+      check(hasTextContaining(free.email),
+          'Request dialog: the "we\'ll email you" line does not name the account email ${free.email}');
+      step('a bad Viber number is refused in the dialog');
+      await enter(find.byKey(const Key('upgrade-request-viber')), '12345');
+      await expectSoon(find.text(L.upgradeRequestViberInvalid), 'Request dialog: a bad Viber number shows no error');
+      await enter(find.byKey(const Key('upgrade-request-viber')), '09 123 456 789');
       await enter(find.byKey(const Key('upgrade-request-note')), 'E2E: please upgrade me');
       await hideKeyboard();
       await tapKey('upgrade-request-send');
@@ -181,6 +189,8 @@ void upgradeRequestFlows() {
           'Request Plus: the Plus card does not say it was requested',
           timeout: const Duration(seconds: 20));
       check(hasTextContaining('Requested on'), 'Request Plus: no "Requested on <date>" text');
+      check(hasTextContaining('contact you on Viber at +959123456789'),
+          'Request Plus: the card does not say we will contact the user on Viber at +959123456789');
       check(requestPlus.evaluate().isEmpty, 'Request Plus: the button is still there after requesting');
       check(requestPro.evaluate().isNotEmpty, 'Request Plus: the Pro button disappeared');
 
@@ -188,8 +198,9 @@ void upgradeRequestFlows() {
       final token = await apiToken(free);
       var plan = await apiGet(token, '/api/plan');
       var pending = plan['upgrade_request'];
-      check(pending != null && pending['plan'] == 'plus' && pending['note'] == 'E2E: please upgrade me',
-          'Server upgrade_request after asking for Plus: $pending');
+      check(pending != null && pending['plan'] == 'plus' && pending['note'] == 'E2E: please upgrade me'
+              && pending['viber_number'] == '+959123456789',
+          'Server upgrade_request after asking for Plus (Viber number normalised to +959...): $pending');
 
       step('the request survives leaving and reopening the screen');
       await back();
@@ -198,10 +209,15 @@ void upgradeRequestFlows() {
       await expectSoon(find.byKey(const Key('upgrade-requested-plus')),
           'Upgrade screen forgot the Plus request after reopening');
 
-      step('Request Pro replaces it');
+      step('Request Pro replaces it; the dialog is prefilled with the Viber number, which is cleared this time');
       await scrollTo(requestPro);
       await tap(requestPro);
       await waitFor(find.byKey(const Key('upgrade-request-note')));
+      check(find.descendant(of: find.byKey(const Key('upgrade-request-viber')), matching: find.text('+959123456789'))
+              .evaluate().isNotEmpty,
+          'Request Pro: the dialog is not prefilled with the pending request\'s Viber number');
+      await enter(find.byKey(const Key('upgrade-request-viber')), '');
+      await hideKeyboard();
       await tapKey('upgrade-request-send');
       await expectSoon(find.byKey(const Key('upgrade-requested-pro')),
           'Request Pro: the Pro card does not say it was requested',
@@ -211,8 +227,10 @@ void upgradeRequestFlows() {
       check(requestPlus.evaluate().isNotEmpty, 'Request Pro: the Plus button did not come back');
       plan = await apiGet(token, '/api/plan');
       pending = plan['upgrade_request'];
-      check(pending != null && pending['plan'] == 'pro' && pending['note'] == null,
-          'Server upgrade_request after asking for Pro: $pending');
+      check(pending != null && pending['plan'] == 'pro' && pending['note'] == null && pending['viber_number'] == null,
+          'Server upgrade_request after asking for Pro (no number): $pending');
+      check(hasTextContaining('contact you by email at ${free.email}'),
+          'Request Pro: the card does not say we will email the account address ${free.email}');
     });
   });
 }

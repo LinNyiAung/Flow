@@ -1,4 +1,5 @@
 import 'package:frontend/models/user.dart';
+import 'package:frontend/utils/contact_details.dart';
 import 'package:frontend/utils/date_parsing.dart';
 
 /// The quota feature keys the server uses (`GET /api/plan`, limit errors).
@@ -113,9 +114,18 @@ class CatalogLimit {
 class UpgradeRequest {
   final Plan plan;
   final String? note;
+
+  /// The Viber number the user gave (`+` and digits) for the owner to contact
+  /// them on; null when they gave none (the owner emails them instead).
+  final String? viberNumber;
   final DateTime createdAt;
 
-  const UpgradeRequest({required this.plan, this.note, required this.createdAt});
+  const UpgradeRequest({
+    required this.plan,
+    this.note,
+    this.viberNumber,
+    required this.createdAt,
+  });
 
   /// Null when [json] is not a request (no pending request, or an unreadable one).
   static UpgradeRequest? tryParse(dynamic json) {
@@ -124,9 +134,11 @@ class UpgradeRequest {
     final createdAt = parseInstantOrNull(json['created_at']);
     if (plan == Plan.free || createdAt == null) return null;
     final note = json['note'];
+    final viber = json['viber_number'];
     return UpgradeRequest(
       plan: plan,
       note: note is String && note.trim().isNotEmpty ? note : null,
+      viberNumber: viber is String && viber.trim().isNotEmpty ? viber.trim() : null,
       createdAt: createdAt,
     );
   }
@@ -147,6 +159,9 @@ class PlanStatus {
   /// Language code ('en' | 'my') -> message.
   final Map<String, String> upgradeContact;
 
+  /// The owner's own email and Viber number, for "Contact us directly".
+  final OwnerContact ownerContact;
+
   /// The user's pending request for Plus or Pro; null when there is none.
   final UpgradeRequest? upgradeRequest;
 
@@ -158,6 +173,7 @@ class PlanStatus {
     this.features = const {},
     this.catalog = const {},
     this.upgradeContact = const {},
+    this.ownerContact = OwnerContact.none,
     this.upgradeRequest,
   });
 
@@ -170,6 +186,7 @@ class PlanStatus {
         features: features,
         catalog: catalog,
         upgradeContact: upgradeContact,
+        ownerContact: ownerContact,
         upgradeRequest: request,
       );
 
@@ -234,6 +251,7 @@ class PlanStatus {
       features: features,
       catalog: catalog,
       upgradeContact: contact,
+      ownerContact: OwnerContact.fromJson(json['owner_contact']),
       upgradeRequest: UpgradeRequest.tryParse(json['upgrade_request']),
     );
   }

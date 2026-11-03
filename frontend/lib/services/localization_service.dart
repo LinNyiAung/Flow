@@ -1126,6 +1126,19 @@ class AppLocalizations {
       'upgradeRequestedOn': 'Requested on {date}. We\'ll be in touch.',
       'upgradeRequestFailed': 'Couldn\'t send your request. Please try again.',
       'upgradeRequestNoteTooLong': 'Your note is too long. Please shorten it.',
+      'upgradeRequestViberLabel': 'Viber number (optional)',
+      'upgradeRequestViberHint': '09 123 456 789',
+      'upgradeRequestViberInvalid': 'Enter a Viber number with its country code, like +959123456789 (or 09 123 456 789).',
+      'upgradeRequestContactLine': 'We\'ll contact you on Viber. If you leave it empty, we\'ll email you at {email}.',
+      'upgradeRequestContactLineNoEmail': 'We\'ll contact you on Viber. If you leave it empty, we\'ll email you at your account email.',
+      'upgradeRequestThanks': 'Thanks! We\'ll contact you soon.',
+      'upgradeRequestedViber': 'Requested on {date}. We\'ll contact you on Viber at {number}.',
+      'upgradeRequestedEmail': 'Requested on {date}. We\'ll contact you by email at {email}.',
+      'ownerContactTitle': 'Contact us directly',
+      'ownerContactEmail': 'Email',
+      'ownerContactViber': 'Viber',
+      'ownerContactEmailFailed': 'Couldn\'t open your email app. The address was copied: {email}',
+      'ownerContactViberFailed': 'Couldn\'t open Viber. The number was copied: {number}',
       'voiceNothingHeard': 'We didn\'t catch anything. Please try again.',
       'voiceRetryHint': 'Your recording was already read, so trying again does not use another entry.',
       'chatModeStandard': 'Standard',
@@ -2170,6 +2183,19 @@ class AppLocalizations {
       'upgradeRequestedOn': '{date} တွင် တောင်းဆိုထားပါသည်။ ကျွန်ုပ်တို့ ဆက်သွယ်ပါမည်။',
       'upgradeRequestFailed': 'သင့်တောင်းဆိုမှုကို မပို့နိုင်ပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
       'upgradeRequestNoteTooLong': 'သင့်မှတ်ချက် ရှည်လွန်းပါသည်။ ပိုတိုအောင် ရေးပေးပါ။',
+      'upgradeRequestViberLabel': 'Viber နံပါတ် (မဖြည့်လည်းရသည်)',
+      'upgradeRequestViberHint': '09 123 456 789',
+      'upgradeRequestViberInvalid': 'နိုင်ငံကုဒ်ပါသော Viber နံပါတ်ကို ထည့်ပါ (ဥပမာ +959123456789 သို့မဟုတ် 09 123 456 789)။',
+      'upgradeRequestContactLine': 'Viber မှတစ်ဆင့် ဆက်သွယ်ပါမည်။ မဖြည့်ပါက သင့်အကောင့်အီးမေးလ် {email} သို့ အီးမေးလ်ပို့ပါမည်။',
+      'upgradeRequestContactLineNoEmail': 'Viber မှတစ်ဆင့် ဆက်သွယ်ပါမည်။ မဖြည့်ပါက သင့်အကောင့်အီးမေးလ်သို့ အီးမေးလ်ပို့ပါမည်။',
+      'upgradeRequestThanks': 'ကျေးဇူးတင်ပါသည်။ မကြာမီ ဆက်သွယ်ပါမည်။',
+      'upgradeRequestedViber': '{date} တွင် တောင်းဆိုထားပါသည်။ Viber {number} သို့ ဆက်သွယ်ပါမည်။',
+      'upgradeRequestedEmail': '{date} တွင် တောင်းဆိုထားပါသည်။ အီးမေးလ် {email} သို့ ဆက်သွယ်ပါမည်။',
+      'ownerContactTitle': 'ကျွန်ုပ်တို့ကို တိုက်ရိုက်ဆက်သွယ်ပါ',
+      'ownerContactEmail': 'အီးမေးလ်',
+      'ownerContactViber': 'Viber',
+      'ownerContactEmailFailed': 'အီးမေးလ်အက်ပ်ကို မဖွင့်နိုင်ပါ။ လိပ်စာကို ကူးယူထားပါသည်- {email}',
+      'ownerContactViberFailed': 'Viber ကို မဖွင့်နိုင်ပါ။ နံပါတ်ကို ကူးယူထားပါသည်- {number}',
       'voiceNothingHeard': 'ဘာမှ မကြားလိုက်ရပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
       'voiceRetryHint': 'သင့်အသံသွင်းချက်ကို ဖတ်ပြီးပြီဖြစ်၍ ထပ်ကြိုးစားခြင်းသည် အသုံးပြုခွင့် ထပ်မံမကုန်ပါ။',
       'chatModeStandard': 'Standard',
@@ -3259,6 +3285,21 @@ class AppLocalizations {
   String upgradeRequestedOn(String date) => translate('upgradeRequestedOn').replaceAll('{date}', date);
   String get upgradeRequestFailed => translate('upgradeRequestFailed');
   String get upgradeRequestNoteTooLong => translate('upgradeRequestNoteTooLong');
+  String get upgradeRequestViberLabel => translate('upgradeRequestViberLabel');
+  String get upgradeRequestViberHint => translate('upgradeRequestViberHint');
+  String get upgradeRequestViberInvalid => translate('upgradeRequestViberInvalid');
+  String get upgradeRequestContactLineNoEmail => translate('upgradeRequestContactLineNoEmail');
+  String get upgradeRequestThanks => translate('upgradeRequestThanks');
+  String get ownerContactTitle => translate('ownerContactTitle');
+  String get ownerContactEmail => translate('ownerContactEmail');
+  String get ownerContactViber => translate('ownerContactViber');
+  String upgradeRequestContactLine(String email) => translate('upgradeRequestContactLine').replaceAll('{email}', email);
+  String upgradeRequestedViber(String date, String number) =>
+      translate('upgradeRequestedViber').replaceAll('{date}', date).replaceAll('{number}', number);
+  String upgradeRequestedEmail(String date, String email) =>
+      translate('upgradeRequestedEmail').replaceAll('{date}', date).replaceAll('{email}', email);
+  String ownerContactEmailFailed(String email) => translate('ownerContactEmailFailed').replaceAll('{email}', email);
+  String ownerContactViberFailed(String number) => translate('ownerContactViberFailed').replaceAll('{number}', number);
   String get voiceNothingHeard => translate('voiceNothingHeard');
   String get voiceRetryHint => translate('voiceRetryHint');
   String get chatModeStandard => translate('chatModeStandard');

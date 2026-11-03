@@ -4,6 +4,8 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:frontend/utils/contact_details.dart';
+import 'package:frontend/widgets/owner_contact_block.dart';
 import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -14,7 +16,7 @@ import '../../services/localization_service.dart';
 /// comparison built from the limits the server reports (`GET /api/plan`), so
 /// no number lives in the app, plus a "Request Plus / Request Pro" button for
 /// each higher plan (upgrades are manual: the owner sees the request in the
-/// admin panel) and the owner's upgrade contact message.
+/// admin panel) and the owner's upgrade contact message, email and Viber number.
 class SubscriptionScreen extends StatefulWidget {
   @override
   _SubscriptionScreenState createState() => _SubscriptionScreenState();
@@ -33,27 +35,42 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     });
   }
 
-  /// Asks for [plan]: a dialog for an optional note, then the request. A
-  /// refused request (e.g. the user already has that plan) shows the server's
-  /// message in a snackbar.
+  /// Asks for [plan]: a dialog for an optional note and an optional Viber
+  /// number, then the request, then a "we'll contact you" thanks. A refused
+  /// request (e.g. the user already has that plan) shows the server's message
+  /// in a snackbar.
   Future<void> _requestUpgrade(Plan plan) async {
     final planProvider = Provider.of<PlanProvider>(context, listen: false);
+    final accountEmail = Provider.of<AuthProvider>(context, listen: false).user?.email;
     final localizations = AppLocalizations.of(context);
     final messenger = ScaffoldMessenger.of(context);
 
-    final note = await showDialog<String>(
+    final input = await showDialog<UpgradeRequestInput>(
       context: context,
-      builder: (_) => _UpgradeRequestDialog(plan: plan),
+      builder: (_) => UpgradeRequestDialog(
+        plan: plan,
+        accountEmail: accountEmail,
+        initialViber: planProvider.upgradeRequest?.viberNumber,
+        ownerContact: planProvider.status?.ownerContact ?? OwnerContact.none,
+      ),
     );
-    if (note == null) return; // cancelled
+    if (input == null) return; // cancelled
 
     try {
-      await planProvider.requestUpgrade(plan, note: note);
+      await planProvider.requestUpgrade(
+        plan,
+        note: input.note,
+        viberNumber: input.viberNumber,
+      );
+      messenger.showSnackBar(SnackBar(content: Text(localizations.upgradeRequestThanks)));
     } catch (e) {
-      // 422 is the server's validation (pydantic text, English): the only thing
-      // the user can have got wrong is the note, so say that in the app's language.
+      // 422 is the server's validation (pydantic text, English): either the
+      // Viber number or the note, which the dialog checks first too. Say which
+      // in the app's language.
       final message = e is ApiException && e.statusCode == 422
-          ? localizations.upgradeRequestNoteTooLong
+          ? (e.message.contains('Viber')
+              ? localizations.upgradeRequestViberInvalid
+              : localizations.upgradeRequestNoteTooLong)
           : e is ApiException && e.message.trim().isNotEmpty
               ? e.message
               : localizations.upgradeRequestFailed;
@@ -377,6 +394,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   ) {
     final scheme = Theme.of(context).colorScheme;
     final pending = planProvider.upgradeRequest;
+    final accountEmail = Provider.of<AuthProvider>(context, listen: false).user?.email;
     final plans = requestablePlans(currentPlan, isTrial: isTrial);
     return Column(
       children: [
@@ -397,8 +415,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            localizations.upgradeRequestedOn(
-                              localizations.formatPlanDate(pending!.createdAt),
+                            upgradeRequestedText(
+                              localizations,
+                              pending!,
+                              accountEmail,
                             ),
                             key: Key('upgrade-requested-${plan.name}'),
                             style: TextStyle(
@@ -452,10 +472,32 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.5),
           ),
+          if (status != null && !status.ownerContact.isEmpty) ...[
+            const SizedBox(height: 12),
+            OwnerContactBlock(contact: status.ownerContact, centered: true),
+          ],
         ],
       ),
     );
   }
+}
+
+/// What a request card says: when it was requested and how the owner will get
+/// back to the user ("on Viber at {number}", else "by email at {email}" with the
+/// account email). Without an account email (not loaded yet) it just says the
+/// owner will be in touch.
+String upgradeRequestedText(
+  AppLocalizations l,
+  UpgradeRequest request,
+  String? accountEmail,
+) {
+  final date = l.formatPlanDate(request.createdAt);
+  final viber = request.viberNumber;
+  if (viber != null && viber.isNotEmpty) return l.upgradeRequestedViber(date, viber);
+  if (accountEmail != null && accountEmail.isNotEmpty) {
+    return l.upgradeRequestedEmail(date, accountEmail);
+  }
+  return l.upgradeRequestedOn(date);
 }
 
 /// The paid plans a user on [current] can ask for: the ones above it (Pro
@@ -475,24 +517,51 @@ const int upgradeRequestNoteMaxLength = 500;
 /// How many code points [text] has (what the server counts).
 int noteLength(String text) => text.runes.length;
 
-/// Asks for an optional note and closes with it (trimmed; empty when none).
-/// Closes with null when cancelled; the caller sends the request. Send is off
-/// while the note is over [upgradeRequestNoteMaxLength] code points.
-class _UpgradeRequestDialog extends StatefulWidget {
-  const _UpgradeRequestDialog({required this.plan});
+/// What the upgrade request dialog sends: the trimmed [note] and the
+/// normalised [viberNumber] (`+` and digits), each empty when not given.
+class UpgradeRequestInput {
+  const UpgradeRequestInput({required this.note, required this.viberNumber});
 
-  final Plan plan;
-
-  @override
-  State<_UpgradeRequestDialog> createState() => _UpgradeRequestDialogState();
+  final String note;
+  final String viberNumber;
 }
 
-class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
+/// Asks for an optional note and an optional Viber number, says how the owner
+/// will get back to the user, and closes with an [UpgradeRequestInput]. Closes
+/// with null when cancelled; the caller sends the request. Send is off while
+/// the note is over [upgradeRequestNoteMaxLength] code points or the Viber
+/// number is not a number (see [normalizeViberNumber]).
+///
+/// [accountEmail] is where the owner emails the user when they leave the
+/// number empty. [initialViber] prefills the field (the number of the user's
+/// pending request). [ownerContact] shows "Contact us directly" under the fields.
+class UpgradeRequestDialog extends StatefulWidget {
+  const UpgradeRequestDialog({
+    super.key,
+    required this.plan,
+    this.accountEmail,
+    this.initialViber,
+    this.ownerContact = OwnerContact.none,
+  });
+
+  final Plan plan;
+  final String? accountEmail;
+  final String? initialViber;
+  final OwnerContact ownerContact;
+
+  @override
+  State<UpgradeRequestDialog> createState() => _UpgradeRequestDialogState();
+}
+
+class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
   final TextEditingController _note = TextEditingController();
+  late final TextEditingController _viber =
+      TextEditingController(text: widget.initialViber ?? '');
 
   @override
   void dispose() {
     _note.dispose();
+    _viber.dispose();
     super.dispose();
   }
 
@@ -503,6 +572,9 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
     final planName = l.planName(widget.plan);
     final length = noteLength(_note.text);
     final tooLong = length > upgradeRequestNoteMaxLength;
+    final viber = normalizeViberNumber(_viber.text);
+    final viberInvalid = viber == null;
+    final email = widget.accountEmail;
     return AlertDialog(
       title: Text(l.upgradeRequestButton(planName)),
       content: SingleChildScrollView(
@@ -513,6 +585,27 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
             Text(
               l.upgradeRequestIntro(planName),
               style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('upgrade-request-viber'),
+              controller: _viber,
+              onChanged: (_) => setState(() {}),
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: l.upgradeRequestViberLabel,
+                hintText: l.upgradeRequestViberHint,
+                errorText: viberInvalid ? l.upgradeRequestViberInvalid : null,
+                errorMaxLines: 3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              email != null && email.isNotEmpty
+                  ? l.upgradeRequestContactLine(email)
+                  : l.upgradeRequestContactLineNoEmail,
+              key: const Key('upgrade-request-contact-line'),
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.4),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -534,6 +627,10 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
                 ),
               ),
             ),
+            if (!widget.ownerContact.isEmpty) ...[
+              const SizedBox(height: 12),
+              OwnerContactBlock(contact: widget.ownerContact),
+            ],
           ],
         ),
       ),
@@ -544,7 +641,12 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
         ),
         FilledButton(
           key: const Key('upgrade-request-send'),
-          onPressed: tooLong ? null : () => Navigator.pop(context, _note.text.trim()),
+          onPressed: tooLong || viberInvalid
+              ? null
+              : () => Navigator.pop(
+                    context,
+                    UpgradeRequestInput(note: _note.text.trim(), viberNumber: viber),
+                  ),
           child: Text(l.upgradeRequestSend),
         ),
       ],

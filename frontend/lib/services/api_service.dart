@@ -829,20 +829,24 @@ class ApiService {
     }
   }
 
-  /// Asks the owner for [plan] (Plus or Pro); [note] is optional. A request
+  /// Asks the owner for [plan] (Plus or Pro); [note] and [viberNumber] (the
+  /// number to reach the user on; 422 when it is not a number) are optional. A request
   /// that is already pending is replaced. The server answers 400 (with a
   /// readable message) when the user already has that plan or a higher one.
   static Future<UpgradeRequest> requestUpgrade({
     required Plan plan,
     String? note,
+    String? viberNumber,
   }) async {
     final trimmed = note?.trim() ?? '';
+    final viber = viberNumber?.trim() ?? '';
     final response = await _client.post(
       Uri.parse('$baseUrl/api/plan/upgrade-request'),
       headers: await _getHeaders(),
       body: jsonEncode({
         'plan': plan.name,
         if (trimmed.isNotEmpty) 'note': trimmed,
+        if (viber.isNotEmpty) 'viber_number': viber,
       }),
     );
 
