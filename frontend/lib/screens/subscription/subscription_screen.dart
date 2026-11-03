@@ -50,9 +50,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     try {
       await planProvider.requestUpgrade(plan, note: note);
     } catch (e) {
-      final message = e is ApiException && e.message.trim().isNotEmpty
-          ? e.message
-          : localizations.upgradeRequestFailed;
+      // 422 is the server's validation (pydantic text, English): the only thing
+      // the user can have got wrong is the note, so say that in the app's language.
+      final message = e is ApiException && e.statusCode == 422
+          ? localizations.upgradeRequestNoteTooLong
+          : e is ApiException && e.message.trim().isNotEmpty
+              ? e.message
+              : localizations.upgradeRequestFailed;
       messenger.showSnackBar(SnackBar(content: Text(message)));
       // The plan may have changed since the screen loaded: show what is true.
       planProvider.refresh();
@@ -191,7 +195,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           // ── Ask for a higher plan ──
                           if (!authProvider.isPro && planProvider.status != null) ...[
                             const SizedBox(height: 16),
-                            _buildUpgradeRequests(context, planProvider, authProvider.plan, localizations),
+                            _buildUpgradeRequests(
+                              context,
+                              planProvider,
+                              authProvider.plan,
+                              authProvider.isTrial,
+                              localizations,
+                            ),
                           ],
 
                           // ── Upgrade contact ──
@@ -362,11 +372,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     BuildContext context,
     PlanProvider planProvider,
     Plan currentPlan,
+    bool isTrial,
     AppLocalizations localizations,
   ) {
     final scheme = Theme.of(context).colorScheme;
     final pending = planProvider.upgradeRequest;
-    final plans = requestablePlans(currentPlan);
+    final plans = requestablePlans(currentPlan, isTrial: isTrial);
     return Column(
       children: [
         for (final plan in plans)
@@ -448,12 +459,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 }
 
 /// The paid plans a user on [current] can ask for: the ones above it (Pro
-/// counts as Plus, so a Pro user has none).
-List<Plan> requestablePlans(Plan current) =>
-    [Plan.plus, Plan.pro].where((p) => p.index > current.index).toList();
+/// counts as Plus, so a Pro user has none). A free trial of Plus does not count
+/// as having Plus, so a trial user may ask to keep it (the server agrees).
+List<Plan> requestablePlans(Plan current, {bool isTrial = false}) {
+  final held = isTrial && current == Plan.plus ? Plan.free : current;
+  return [Plan.plus, Plan.pro].where((p) => p.index > held.index).toList();
+}
+
+/// The longest note the server accepts, counted in Unicode code points like
+/// the server (Python `len`) and the database (`char_length`) count them. The
+/// field's own `maxLength` counts grapheme clusters, which for Burmese is far
+/// fewer than the code points, so it can't be used.
+const int upgradeRequestNoteMaxLength = 500;
+
+/// How many code points [text] has (what the server counts).
+int noteLength(String text) => text.runes.length;
 
 /// Asks for an optional note and closes with it (trimmed; empty when none).
-/// Closes with null when cancelled; the caller sends the request.
+/// Closes with null when cancelled; the caller sends the request. Send is off
+/// while the note is over [upgradeRequestNoteMaxLength] code points.
 class _UpgradeRequestDialog extends StatefulWidget {
   const _UpgradeRequestDialog({required this.plan});
 
@@ -477,6 +501,8 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
     final l = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final planName = l.planName(widget.plan);
+    final length = noteLength(_note.text);
+    final tooLong = length > upgradeRequestNoteMaxLength;
     return AlertDialog(
       title: Text(l.upgradeRequestButton(planName)),
       content: SingleChildScrollView(
@@ -492,7 +518,7 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
             TextField(
               key: const Key('upgrade-request-note'),
               controller: _note,
-              maxLength: 500,
+              onChanged: (_) => setState(() {}),
               minLines: 2,
               maxLines: 4,
               textCapitalization: TextCapitalization.sentences,
@@ -500,6 +526,12 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
                 labelText: l.upgradeRequestNoteLabel,
                 hintText: l.upgradeRequestNoteHint,
                 alignLabelWithHint: true,
+                errorText: tooLong ? l.upgradeRequestNoteTooLong : null,
+                counter: Text(
+                  '$length/$upgradeRequestNoteMaxLength',
+                  key: const Key('upgrade-request-note-counter'),
+                  style: TextStyle(color: tooLong ? scheme.error : scheme.onSurfaceVariant),
+                ),
               ),
             ),
           ],
@@ -512,7 +544,7 @@ class _UpgradeRequestDialogState extends State<_UpgradeRequestDialog> {
         ),
         FilledButton(
           key: const Key('upgrade-request-send'),
-          onPressed: () => Navigator.pop(context, _note.text.trim()),
+          onPressed: tooLong ? null : () => Navigator.pop(context, _note.text.trim()),
           child: Text(l.upgradeRequestSend),
         ),
       ],

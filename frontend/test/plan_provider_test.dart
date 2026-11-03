@@ -204,6 +204,7 @@ void main() {
       expect(requestablePlans(Plan.free), [Plan.plus, Plan.pro]);
       expect(requestablePlans(Plan.plus), [Plan.pro]);
       expect(requestablePlans(Plan.pro), isEmpty);
+      // A trial of Plus is not "already on Plus": see the trial test below.
     });
 
     test('a request shows in the status at once, and a request for the other plan replaces it', () async {
@@ -486,6 +487,96 @@ void main() {
       expect(calls, 1);
       expect(find.text('You\'re already on the Plus plan or a higher one.'), findsOneWidget);
       expect(find.byKey(const Key('request-plus')), findsOneWidget); // nothing was recorded
+    });
+
+    testWidgets('the note limit counts code points like the server, so a Burmese note is not cut short', (tester) async {
+      // 70 x 8 = 560 code points, but far fewer than 500 grapheme clusters: the
+      // field's own maxLength (clusters) would let all of it through.
+      final burmese = 'ကျွန်ုပ်' * 70;
+      expect(burmese.characters.length, lessThan(500));
+      expect(burmese.runes.length, greaterThan(500));
+      expect(noteLength(burmese), 560);
+
+      final sent = <(Plan, String?)>[];
+      await openScreen(
+        tester,
+        _status(),
+        const Locale('en'),
+        requester: (plan, note) async {
+          sent.add((plan, note));
+          return _request(plan, note: note);
+        },
+      );
+      await tester.ensureVisible(find.byKey(const Key('request-plus')));
+      await tester.tap(find.byKey(const Key('request-plus')));
+      await tester.pumpAndSettle();
+
+      final send = find.byKey(const Key('upgrade-request-send'));
+      bool sendEnabled() => tester.widget<FilledButton>(send).onPressed != null;
+      Text counter() => tester.widget<Text>(find.byKey(const Key('upgrade-request-note-counter')));
+
+      expect(counter().data, '0/500');
+      expect(sendEnabled(), isTrue); // an empty note is fine
+
+      await tester.enterText(find.byKey(const Key('upgrade-request-note')), burmese);
+      await tester.pump();
+      expect(counter().data, '560/500');
+      expect(sendEnabled(), isFalse);
+      expect(find.text('Your note is too long. Please shorten it.'), findsOneWidget);
+
+      // 62 x 8 = 496 code points: fine.
+      await tester.enterText(find.byKey(const Key('upgrade-request-note')), 'ကျွန်ုပ်' * 62);
+      await tester.pump();
+      expect(counter().data, '496/500');
+      expect(sendEnabled(), isTrue);
+      expect(find.text('Your note is too long. Please shorten it.'), findsNothing);
+
+      // Exactly 500 is allowed, 501 is not (an emoji is one code point beyond the BMP pair: 1 rune, 2 UTF-16 units).
+      await tester.enterText(find.byKey(const Key('upgrade-request-note')), 'a' * 500);
+      await tester.pump();
+      expect(counter().data, '500/500');
+      expect(sendEnabled(), isTrue);
+      await tester.enterText(find.byKey(const Key('upgrade-request-note')), '${'a' * 499}😀');
+      await tester.pump();
+      expect(counter().data, '500/500');
+      expect(sendEnabled(), isTrue);
+      await tester.enterText(find.byKey(const Key('upgrade-request-note')), 'a' * 501);
+      await tester.pump();
+      expect(sendEnabled(), isFalse);
+
+      await tester.tap(send, warnIfMissed: false);
+      await tester.pump();
+      expect(sent, isEmpty); // Send is blocked
+    });
+
+    for (final (locale, expected) in const [
+      (Locale('en'), 'Your note is too long. Please shorten it.'),
+      (Locale('my'), 'သင့်မှတ်ချက် ရှည်လွန်းပါသည်။ ပိုတိုအောင် ရေးပေးပါ။'),
+    ]) {
+      testWidgets('a 422 from the server shows the "note is too long" text, not the server\'s (${locale.languageCode})',
+          (tester) async {
+        await openScreen(
+          tester,
+          _status(),
+          locale,
+          requester: (plan, note) async =>
+              throw ApiException('Note must be at most 500 characters', statusCode: 422),
+        );
+        await tester.ensureVisible(find.byKey(const Key('request-plus')));
+        await tester.tap(find.byKey(const Key('request-plus')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('upgrade-request-send')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(expected), findsOneWidget);
+        expect(find.textContaining('Note must be'), findsNothing);
+      });
+    }
+
+    test('a user on the Plus trial can ask to keep Plus', () {
+      expect(requestablePlans(Plan.plus, isTrial: true), [Plan.plus, Plan.pro]);
+      expect(requestablePlans(Plan.plus), [Plan.pro]); // paid Plus: only Pro
+      expect(requestablePlans(Plan.pro, isTrial: true), isEmpty);
     });
 
     testWidgets('the request texts are in Myanmar', (tester) async {

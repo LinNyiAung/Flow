@@ -1125,6 +1125,7 @@ class AppLocalizations {
       'upgradeRequestSend': 'Send',
       'upgradeRequestedOn': 'Requested on {date}. We\'ll be in touch.',
       'upgradeRequestFailed': 'Couldn\'t send your request. Please try again.',
+      'upgradeRequestNoteTooLong': 'Your note is too long. Please shorten it.',
       'voiceNothingHeard': 'We didn\'t catch anything. Please try again.',
       'voiceRetryHint': 'Your recording was already read, so trying again does not use another entry.',
       'chatModeStandard': 'Standard',
@@ -2168,6 +2169,7 @@ class AppLocalizations {
       'upgradeRequestSend': 'ပို့မည်',
       'upgradeRequestedOn': '{date} တွင် တောင်းဆိုထားပါသည်။ ကျွန်ုပ်တို့ ဆက်သွယ်ပါမည်။',
       'upgradeRequestFailed': 'သင့်တောင်းဆိုမှုကို မပို့နိုင်ပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
+      'upgradeRequestNoteTooLong': 'သင့်မှတ်ချက် ရှည်လွန်းပါသည်။ ပိုတိုအောင် ရေးပေးပါ။',
       'voiceNothingHeard': 'ဘာမှ မကြားလိုက်ရပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
       'voiceRetryHint': 'သင့်အသံသွင်းချက်ကို ဖတ်ပြီးပြီဖြစ်၍ ထပ်ကြိုးစားခြင်းသည် အသုံးပြုခွင့် ထပ်မံမကုန်ပါ။',
       'chatModeStandard': 'Standard',
@@ -3256,6 +3258,7 @@ class AppLocalizations {
   String get upgradeRequestSend => translate('upgradeRequestSend');
   String upgradeRequestedOn(String date) => translate('upgradeRequestedOn').replaceAll('{date}', date);
   String get upgradeRequestFailed => translate('upgradeRequestFailed');
+  String get upgradeRequestNoteTooLong => translate('upgradeRequestNoteTooLong');
   String get voiceNothingHeard => translate('voiceNothingHeard');
   String get voiceRetryHint => translate('voiceRetryHint');
   String get chatModeStandard => translate('chatModeStandard');
