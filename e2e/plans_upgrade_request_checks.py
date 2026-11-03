@@ -15,10 +15,12 @@ import httpx
 BASE = "http://127.0.0.1:8765"
 MYANMAR = re.compile("[က-႟]")
 BEFORE_REQUESTS = "e1b6d3a8f245"  # the revision the upgrade_requests migration revises
-REQUEST_KEYS = {"plan", "note", "status", "created_at"}
-PLAN_REQUEST_KEYS = {"plan", "note", "created_at"}
+BEFORE_VIBER = "f2c9a47e5b18"  # the revision the viber_number migration revises
+REQUEST_KEYS = {"plan", "note", "viber_number", "status", "created_at"}
+PLAN_REQUEST_KEYS = {"plan", "note", "viber_number", "created_at"}
 ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "trial_ends_at", "requested_plan", "note",
-                  "created_at", "status", "handled_at"}
+                  "viber_number", "created_at", "status", "handled_at"}
+OWNER_EMAIL, OWNER_VIBER = "owner@example.com", "+959123456789"
 
 
 def parse(value):
@@ -38,6 +40,7 @@ async def run(t):
     super_id = db.admins.find_one({"email": made["super_admin"]})["_id"]
     tag = uuid.uuid4().hex[:5]
     saved_contact = None
+    saved_owner = None
 
     def register(name, lang="en"):
         email = f"t8r-{name}-{tag}@example.com"
@@ -52,15 +55,17 @@ async def run(t):
             body["subscription_expires_at"] = expires.isoformat()
         return c.put(f"/api/admin/users/{uid}/subscription", headers=AD, json=body).status_code == 200
 
-    def ask(h, plan, note=None):
-        body = {"plan": plan}
+    def ask(h, plan, note=None, **more):
+        body = {"plan": plan, **more}
         if note is not None:
             body["note"] = note
         return c.post("/api/plan/upgrade-request", headers=h, json=body)
 
     def rows(uid):
+        """(id, plan, note, status, created_at, handled_at, handled_by, viber_number) of the user's requests."""
         with t.connect() as conn:
-            return conn.execute("SELECT id, plan, note, status, created_at, handled_at, handled_by FROM upgrade_requests "
+            return conn.execute("SELECT id, plan, note, status, created_at, handled_at, handled_by, viber_number "
+                                "FROM upgrade_requests "
                                 "WHERE user_id = %s ORDER BY created_at", (uid,)).fetchall()
 
     def pending_count():
@@ -95,6 +100,20 @@ async def run(t):
             idx = {r[0] for r in conn.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'upgrade_requests'")}
             check({"uq_upgrade_requests_pending_user", "ix_upgrade_requests_status_created",
                    "ix_upgrade_requests_user_id"} <= idx, "upgrade_requests_migration: the indexes are back", sorted(idx))
+
+            def viber_column():
+                return conn.execute("SELECT data_type, is_nullable FROM information_schema.columns "
+                                    "WHERE table_name = 'upgrade_requests' AND column_name = 'viber_number'").fetchone()
+
+            check(viber_column() == ("text", "YES"), "upgrade_requests_viber_migration: head has a nullable text viber_number",
+                  viber_column())
+            ok, out = t.alembic("downgrade", BEFORE_VIBER)
+            check(ok and t.current_revision(conn) == BEFORE_VIBER and viber_column() is None
+                  and "upgrade_requests" in t.table_names(conn),
+                  "upgrade_requests_viber_migration: downgrade drops only the column (the table stays)", out)
+            ok, out = t.alembic("upgrade", "head")
+            check(ok and viber_column() == ("text", "YES") and t.current_revision(conn) != BEFORE_VIBER,
+                  "upgrade_requests_viber_migration: upgrade adds it again", out)
 
             # ---- constraints
             uid = "t8r-" + tag
@@ -193,6 +212,48 @@ async def run(t):
         r = c.post("/api/plan/upgrade-request", json={"plan": "plus"})
         check(r.status_code in (401, 403), "upgrade_request_validation: no token is refused", r.status_code)
 
+        # ---- the user's Viber number
+        check(rows(uid)[0][7] is None and plan_request(h)["viber_number"] is None,
+              "upgrade_request_viber: a request without a number stores null, and GET /api/plan shows null")
+        for given, want in (("+959123456789", "+959123456789"), ("09 123 456 789", "+959123456789"),
+                            ("09-123-456-789", "+959123456789"), ("(09) 123.456.789", "+959123456789"),
+                            ("  09123456789  ", "+959123456789"), ("09\u00a0123\u00a0456\u00a0789", "+959123456789"),
+                            ("+66 81 234 5678", "+66812345678"), ("+1 (555) 123-4567", "+15551234567"),
+                            ("+12345678", "+12345678"), ("+123456789012345", "+123456789012345")):
+            r = ask(h, "plus", viber_number=given)
+            j = r.json() if r.status_code == 200 else {}
+            check(r.status_code == 200 and set(j) == REQUEST_KEYS and j["viber_number"] == want
+                  and rows(uid)[0][7] == want and len(rows(uid)) == 1,
+                  f"upgrade_request_viber: {given!r} is stored as {want}", f"{r.status_code} {r.text[:150]} {rows(uid)}")
+        check(plan_request(h)["viber_number"] == "+123456789012345",
+              "upgrade_request_viber: GET /api/plan shows the number of the pending request")
+        first_id = rows(uid)[0][0]
+        ask(h, "plus", viber_number="09 123 456 789")
+        r = ask(h, "pro", "other plan", viber_number="+66 81 234 5678")
+        check(r.status_code == 200 and r.json()["viber_number"] == "+66812345678" and len(rows(uid)) == 1
+              and rows(uid)[0][0] == first_id and rows(uid)[0][7] == "+66812345678" and rows(uid)[0][1] == "pro",
+              "upgrade_request_viber: a new request replaces the number of the pending one in place (like the note)",
+              f"{r.status_code} {r.text[:150]} {rows(uid)}")
+        for label, body in (("an empty string", {"viber_number": ""}), ("blanks and dashes", {"viber_number": " - "}),
+                            ("null", {"viber_number": None}), ("no viber_number field", {})):
+            ask(h, "plus", viber_number="09 123 456 789")
+            r = c.post("/api/plan/upgrade-request", headers=h, json={"plan": "plus", **body})
+            check(r.status_code == 200 and r.json()["viber_number"] is None and rows(uid)[0][7] is None and len(rows(uid)) == 1,
+                  f"upgrade_request_viber: {label} clears the number (null)", f"{r.status_code} {r.text[:150]} {rows(uid)}")
+        ask(h, "plus", viber_number="09 123 456 789")
+        for label, given in (("letters", "abc"), ("too short", "12345"), ("only a plus", "+"), ("7 digits", "+1234567"),
+                             ("16 digits", "+1234567890123456"), ("a local number with 0 but short", "0912"),
+                             ("no plus (959…)", "959123456789"), ("a local non-09 number", "01 234 5678"),
+                             ("two plus signs", "++959123456789"), ("a trailing plus", "+959123456789+"),
+                             ("a plus in the middle", "+95+9123456789"), ("text after the number", "09 123 456 789 ext 2"),
+                             ("Burmese digits", "၀၉၁၂၃၄၅၆၇၈၉"), ("a number as a JSON number", 959123456789)):
+            r = c.post("/api/plan/upgrade-request", headers=h, json={"plan": "plus", "viber_number": given})
+            check(r.status_code == 422 and (not isinstance(given, str) or "Viber" in r.text)
+                  and rows(uid)[0][7] == "+959123456789" and len(rows(uid)) == 1,
+                  f"upgrade_request_viber: {label} is refused (422, readable) and changes nothing",
+                  f"{r.status_code} {r.text[:200]}")
+        ask(h, "plus")  # back to no number and no note for the checks below
+
         # ---- already on that plan or higher
         plus_uid, plus_h = register("plus")
         pro_uid, pro_h = register("pro", "my")
@@ -244,7 +305,7 @@ async def run(t):
         row = listed(MOD, uid)
         check(row is not None and set(row) == ADMIN_ROW_KEYS and row["name"] == "free" and row["email"] == f"t8r-free-{tag}@example.com"
               and row["current_plan"] == "free" and row["requested_plan"] == "plus" and row["status"] == "pending"
-              and row["handled_at"] is None and row["note"] is None,
+              and row["handled_at"] is None and row["note"] is None and row["viber_number"] is None,
               "admin_requests_list: the moderator sees the pending request with user, current plan, requested plan, note", row)
         row = listed(MOD, plus_uid)
         check(row is not None and row["current_plan"] == "plus" and row["requested_plan"] == "pro",
@@ -264,6 +325,17 @@ async def run(t):
               "admin_requests_list: skip / limit are validated")
         page = admin_list(MOD, limit=1).json()
         check(len(page) == 1, "admin_requests_list: limit pages the list", page)
+        ask(h, "plus", viber_number="09 123 456 789")
+        row = listed(MOD, uid)
+        check(row is not None and row["viber_number"] == "+959123456789" and row["email"] == f"t8r-free-{tag}@example.com",
+              "admin_requests_list: a row carries the user's Viber number (the owner contacts them there) next to the email", row)
+        check(listed(AD, uid)["viber_number"] == "+959123456789" and listed(SUP, uid)["viber_number"] == "+959123456789",
+              "admin_requests_list: admins see the number too")
+        row = listed(MOD, plus_uid)
+        check(row is not None and row["viber_number"] is None,
+              "admin_requests_list: a request without a number has viber_number null (contact by the account email)", row)
+        ask(h, "plus")
+        check(listed(MOD, uid)["viber_number"] is None, "admin_requests_list: a later request without a number clears it")
 
         # ---- dismiss / done: roles, 404, 409, log
         request_id = listed(MOD, uid)["id"]
@@ -488,8 +560,90 @@ async def run(t):
               "plan_activated: a user whose stored preference for it is off is not notified (the plan still changes)",
               f"{r.status_code} {r.text[:150]}")
 
+        # ---- the owner's own email and Viber number (plan settings)
+        snap0 = c.get("/api/admin/plans", headers=AD).json()
+        saved_contact, saved_owner = snap0["upgrade_contact"], snap0["owner_contact"]
+
+        def put_owner(email, viber, h_=AD, **over):
+            """PUT the whole settings with this owner contact (the rest as it is now)."""
+            snap = c.get("/api/admin/plans", headers=AD).json()
+            snap["owner_contact"] = {"email": email, "viber": viber}
+            snap.update(over)
+            return c.put("/api/admin/plans", headers=h_, json=snap)
+
+        def stored_owner():
+            with t.connect() as conn:
+                return {r[0]: r[1] for r in conn.execute(
+                    "SELECT key, value FROM app_settings WHERE key IN ('contact_email', 'contact_viber')")}
+
+        check(put_owner("", "").status_code == 200, "setup: clear the owner's email and Viber number")
+        check(c.get("/api/admin/plans", headers=MOD).json()["owner_contact"] == {"email": "", "viber": ""}
+              and c.get("/api/plan", headers=h).json()["owner_contact"] == {"email": "", "viber": ""},
+              "owner_contact: nothing is set by default: empty strings in the admin API and in GET /api/plan")
+        r = put_owner(" " + OWNER_EMAIL + " ", "09 123 456 789")
+        want = {"email": OWNER_EMAIL, "viber": OWNER_VIBER}
+        check(r.status_code == 200 and r.json()["owner_contact"] == want,
+              "owner_contact_save: an admin saves them; the answer shows the stripped email and the normalised number "
+              "(09… -> +959…)", f"{r.status_code} {r.text[-200:]}")
+        check(c.get("/api/admin/plans", headers=MOD).json()["owner_contact"] == want
+              and stored_owner() == {"contact_email": OWNER_EMAIL, "contact_viber": OWNER_VIBER},
+              "owner_contact_save: a moderator reads them; app_settings holds contact_email and contact_viber")
+        check(c.get("/api/plan", headers=h).json()["owner_contact"] == want
+              and c.get("/api/plan", headers=plus_h).json()["owner_contact"] == want
+              and c.get("/api/plan", headers=pro_h).json()["owner_contact"] == want,
+              "owner_contact_app: GET /api/plan shows them to every user whatever the language (not per language)")
+        got = [x for x in logs(made["admin"]) if x["action"] == "plans_update" and "owner contact email" in (x["details"] or "")]
+        check(got and OWNER_EMAIL in got[0]["details"] and "owner contact viber" in got[0]["details"],
+              "owner_contact_save: the change is written to the admin log", got[:1])
+        # a save that leaves owner_contact out keeps them
+        snap = c.get("/api/admin/plans", headers=AD).json()
+        snap.pop("owner_contact")
+        snap["upgrade_contact"] = {"en": "Ping us", "my": ""}
+        r = c.put("/api/admin/plans", headers=AD, json=snap)
+        check(r.status_code == 200 and r.json()["owner_contact"] == want and r.json()["upgrade_contact"]["en"] == "Ping us"
+              and stored_owner()["contact_email"] == OWNER_EMAIL,
+              "owner_contact_save: a save without owner_contact leaves the owner's email and number alone", f"{r.status_code} {r.text[-200:]}")
+        # one at a time
+        r = put_owner("", OWNER_VIBER)
+        check(r.status_code == 200 and r.json()["owner_contact"] == {"email": "", "viber": OWNER_VIBER}
+              and c.get("/api/plan", headers=h).json()["owner_contact"] == {"email": "", "viber": OWNER_VIBER},
+              "owner_contact_save: an empty email clears just the email")
+        r = put_owner(OWNER_EMAIL, "  ")
+        check(r.status_code == 200 and r.json()["owner_contact"] == {"email": OWNER_EMAIL, "viber": ""},
+              "owner_contact_save: a blank number clears just the number")
+        before_bad = c.get("/api/admin/plans", headers=AD).json()
+        for label, email, viber, word in (
+            ("an email without @", "owner.example.com", "", "email"), ("an email without a domain dot", "owner@example", "", "email"),
+            ("an email with a space", "own er@example.com", "", "email"), ("an email over 254 characters", "a" * 250 + "@b.co", "", "email"),
+            ("a Viber number with letters", "", "abc", "Viber"), ("a Viber number too short", "", "+1234567", "Viber"),
+            ("a Viber number without a plus or 09", "", "959123456789", "Viber"),
+        ):
+            r = put_owner(email, viber)
+            check(r.status_code == 422 and word in r.text and c.get("/api/admin/plans", headers=AD).json() == before_bad,
+                  f"owner_contact_validation: {label} is a 422 with a readable message and saves nothing", f"{r.status_code} {r.text[:200]}")
+        r = put_owner("owner.example.com", "abc")
+        check(r.status_code == 422 and "email" in r.text and "Viber" in r.text,
+              "owner_contact_validation: both problems are reported together", r.text[:200])
+        snap = c.get("/api/admin/plans", headers=AD).json()
+        for label, bad in (("an unknown field", {"email": "", "viber": "", "telegram": "x"}), ("a missing viber", {"email": ""}),
+                           ("a non-text email", {"email": 5, "viber": ""}), ("a string instead of an object", "me@example.com")):
+            snap["owner_contact"] = bad
+            r = c.put("/api/admin/plans", headers=AD, json=snap)
+            check(r.status_code == 422 and c.get("/api/admin/plans", headers=AD).json() == before_bad,
+                  f"owner_contact_validation: {label} is a 422", f"{r.status_code} {r.text[:150]}")
+        check(put_owner("owner@example.com", "x", h_=MOD).status_code == 403,
+              "owner_contact_roles: a moderator cannot change them (403)")
+        r = c.put("/api/admin/plans", json=snap)
+        check(r.status_code in (401, 403) and c.put("/api/admin/plans", headers=plus_h, json=snap).status_code in (401, 403),
+              "owner_contact_roles: no token and a user token are refused")
+        check(put_owner("super@example.com", "", h_=SUP).status_code == 200
+              and c.get("/api/plan", headers=h).json()["owner_contact"]["email"] == "super@example.com",
+              "owner_contact_roles: a super admin can")
+        check(put_owner("", "").status_code == 200 and stored_owner() == {"contact_email": "", "contact_viber": ""},
+              "owner_contact_save: both can be cleared again (stored as empty)")
+        check(put_contact(saved_contact["en"], saved_contact["my"]), "setup: put the upgrade contact back")
+
         # upgrade_request_declined: dismiss, contact message unset
-        saved_contact = c.get("/api/admin/plans", headers=AD).json()["upgrade_contact"]
         check(put_contact("", ""), "setup: clear the upgrade contact")
         d1_uid, _ = request_for("dec-plain", "pro")
         check(dismiss(d1_uid) == 200, "setup: dismiss a request for Pro")
@@ -520,6 +674,36 @@ async def run(t):
         check(len(got) == 1 and MYANMAR.search(got[0]["message"]) and "@flowowner" not in got[0]["message"]
               and "Contact us" not in got[0]["message"],
               "upgrade_request_declined: a contact message missing in Myanmar falls back to the default Myanmar sentence", got)
+        # the owner's email and Viber number follow the contact message (or the default sentence), one per line
+        check(put_contact("Message the owner on Telegram: @flowowner", "ပိုင်ရှင်ကို Telegram မှ ဆက်သွယ်ပါ")
+              and put_owner(OWNER_EMAIL, "09 123 456 789").status_code == 200, "setup: contact message, email and Viber number")
+        d7_uid, _ = request_for("dec-owner", "plus")
+        dismiss(d7_uid)
+        got = notes(d7_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"] == "Your request for Plus was closed. Message the owner on Telegram: @flowowner"
+              f"\nEmail: {OWNER_EMAIL}\nViber: {OWNER_VIBER}",
+              "upgrade_request_declined: the email and Viber number follow the contact message ('Email: …', 'Viber: …')", got)
+        d8_uid, _ = request_for("dec-owner-my", "pro", "my")
+        dismiss(d8_uid)
+        got = notes(d8_uid, "upgrade_request_declined")
+        check(len(got) == 1 and "ပိုင်ရှင်ကို Telegram မှ ဆက်သွယ်ပါ" in got[0]["message"]
+              and f"\nအီးမေးလ်: {OWNER_EMAIL}\nဗိုင်ဘာ: {OWNER_VIBER}" in got[0]["message"]
+              and "Email:" not in got[0]["message"] and "Viber:" not in got[0]["message"],
+              "upgrade_request_declined: a Myanmar user gets the Myanmar labels", got)
+        check(put_contact("", "") and put_owner(OWNER_EMAIL, "").status_code == 200, "setup: no contact message, only an email")
+        d9_uid, _ = request_for("dec-owner-email", "plus")
+        dismiss(d9_uid)
+        got = notes(d9_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"] == f"Your request for Plus was closed. Contact us if you have questions.\nEmail: {OWNER_EMAIL}",
+              "upgrade_request_declined: with only an email set, the default sentence is followed by just the email line", got)
+        check(put_owner("", OWNER_VIBER).status_code == 200, "setup: only a Viber number")
+        d10_uid, _ = request_for("dec-owner-viber", "plus", "my")
+        dismiss(d10_uid)
+        got = notes(d10_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"].endswith(f"\nဗိုင်ဘာ: {OWNER_VIBER}") and "အီးမေးလ်" not in got[0]["message"]
+              and MYANMAR.search(got[0]["message"].split("\n")[0]),
+              "upgrade_request_declined: with only a Viber number, just the Viber line follows (Myanmar default sentence)", got)
+        check(put_owner("", "").status_code == 200, "setup: clear the owner's email and Viber number")
         put_contact(saved_contact["en"], saved_contact["my"])
         # a dismissal answered twice (409) notifies once
         d5_uid, _ = request_for("dec-twice")
@@ -562,6 +746,7 @@ async def run(t):
         if saved_contact is not None:  # the checks changed the upgrade contact: put the original back
             snap = c.get("/api/admin/plans", headers=AD).json()
             snap["upgrade_contact"] = saved_contact
+            snap["owner_contact"] = saved_owner
             c.put("/api/admin/plans", headers=AD, json=snap)
         db.users.delete_many({"email": {"$regex": f"^t8r-.*-{tag}@"}})
         db.admins.delete_many({"email": {"$in": list(made.values())}})

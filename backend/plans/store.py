@@ -1,5 +1,5 @@
 """The plan limits the app enforces: per plan and feature (locked / included / counted), a monthly AI cost cap per
-plan, and the upgrade contact texts. The owner edits them in the admin panel; they live in the database
+plan, and the upgrade contact texts and the owner's own email and Viber number. The owner edits them in the admin panel; they live in the database
 (sql.plans) and are served from an in-memory cache that is loaded at startup and refreshed every minute, so
 a change is visible in this process at once and in the others within a minute.
 
@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 from sql import plans as plans_db
 
+from .contact import normalize_email, normalize_viber
 from .catalog import DEFAULT_COST_CAPS, DEFAULT_LIMITS, FEATURES, MODES, PERIODS, PLANS, Limit
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ MAX_COST_CAP = 999_999.0    # plan_settings.cost_cap_usd is NUMERIC(12, 6)
 _limits: Dict[str, Dict[str, Limit]] = {p: dict(f) for p, f in DEFAULT_LIMITS.items()}
 _caps: Dict[str, float] = dict(DEFAULT_COST_CAPS)
 _contact: Dict[str, str] = {"en": "", "my": ""}
+_owner: Dict[str, str] = {"email": "", "viber": ""}
 
 
 # ---- reading (the cache) ----
@@ -41,6 +43,11 @@ def cost_cap(plan: str) -> float:
 def upgrade_contact() -> Dict[str, str]:
     """{"en": ..., "my": ...}: how to reach the owner to upgrade (empty string when not set)."""
     return dict(_contact)
+
+
+def owner_contact() -> Dict[str, str]:
+    """{"email": ..., "viber": ...}: the owner's own email and Viber number (`+` and digits); empty string when not set."""
+    return dict(_owner)
 
 
 # ---- validation ----
@@ -82,8 +89,30 @@ def _limit(where: str, value: Any, errors: List[str]) -> Limit | None:
     return Limit("counted", quota, period) if ok else None
 
 
-def _validate(plan_rows: Any, caps: Any, contact: Any):
-    """-> (normalised limits {plan: {feature: Limit}}, caps {plan: float}, contact {"en", "my"}); ValueError if invalid."""
+def _owner_contact(value: Any, errors: List[str]) -> Dict[str, str]:
+    """{"email", "viber"} normalised ("" when empty) from a mapping with those keys; problems are appended to `errors`."""
+    if not isinstance(value, Mapping):
+        errors.append("owner contact must be an object with email and viber")
+        return {}
+    for key in value:
+        if key not in ("email", "viber"):
+            errors.append(f"Unknown owner contact field '{key}'")
+    out: Dict[str, str] = {}
+    for key, normalise, label in (("email", normalize_email, "email"), ("viber", normalize_viber, "Viber number")):
+        raw = value.get(key, "")
+        if raw is not None and not isinstance(raw, str):
+            errors.append(f"owner contact {label} must be text")
+            continue
+        try:
+            out[key] = normalise(raw) or ""
+        except ValueError as e:
+            errors.append(f"owner contact {label}: {e}")
+    return out
+
+
+def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None):
+    """-> (normalised limits {plan: {feature: Limit}}, caps {plan: float}, contact {"en", "my"}, owner contact
+    {"email", "viber"} or None when `owner` is None); ValueError if invalid."""
     errors: List[str] = []
     rows: Dict[str, Dict[str, Limit]] = {}
     if not isinstance(plan_rows, Mapping):
@@ -147,16 +176,19 @@ def _validate(plan_rows: Any, caps: Any, contact: Any):
         else:
             out_contact[lang] = text
 
+    out_owner = _owner_contact(owner, errors) if owner is not None else None
+
     if errors:
         raise ValueError("; ".join(errors))
-    return rows, out_caps, out_contact
+    return rows, out_caps, out_contact, out_owner
 
 
 # ---- the cache <-> the database ----
 
-def _set_cache(new_limits: Dict[str, Dict[str, Limit]], new_caps: Dict[str, float], new_contact: Dict[str, str]) -> None:
-    global _limits, _caps, _contact
-    _limits, _caps, _contact = new_limits, new_caps, new_contact
+def _set_cache(new_limits: Dict[str, Dict[str, Limit]], new_caps: Dict[str, float], new_contact: Dict[str, str],
+               new_owner: Dict[str, str]) -> None:
+    global _limits, _caps, _contact, _owner
+    _limits, _caps, _contact, _owner = new_limits, new_caps, new_contact, new_owner
 
 
 # Bumped by every save, before the write and after the cache changes. A load whose read overlapped a save may hold
@@ -197,26 +229,36 @@ async def load() -> None:
         if plan in PLANS and row.get("cost_cap_usd") is not None:
             new_caps[plan] = float(row["cost_cap_usd"])
     new_contact = {lang: texts.get(key, "") for lang, key in plans_db.CONTACT_KEYS.items()}
+    # A stored owner contact that no longer passes validation (edited by hand) is not shown.
+    new_owner = {}
+    for name, key in plans_db.OWNER_CONTACT_KEYS.items():
+        try:
+            new_owner[name] = (normalize_email if name == "email" else normalize_viber)(texts.get(key)) or ""
+        except ValueError:
+            logger.warning("Ignoring the stored owner contact %s: not valid", name)
+            new_owner[name] = ""
 
     if _write_gen != gen:
         logger.debug("Discarding a stale plans snapshot: a save happened while it was being read")
         return
-    _set_cache(new_limits, new_caps, new_contact)
+    _set_cache(new_limits, new_caps, new_contact, new_owner)
 
 
-async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: str) -> None:
+async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: str,
+               owner_contact: Mapping | None = None) -> None:
     """Validate, store and cache the limits (plan -> feature -> Limit or {mode, quota, period}), the cost caps
-    (plan -> USD) and the upgrade contact texts ({"en", "my"}). Raises ValueError with a readable message when
+    (plan -> USD), the upgrade contact texts ({"en", "my"}) and, when given, the owner's {"email", "viber"} (empty
+    string clears one; None leaves both as they are). Raises ValueError with a readable message when
     anything is invalid; nothing is written then. `admin_id` is only recorded in the server log (the route writes
     the admin action log).
     """
     global _write_gen
-    rows, out_caps, out_contact = _validate(plan_rows, caps, contact)
+    rows, out_caps, out_contact, out_owner = _validate(plan_rows, caps, contact, owner_contact)
     flat = [{"plan": p, "feature": f, "mode": lim.mode, "quota": lim.quota, "period": lim.period}
             for p in PLANS for f, lim in rows[p].items()]
     _write_gen += 1
-    await plans_db.write_all(flat, out_caps, out_contact)
-    _set_cache(rows, out_caps, out_contact)
+    await plans_db.write_all(flat, out_caps, out_contact, out_owner)
+    _set_cache(rows, out_caps, out_contact, out_owner if out_owner is not None else dict(_owner))
     _write_gen += 1
     logger.info("Plans saved by admin %s", admin_id)
 

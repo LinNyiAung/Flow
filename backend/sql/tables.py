@@ -353,6 +353,7 @@ upgrade_requests = Table(
     _user_fk(),
     Column("plan", Text, nullable=False),
     Column("note", Text),
+    Column("viber_number", Text),  # for the owner to contact the user on Viber; null: use the account email
     Column("status", Text, nullable=False, server_default="pending"),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("handled_at", TS),

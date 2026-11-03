@@ -289,10 +289,10 @@ def utc(*args):
 
 
 def body_of(limits, caps, contact):
-    """The admin API body ({plans: {plan: {limits, cost_cap_usd}}, upgrade_contact}) for catalogue-shaped inputs."""
+    """The admin API body ({plans: {plan: {limits, cost_cap_usd}}, upgrade_contact, owner_contact}) for catalogue-shaped inputs."""
     return {"plans": {p: {"limits": {f: {"mode": l.mode, "quota": l.quota, "period": l.period} for f, l in limits[p].items()},
                           "cost_cap_usd": caps[p]} for p in limits},
-            "upgrade_contact": dict(contact)}
+            "upgrade_contact": dict(contact), "owner_contact": {"email": "", "viber": ""}}
 
 
 def default_body():
@@ -586,7 +586,7 @@ def api_checks():
         r = get()
         j = r.json() if r.status_code == 200 else {}
         want = default_body()
-        shaped = (set(j) == {"plans", "upgrade_contact"} and set(j.get("plans", {})) == set(catalog.PLANS)
+        shaped = (set(j) == {"plans", "upgrade_contact", "owner_contact"} and set(j.get("plans", {})) == set(catalog.PLANS)
                   and all(set(v) == {"limits", "cost_cap_usd"} and set(v["limits"]) == set(catalog.FEATURES)
                           and all(set(x) == {"mode", "quota", "period"} for x in v["limits"].values())
                           for v in j.get("plans", {}).values()))

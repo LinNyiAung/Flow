@@ -270,6 +270,7 @@ async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dic
         "catalog": {p: {f: {"mode": lim.mode, "quota": lim.quota, "period": lim.period}
                         for f, lim in store.limits(p).items()} for p in PLANS},
         "upgrade_contact": store.upgrade_contact(),
+        "owner_contact": store.owner_contact(),
     }
 
 

@@ -72,6 +72,8 @@ NOTIFICATION_TRANSLATIONS = {
         "upgrade_request_declined_title": "Upgrade Request Closed",
         "upgrade_request_declined_msg": "Your request for {plan} was closed. {contact}",
         "upgrade_request_contact_default": "Contact us if you have questions.",
+        "contact_email_label": "Email",
+        "contact_viber_label": "Viber",
         "plan_paid_required_msg": "This feature is only available on the Plus and Pro plans.",
         # Plan limit responses (plans.access.PlanError). Feature names are used inside the messages.
         "plan_feature_chat": "AI chat",
@@ -135,6 +137,8 @@ NOTIFICATION_TRANSLATIONS = {
         "upgrade_request_declined_title": "အဆင့်မြှင့်တင်ရန် တောင်းဆိုမှု ပိတ်လိုက်ပါပြီ",
         "upgrade_request_declined_msg": "{plan} အတွက် သင်၏ တောင်းဆိုမှုကို ပိတ်လိုက်ပါပြီ။ {contact}",
         "upgrade_request_contact_default": "မေးမြန်းလိုသည်များရှိပါက ကျွန်ုပ်တို့ထံ ဆက်သွယ်ပါ။",
+        "contact_email_label": "အီးမေးလ်",
+        "contact_viber_label": "ဗိုင်ဘာ",
         "plan_paid_required_msg": "ဤလုပ်ဆောင်ချက်ကို Plus နှင့် Pro အစီအစဉ်များတွင်သာ အသုံးပြုနိုင်ပါသည်။",
         "plan_feature_chat": "AI စကားပြောခြင်း",
         "plan_feature_chat_advanced": "Advanced စကားပြောခြင်း",

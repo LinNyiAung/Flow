@@ -186,11 +186,16 @@ async def notify_plan_activated(user: dict, plan: str, expires_at: Optional[date
 
 async def notify_upgrade_request_declined(user: dict, plan: str) -> None:
     """Tell the user their upgrade request for `plan` was closed without a plan change ("upgrade_request_declined"):
-    the owner's contact message (in the user's language) when one is set, otherwise a generic "contact us" sentence.
+    the owner's contact message (in the user's language) when one is set, otherwise a generic "contact us" sentence,
+    then the owner's email and Viber number ("Email: …", "Viber: …", each on its own line) when they are set.
     A failure is logged and swallowed, like notify_plan_activated."""
     try:
         lang = user_language(user)
         contact = (store.upgrade_contact().get(lang) or "").strip() or translate("upgrade_request_contact_default", lang)
+        owner = store.owner_contact()
+        for key in ("email", "viber"):
+            if owner.get(key):
+                contact += f"\n{translate(f'contact_{key}_label', lang)}: {owner[key]}"
         await create_notification(
             user_id=user["_id"],
             notification_type="upgrade_request_declined",

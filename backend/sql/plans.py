@@ -10,6 +10,8 @@ from sql.db import execute, fetch_all, transaction, write_returning
 from sql.tables import app_settings, plan_limits, plan_settings, usage_counters, users
 
 CONTACT_KEYS = {"en": "upgrade_contact_en", "my": "upgrade_contact_my"}
+# The owner's own email and Viber number (not per language); a missing key or an empty value means "not set".
+OWNER_CONTACT_KEYS = {"email": "contact_email", "viber": "contact_viber"}
 
 # One counter row of a user: (feature, period, period_start).
 CounterKey = Tuple[str, str, date]
@@ -17,17 +19,20 @@ _uc = usage_counters.c
 
 
 async def read_all() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, str]]:
-    """(plan_limits rows, plan_settings rows, {app_settings key: value} for the upgrade contact keys)."""
+    """(plan_limits rows, plan_settings rows, {app_settings key: value} for the upgrade contact and owner contact keys)."""
     limits = await fetch_all(select(plan_limits))
     caps = await fetch_all(select(plan_settings))
-    texts = await fetch_all(select(app_settings.c.key, app_settings.c.value).where(app_settings.c.key.in_(list(CONTACT_KEYS.values()))))
+    keys = [*CONTACT_KEYS.values(), *OWNER_CONTACT_KEYS.values()]
+    texts = await fetch_all(select(app_settings.c.key, app_settings.c.value).where(app_settings.c.key.in_(keys)))
     return limits, caps, {r["key"]: r["value"] for r in texts}
 
 
-async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, float], contact: Mapping[str, str]) -> None:
-    """Upsert every limit row, cost cap and contact text in one transaction.
+async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, float], contact: Mapping[str, str],
+                    owner_contact: Optional[Mapping[str, str]] = None) -> None:
+    """Upsert every limit row, cost cap and contact text (and the owner's email / Viber number) in one transaction.
 
     limit_rows: dicts with plan, feature, mode, quota, period. caps: plan -> USD. contact: {"en": ..., "my": ...}.
+    owner_contact: {"email": ..., "viber": ...} ("" clears one), or None to leave both as they are.
     """
     async with transaction():
         if limit_rows:
@@ -39,8 +44,11 @@ async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, floa
             stmt = pg_insert(plan_settings).values(plan=plan, cost_cap_usd=cap)
             await execute(stmt.on_conflict_do_update(index_elements=[plan_settings.c.plan],
                                                      set_={"cost_cap_usd": stmt.excluded.cost_cap_usd}))
-        for lang, key in CONTACT_KEYS.items():
-            stmt = pg_insert(app_settings).values(key=key, value=contact[lang])
+        texts = {key: contact[lang] for lang, key in CONTACT_KEYS.items()}
+        if owner_contact is not None:
+            texts.update({key: owner_contact[name] for name, key in OWNER_CONTACT_KEYS.items()})
+        for key, value in texts.items():
+            stmt = pg_insert(app_settings).values(key=key, value=value)
             await execute(stmt.on_conflict_do_update(index_elements=[app_settings.c.key],
                                                      set_={"value": stmt.excluded.value, "updated_at": func.now()}))
 
