@@ -12,6 +12,7 @@ import 'package:frontend/screens/settings/notification_settings_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
+import 'package:frontend/widgets/app_list_row.dart';
 
 import '../support/accounts.dart';
 import '../support/harness.dart';
@@ -69,6 +70,22 @@ void notificationFlows() {
         await back();
         await waitFor(find.byType(NotificationsScreen));
         await settle(1000);
+      }
+      for (final title in ['Your Pro Plan Is Active', 'Upgrade Request Closed']) {
+        step('tap "$title" (what an admin plan change / dismissed request send)');
+        check(await scrollTo(find.text(title), maxSwipes: 6), 'Notifications: "$title" not listed');
+        final row = find.ancestor(of: find.text(title).first, matching: find.byType(AppListRow)).first;
+        check(find.descendant(of: row, matching: find.byIcon(Icons.workspace_premium_rounded)).evaluate().isNotEmpty,
+            'Notifications: "$title" has no plan icon (it fell back to the broadcast icon)');
+        await tap(find.text(title).first);
+        final opened = await waitFor(find.byType(SubscriptionScreen), timeout: const Duration(seconds: 10), orNull: true);
+        check(opened, 'Tapping "$title" did not open the Upgrade screen');
+        if (opened) {
+          await settle(1500);
+          await back();
+          await waitFor(find.byType(NotificationsScreen));
+          await settle(1000);
+        }
       }
       step('tap goal notification (no goal id)');
       await scrollTo(find.text('Goal achieved: New laptop'), maxSwipes: 4);

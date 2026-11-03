@@ -1,6 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:frontend/models/notification.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/services/api_service.dart';
 
@@ -138,6 +139,12 @@ class FCMService {
       NotificationEventBus().notifySubscriptionUpdated();
     }
 
+    // "Your plan is now active" / "your request was closed": reload the
+    // profile and the plan, so the new plan or the cleared request shows now.
+    if (notificationRefreshesPlan(message.data['type'] as String?)) {
+      NotificationEventBus().notifySubscriptionUpdated();
+    }
+
     _showLocalNotification(message);
     NotificationEventBus().notifyReceived();
   }
@@ -156,6 +163,11 @@ class FCMService {
     final goalId = data['goal_id'];
     
     print('Navigate to: type=$notificationType, goalId=$goalId');
+
+    // The app was opened from a plan notice's push: the plan may have changed.
+    if (notificationRefreshesPlan(notificationType as String?)) {
+      NotificationEventBus().notifySubscriptionUpdated();
+    }
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
@@ -228,6 +240,8 @@ class FCMService {
       case 'subscription_expired':
       case 'trial_ending_soon':
       case 'trial_ends_today':
+      case 'plan_activated':
+      case 'upgrade_request_declined':
         return Color(0xFFFF9800);
       default:
         return Color(0xFF667eea);

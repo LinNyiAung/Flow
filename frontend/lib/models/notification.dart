@@ -26,7 +26,32 @@ enum NotificationType {
   trial_ending_soon,
   // ignore: constant_identifier_names
   trial_ends_today,
+  // An admin put the user on Plus or Pro.
+  // ignore: constant_identifier_names
+  plan_activated,
+  // An admin closed the user's upgrade request without changing the plan.
+  // ignore: constant_identifier_names
+  upgrade_request_declined,
 }
+
+extension PlanNotificationType on NotificationType {
+  /// About the user's plan: shown with the plan icon and colour, and opens
+  /// the Upgrade screen when tapped.
+  bool get isPlanNotice =>
+      this == NotificationType.subscription_expired ||
+      this == NotificationType.trial_ending_soon ||
+      this == NotificationType.trial_ends_today ||
+      this == NotificationType.plan_activated ||
+      this == NotificationType.upgrade_request_declined;
+}
+
+/// True when a notification of this type (its wire name, as in a push's data
+/// or a stored notification) changes what the plan screens show (the new
+/// plan, or a request that is no longer pending), so the app reloads the plan
+/// when one arrives or is opened.
+bool notificationRefreshesPlan(String? typeName) =>
+    typeName == NotificationType.plan_activated.name ||
+    typeName == NotificationType.upgrade_request_declined.name;
 
 class AppNotification {
   final String id;

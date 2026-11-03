@@ -107,7 +107,9 @@ for key in ("plus", "free", "pro", "myanmar"):
                       ("budget_threshold", "80% of Monthly essentials used"), ("goal_achieved", "Goal achieved: New laptop"),
                       ("system_broadcast", "Welcome to the new version"),
                       # What the trial reminder job sends (a type the app routes to the Upgrade screen).
-                      *((("trial_ending_soon", "Your Plus Trial Ends Soon"),) if key == "plus" else ())):
+                      # ...and what an admin's plan change / dismissed request send.
+                      *((("trial_ending_soon", "Your Plus Trial Ends Soon"), ("plan_activated", "Your Pro Plan Is Active"),
+                         ("upgrade_request_declined", "Upgrade Request Closed")) if key == "plus" else ())):
         db.notifications.insert_one({"_id": str(uuid.uuid4()), "user_id": ACCOUNTS[key]["id"], "type": t_, "title": title,
                                      "message": f"{title} — details here.", "created_at": now - timedelta(hours=random.randint(1, 72)),
                                      "is_read": False, "currency": "usd"})

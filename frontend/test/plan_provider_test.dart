@@ -10,6 +10,7 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/services/notification_event_bus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -151,6 +152,24 @@ void main() {
 
       expect(provider.status, isNull);
       expect(provider.isLoading, isFalse);
+      provider.dispose();
+    });
+
+    test('a plan notice arriving or opened (the app is told the plan changed) reloads the plan and the cleared request', () async {
+      var answered = false;
+      final provider = PlanProvider(
+        loader: () async => answered ? _status(plan: Plan.plus) : _status(upgradeRequest: _request(Plan.plus)),
+      );
+      await provider.refresh();
+      expect(provider.upgradeRequest?.plan, Plan.plus);
+      expect(provider.status!.plan, Plan.free);
+
+      answered = true; // the admin set Plus (and so closed the request); "plan_activated" arrives
+      NotificationEventBus().notifySubscriptionUpdated();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(provider.status!.plan, Plan.plus);
+      expect(provider.upgradeRequest, isNull);
       provider.dispose();
     });
 

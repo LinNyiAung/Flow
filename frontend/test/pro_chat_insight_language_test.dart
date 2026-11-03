@@ -454,4 +454,45 @@ void main() {
       expect(AppNotification.fromJson(json('something_new')).type, NotificationType.system_broadcast);
     });
   });
+
+  group('plan_activated / upgrade_request_declined notifications', () {
+    Map<String, dynamic> json(String type) => {
+          'id': 'n1',
+          'user_id': 'u1',
+          'type': type,
+          'title': 'Your Plus Plan Is Active',
+          'message': 'Your Plus plan is now active.',
+          'created_at': '2026-11-03T00:00:00Z',
+          'is_read': false,
+        };
+
+    test('both types are known types, not a system broadcast', () {
+      expect(AppNotification.fromJson(json('plan_activated')).type, NotificationType.plan_activated);
+      expect(AppNotification.fromJson(json('upgrade_request_declined')).type,
+          NotificationType.upgrade_request_declined);
+    });
+
+    test('they are plan notices (plan icon and colour, open the Upgrade screen), like the trial and expiry ones', () {
+      for (final type in [
+        NotificationType.plan_activated,
+        NotificationType.upgrade_request_declined,
+        NotificationType.subscription_expired,
+        NotificationType.trial_ending_soon,
+        NotificationType.trial_ends_today,
+      ]) {
+        expect(type.isPlanNotice, isTrue, reason: type.name);
+      }
+      for (final type in [NotificationType.goal_achieved, NotificationType.system_broadcast, NotificationType.budget_exceeded]) {
+        expect(type.isPlanNotice, isFalse, reason: type.name);
+      }
+    });
+
+    test('only the two new types make the app reload the plan', () {
+      expect(notificationRefreshesPlan('plan_activated'), isTrue);
+      expect(notificationRefreshesPlan('upgrade_request_declined'), isTrue);
+      for (final other in ['trial_ending_soon', 'subscription_expired', 'goal_progress', 'subscription_updated', '', null]) {
+        expect(notificationRefreshesPlan(other), isFalse, reason: '$other');
+      }
+    });
+  });
 }

@@ -2,6 +2,7 @@
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/screens/budgets/budget_detail_screen.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -77,6 +78,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.workspace_premium_rounded;
       case NotificationType.trial_ending_soon:
       case NotificationType.trial_ends_today:
+      case NotificationType.plan_activated:
+      case NotificationType.upgrade_request_declined:
         return Icons.workspace_premium_rounded;
     }
   }
@@ -131,6 +134,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.subscription_expired:
       case NotificationType.trial_ending_soon:
       case NotificationType.trial_ends_today:
+      case NotificationType.plan_activated:
+      case NotificationType.upgrade_request_declined:
         return scheme.tertiary;
     }
   }
@@ -183,11 +188,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         notification.type == NotificationType.monthly_insights_generated) {
       // Navigate to insights screen
       Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
-    } else if (notification.type == NotificationType.subscription_expired ||
-        notification.type == NotificationType.trial_ending_soon ||
-        notification.type == NotificationType.trial_ends_today) {
-      // The plan ended or the trial is about to: open the Upgrade screen so
-      // the user can renew or upgrade.
+    } else if (notification.type.isPlanNotice) {
+      // The plan ended, the trial is about to, an admin activated a plan or
+      // closed a request: open the Upgrade screen so the user can renew,
+      // upgrade or see the new state.
+      if (notificationRefreshesPlan(notification.type.name)) {
+        // The new plan / the cleared request shows without a restart.
+        NotificationEventBus().notifySubscriptionUpdated();
+      }
       Navigator.pushNamed(context, '/subscription').then((_) => _refreshNotifications());
     } else if (notification.type == NotificationType.system_broadcast || // NEW
         notification.type == NotificationType.admin_announcement) {
