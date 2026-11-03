@@ -47,7 +47,7 @@ from notification_service import should_send_notification
 from subscription_service import active_paid_filter, active_plan_filter, effectively_free_filter, notify_plan_activated
 from models import Currency, SubscriptionType
 from plans import periods, quota, store
-from plans.access import effective_plan
+from plans.access import effective_plan, is_trial
 from plans.catalog import FEATURES, PERIODS, PLAN_RANK
 from sql import plans as plans_db
 from sql import upgrade_requests as upgrade_requests_db
@@ -686,8 +686,11 @@ async def update_user_subscription(
         )
 
     # Tell the user (stored notification + push) that Plus / Pro is now theirs, whether or not they had asked for it.
-    # Nothing for Free, or for a plan whose end date has already passed (it is not active). Never fails this call.
-    if new_plan != "free":
+    # Nothing for Free, or for a plan whose end date has already passed (it is not active), or when the admin saved
+    # the plan the user already had with the same end date (nothing changed for them). Never fails this call.
+    unchanged = (effective_plan(user) == new_plan and not is_trial(user)
+                 and _to_aware_utc(user.get("subscription_expires_at")) == expires_at)
+    if new_plan != "free" and not unchanged:
         await notify_plan_activated(user, new_plan, expires_at)
 
     # Send a silent FCM data-only message so the app refreshes instantly.

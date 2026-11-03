@@ -448,9 +448,11 @@ async def run(t):
         got = notes(r_uid, "plan_activated")
         check(len(got) == 1 and got[0]["message"] == "Your Plus plan is now active." and rows(r_uid)[0][3] == "pending",
               "plan_activated: Plus for life while Pro is requested: told about Plus, the Pro request stays pending", got)
-        # every admin set sends one: setting Plus again later is a new change
+        # a new end date is a change and sends one; saving the same plan and end date again sends nothing
         set_plan(r_uid, "plus", ends)
-        check(len(notes(r_uid, "plan_activated")) == 2, "plan_activated: each admin set to Plus or Pro sends one")
+        check(len(notes(r_uid, "plan_activated")) == 2, "plan_activated: setting Plus again with a new end date sends one")
+        set_plan(r_uid, "plus", ends)
+        check(len(notes(r_uid, "plan_activated")) == 2, "plan_activated: re-saving the same plan and end date sends nothing")
         # Myanmar user: Myanmar text with the Burmese month name
         m_uid, _ = request_for("act-my", "plus", "my")
         set_plan(m_uid, "plus", ends)
@@ -536,19 +538,20 @@ async def run(t):
         f_uid, _ = request_for("fail-notify", "plus")
         f2_uid, _ = request_for("fail-notify-2", "plus")
         trigger_user = (f_uid, f2_uid)
-        with t.connect() as conn:
-            conn.execute("CREATE OR REPLACE FUNCTION t8r_refuse_note() RETURNS trigger LANGUAGE plpgsql AS "
-                         "$$ BEGIN RAISE EXCEPTION 't8r: notifications are refused for this user'; END $$")
-            for i, who in enumerate(trigger_user):
-                conn.execute(f"CREATE TRIGGER t8r_refuse_note_{i} BEFORE INSERT ON notifications FOR EACH ROW "
-                             f"WHEN (NEW.user_id = '{who}') EXECUTE FUNCTION t8r_refuse_note()")
         try:
+            with t.connect() as conn:
+                conn.execute("CREATE OR REPLACE FUNCTION t8r_refuse_note() RETURNS trigger LANGUAGE plpgsql AS "
+                             "$$ BEGIN RAISE EXCEPTION 't8r: notifications are refused for this user'; END $$")
+                for i, who in enumerate(trigger_user):
+                    conn.execute(f"CREATE TRIGGER t8r_refuse_note_{i} BEFORE INSERT ON notifications FOR EACH ROW "
+                                 f"WHEN (NEW.user_id = '{who}') EXECUTE FUNCTION t8r_refuse_note()")
             ok = set_plan(f_uid, "plus", ends)
             check(ok and plan_of(f_uid) == "plus" and rows(f_uid)[0][3] == "done" and not notes(f_uid, "plan_activated"),
                   "notify_failure: setting the plan still succeeds (200, plan changed, request closed) when the notice cannot be stored",
                   (ok, plan_of(f_uid)))
             r = c.post(f"/api/admin/upgrade-requests/{listed(MOD, f2_uid)['id']}/dismiss", headers=AD)
-            check(r.status_code == 200 and r.json().get("status") == "dismissed" and rows(f2_uid)[0][3] == "dismissed",
+            check(r.status_code == 200 and r.json().get("status") == "dismissed" and rows(f2_uid)[0][3] == "dismissed"
+                  and not notes(f2_uid, "upgrade_request_declined"),
                   "notify_failure: dismissing still succeeds when the notice cannot be stored", f"{r.status_code} {r.text[:150]}")
         finally:
             with t.connect() as conn:
