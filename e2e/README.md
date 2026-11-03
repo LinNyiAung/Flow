@@ -22,7 +22,7 @@ codes from it through `outbox_server.py`.
 | `-KeepRunning` | Leave PostgreSQL, the backend and the emulator up afterwards |
 
 The script reuses anything already listening on 54329 (PostgreSQL), 8765 (backend)
-and 8766 (outbox helper), applies the schema (`alembic upgrade head`), re-seeds five accounts (`seed_rich.py`), grants the
+and 8766 (outbox helper), applies the schema (`alembic upgrade head`), re-seeds the test accounts (`seed_rich.py`), grants the
 app's notification permission as soon as `flutter test` installs it (otherwise
 Android's prompt blocks the first launch), and prints a pass/fail summary.
 Full output is in `e2e/logs/flutter.log`.
@@ -33,5 +33,5 @@ Full output is in `e2e/logs/flutter.log`.
 - `pgcompat.py`: lets the suites read and write the PostgreSQL tables with pymongo-style calls (the suites were written against MongoDB).
 - `run_backend_suite.py`: runs every backend API/job suite against the running server and prints a summary.
 - `run_server.py`: backend on 127.0.0.1:8765 (`E2E_FAKE_AI=1` makes OpenAI calls succeed with canned replies; Gemini always fails).
-- `seed_rich.py`: resets user data and creates the test accounts (premium, free, Myanmar-language, empty, delete-me) with transactions, budgets, goals, insights and notifications.
+- `seed_rich.py`: resets user data and creates the test accounts (Plus, Free, Pro, a Free account for the chat-limit flow, Myanmar-language Plus, empty, delete-me; every AI allowance starts at zero) with transactions, budgets, goals, insights and notifications.
 - `outbox_server.py`: serves `outbox.jsonl` to the emulator at `http://10.0.2.2:8766/outbox`.

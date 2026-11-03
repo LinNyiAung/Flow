@@ -75,6 +75,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.announcement_rounded;
       case NotificationType.subscription_expired:
         return Icons.workspace_premium_rounded;
+      case NotificationType.trial_ending_soon:
+      case NotificationType.trial_ends_today:
+        return Icons.workspace_premium_rounded;
     }
   }
 
@@ -126,6 +129,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.admin_announcement: // NEW
         return scheme.tertiary;
       case NotificationType.subscription_expired:
+      case NotificationType.trial_ending_soon:
+      case NotificationType.trial_ends_today:
         return scheme.tertiary;
     }
   }
@@ -178,8 +183,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         notification.type == NotificationType.monthly_insights_generated) {
       // Navigate to insights screen
       Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
-    } else if (notification.type == NotificationType.subscription_expired) {
-      // Premium ended: open the subscription screen so the user can renew.
+    } else if (notification.type == NotificationType.subscription_expired ||
+        notification.type == NotificationType.trial_ending_soon ||
+        notification.type == NotificationType.trial_ends_today) {
+      // The plan ended or the trial is about to: open the Upgrade screen so
+      // the user can renew or upgrade.
       Navigator.pushNamed(context, '/subscription').then((_) => _refreshNotifications());
     } else if (notification.type == NotificationType.system_broadcast || // NEW
         notification.type == NotificationType.admin_announcement) {

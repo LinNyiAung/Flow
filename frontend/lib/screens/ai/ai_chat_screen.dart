@@ -6,10 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/models/plan_status.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../providers/chat_provider.dart';
 import '../../models/chat.dart';
 import '../../widgets/app_drawer.dart';
@@ -54,11 +57,31 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (chatProvider.messages.isEmpty) {
         chatProvider.loadChatHistory();
       }
+      // Pro: the remembered Standard / Advanced choice.
+      chatProvider.loadMode();
+      // A refusal from before this screen opened is stale: only one raised
+      // while it is open gets a sheet.
+      chatProvider.takePlanLimit();
+      chatProvider.addListener(_showPlanLimitIfAny);
+      _chatProvider = chatProvider;
     });
+  }
+
+  /// The provider is app-wide and outlives this screen, so the listener is
+  /// removed in [dispose] through this reference (no context lookup there).
+  ChatProvider? _chatProvider;
+
+  /// The plan refused a message (locked, used up, monthly AI limit): explain
+  /// it in the limit sheet.
+  void _showPlanLimitIfAny() {
+    if (!mounted) return;
+    final limit = _chatProvider?.takePlanLimit();
+    if (limit != null) showPlanLimitSheet(context, limit);
   }
 
   @override
   void dispose() {
+    _chatProvider?.removeListener(_showPlanLimitIfAny);
     _messageController.dispose();
     _scrollController.dispose();
     _typingAnimationController.dispose();
@@ -109,7 +132,9 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
+    // Chat is open to every plan (with an allowance) unless the owner left it
+    // out of this plan.
+    final chatLocked = context.watch<PlanProvider>().isLocked(PlanFeature.chat);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
@@ -187,16 +212,16 @@ class _AiChatScreenState extends State<AiChatScreen>
         ],
       ),
       body: Consumer<ChatProvider>(
-        builder: (context, chatProvider, child) => authProvider.isPremium
-            ? _buildPremiumBody(chatProvider)
-            : _buildLockedBody(chatProvider),
+        builder: (context, chatProvider, child) => chatLocked
+            ? _buildLockedBody(chatProvider)
+            : _buildChatBody(chatProvider),
       ),
     );
   }
 
-  // ── Premium ──────────────────────────────────────────────────────
+  // ── Chat ─────────────────────────────────────────────────────────
 
-  Widget _buildPremiumBody(ChatProvider chatProvider) {
+  Widget _buildChatBody(ChatProvider chatProvider) {
     final localizations = AppLocalizations.of(context);
 
     if (chatProvider.isStreaming) {
@@ -229,6 +254,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (chatProvider.advancedAvailable) _modeSwitch(chatProvider),
+                if (chatProvider.advancedUsedUp) _advancedUsedUpNote(chatProvider),
                 _responseStyleRow(chatProvider),
                 if (chatProvider.error != null) _errorBanner(chatProvider),
               ],
@@ -252,8 +279,106 @@ class _AiChatScreenState extends State<AiChatScreen>
                   },
                 ),
         ),
+        // Advanced has its own, smaller allowance: it is what is shown while
+        // Advanced is selected.
+        PlanUsageLine(
+          feature: chatProvider.mode == ChatMode.advanced
+              ? PlanFeature.chatAdvanced
+              : PlanFeature.chat,
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+        ),
         _buildMessageInput(chatProvider),
       ],
+      ),
+    );
+  }
+
+  /// Pro only: Standard / Advanced.
+  Widget _modeSwitch(ChatProvider chatProvider) {
+    final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
+
+    Widget seg(ChatMode mode, String label) {
+      final selected = chatProvider.mode == mode;
+      return Expanded(
+        child: GestureDetector(
+          key: ValueKey('chat-mode-${mode.name}'),
+          behavior: HitTestBehavior.opaque,
+          onTap: selected || chatProvider.isStreaming ? null : () => chatProvider.setMode(mode),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: selected ? scheme.surface : Colors.transparent,
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Container(
+        key: const Key('chat-mode-switch'),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            seg(ChatMode.standard, localizations.chatModeStandard),
+            const SizedBox(width: 4),
+            seg(ChatMode.advanced, localizations.chatModeAdvanced),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Advanced was asked for but is used up: the answer came from Standard.
+  Widget _advancedUsedUpNote(ChatProvider chatProvider) {
+    final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
+    // The reset date is not in the chat stream: it comes from the plan.
+    final resetsAt = context.watch<PlanProvider>().feature(PlanFeature.chatAdvanced)?.resetsAt;
+    final text = resetsAt == null
+        ? localizations.chatAdvancedUsedUpNoDate
+        : localizations.chatAdvancedUsedUp(DateFormat('MMM d, yyyy').format(resetsAt));
+    return Container(
+      key: const Key('chat-advanced-note'),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, color: scheme.tertiary, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onTertiaryContainer),
+            ),
+          ),
+          IconButton(
+            onPressed: chatProvider.dismissAdvancedNote,
+            icon: Icon(Icons.close_rounded, color: scheme.tertiary, size: 18),
+          ),
+        ],
       ),
     );
   }
@@ -615,7 +740,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
   }
 
-  // ── Locked (free) ────────────────────────────────────────────────
+  // ── Locked (not in the plan) ─────────────────────────────────────
 
   Widget _buildLockedBody(ChatProvider chatProvider) {
     final scheme = Theme.of(context).colorScheme;

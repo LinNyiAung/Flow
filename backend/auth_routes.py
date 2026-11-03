@@ -40,6 +40,8 @@ from models import (
     VerifyOTPRequest,
 )
 from config import settings
+from plans.access import effective_plan, is_trial
+from plans.catalog import PAID_PLANS
 from sql import users as users_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -527,23 +529,24 @@ async def delete_account(
 
 @router.get("/subscription-status")
 async def get_subscription_status(current_user: dict = Depends(get_current_user)):
-    """Check if user has active premium subscription"""
+    """The user's plan right now: `plan` is the effective one (an expired Plus/Pro is "free"), `subscription_type`
+    is what is stored, `is_trial` is true while a Plus trial is running."""
     subscription_type = current_user.get("subscription_type") or "free"
     try:
         expires_at = ensure_utc_datetime(current_user.get("subscription_expires_at"))
     except (TypeError, ValueError, AttributeError):
         expires_at = None
 
-    is_premium = subscription_type == "premium"
-    is_expired = False
-
-    if is_premium and expires_at:
-        is_expired = expires_at < datetime.now(UTC)
-        is_premium = not is_expired
+    now = datetime.now(UTC)
+    plan = effective_plan(current_user, now)
+    is_paid = plan in PAID_PLANS
+    is_expired = subscription_type in PAID_PLANS and not is_paid
 
     return {
         "subscription_type": subscription_type,
-        "is_premium": is_premium,
+        "plan": plan,
+        "is_paid": is_paid,
+        "is_trial": is_paid and is_trial(current_user, now),
         "expires_at": expires_at,
         "is_expired": is_expired
     }
@@ -552,7 +555,7 @@ async def get_subscription_status(current_user: dict = Depends(get_current_user)
 @router.post("/claim-free-trial", response_model=UserResponse)
 async def claim_free_trial(current_user: dict = Depends(get_current_user)):
     """
-    Grants the authenticated user 1 month of free premium access.
+    Grants the authenticated user 30 days of the Plus plan, marked as a trial (trial_ends_at).
     Can only be claimed once per account.
     """
     # Prevent double-claiming
@@ -562,13 +565,13 @@ async def claim_free_trial(current_user: dict = Depends(get_current_user)):
             detail="You have already claimed your free trial."
         )
 
-    # Prevent claiming if already premium (admin-granted, lifetime or still active)
-    if current_user.get("subscription_type") == "premium":
+    # Prevent claiming if already on a paid plan (admin-granted, lifetime or still active)
+    if current_user.get("subscription_type") in PAID_PLANS:
         existing_expiry = ensure_utc_datetime(current_user.get("subscription_expires_at"))
         if existing_expiry is None or existing_expiry > datetime.now(UTC):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="You already have an active premium subscription."
+                detail="You already have an active paid plan."
             )
 
     trial_expiry = datetime.now(UTC) + timedelta(days=30)

@@ -1,4 +1,4 @@
-"""Premium expiry: downgrade job, notification, refresh push, admin counts/broadcast targeting."""
+"""Plan expiry (Plus and Pro): downgrade job, notification, refresh push, admin counts/broadcast targeting."""
 import asyncio
 import json
 import os
@@ -18,14 +18,14 @@ stubenv.patch_loaded_modules()
 db = __import__("pgcompat").get_db()
 
 def ACTIVE(now=None):
-    """Mongo-style filter equivalent of subscription_service.active_premium_filter (for pgcompat)."""
+    """Mongo-style filter equivalent of subscription_service.active_paid_filter (for pgcompat)."""
     now = now or datetime.now(UTC)
-    return {"subscription_type": "premium", "$or": [{"subscription_expires_at": None}, {"subscription_expires_at": {"$gt": now}}]}
+    return {"subscription_type": {"$in": ["plus", "pro"]}, "$or": [{"subscription_expires_at": None}, {"subscription_expires_at": {"$gt": now}}]}
 
 
 def FREE(now=None):
     now = now or datetime.now(UTC)
-    return {"$or": [{"subscription_type": {"$ne": "premium"}}, {"subscription_expires_at": {"$lte": now}}]}
+    return {"$or": [{"subscription_type": {"$nin": ["plus", "pro"]}}, {"subscription_expires_at": {"$lte": now}}]}
 c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
 H = lambda t: {"Authorization": f"Bearer {t}"}
 now = datetime.now(UTC)
@@ -48,25 +48,26 @@ def user(tag, sub="free", expires=None, lang="en", fcm=None):
 
 # fresh population for exact counts
 db.users.delete_many({"email": {"$regex": "^px-"}})
-expired_en, tok_expired = user("expired-en", "premium", now - timedelta(days=5), "en", fcm="fcm-token-expired-en")
-expired_my, _ = user("expired-my", "premium", now - timedelta(hours=2), "my")
-active, tok_active = user("active", "premium", now + timedelta(days=20))
-lifetime, _ = user("lifetime", "premium", None)
+expired_en, tok_expired = user("expired-en", "plus", now - timedelta(days=5), "en", fcm="fcm-token-expired-en")
+expired_my, _ = user("expired-my", "pro", now - timedelta(hours=2), "my")
+active, tok_active = user("active", "plus", now + timedelta(days=20))
+lifetime, _ = user("lifetime", "pro", None)
 free, _ = user("free", "free", None)
-race, _ = user("race", "premium", now - timedelta(minutes=1))
-lapsed, _ = user("lapsed", "premium", now - timedelta(days=90), fcm="fcm-token-lapsed")
+race, _ = user("race", "plus", now - timedelta(minutes=1))
+lapsed, _ = user("lapsed", "pro", now - timedelta(days=90), fcm="fcm-token-lapsed")
 ids = [expired_en, expired_my, active, lifetime, free, race, lapsed]
 scope = {"_id": {"$in": ids}}
 
 # --- admin counts BEFORE the job already treat expired as free
-check(db.users.count_documents({**scope, **ACTIVE(now)}) == 2, "active-premium filter: only the active + lifetime users")
+check(db.users.count_documents({**scope, **ACTIVE(now)}) == 2, "active-paid filter: only the active + lifetime users")
 check(db.users.count_documents({**scope, **FREE(now)}) == 5, "effectively-free filter: free + the 4 expired users")
 
-# --- premium features stop at expiry even before the job runs
+# --- paid features stop at expiry even before the job runs
 r = c.get("/api/insights", headers=H(tok_expired))
-check(r.status_code == 403, "expired user is already blocked from premium features before the job", f"{r.status_code}")
+check(r.status_code == 403 and r.json().get("detail", {}).get("code") == "plan_feature_locked",
+      "expired user is already blocked from paid features (plan_feature_locked) before the job", f"{r.status_code}")
 r = c.get("/api/insights", headers=H(tok_active))
-check(r.status_code != 403, "active premium user still has access", f"{r.status_code}")
+check(r.status_code != 403, "active Plus user still has access", f"{r.status_code}")
 
 # --- race: an admin extends 'race' before the job's conditional update lands
 real_downgrade = ss.users_db.downgrade_if_unchanged
@@ -84,9 +85,9 @@ ss.users_db.downgrade_if_unchanged = downgrade_after_admin_extension
 
 
 async def run_job_twice():
-    first = await ss.expire_premium_subscriptions(now)
+    first = await ss.expire_paid_plans(now)
     ss.users_db.downgrade_if_unchanged = real_downgrade
-    second = await ss.expire_premium_subscriptions(now)
+    second = await ss.expire_paid_plans(now)
     return first, second
 
 n, n2 = asyncio.run(run_job_twice())
@@ -96,20 +97,20 @@ downgraded_here = db.users.count_documents({"_id": {"$in": ids}, "premium_ended_
 check(downgraded_here == 3 and n >= 3, f"job downgraded exactly this test's 3 expired users (got {downgraded_here}; job total {n})")
 docs_lapsed = db.users.find_one({"_id": lapsed})
 check(docs_lapsed is not None, "lapsed user exists")
-check(docs_lapsed["subscription_type"] == "free", "user whose premium lapsed 90 days ago is downgraded too")
+check(docs_lapsed["subscription_type"] == "free", "user whose plan lapsed 90 days ago is downgraded too")
 docs = {d["_id"]: d for d in db.users.find(scope)}
 check(docs[expired_en]["subscription_type"] == "free" and docs[expired_my]["subscription_type"] == "free", "expired users are now subscription_type=free")
 check(docs[expired_en].get("subscription_expires_at") is not None and docs[expired_en].get("premium_ended_at") is not None,
       "old expiry kept and premium_ended_at recorded (history)")
-check(docs[race]["subscription_type"] == "premium", "admin extension made just before the downgrade wins (race user stays premium)")
-check(docs[active]["subscription_type"] == "premium" and docs[lifetime]["subscription_type"] == "premium" and docs[free]["subscription_type"] == "free",
+check(docs[race]["subscription_type"] == "plus", "admin extension made just before the downgrade wins (race user stays plus)")
+check(docs[active]["subscription_type"] == "plus" and docs[lifetime]["subscription_type"] == "pro" and docs[free]["subscription_type"] == "free",
       "active, lifetime and free users untouched")
 
 notes = {d["user_id"]: d for d in db.notifications.find({"type": "subscription_expired", "user_id": {"$in": ids}})}
-check(set(notes) == {expired_en, expired_my}, "'Premium ended' notification only for recently ended subscriptions (none for the 90-day-lapsed user)", f"{list(notes)}")
+check(set(notes) == {expired_en, expired_my}, "'plan has ended' notification only for recently ended plans (none for the 90-day-lapsed user)", f"{list(notes)}")
 en, my = notes.get(expired_en, {}), notes.get(expired_my, {})
-check(en.get("title") == "Your Premium Has Ended" and "ended on" in en.get("message", ""), "English notification text", json.dumps(en, default=str)[:200])
-check("Premium" in my.get("title", "") and any("က" <= ch <= "႟" for ch in my.get("message", "")), "Myanmar notification for a Myanmar-language user",
+check(en.get("title") == "Your Plus Plan Has Ended" and "Plus plan ended on" in en.get("message", ""), "English notification text names the Plus plan", json.dumps(en, default=str)[:200])
+check("Pro" in my.get("title", "") and any("က" <= ch <= "႟" for ch in my.get("message", "")), "Myanmar notification for a Myanmar-language user, naming the Pro plan",
       json.dumps(my, ensure_ascii=False, default=str)[:200])
 print("   EN:", en.get("message"))
 print("   MY:", my.get("message"))
@@ -134,12 +135,13 @@ AD = H(c.post("/api/admin/login", json={"email": ae, "password": "px-admin-pw"})
 st = c.get("/api/admin/stats/users", headers=AD).json()
 truth_p = db.users.count_documents(ACTIVE())
 truth_f = db.users.count_documents(FREE())
-check(st.get("premium_users") == truth_p and st.get("free_users") == truth_f and truth_p + truth_f == st.get("total_users"),
-      f"admin stats: premium {st.get('premium_users')} + free {st.get('free_users')} = total {st.get('total_users')}")
+check(st.get("paid_users") == truth_p and st.get("free_users") == truth_f and truth_p + truth_f == st.get("total_users")
+      and st.get("plus_users") + st.get("pro_users") == truth_p and "premium_users" not in st,
+      f"admin stats: paid {st.get('paid_users')} (plus {st.get('plus_users')} + pro {st.get('pro_users')}) + free {st.get('free_users')} = total {st.get('total_users')}")
 bs = c.get("/api/admin/broadcast-stats", headers=AD).json()
-check(bs.get("premium_users") == truth_p and bs.get("free_users") == truth_f, "broadcast reach counts use the same rule", json.dumps(bs))
+check(bs.get("paid_users") == truth_p and bs.get("free_users") == truth_f, "broadcast reach counts use the same rule", json.dumps(bs))
 db.users.update_one({"_id": active}, {"$set": {"subscription_expires_at": now - timedelta(minutes=5)}})  # expired, job not run yet
 bs2 = c.get("/api/admin/broadcast-stats", headers=AD).json()
-check(bs2.get("premium_users") == truth_p - 1 and bs2.get("free_users") == truth_f + 1, "a just-expired user moves from premium to free in admin counts before the job runs")
+check(bs2.get("paid_users") == truth_p - 1 and bs2.get("free_users") == truth_f + 1, "a just-expired user moves from paid to free in admin counts before the job runs")
 
-print("\nPREMIUM EXPIRY:", sum(results), "pass,", len(results) - sum(results), "fail")
+print("\nPLAN EXPIRY:", sum(results), "pass,", len(results) - sum(results), "fail")

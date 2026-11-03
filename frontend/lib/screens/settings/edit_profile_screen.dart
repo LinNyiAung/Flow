@@ -145,7 +145,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         style: TextStyle(fontSize: 44, fontWeight: FontWeight.w800, color: scheme.onPrimaryContainer),
                       ),
                     ),
-                    if (authProvider.isPremium)
+                    if (authProvider.isPaid)
                       Positioned(
                         bottom: 2,
                         right: 2,

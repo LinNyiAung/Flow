@@ -2,6 +2,29 @@ import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/user.dart';
 
+/// `POST /api/transactions/transcribe-audio`. [voiceToken] is present only
+/// when the server counted a non-empty transcript; send it back with the exact
+/// same text to the text extraction so the voice entry counts as one use. A
+/// silent recording has an empty [transcription] and no token.
+class TranscriptionResult {
+  final String transcription;
+  final String? voiceToken;
+
+  const TranscriptionResult({required this.transcription, this.voiceToken});
+
+  bool get isSilent => transcription.trim().isEmpty;
+
+  factory TranscriptionResult.fromJson(Map<String, dynamic> json) {
+    final token = json['voice_token'];
+    return TranscriptionResult(
+      transcription: json['transcription'] is String
+          ? json['transcription'] as String
+          : '',
+      voiceToken: token is String && token.isNotEmpty ? token : null,
+    );
+  }
+}
+
 class TransactionExtractionRequest {
   final String? text;
   final String? base64Image;

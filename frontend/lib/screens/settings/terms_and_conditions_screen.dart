@@ -80,8 +80,8 @@ class TermsAndConditionsScreen extends StatelessWidget {
 
             _buildSection(
               scheme: scheme,
-              title: localizations.termsPremiumSubTitle,
-              content: localizations.termsPremiumSubBody,
+              title: localizations.termsPlansSubTitle,
+              content: localizations.termsPlansSubBody,
             ),
 
             _buildSection(

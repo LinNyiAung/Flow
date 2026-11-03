@@ -343,9 +343,13 @@ def _resolution_checks():
     # catalogue
     check(features.PROVIDERS == ("openai", "gemini", "claude"), "catalogue: provider ids")
     check(set(features.FEATURES) == {
-        "chat", "insight_weekly", "insight_monthly", "insight_translation", "budget_suggestion",
+        "chat", "chat_advanced", "insight_weekly", "insight_monthly", "insight_translation", "budget_suggestion",
         "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio"},
         "catalogue: feature keys", sorted(features.FEATURES))
+    adv = features.FEATURES["chat_advanced"]
+    check(adv.label == "Advanced chat" and adv.allowed == features.PROVIDERS
+          and adv.default == T("claude", "claude-sonnet-5-5"),
+          "catalogue: chat_advanced is 'Advanced chat', all providers, built-in claude-sonnet-5-5", adv)
     check(features.KNOWN_MODELS == {
         "openai": ["gpt-4o-mini", "gpt-4o"],
         "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
@@ -366,14 +370,14 @@ def _resolution_checks():
           and all(s.key == k for k, s in features.FEATURES.items()), "catalogue: claude allowed except audio")
     usage = {k: s.usage_type for k, s in features.FEATURES.items()}
     check(usage == {
-        "chat": AIFeatureType.CHAT, "insight_weekly": AIFeatureType.WEEKLY_INSIGHT,
+        "chat": AIFeatureType.CHAT, "chat_advanced": AIFeatureType.CHAT, "insight_weekly": AIFeatureType.WEEKLY_INSIGHT,
         "insight_monthly": AIFeatureType.MONTHLY_INSIGHT, "insight_translation": AIFeatureType.TRANSLATION,
         "budget_suggestion": AIFeatureType.BUDGET_SUGGESTION, "budget_auto_create": AIFeatureType.BUDGET_AUTO_CREATE,
         "transaction_text": AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
         "transaction_image": AIFeatureType.TRANSACTION_IMAGE_EXTRACTION,
         "transaction_audio": AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION}, "catalogue: usage types", usage)
     check(features.CLAUDE_EFFORT == {
-        "chat": "low", "transaction_text": "low", "transaction_image": "low", "budget_suggestion": "low",
+        "chat": "low", "chat_advanced": "low", "transaction_text": "low", "transaction_image": "low", "budget_suggestion": "low",
         "budget_auto_create": "low", "insight_weekly": "medium", "insight_monthly": "medium",
         "insight_translation": "medium"}, "catalogue: claude effort", features.CLAUDE_EFFORT)
     dm = lambda f, p, env=None: features.default_model(f, p, {} if env is None else env)  # noqa: E731
@@ -441,7 +445,8 @@ def _resolution_checks():
     # built-in defaults through resolve (empty environment snapshot, no panel rows)
     settings.reload_env({})
     expected = {
-        "chat": ("gemini", "gemini-2.5-flash"), "insight_weekly": ("gemini", "gemini-2.5-flash"),
+        "chat": ("gemini", "gemini-2.5-flash"), "chat_advanced": ("claude", "claude-sonnet-5-5"),
+        "insight_weekly": ("gemini", "gemini-2.5-flash"),
         "insight_monthly": ("gemini", "gemini-2.5-flash"), "insight_translation": ("gemini", "gemini-2.5-pro"),
         "budget_suggestion": ("openai", "gpt-4o-mini"), "budget_auto_create": ("openai", "gpt-4o-mini"),
         "transaction_text": ("openai", "gpt-4o-mini"), "transaction_image": ("openai", "gpt-4o"),
@@ -472,6 +477,12 @@ def _resolution_checks():
           and settings.resolve("transaction_audio").main == T("openai", "whisper-1")
           and settings.resolve("insight_translation").main == T("gemini", "gemini-2.5-pro"),
           "builtin: other features keep literal models even with OPENAI_MODEL set")
+    settings.reload_env({"CLAUDE_MODEL": "claude-haiku-5-5"})
+    check(settings.resolve("chat_advanced").main == T("claude", "claude-sonnet-5-5")
+          and settings.chain("chat_advanced", lambda p: True) == [
+              T("claude", "claude-sonnet-5-5"), T("openai", "gpt-4o-mini"), T("gemini", "gemini-2.5-flash")],
+          "builtin: chat_advanced stays claude-sonnet-5-5 with CLAUDE_MODEL set; default backups are the other providers",
+          settings.chain("chat_advanced", lambda p: True))
     settings.reload_env({"OPENAI_MODEL": "gpt-4o"})
     check(settings.resolve("budget_suggestion").main.model == "gpt-4o-mini"
           and settings.resolve("chat").main == T("gemini", "gemini-2.5-flash"),
@@ -1608,6 +1619,11 @@ def _outbox_ai_calls(before):
     return [x for x in outbox_lines()[before:] if x.get("kind") == "ai_call"]
 
 
+def without_token(body):
+    """A transcribe-audio answer without its voice_token: the part that does not change from run to run."""
+    return {k: v for k, v in body.items() if k != "voice_token"}
+
+
 async def runner_checks():
     """Task 6: the runner (fallback, cool-off, usage tracking, status), in-process against the fakes."""
     from sqlalchemy import delete, insert, select
@@ -2096,8 +2112,8 @@ async def refresh_race_checks():
         settings._env_units.update(saved[1])
 
 
-ADMIN_FEATURES = ("chat", "insight_weekly", "insight_monthly", "insight_translation", "budget_suggestion",
-                  "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio")
+ADMIN_FEATURES = ("chat", "chat_advanced", "insight_weekly", "insight_monthly", "insight_translation",
+                  "budget_suggestion", "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio")
 ADMIN_PROVIDERS = ("openai", "gemini", "claude")
 ADMIN_PW = "t7-admin-pass-1"
 
@@ -2167,7 +2183,8 @@ async def admin_api_checks():
         feats = {f["key"]: f for f in body.get("features", [])}
         provs = {p["id"]: p for p in body.get("providers", [])}
         chat = feats.get("chat", {})
-        check(r.status_code == 200 and set(feats) == set(ADMIN_FEATURES) and len(body["features"]) == 9
+        check(r.status_code == 200 and set(feats) == set(ADMIN_FEATURES) and len(body["features"]) == 10
+              and [f["key"] for f in body["features"]][:2] == ["chat", "chat_advanced"]
               and chat["effective"]["source"] == "default" and provs.get("claude", {}).get("configured") is True,
               "settings_get_moderator_ok", f"{r.status_code} {r.text[:300]}")
         check(set(provs) == set(ADMIN_PROVIDERS) and all(set(p) == {"id", "label", "configured"} for p in provs.values()),
@@ -2192,6 +2209,14 @@ async def admin_api_checks():
         check(chat.get("default_chain") == [{"provider": "openai", "model": "gpt-4o-mini"},
                                             {"provider": "claude", "model": "claude-sonnet-5-5"}],
               "settings_get: default_chain is what null backups expand to", chat.get("default_chain"))
+        adv = feats.get("chat_advanced", {})
+        check(adv.get("label") == "Advanced chat" and adv.get("allowed") == ["openai", "gemini", "claude"]
+              and adv.get("effective") == {"main": {"provider": "claude", "model": "claude-sonnet-5-5"},
+                                           "backups": None, "source": "default"}
+              and adv.get("default_chain") == [{"provider": "openai", "model": "gpt-4o-mini"},
+                                               {"provider": "gemini", "model": "gemini-2.5-flash"}]
+              and adv.get("known_models") == chat.get("known_models"),
+              "settings_get: the 'Advanced chat' row (built-in claude-sonnet-5-5, the other providers as backups)", adv)
         check(feats["transaction_audio"]["allowed"] == ["openai", "gemini"]
               and [t["provider"] for t in feats["transaction_audio"]["default_chain"]] == ["gemini"],
               "settings_get: audio never offers or chains claude", feats["transaction_audio"])
@@ -2470,7 +2495,7 @@ async def chat_checks():
         admin_reset(c, AD)
         r = c.post("/api/auth/register", json={"name": "T8 Chat", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         U = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}
@@ -2485,10 +2510,14 @@ async def chat_checks():
             frames = sse_frames(resp) if resp.status_code == 200 else []
             return resp, frames, [x.get("provider") for x in _outbox_ai_calls(before)]
 
+        def meta_first(frames):
+            """Task 5 (plans): the stream opens with one meta frame (chunk "", done false, the mode used)."""
+            return bool(frames) and frames[0].get("chunk") == "" and frames[0].get("done") is False and "mode_used" in frames[0]
+
         def normal_reply(resp, frames):
-            chunks = [f for f in frames[:-1] if f.get("done") is False and f.get("chunk")]
+            chunks = [f for f in frames[1:-1] if f.get("done") is False and f.get("chunk")]
             last = frames[-1] if frames else {}
-            return (resp.status_code == 200 and chunks and len(chunks) == len(frames) - 1
+            return (resp.status_code == 200 and meta_first(frames) and chunks and len(chunks) == len(frames) - 2
                     and not any("error" in f for f in frames) and last.get("done") is True
                     and last.get("full_response") == "".join(f["chunk"] for f in chunks)
                     and "Fake answer" in last["full_response"])
@@ -2544,9 +2573,9 @@ async def chat_checks():
         m0, u0 = await n_messages(), len(await usage())
         r, fr, called = chat({"message": "hi"})
         last = fr[-1] if fr else {}
-        check(r.status_code == 200 and len(fr) == 1 and last.get("done") is True and last.get("error")
+        check(r.status_code == 200 and len(fr) == 2 and meta_first(fr) and last.get("done") is True and last.get("error")
               and "credit" not in r.text and called == ["claude"],
-              "chat_all_fail_error_frame_no_history: one error frame", f"{r.status_code} {called} {fr}")
+              "chat_all_fail_error_frame_no_history: the meta frame, then one error frame", f"{r.status_code} {called} {fr}")
         check(await n_messages() == m0 and len(await usage()) == u0,
               "chat_all_fail_error_frame_no_history: no history, no usage row", (m0, u0))
         admin_reset(c, AD)
@@ -2556,7 +2585,7 @@ async def chat_checks():
         stubenv.set_fake_ai(claude="fail_mid_stream")
         m0 = await n_messages()
         r, fr, called = chat({"message": "hi"})
-        check(r.status_code == 200 and len(fr) >= 2 and fr[0].get("chunk") and fr[-1].get("error")
+        check(r.status_code == 200 and len(fr) >= 3 and meta_first(fr) and fr[1].get("chunk") and fr[-1].get("error")
               and fr[-1].get("done") is True and called == ["claude"],
               "chat: a mid-stream failure ends with the error frame (no second provider)", f"{called} {fr}")
         check(await n_messages() == m0, "chat: a mid-stream failure is not saved to history")
@@ -2706,7 +2735,7 @@ async def insight_checks():
         email, pw = f"t9-{label}-{uuid.uuid4().hex[:6]}@example.com", "T9InsightPass123"
         c.post("/api/auth/register", json={"name": f"T9 {label}", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         uids.append(uid)
@@ -3034,7 +3063,9 @@ async def _insight_inprocess_checks(uid):
         out = io.StringIO()
         try:
             with contextlib.redirect_stdout(out):
-                res = await backend_main.manually_generate_weekly_insights(current_user={"_id": uid})
+                # the route reads the plan from the user (the route is Plus and Pro only)
+                res = await backend_main.manually_generate_weekly_insights(
+                    current_user={"_id": uid, "subscription_type": "plus", "subscription_expires_at": None})
         finally:
             ins.generate_weekly_insight = orig_weekly
         printed = out.getvalue()
@@ -3071,7 +3102,7 @@ async def budget_checks():
         email, pw = f"t10-{label}-{uuid.uuid4().hex[:6]}@example.com", "T10BudgetPass123"
         c.post("/api/auth/register", json={"name": f"T10 {label}", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         uids.append(uid)
@@ -3213,6 +3244,8 @@ async def _budget_inprocess_checks(uid):
     health.reset()
     stubenv.clear_fake_ai()
     now = datetime.now(UTC)
+    # the route now reserves a budget_suggestion use: this is the test's Plus user (5 a month), as in the HTTP checks
+    plus_user = {"_id": uid, "subscription_type": "plus"}
     parent = {"start_date": now - timedelta(days=30), "end_date": now + timedelta(days=1), "currency": "usd",
               "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100.0, "spent_amount": 60.0,
                                     "percentage_used": 60.0, "is_exceeded": False}],
@@ -3314,7 +3347,7 @@ async def _budget_inprocess_checks(uid):
             with LogCapture("budget_service") as cap:
                 req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
                 try:
-                    await budget_routes.get_ai_budget_suggestions(req, current_user={"_id": uid})
+                    await budget_routes.get_ai_budget_suggestions(req, current_user=plus_user)
                     err = None
                 except HTTPException as e:
                     err = e
@@ -3337,7 +3370,7 @@ async def _budget_inprocess_checks(uid):
         try:
             req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
             try:
-                await budget_routes.get_ai_budget_suggestions(req, current_user={"_id": uid})
+                await budget_routes.get_ai_budget_suggestions(req, current_user=plus_user)
                 err = None
             except HTTPException as e:
                 err = e
@@ -3383,7 +3416,7 @@ async def transaction_checks():
         email, pw = f"t11-{label}-{uuid.uuid4().hex[:6]}@example.com", "T11TxPass123"
         c.post("/api/auth/register", json={"name": f"T11 {label}", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         uids.append(uid)
@@ -3545,7 +3578,8 @@ async def transaction_checks():
         n0 = len(await usage(uid, "transaction_audio_transcription"))
         r = audio_post(U, language="my")
         rows = (await usage(uid, "transaction_audio_transcription"))[n0:]
-        check(r.status_code == 200 and r.json() == {"transcription": "fake transcript"} and calls(before) == ["openai", "gemini"],
+        check(r.status_code == 200 and without_token(r.json()) == {"transcription": "fake transcript"}
+              and r.json().get("voice_token") and calls(before) == ["openai", "gemini"],
               "audio_falls_back_to_gemini: 200 transcript from gemini", f"{r.status_code} {r.text[:200]} {calls(before)}")
         check(len(rows) == 1 and rows[0]["provider"] == "gemini" and rows[0]["fallback_from"] == "openai"
               and rows[0]["model_name"] == "gemini-2.5-flash",
@@ -3599,7 +3633,8 @@ async def _transaction_inprocess_checks(uid):
     saved = (settings._env, dict(settings._env_units), settings._panel)
     health.reset()
     stubenv.clear_fake_ai()
-    user = {"_id": uid, "default_currency": "usd"}
+    # the routes now reserve entry uses: this is the test's Plus user (150 a month), as in the HTTP checks above
+    user = {"_id": uid, "default_currency": "usd", "subscription_type": "plus"}
     buf = io.BytesIO()
     Image.new("RGB", (8, 8), (10, 120, 200)).save(buf, "PNG")
     png = buf.getvalue()
@@ -3667,7 +3702,8 @@ async def _transaction_inprocess_checks(uid):
             up = UploadFile(file=io.BytesIO(b"\x00\x01"), filename="note.m4a")
             res = await tr.transcribe_audio(audio=up, language=lang, current_user=user)
             kw = stubenv.LAST_KWARGS["openai"]
-            check(res == {"transcription": "fake transcript"} and kw.get("language") == want_lang and kw["model"] == "whisper-1"
+            check(without_token(res) == {"transcription": "fake transcript"} and res.get("voice_token")
+                  and kw.get("language") == want_lang and kw["model"] == "whisper-1"
                   and kw["file"][0].endswith(".m4a"), f"tx audio: language {lang!r} reaches whisper as {want_lang!r}", kw)
         up = UploadFile(file=io.BytesIO(b"\x00\x01"), filename="noext")
         await tr.transcribe_audio(audio=up, language=None, current_user=user)
@@ -3807,7 +3843,7 @@ async def usage_stats_checks():
         admin_reset(c, AD)
         c.post("/api/auth/register", json={"name": "T12 Usage", "email": email, "password": pw})
         db.users.update_one({"email": email}, {"$set": {
-            "is_verified": True, "subscription_type": "premium",
+            "is_verified": True, "subscription_type": "plus",
             "subscription_expires_at": datetime.now(UTC) + timedelta(days=30)}})
         uid = db.users.find_one({"email": email})["_id"]
         U = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": pw}).json()["access_token"]}

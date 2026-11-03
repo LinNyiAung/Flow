@@ -1,19 +1,22 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Users, Shield, BarChart3, Activity, Search, LogOut, TrendingUp,
   AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar,
   DollarSign, Target, Send, Menu, X, Settings, Lock, User, MessageSquare,
   Smartphone, Plus, Edit2, ToggleLeft, ToggleRight, Download, CheckCircle,
-  AlertTriangle, Globe, Apple, ExternalLink, Bot
+  AlertTriangle, Globe, Apple, ExternalLink, Bot, Layers
 } from 'lucide-react';
 import AIUsageStats from './AIUsageStats';
 import AISettings from './AISettings';
+import PlansSettings from './PlansSettings';
 import FeedbackManagement from './FeedbackManagement';
 import ErrorBoundary from './ErrorBoundary';
 import {
   apiRequest, errorMessage, onUnauthorized, loadStoredSession, storeSession, clearSession,
-  canWrite, isSuperAdmin, parseLocalDate, toLocalDateInput,
+  canWrite, isSuperAdmin, parseLocalDate, toLocalDateInput, getUserUsage, resetUserUsage,
 } from './api';
+import { PLANS, planLabel, featureLabel } from './planLabels';
 
 const enc = encodeURIComponent;
 const USERS_PAGE_SIZE = 50;
@@ -90,6 +93,124 @@ const ConfirmDialog = ({ title, message, confirmLabel = 'Confirm', tone = 'dange
     </div>
   </div>
 );
+
+// ─── User plan usage (inside the user detail modal) ───────────────────────────
+const fmtUsd = (v) => `$${(Number(v) || 0).toFixed(4)}`;
+
+const usageText = (u) => {
+  if (u.mode === 'counted') return `${fmtNum(u.used)}/${fmtNum(u.limit)} this ${u.period}`;
+  return u.mode === 'included' ? 'Included' : 'Locked';
+};
+
+const UserUsagePanel = ({ token, user, writable }) => {
+  const [usage, setUsage] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      setUsage(await getUserUsage(token, user.id));
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to load usage'));
+    } finally {
+      setLoading(false);
+    }
+  }, [token, user.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doReset = async () => {
+    setResetting(true);
+    setResetError(null);
+    try {
+      await resetUserUsage(token, user.id);
+      setConfirming(false);
+      await load();
+    } catch (err) {
+      setConfirming(false);
+      setResetError(errorMessage(err, 'Failed to reset usage'));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <div className="mb-8">
+      <h3 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">AI Usage</h3>
+
+      {loading && !usage && <div className="p-6 flex items-center justify-center"><RefreshCw size={20} className="animate-spin text-blue-500" /></div>}
+
+      {error && (
+        <div role="alert" className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl text-xs text-red-300 flex items-start gap-2 min-w-0">
+          <AlertCircle size={14} className="flex-shrink-0 mt-px" />
+          <span className="flex-1 min-w-0 break-words">{error}</span>
+          <button onClick={() => { setLoading(true); load(); }} className="font-semibold underline flex-shrink-0">Retry</button>
+        </div>
+      )}
+
+      {usage && (
+        <>
+          <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
+            <span className="text-slate-400">Plan now</span>
+            <span className="font-semibold text-slate-100">{planLabel(usage.plan)}</span>
+            {usage.plan !== user.subscription_type && (
+              <span className="text-xs text-slate-500">({planLabel(user.subscription_type)} has ended)</span>
+            )}
+            {usage.cost_cap_reached && (
+              <span className="px-2.5 py-1 rounded-full border text-xs font-semibold bg-red-500/15 border-red-500/30 text-red-300">Cost cap reached</span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+            {Object.entries(usage.features).map(([feature, u]) => {
+              const atLimit = u.mode === 'counted' && u.used >= u.limit;
+              return (
+                <div key={feature} className="px-3 py-2.5 bg-slate-900/40 rounded-xl border border-white/5 min-w-0">
+                  <div className="text-xs text-slate-500 truncate">{featureLabel(feature)}</div>
+                  <div className={`text-[13px] font-semibold ${atLimit ? 'text-amber-400' : u.mode === 'locked' ? 'text-slate-500' : 'text-slate-100'}`}>
+                    {usageText(u)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="text-xs text-slate-400">
+            AI spend this month: <span className="text-slate-200 font-semibold">{fmtUsd(usage.month_spend_usd)}</span> of a {fmtUsd(usage.cost_cap_usd)} cap
+          </div>
+        </>
+      )}
+
+      {resetError && <div role="alert" className="mt-3 text-xs text-red-300 break-words">{resetError}</div>}
+
+      {writable && usage && (
+        <button
+          onClick={() => setConfirming(true)}
+          disabled={resetting}
+          className="mt-4 w-full p-3 bg-slate-500/10 border border-slate-500/30 rounded-xl text-slate-300 text-sm font-semibold hover:bg-slate-500/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          <RefreshCw size={14} />Reset usage
+        </button>
+      )}
+
+      {/* In a portal: the modal around this panel is animated, which would otherwise anchor the dialog to it. */}
+      {confirming && createPortal(
+        <ConfirmDialog
+          title="Reset usage?"
+          message={`${user.name || user.email} gets a fresh allowance: this week's and this month's counts go back to 0 and the cost cap restarts. The usage history for cost reports is kept.`}
+          confirmLabel="Reset usage"
+          tone="warning"
+          busy={resetting}
+          onConfirm={doReset}
+          onCancel={() => setConfirming(false)}
+        />,
+        document.body,
+      )}
+    </div>
+  );
+};
 
 
 // ─── Login Page ───────────────────────────────────────────────────────────────
@@ -915,6 +1036,19 @@ const AppVersionManagement = ({ token, adminRole }) => {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 // Tabs whose data is loaded by the Dashboard itself (others load their own).
 const DASHBOARD_DATA_TABS = ['overview', 'users', 'broadcast', 'admins', 'logs'];
+const BROADCAST_TARGETS = [
+  { value: 'all', label: 'All Users', statKey: 'total_users', sentence: 'all users' },
+  { value: 'free', label: 'Free Users', statKey: 'free_users', sentence: 'all free users' },
+  { value: 'plus', label: 'Plus Users', statKey: 'plus_users', sentence: 'all Plus users' },
+  { value: 'pro', label: 'Pro Users', statKey: 'pro_users', sentence: 'all Pro users' },
+  { value: 'paid', label: 'Paid Users', statKey: 'paid_users', sentence: 'all paid users (Plus and Pro)' },
+];
+const PLAN_BADGE = {
+  free: 'bg-slate-500/15 border-slate-500/30 text-slate-400',
+  plus: 'bg-amber-500/15 border-amber-500/30 text-amber-500',
+  pro: 'bg-violet-500/15 border-violet-500/30 text-violet-400',
+};
+const PLAN_DURATIONS = [{ label: '1 Month', days: 30 }, { label: '3 Months', days: 90 }, { label: '6 Months', days: 180 }, { label: '1 Year', days: 365 }];
 const EMPTY_BROADCAST_FORM = { title: '', message: '', target_users: 'all', notification_type: 'system_broadcast' };
 
 const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) => {
@@ -932,6 +1066,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   const [subscriptionFilter, setSubscriptionFilter] = useState('');
   const [userFilters, setUserFilters] = useState({ search: '', subscription_type: '' });
   const [selectedUser, setSelectedUser] = useState(null);
+  const [planPick, setPlanPick] = useState('plus');  // plan chosen in the user modal's picker
   const [broadcastStats, setBroadcastStats] = useState(null);
   const [broadcastForm, setBroadcastForm] = useState(EMPTY_BROADCAST_FORM);
   const [broadcastLoading, setBroadcastLoading] = useState(false);
@@ -1067,7 +1202,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
   const handleSendBroadcast = async () => {
     if (!broadcastForm.title.trim() || !broadcastForm.message.trim()) { alert('Fill in title and message'); return; }
-    if (!['all', 'free', 'premium'].includes(broadcastForm.target_users)) { alert('Invalid target audience'); return; }
+    if (!BROADCAST_TARGETS.some((t) => t.value === broadcastForm.target_users)) { alert('Invalid target audience'); return; }
     if (!window.confirm(`Send to ${broadcastForm.target_users} users?`)) return;
     setBroadcastLoading(true);
     try {
@@ -1091,22 +1226,28 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     } catch (error) { alert(errorMessage(error, 'Failed to update subscription')); }
   };
 
-  const handleCustomExpiry = (userId) => {
+  const handleCustomExpiry = (userId, plan) => {
     const di = document.getElementById(`expire-date-${userId}`);
     if (!di || !di.value) { alert('Please select an expiry date'); return; }
     // Parse YYYY-MM-DD as a LOCAL date, end of that day.
     const d = parseLocalDate(di.value, true);
     if (!d) { alert('Invalid date'); return; }
     if (d.getTime() <= Date.now()) { alert('Expiry date must be in the future'); return; }
-    handleUpdateSubscription(userId, 'premium', d.toISOString());
+    handleUpdateSubscription(userId, plan, d.toISOString());
   };
 
-  const handleExtend = (user, days) => {
-    // Extend from whichever is later: now, or the current expiry.
+  // Put the user on `plan` for `days` more days. On the plan they already have, count from the current expiry
+  // (when it is still ahead); on a different plan, count from now.
+  const handleSetPlan = (user, plan, days) => {
     const now = Date.now();
     const cur = user.subscription_expires_at ? new Date(user.subscription_expires_at).getTime() : NaN;
-    const base = Number.isFinite(cur) && cur > now ? cur : now;
-    handleUpdateSubscription(user.id, 'premium', new Date(base + days * 24 * 60 * 60 * 1000).toISOString());
+    const base = user.subscription_type === plan && Number.isFinite(cur) && cur > now ? cur : now;
+    handleUpdateSubscription(user.id, plan, new Date(base + days * 24 * 60 * 60 * 1000).toISOString());
+  };
+
+  const openUser = (user) => {
+    setPlanPick(user.subscription_type === 'free' ? 'plus' : user.subscription_type);
+    setSelectedUser(user);
   };
 
   const handleDeleteUser = async (userId) => {
@@ -1122,6 +1263,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     { id: 'app-versions', icon: Smartphone, label: 'App Versions' },
     { id: 'ai-usage', icon: Zap, label: 'AI Usage & Costs' },
     { id: 'ai', icon: Bot, label: 'AI Providers' },
+    { id: 'plans', icon: Layers, label: 'Plans' },
     { id: 'feedback', icon: MessageSquare, label: 'Feedback' },
     { id: 'settings', icon: Settings, label: 'Settings' },
     ...(isSuper ? [
@@ -1231,8 +1373,10 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8 md:mb-10">
               {[
                 { label: 'Total Users', value: stats.total_users, icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-                { label: 'Premium Users', value: stats.premium_users, icon: Crown, color: 'text-amber-500', bg: 'bg-amber-500/10' },
                 { label: 'Free Users', value: stats.free_users, icon: Users, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+                { label: 'Plus Users', value: stats.plus_users, icon: Crown, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+                { label: 'Pro Users', value: stats.pro_users, icon: Crown, color: 'text-violet-400', bg: 'bg-violet-500/10' },
+                { label: 'Paid Users (Plus + Pro)', value: stats.paid_users, icon: Crown, color: 'text-orange-400', bg: 'bg-orange-500/10' },
                 { label: 'Active (7 days)', value: stats.active_users_last_7_days, icon: Activity, color: 'text-violet-500', bg: 'bg-violet-500/10' },
                 { label: 'New Users (30d)', value: stats.new_users_last_30_days, icon: TrendingUp, color: 'text-pink-500', bg: 'bg-pink-500/10' },
                 { label: 'Total Transactions', value: stats.total_transactions, icon: DollarSign, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
@@ -1280,6 +1424,9 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
         {/* AI Providers Tab */}
         {activeTab === 'ai' && <AISettings token={token} adminRole={admin.role} />}
 
+        {/* Plans Tab */}
+        {activeTab === 'plans' && <PlansSettings token={token} adminRole={admin.role} />}
+
         {/* Feedback Tab */}
         {activeTab === 'feedback' && <FeedbackManagement token={token} adminRole={admin.role} />}
 
@@ -1303,7 +1450,8 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                   className="flex-1 md:flex-none px-4 py-3.5 bg-slate-900/50 border border-slate-600/20 rounded-xl text-slate-100 text-[15px] outline-none cursor-pointer focus:border-blue-500/50">
                   <option value="">All Subscriptions</option>
                   <option value="free">Free</option>
-                  <option value="premium">Premium</option>
+                  <option value="plus">Plus</option>
+                  <option value="pro">Pro</option>
                 </select>
                 <button onClick={handleSearch} className="px-6 py-3.5 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl text-white text-[15px] font-semibold flex items-center gap-2 hover:-translate-y-0.5 transition-transform">
                   <Search size={18} /><span className="hidden md:inline">Search</span>
@@ -1341,8 +1489,8 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                               </div>
                             </td>
                             <td className="px-6 py-5">
-                              <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-semibold border ${user.subscription_type === 'premium' ? 'bg-amber-500/15 border-amber-500/30 text-amber-500' : 'bg-slate-500/15 border-slate-500/30 text-slate-400'}`}>
-                                {user.subscription_type === 'premium' && <Crown size={14} />}
+                              <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-semibold border ${PLAN_BADGE[user.subscription_type] ?? PLAN_BADGE.free}`}>
+                                {user.subscription_type !== 'free' && <Crown size={14} />}
                                 {String(user.subscription_type || 'free').toUpperCase()}
                               </div>
                             </td>
@@ -1354,7 +1502,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                               {user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
                             </td>
                             <td className="px-6 py-5 text-center">
-                              <button onClick={() => setSelectedUser(user)} className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-500/15 border border-blue-500/30 rounded-lg text-blue-400 text-[13px] font-semibold hover:bg-blue-500/25 transition-colors">
+                              <button onClick={() => openUser(user)} className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-500/15 border border-blue-500/30 rounded-lg text-blue-400 text-[13px] font-semibold hover:bg-blue-500/25 transition-colors">
                                 <Eye size={14} /> View
                               </button>
                             </td>
@@ -1485,11 +1633,13 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
               <p className="text-slate-400 font-medium text-sm md:text-base">Send notifications to all users or specific groups</p>
             </div>
             {broadcastStats && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 md:gap-6 mb-8">
                 {[
                   { label: 'Total Users', value: broadcastStats.total_users, sublabel: `${fmtNum(broadcastStats.users_with_push_enabled)} with push`, color: 'text-blue-500', bg: 'bg-blue-500/10' },
                   { label: 'Free Users', value: broadcastStats.free_users, sublabel: `${fmtNum(broadcastStats.free_with_push)} with push`, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-                  { label: 'Premium Users', value: broadcastStats.premium_users, sublabel: `${fmtNum(broadcastStats.premium_with_push)} with push`, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+                  { label: 'Plus Users', value: broadcastStats.plus_users, sublabel: `${fmtNum(broadcastStats.plus_with_push)} with push`, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+                  { label: 'Pro Users', value: broadcastStats.pro_users, sublabel: `${fmtNum(broadcastStats.pro_with_push)} with push`, color: 'text-violet-400', bg: 'bg-violet-500/10' },
+                  { label: 'Paid Users', value: broadcastStats.paid_users, sublabel: `${fmtNum(broadcastStats.paid_with_push)} with push`, color: 'text-orange-400', bg: 'bg-orange-500/10' },
                 ].map((stat) => (
                   <div key={stat.label} className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-5 md:p-7 rounded-2xl border border-white/5 shadow-xl">
                     <div className={`w-12 h-12 md:w-14 md:h-14 ${stat.bg} rounded-2xl flex items-center justify-center mb-5`}>
@@ -1513,16 +1663,12 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
               <div className="space-y-6">
                 <div>
                   <label className="block text-slate-300 text-sm font-semibold mb-3">Target Users</label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-                    {[
-                      { value: 'all', label: 'All Users', count: broadcastStats?.total_users },
-                      { value: 'free', label: 'Free Users', count: broadcastStats?.free_users },
-                      { value: 'premium', label: 'Premium Users', count: broadcastStats?.premium_users },
-                    ].map(option => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 md:gap-4">
+                    {BROADCAST_TARGETS.map(option => (
                       <button key={option.value} onClick={() => setBroadcastForm({...broadcastForm, target_users: option.value})}
                         className={`p-4 rounded-xl border-2 transition-all ${broadcastForm.target_users === option.value ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-slate-600/30 bg-slate-800/50 text-slate-400 hover:border-slate-500/50'}`}>
                         <div className="text-lg font-bold mb-1">{option.label}</div>
-                        <div className="text-sm opacity-70">{fmtNum(option.count)} users</div>
+                        <div className="text-sm opacity-70">{fmtNum(broadcastStats?.[option.statKey])} users</div>
                       </button>
                     ))}
                   </div>
@@ -1556,7 +1702,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
                   <AlertCircle size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
                   <div className="text-sm text-amber-300">
-                    <strong>Note:</strong> This will send notifications to {broadcastForm.target_users === 'all' ? 'all users' : broadcastForm.target_users === 'free' ? 'all free users' : 'all premium users'}.
+                    <strong>Note:</strong> This will send notifications to {BROADCAST_TARGETS.find((t) => t.value === broadcastForm.target_users)?.sentence ?? 'the selected users'}.
                     Users who have disabled this notification type will not receive it.
                   </div>
                 </div>
@@ -1582,67 +1728,69 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
             <div className="mb-8">
               <h3 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Subscription{writable ? ' Management' : ''}</h3>
-              {selectedUser.subscription_type === 'free' && (
-                <>
-                  <div className="p-4 bg-slate-500/10 border border-slate-500/30 rounded-xl mb-4">
-                    <div className="flex items-center gap-2"><User size={18} className="text-slate-500" /><span className="text-sm font-semibold text-slate-400">Free User</span></div>
+              {selectedUser.subscription_type === 'free' ? (
+                <div className="p-4 bg-slate-500/10 border border-slate-500/30 rounded-xl mb-4">
+                  <div className="flex items-center gap-2"><User size={18} className="text-slate-500" /><span className="text-sm font-semibold text-slate-400">Free User</span></div>
+                </div>
+              ) : (
+                <div className={`p-4 border rounded-xl mb-4 ${selectedUser.subscription_type === 'pro' ? 'bg-violet-500/10 border-violet-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Crown size={18} className={selectedUser.subscription_type === 'pro' ? 'text-violet-400' : 'text-amber-500'} />
+                      <span className={`text-sm font-semibold ${selectedUser.subscription_type === 'pro' ? 'text-violet-300' : 'text-amber-400'}`}>{planLabel(selectedUser.subscription_type)} Active</span>
+                    </div>
+                    {selectedUser.subscription_expires_at && <div className="text-xs text-slate-300/80">Expires: {new Date(selectedUser.subscription_expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
                   </div>
-                  {writable && (
+                  {selectedUser.subscription_expires_at && <div className="text-xs text-slate-300/70">{Math.max(0, Math.ceil((new Date(selectedUser.subscription_expires_at) - new Date()) / (1000 * 60 * 60 * 24)))} days remaining</div>}
+                </div>
+              )}
+              {writable && (
+                <>
+                  <label className="block text-slate-300 text-sm font-semibold mb-2">Plan</label>
+                  <div className="grid grid-cols-3 gap-2 mb-4" role="group" aria-label="Plan">
+                    {PLANS.map((plan) => (
+                      <button key={plan} onClick={() => setPlanPick(plan)} aria-pressed={planPick === plan}
+                        className={`p-3 rounded-xl border-2 text-sm font-semibold transition-all ${planPick === plan ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-slate-600/30 bg-slate-800/50 text-slate-400 hover:border-slate-500/50'}`}>
+                        {planLabel(plan)}{selectedUser.subscription_type === plan ? ' (current)' : ''}
+                      </button>
+                    ))}
+                  </div>
+                  {planPick === 'free' ? (
+                    <button disabled={selectedUser.subscription_type === 'free'}
+                      onClick={() => { if (window.confirm('Downgrade to Free?')) handleUpdateSubscription(selectedUser.id, 'free', null); }}
+                      className="w-full p-3.5 bg-slate-500/10 border border-slate-500/30 rounded-xl text-slate-400 text-sm font-semibold hover:bg-slate-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                      {selectedUser.subscription_type === 'free' ? 'Already on Free' : 'Downgrade to Free'}
+                    </button>
+                  ) : (
                     <>
+                      <label className="block text-slate-300 text-sm font-semibold mb-2">
+                        {selectedUser.subscription_type === planPick ? `Extend ${planLabel(planPick)} Period` : `Set to ${planLabel(planPick)} for`}
+                      </label>
                       <div className="grid grid-cols-2 gap-2 mb-3">
-                        {[{ label: '1 Month', days: 30 }, { label: '3 Months', days: 90 }, { label: '6 Months', days: 180 }, { label: '1 Year', days: 365 }].map((preset) => (
-                          <button key={preset.days} onClick={() => handleUpdateSubscription(selectedUser.id, 'premium', new Date(Date.now() + preset.days*24*60*60*1000).toISOString())}
+                        {PLAN_DURATIONS.map((preset) => (
+                          <button key={preset.days} onClick={() => handleSetPlan(selectedUser, planPick, preset.days)}
                             className="p-3 bg-gradient-to-br from-amber-500/20 to-orange-600/20 border border-amber-500/30 rounded-xl text-amber-400 text-sm font-semibold hover:from-amber-500/30 hover:to-orange-600/30 transition-all flex items-center justify-center gap-2">
-                            <Crown size={14} />{preset.label}
+                            {selectedUser.subscription_type === planPick ? '+' : <Crown size={14} />}{preset.label}
                           </button>
                         ))}
                       </div>
                       <div className="p-4 bg-slate-900/40 rounded-xl border border-white/5 space-y-3">
-                        <label className="block text-slate-300 text-sm font-semibold">Or Set Custom Premium Period</label>
+                        <label className="block text-slate-300 text-sm font-semibold">{selectedUser.subscription_type === planPick ? 'Or Set New Expiry Date' : `Or Set Custom ${planLabel(planPick)} Period`}</label>
                         <input type="date" id={`expire-date-${selectedUser.id}`} min={todayInput}
+                          key={planPick}
+                          defaultValue={selectedUser.subscription_type === planPick && selectedUser.subscription_expires_at ? toLocalDateInput(new Date(selectedUser.subscription_expires_at)) : ''}
                           className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-sm outline-none focus:border-blue-500 focus:bg-slate-800/80 transition-all" />
-                        <button onClick={() => handleCustomExpiry(selectedUser.id)} className="w-full p-3 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-semibold hover:bg-blue-500/25 transition-colors flex items-center justify-center gap-2">
-                          <Crown size={16} />Upgrade to Premium
+                        <button onClick={() => handleCustomExpiry(selectedUser.id, planPick)} className="w-full p-3 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-semibold hover:bg-blue-500/25 transition-colors flex items-center justify-center gap-2">
+                          <Crown size={16} />{selectedUser.subscription_type === planPick ? 'Update Expiry Date' : `Upgrade to ${planLabel(planPick)}`}
                         </button>
                       </div>
                     </>
                   )}
                 </>
               )}
-              {selectedUser.subscription_type === 'premium' && (
-                <>
-                  <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2"><Crown size={18} className="text-amber-500" /><span className="text-sm font-semibold text-amber-400">Premium Active</span></div>
-                      {selectedUser.subscription_expires_at && <div className="text-xs text-amber-400/80">Expires: {new Date(selectedUser.subscription_expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
-                    </div>
-                    {selectedUser.subscription_expires_at && <div className="text-xs text-amber-400/70">{Math.max(0, Math.ceil((new Date(selectedUser.subscription_expires_at) - new Date()) / (1000 * 60 * 60 * 24)))} days remaining</div>}
-                  </div>
-                  {writable && (
-                    <>
-                      <div className="mb-3">
-                        <label className="block text-slate-300 text-sm font-semibold mb-2">Extend Premium Period</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[{ label: '+1 Month', days: 30 }, { label: '+3 Months', days: 90 }, { label: '+6 Months', days: 180 }, { label: '+1 Year', days: 365 }].map((preset) => (
-                            <button key={preset.days} onClick={() => handleExtend(selectedUser, preset.days)}
-                              className="p-3 bg-gradient-to-br from-blue-500/20 to-violet-600/20 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-semibold hover:from-blue-500/30 hover:to-violet-600/30 transition-all">{preset.label}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="p-4 bg-slate-900/40 rounded-xl border border-white/5 space-y-3 mb-3">
-                        <label className="block text-slate-300 text-sm font-semibold">Or Set New Expiry Date</label>
-                        <input type="date" id={`expire-date-${selectedUser.id}`} min={todayInput}
-                          defaultValue={selectedUser.subscription_expires_at ? toLocalDateInput(new Date(selectedUser.subscription_expires_at)) : ''}
-                          className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-sm outline-none focus:border-blue-500 focus:bg-slate-800/80 transition-all" />
-                        <button onClick={() => handleCustomExpiry(selectedUser.id)} className="w-full p-3 bg-blue-500/15 border border-blue-500/30 rounded-xl text-blue-400 text-sm font-semibold hover:bg-blue-500/25 transition-colors">Update Expiry Date</button>
-                      </div>
-                      <button onClick={() => { if (window.confirm('Downgrade to Free?')) handleUpdateSubscription(selectedUser.id, 'free', null); }}
-                        className="w-full p-3.5 bg-slate-500/10 border border-slate-500/30 rounded-xl text-slate-400 text-sm font-semibold hover:bg-slate-500/20 transition-colors">Downgrade to Free</button>
-                    </>
-                  )}
-                </>
-              )}
             </div>
+
+            <UserUsagePanel key={selectedUser.id} token={token} user={selectedUser} writable={writable} />
 
             <div className="mb-8">
               <h3 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Statistics</h3>

@@ -11,7 +11,7 @@ from notification_service import (
 from sql import users as users_db
 from budget_service import process_due_budget_rollovers
 from insights_service import generate_weekly_insights_for_all_users, generate_monthly_insights_for_all_users
-from subscription_service import expire_premium_subscriptions
+from subscription_service import expire_paid_plans, send_trial_reminders
 from tz_utils import get_app_timezone
 
 logging.basicConfig(level=logging.INFO)
@@ -90,14 +90,26 @@ def start_scheduler():
         coalesce=True,
     )
 
-    # Downgrade expired premium subscriptions to free and notify the user, hourly so
-    # the "Premium has ended" notification arrives soon after the expiry time.
-    # (Premium features already stop at the exact expiry: require_premium checks it.)
+    # Downgrade expired Plus/Pro plans to free and notify the user, hourly so the "plan has ended"
+    # notification arrives soon after the expiry time.
+    # (Paid features already stop at the exact expiry: plans.access.effective_plan checks it.)
     scheduler.add_job(
-        expire_premium_subscriptions,
+        expire_paid_plans,
         trigger=CronTrigger(timezone=app_tz, minute=5),
-        id="expire_premium_subscriptions",
-        name="Downgrade expired premium subscriptions",
+        id="expire_paid_plans",
+        name="Downgrade expired Plus and Pro plans",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+
+    # Remind Plus-trial users 3 days before the trial ends and on its last day, hourly. Each
+    # reminder is claimed in the database first, so it goes out at most once however often this runs.
+    scheduler.add_job(
+        send_trial_reminders,
+        trigger=CronTrigger(timezone=app_tz, minute=20),
+        id="send_trial_reminders",
+        name="Send Plus trial reminders",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

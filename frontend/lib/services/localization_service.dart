@@ -109,7 +109,6 @@ class AppLocalizations {
       'speakYourTransaction': 'Speak your transaction',
       'scanReceipt': 'Scan Receipt',
       'takeUploadPhoto': 'Take or upload receipt photo',
-      'premium': 'PREMIUM',
       'transactionAdded': 'Transaction added successfully!',
       'transactionUpdated': 'Transaction updated successfully!',
       'transactionDeleted': 'Transaction deleted successfully!',
@@ -205,8 +204,8 @@ class AppLocalizations {
 
       // Additions for Image Input Screen
       'imageInputTitle': 'Image Input',
-      'premiumFeatureTitle': 'Premium Feature',
-      'premiumFeatureUpgradeDescImg': 'Upgrade to use image input for transactions',
+      'planFeatureLockedTitle': 'Not included in your plan',
+      'planUpgradeDescImg': 'Upgrade your plan to scan receipts',
       'upgradeNowButton': 'Upgrade Now',
       'tapToAddImagePlaceholder': 'Tap to add receipt image',
       'cameraOrGalleryPlaceholder': 'Camera or Gallery',
@@ -231,7 +230,7 @@ class AppLocalizations {
 
       // Additions for Voice Input Screen
       'voiceInputTitle': 'Voice Input',
-      'premiumFeatureUpgradeDescVoice': 'Upgrade to use voice input for transactions',
+      'planUpgradeDescVoice': 'Upgrade your plan to add transactions by voice',
       'recordingStatus': 'Recording... Tap to stop',
       'tapToRecordStatus': 'Tap to start recording\nYou can describe multiple transactions',
       'transcriptionTitle': 'Transcription',
@@ -444,14 +443,13 @@ class AppLocalizations {
       'changeResponseStyle': 'Change response style',
       'clearHistory': 'Clear History',
       'loadingChatHistory': 'Loading chat history...',
-      'upgradeToPremium': 'Upgrade to Premium',
+      'upgradePlan': 'Upgrade your plan',
       'unlockFullCapabilities': 'Unlock full AI chat capabilities',
       'upgrade': 'Upgrade',
       'helloAi': 'Hello! I\'m your AI financial assistant',
       'aiChatDes': 'I can help you analyze your spending, provide insights, and answer questions about your finances.',
       'tryAskingMeSomething': 'Try asking me something like:',
       'aiIsTyping': 'AI is typing...',
-      'upgradeToPremiumToChat': 'Upgrade to Premium to chat',
       'aiIsResponding': 'AI is responding...',
       'askAboutFinances': 'Ask me about your finances...',
       'clearChatHistory': 'Clear Chat History',
@@ -538,10 +536,10 @@ class AppLocalizations {
       'themeDarkDesc': 'Always use dark theme',
       'notificationSettings': 'Notification Settings',
       'manageNotificationPreferences': 'Manage notification preferences',
-      'subscription': 'Subscription',
-      'manageSubscription': 'Manage Subscription',
-      'viewManageSubscription': 'View and manage your subscription',
-      'unlockPremiumFeatures': 'Unlock all premium features',
+      'subscription': 'Plans',
+      'manageSubscription': 'Manage Plan',
+      'viewManageSubscription': 'View your plan and what it includes',
+      'unlockMoreWithPlans': 'Get more AI with Plus or Pro',
       'about': 'About',
       'aboutToePwar': 'About Toe Pwar',
 
@@ -676,12 +674,10 @@ class AppLocalizations {
 
 
       //subscription screen
-      'welcomeToPremium': 'Welcome to Premium!',
-      'accessAllPremiumFeatures': 'You now have access to all premium features.',
       'getStarted': 'Get Started',
-      'premiumStatus': 'Premium Status',
-      'premiumActive': 'Premium Active',
-      'premiumFeatures': 'Premium Features',
+      'yourPlanTitle': 'Your plan',
+      'planActive': '{plan} plan active',
+      'comparePlans': 'Compare plans',
       'aiBudgetSuggestions': 'AI Budget Suggestions',
       'aiBudgetSuggestionsDes': 'Get smart budget recommendations based on your spending patterns',
       'voiceInputDes': 'Add transactions by simply speaking',
@@ -690,10 +686,9 @@ class AppLocalizations {
       'aiFinancialAssistant': 'AI Financial Assistant',
       'aiFinancialAssistantDes': 'Chat with AI for personalized financial advice',
       'aiInsightsDes': 'Get deep insights into your spending habits',
-      'premiumPlan': 'Premium Plan',
       'tryCancelAnytime': 'Try 30 days • Cancel anytime',
       'contactAdmin': 'Contact Admin to Upgrade',
-      'contactSupport' : 'Please contact Admin support to activate Premium.',
+      'contactSupport': 'Please contact Admin support to upgrade your plan.',
 
 
       // Feedback Screen
@@ -746,7 +741,6 @@ class AppLocalizations {
       'monthOctober': 'October',
       'monthNovember': 'November',
       'monthDecember': 'December',
-      'premiumFeatureDialogContent': 'This feature requires a premium subscription. Upgrade now to unlock all features!',
 
       // Localization sweep — transactions batch
       'pickCategoryTitle': 'Pick a category',
@@ -815,7 +809,7 @@ class AppLocalizations {
       'useDifferentAddressLink': 'use a different address',
       'termsAndConditionsTitle': 'Terms and Conditions',
       'welcomeToToePwarTagline': 'Welcome to Toe Pwar - Personal Finance AI',
-      'termsAndConditionsBody': 'By using Toe Pwar, you agree to:\n\n1. Use the app for personal financial management only\n\n2. Provide accurate information when creating transactions\n\n3. Keep your account credentials secure\n\n4. Not misuse AI features or attempt to manipulate the system\n\n5. Understand that financial insights are suggestions, not professional advice\n\n6. Accept that premium features require an active subscription\n\n7. Allow us to process your financial data to provide personalized insights',
+      'termsAndConditionsBody': 'By using Toe Pwar, you agree to:\n\n1. Use the app for personal financial management only\n\n2. Provide accurate information when creating transactions\n\n3. Keep your account credentials secure\n\n4. Not misuse AI features or attempt to manipulate the system\n\n5. Understand that financial insights are suggestions, not professional advice\n\n6. Accept that Plus and Pro features require an active plan\n\n7. Allow us to process your financial data to provide personalized insights',
       'privacyPolicyTitle': 'Privacy Policy',
       'yourPrivacyMattersTitle': 'Your Privacy Matters',
       'privacyPolicyBody': 'We collect and use your data to:\n\n• Provide personalized financial insights\n• Improve our AI recommendations\n• Secure your account and transactions\n• Send important notifications about your finances\n\nWe protect your data by:\n\n• Encrypting all sensitive information\n• Never sharing your data with third parties without consent\n• Allowing you to delete your data at any time\n• Following industry-standard security practices\n\nYour financial data is stored securely and used only to enhance your experience with Toe Pwar.',
@@ -882,8 +876,8 @@ class AppLocalizations {
       'termsUserResponsibilitiesBody': 'You agree to:\n\n• Provide accurate financial information\n• Not misuse AI features or attempt to manipulate the system\n• Not use the App for any illegal purposes\n• Not share your account with others\n• Comply with all applicable laws and regulations',
       'termsAiFeaturesTitle': '5. AI-Powered Features',
       'termsAiFeaturesBody': 'Our AI features provide suggestions and insights based on your financial data. Please note:\n\n• AI insights are suggestions, not professional financial advice\n• You should verify all recommendations before taking action\n• We are not liable for decisions made based on AI suggestions\n• Results may vary based on your financial situation',
-      'termsPremiumSubTitle': '6. Premium Subscription',
-      'termsPremiumSubBody': 'Premium features require an active subscription:\n\n• Subscriptions are billed according to your chosen plan\n• You can cancel at any time before the next billing cycle\n• Refunds are provided according to our refund policy\n• Access to premium features ends when subscription expires',
+      'termsPlansSubTitle': '6. Paid Plans',
+      'termsPlansSubBody': 'Plus and Pro features require an active plan:\n\n• Plans are billed according to the plan you choose\n• You can cancel at any time before the next billing cycle\n• Refunds are provided according to our refund policy\n• AI features have usage limits that depend on your plan\n• Access to Plus and Pro features ends when your plan expires',
       'termsDataProcessingTitle': '7. Data Processing',
       'termsDataProcessingBody': 'We process your financial data to:\n\n• Provide personalized insights and recommendations\n• Improve our services and AI algorithms\n• Generate reports and analytics\n• Ensure security and prevent fraud\n\nAll data processing complies with our Privacy Policy.',
       'termsIntellectualPropertyTitle': '8. Intellectual Property',
@@ -936,8 +930,6 @@ class AppLocalizations {
       'monthlyInsightsTitle': 'Monthly Insights',
       'monthlyInsightsDesc': 'When your monthly insights are ready',
       'defaultUserName': 'User',
-      'premiumMemberLabel': 'Premium Member',
-      'freePlanLabel': 'Free Plan',
       'currentLanguageName': 'English',
       'appVersion': 'Version 1.0.0',
       'viewOurPrivacyPolicy': 'View our privacy policy',
@@ -977,7 +969,7 @@ class AppLocalizations {
       'biggestIncomeSourceMiddle': 'is your biggest income source —',
       'biggestIncomeSourceSuffix': 'of what came in this period.',
       'regenerate': 'Regenerate',
-      'threeInsightsWaiting': 'Three insights are waiting. Premium reads your own transactions weekly — no manual work.',
+      'weeklyInsightsWithPlans': 'Plus and Pro read your own transactions every week — no manual work.',
       'swipeNotificationToDelete': 'Swipe a notification to delete it',
       'justNow': 'Just now',
       'minutesAgoSuffix': 'm ago',
@@ -990,8 +982,8 @@ class AppLocalizations {
       'samePdfToViberOrEmail': 'Same PDF, straight to Viber or email',
       'ofTotal': 'of total',
       'txnsAbbrev': 'txns',
-      'welcomeToPremiumCelebration': '🎉 Welcome to Premium!',
-      'oneMonthFreePremiumAccess': 'You now have 1 month of free premium access. Enjoy all features!',
+      'welcomeToPlusCelebration': '🎉 Welcome to Plus!',
+      'oneMonthFreePlusAccess': 'You now have 1 month of free Plus access. Enjoy all features!',
       'letsGo': 'Let\'s go!',
       'couldNotClaimFreeTrial': 'Could not claim free trial.',
       'oneMonthFreeCaps': 'ONE MONTH FREE',
@@ -1094,6 +1086,45 @@ class AppLocalizations {
       'goalOverdueHint': 'The target date has passed. Extend the date to keep tracking this goal.',
       'goalExtendDate': 'Extend date',
       'deleteAccountPasswordHelper': 'Required to confirm deletion.',
+      'planNameFree': 'Free',
+      'planNamePlus': 'Plus',
+      'planNamePro': 'Pro',
+      'planNameLabel': '{plan} plan',
+      'planTrialBadge': 'TRIAL',
+      'planUsageLeftWeek': '{remaining} of {limit} left this week',
+      'planUsageLeftMonth': '{remaining} of {limit} left this month',
+      'planLimitReachedTitle': 'You\'ve reached your limit',
+      'planCostCapTitle': 'Monthly AI limit reached',
+      'planLimitResetsOn': 'Resets on {date}',
+      'planLimitLockedBody': '{feature} isn\'t part of your plan.',
+      'planLimitReachedBody': 'You\'ve used all of your {feature}.',
+      'planCostCapBody': 'You\'ve reached this month\'s AI limit.',
+      'planSheetNotNow': 'Not now',
+      'planFeature_chat': 'AI chat',
+      'planFeature_chat_advanced': 'Advanced chat',
+      'planFeature_insight_monthly': 'Monthly insight',
+      'planFeature_insight_weekly': 'Weekly insights',
+      'planFeature_insight_translation': 'Insight translation',
+      'planFeature_entry': 'Receipt, text and voice entry',
+      'planFeature_budget_suggestion': 'AI budget suggestions',
+      'planFeature_reports': 'PDF reports',
+      'planCurrent': 'Current plan',
+      'planTrialActive': '{plan} trial',
+      'planTrialEnds': 'Trial ends {date}',
+      'planPerWeek': 'per week',
+      'planPerMonth': 'per month',
+      'planIncluded': 'Included',
+      'planNotIncluded': 'Not included',
+      'planContactTitle': 'Ready to upgrade?',
+      'planDetailsUnavailable': 'Plan details aren\'t available right now.',
+      'voiceNothingHeard': 'We didn\'t catch anything. Please try again.',
+      'voiceRetryHint': 'Your recording was already read, so trying again does not use another entry.',
+      'chatModeStandard': 'Standard',
+      'chatModeAdvanced': 'Advanced',
+      'chatAdvancedUsedUp': 'Advanced is used up until {date}. This answer came from Standard.',
+      'chatAdvancedUsedUpNoDate': 'Advanced is used up for now. This answer came from Standard.',
+      'insightLangEnglish': 'English',
+      'insightLangMyanmar': 'မြန်မာ',
     },
     'my': {
       // Home Screen
@@ -1119,7 +1150,6 @@ class AppLocalizations {
       'speakYourTransaction': 'သင့်ငွေစာရင်းအချက်အလက်ကို ပြောပါ',
       'scanReceipt': 'ဘောက်ချာ စကင်ဖတ်ရန်',
       'takeUploadPhoto': 'ဘောက်ချာ ဓာတ်ပုံ ရိုက်ယူ / တင်ရန်',
-      'premium': 'ပရီမီယံ',
       'transactionAdded': 'ငွေစာရင်းသွင်းကို အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ',
       'transactionUpdated': 'ငွေစာရင်းသွင်းကို အောင်မြင်စွာ ပြင်ဆင်ပြီးပါပြီ',
       'transactionDeleted': 'ငွေစာရင်းသွင်းကို အောင်မြင်စွာ ဖျက်ပြီးပါပြီ',
@@ -1214,8 +1244,8 @@ class AppLocalizations {
 
       // Additions for Image Input Screen
       'imageInputTitle': 'ပုံ ထည့်သွင်းခြင်း',
-      'premiumFeatureTitle': 'ပရီမီယံ ဝန်ဆောင်မှု',
-      'premiumFeatureUpgradeDescImg': 'ငွေစာရင်းသွင်းမှုအတွက် ပုံ ထည့်သွင်းခြင်းကို အသုံးပြုရန် အဆင့်မြှင့်ပါ',
+      'planFeatureLockedTitle': 'သင့်အစီအစဉ်တွင် မပါဝင်ပါ',
+      'planUpgradeDescImg': 'ပြေစာများ စကင်ဖတ်ရန် သင့်အစီအစဉ်ကို အဆင့်မြှင့်ပါ',
       'upgradeNowButton': 'အဆင့်မြှင့်ပါ',
       'tapToAddImagePlaceholder': 'ဘောင်ချာပုံ ထည့်ရန် နှိပ်ပါ',
       'cameraOrGalleryPlaceholder': 'ကင်မရာ သို့မဟုတ် ဓာတ်ပုံပြခန်း',
@@ -1240,7 +1270,7 @@ class AppLocalizations {
 
       // Additions for Voice Input Screen
       'voiceInputTitle': 'အသံဖြင့် ထည့်ခြင်း',
-      'premiumFeatureUpgradeDescVoice': 'ငွေစာရင်းသွင်းမှုအတွက် အသံဖြင့် ထည့်ခြင်းကို အသုံးပြုရန် အဆင့်မြှင့်ပါ',
+      'planUpgradeDescVoice': 'အသံဖြင့် စာရင်းသွင်းရန် သင့်အစီအစဉ်ကို အဆင့်မြှင့်ပါ',
       'recordingStatus': 'အသံသွင်းနေသည်... ရပ်ရန် နှိပ်ပါ',
       'tapToRecordStatus': 'အသံသွင်းခြင်း စတင်ရန် နှိပ်ပါ\nငွေစာရင်းသွင်းမှုများစွာကို ဖော်ပြနိုင်သည်',
       'transcriptionTitle': 'ကူးယူဖော်ပြချက်',
@@ -1447,14 +1477,13 @@ class AppLocalizations {
       'changeResponseStyle': 'တုံ့ပြန်မှု ပုံစံကို ပြောင်းရန်',
       'clearHistory': 'မှတ်တမ်း ရှင်းလင်းရန်',
       'loadingChatHistory': 'ပြောဆိုမှုမှတ်တမ်းများ ဖော်ပြရန် စောင့်ဆိုင်းနေပါ....',
-      'upgradeToPremium': 'ပရီမီယံသို့ အဆင့်မြှင့်ပါ',
+      'upgradePlan': 'သင့်အစီအစဉ်ကို အဆင့်မြှင့်ပါ',
       'unlockFullCapabilities': 'AI နှင့် ပြောဆိုနိုင်သည့် စွမ်းရည်အပြည့်ကို ရယူပါ',
       'upgrade': 'အဆင့်မြှင့်ရန်',
       'helloAi': 'မင်္ဂလာပါ! ကျွန်ုပ်သည် သင့်၏ AI ငွေကြေး အကူအညီပေးသူ ဖြစ်ပါသည်',
       'aiChatDes': 'သင့်သုံးစွဲမှုကို ခွဲခြမ်းစိတ်ဖြာခြင်း၊ ထိုးထွင်းသိမြင်မှုများ ပေးခြင်းနှင့် သင့်ငွေကြေးဆိုင်ရာ မေးခွန်းများကို ဖြေကြားခြင်းတို့ဖြင့် ကျွန်ုပ် ကူညီနိုင်ပါသည်',
       'tryAskingMeSomething': 'ဤကဲ့သို့ မေးကြည့်ပါ:',
       'aiIsTyping': 'AI စာရိုက်နေသည်...',
-      'upgradeToPremiumToChat': 'စကားပြောရန် ပရီမီယံသို့ အဆင့်မြှင့်ပါ',
       'aiIsResponding': 'AI တုံ့ပြန်နေသည်...',
       'askAboutFinances': 'သင့်ငွေကြေးအကြောင်း မေးပါ...',
       'clearChatHistory': 'စကားပြော မှတ်တမ်း ရှင်းလင်းရန်',
@@ -1540,10 +1569,10 @@ class AppLocalizations {
       'themeDarkDesc': 'အမှောင်အပြင်အဆင် အမြဲသုံးရန်',
       'notificationSettings': 'အကြောင်းကြားချက် ဆက်တင်များ',
       'manageNotificationPreferences': 'အကြောင်းကြားချက် စိတ်ကြိုက်ရွေးချယ်မှုများကို စီမံခန့်ခွဲရန်',
-      'subscription': 'ပရီမီယံစာရင်းသွင်းမှု',
-      'manageSubscription': 'ပရီမီယံစာရင်းသွင်းမှုကို စီမံခန့်ခွဲရန်',
-      'viewManageSubscription': 'သင့်ပရီမီယံစာရင်းသွင်းမှုကို ကြည့်ရှုပြီး စီမံခန့်ခွဲပါ',
-      'unlockPremiumFeatures': 'ပရီမီယံ ဝန်ဆောင်မှုများ အားလုံးကို ဖွင့်ရန်',
+      'subscription': 'အစီအစဉ်များ',
+      'manageSubscription': 'အစီအစဉ်ကို စီမံရန်',
+      'viewManageSubscription': 'သင့်အစီအစဉ်နှင့် ပါဝင်မှုများကို ကြည့်ရန်',
+      'unlockMoreWithPlans': 'Plus သို့မဟုတ် Pro ဖြင့် AI ကို ပိုမိုအသုံးပြုပါ',
       'about': 'အကြောင်း',
       'aboutToePwar': 'တိုးပွား အကြောင်း',
 
@@ -1671,12 +1700,10 @@ class AppLocalizations {
       'incomeOverTime': 'အချိန်ကြာလာသည်နှင့်အမျှ ဝင်ငွေ',
 
       //subscription screen
-      'welcomeToPremium': 'ပရီမီယံသို့ ကြိုဆိုပါသည်!',
-      'accessAllPremiumFeatures': 'သင်သည် ယခု ပရီမီယံ ဝန်ဆောင်မှုများ အားလုံးကို အသုံးပြုနိုင်ပါပြီ',
       'getStarted': 'စတင်ရန်',
-      'premiumStatus': 'ပရီမီယံ အခြေအနေ',
-      'premiumActive': 'ပရီမီယံ အသက်ဝင်သည်',
-      'premiumFeatures': 'ပရီမီယံ ဝန်ဆောင်မှုများ',
+      'yourPlanTitle': 'သင့်အစီအစဉ်',
+      'planActive': '{plan} အစီအစဉ် အသုံးပြုနေသည်',
+      'comparePlans': 'အစီအစဉ်များ နှိုင်းယှဉ်ကြည့်ရန်',
       'aiBudgetSuggestions': 'AI ဘတ်ဂျက် အကြံပြုချက်များ',
       'aiBudgetSuggestionsDes': 'သင့်သုံးစွဲမှု ပုံစံများအပေါ် အခြေခံ၍ စမတ်ကျသော ဘတ်ဂျက် အကြံပြုချက်များကို ရယူပါ',
       'voiceInputDes': 'အသံဖြင့် ပြောရုံဖြင့် ငွေစာရင်းသွင်းမှုများ ထည့်ပါ',
@@ -1685,10 +1712,9 @@ class AppLocalizations {
       'aiFinancialAssistant': 'AI ငွေကြေး အကူအညီပေးသူ',
       'aiFinancialAssistantDes': 'သင်နှင့်ကိုက်ညီမည့် ငွေကြေးဆိုင်ရာ အကြံပြုချက်များကို AI နှင့် ဆွေးနွေးတိုင်ပင်ပါ',
       'aiInsightsDes': 'သင်၏ သုံးစွဲမှုအလေ့အထများကို အသေးစိတ် ခွဲခြမ်းစိတ်ဖြာချက်များ ရယူပါ',
-      'premiumPlan': 'ပရီမီယံ အစီအစဉ်',
       'tryCancelAnytime': 'ရက် ၃၀ စမ်းသပ်ပါ • အချိန်မရွေး ပယ်ဖျက်နိုင်သည်',
       'contactAdmin': 'အဆင့်မြှင့်ရန် Admin ကိုဆက်သွယ်ပါ',
-      'contactSupport' : 'Premium activate လုပ်ရန် Admin Support ကို ဆက်သွယ်ပါ',
+      'contactSupport': 'အစီအစဉ်ကို အဆင့်မြှင့်ရန် Admin Support ကို ဆက်သွယ်ပါ',
 
 
       // Feedback Screen
@@ -1741,7 +1767,6 @@ class AppLocalizations {
       'monthOctober': 'အောက်တိုဘာ',
       'monthNovember': 'နိုဝင်ဘာ',
       'monthDecember': 'ဒီဇင်ဘာ',
-      'premiumFeatureDialogContent': 'ဤအင်္ဂါရပ်ကို အသုံးပြုရန် ပရီမီယံ စာရင်းသွင်းမှု လိုအပ်ပါသည်။ အင်္ဂါရပ်အားလုံးကို ဖွင့်ရန် ယခုပင် အဆင့်မြှင့်ပါ!',
 
       // Localization sweep — transactions batch
       'pickCategoryTitle': 'အမျိုးအစား ရွေးချယ်ပါ',
@@ -1810,7 +1835,7 @@ class AppLocalizations {
       'useDifferentAddressLink': 'အခြားလိပ်စာတစ်ခု သုံးပါ',
       'termsAndConditionsTitle': 'စည်းမျဉ်းများနှင့် သတ်မှတ်ချက်များ',
       'welcomeToToePwarTagline': 'တိုးပွား - ကိုယ်ပိုင်ငွေကြေး AI မှ ကြိုဆိုပါသည်',
-      'termsAndConditionsBody': 'တိုးပွားကို အသုံးပြုခြင်းဖြင့် သင်သည် အောက်ပါတို့ကို သဘောတူပါသည်−\n\n၁။ အက်ပ်ကို ကိုယ်ပိုင်ငွေကြေးစီမံခန့်ခွဲမှုအတွက်သာ အသုံးပြုမည်\n\n၂။ ငွေစာရင်းသွင်းမှုများပြုလုပ်ရာတွင် မှန်ကန်သောအချက်အလက်များကို ပေးမည်\n\n၃။ သင့်အကောင့်အထောက်အထားများကို လုံခြုံစွာထိန်းသိမ်းမည်\n\n၄။ AI ဝန်ဆောင်မှုများကို အလွဲသုံးစားမပြုလုပ်ခြင်း သို့မဟုတ် စနစ်ကို လှည့်ဖြားရန် မကြိုးစားခြင်း\n\n၅။ ငွေကြေးဆိုင်ရာ သုံးသပ်ချက်များသည် အကြံပြုချက်များသာဖြစ်ပြီး ကျွမ်းကျင်သူအကြံဉာဏ်မဟုတ်ကြောင်း နားလည်ခြင်း\n\n၆။ ပရီမီယံအင်္ဂါရပ်များအတွက် စာရင်းသွင်းမှု တက်ကြွစွာရှိရန် လိုအပ်ကြောင်း လက်ခံခြင်း\n\n၇။ ကိုယ်ပိုင်ဆိုင်ရာသုံးသပ်ချက်များ ပေးရန် သင့်ငွေကြေးဒေတာကို ကျွန်ုပ်တို့ လုပ်ဆောင်ခွင့်ပြုခြင်း',
+      'termsAndConditionsBody': 'တိုးပွားကို အသုံးပြုခြင်းဖြင့် သင်သည် အောက်ပါတို့ကို သဘောတူပါသည်−\n\n၁။ အက်ပ်ကို ကိုယ်ပိုင်ငွေကြေးစီမံခန့်ခွဲမှုအတွက်သာ အသုံးပြုမည်\n\n၂။ ငွေစာရင်းသွင်းမှုများပြုလုပ်ရာတွင် မှန်ကန်သောအချက်အလက်များကို ပေးမည်\n\n၃။ သင့်အကောင့်အထောက်အထားများကို လုံခြုံစွာထိန်းသိမ်းမည်\n\n၄။ AI ဝန်ဆောင်မှုများကို အလွဲသုံးစားမပြုလုပ်ခြင်း သို့မဟုတ် စနစ်ကို လှည့်ဖြားရန် မကြိုးစားခြင်း\n\n၅။ ငွေကြေးဆိုင်ရာ သုံးသပ်ချက်များသည် အကြံပြုချက်များသာဖြစ်ပြီး ကျွမ်းကျင်သူအကြံဉာဏ်မဟုတ်ကြောင်း နားလည်ခြင်း\n\n၆။ Plus နှင့် Pro အင်္ဂါရပ်များအတွက် တက်ကြွသော အစီအစဉ် လိုအပ်ကြောင်း လက်ခံခြင်း\n\n၇။ ကိုယ်ပိုင်ဆိုင်ရာသုံးသပ်ချက်များ ပေးရန် သင့်ငွေကြေးဒေတာကို ကျွန်ုပ်တို့ လုပ်ဆောင်ခွင့်ပြုခြင်း',
       'privacyPolicyTitle': 'ကိုယ်ရေးအချက်အလက်မူဝါဒ',
       'yourPrivacyMattersTitle': 'သင့်ကိုယ်ရေးကိုယ်တာ အရေးကြီးပါသည်',
       'privacyPolicyBody': 'ကျွန်ုပ်တို့သည် သင့်ဒေတာကို အောက်ပါရည်ရွယ်ချက်များအတွက် စုဆောင်းအသုံးပြုပါသည်−\n\n• ကိုယ်ပိုင်ငွေကြေးအသိအမြင်များ ပေးရန်\n• ကျွန်ုပ်တို့၏ AI အကြံပြုချက်များ တိုးတက်စေရန်\n• သင့်အကောင့်နှင့် ငွေစာရင်းများကို လုံခြုံစေရန်\n• သင့်ငွေကြေးဆိုင်ရာ အရေးကြီးသတိပေးချက်များ ပေးပို့ရန်\n\nကျွန်ုပ်တို့သည် သင့်ဒေတာကို အောက်ပါအတိုင်း ကာကွယ်ပါသည်−\n\n• အထိန်းအသိမ်းလိုအပ်သော အချက်အလက်အားလုံးကို ကုဒ်ဖြင့်ကာကွယ်ခြင်း\n• သဘောတူညီချက်မရှိဘဲ သင့်ဒေတာကို တတိယပါတီများနှင့် ဘယ်တော့မှ မမျှဝေခြင်း\n• သင့်ဒေတာကို အချိန်မရွေး ဖျက်ခွင့်ပြုခြင်း\n• စက်မှုလုပ်ငန်းစံနှုန်းနှင့်ညီသော လုံခြုံရေးအလေ့အကျင့်များကို လိုက်နာခြင်း\n\nသင့်ငွေကြေးဒေတာကို လုံခြုံစွာသိမ်းဆည်းထားပြီး တိုးပွားနှင့် သင့်အတွေ့အကြုံကို မြှင့်တင်ရန်အတွက်သာ အသုံးပြုပါသည်။',
@@ -1877,8 +1902,8 @@ class AppLocalizations {
       'termsUserResponsibilitiesBody': 'သင်သည် အောက်ပါအချက်များကို သဘောတူပါသည်−\n\n• တိကျသော ငွေကြေးအချက်အလက်များ ပေးဆောင်ရန်\n• AI ဝန်ဆောင်မှုများကို အလွဲသုံးစားမပြုရန် သို့မဟုတ် စနစ်ကို လှည့်စားရန် မကြိုးစားရန်\n• ဤအက်ပ်ကို တရားမဝင်ရည်ရွယ်ချက်များအတွက် အသုံးမပြုရန်\n• သင့်အကောင့်ကို အခြားသူများနှင့် မမျှဝေရန်\n• သက်ဆိုင်ရာ ဥပဒေများနှင့် စည်းမျဉ်းစည်းကမ်းများအားလုံးကို လိုက်နာရန်',
       'termsAiFeaturesTitle': '၅။ AI ပါဝါဝန်ဆောင်မှုများ',
       'termsAiFeaturesBody': 'ကျွန်ုပ်တို့၏ AI ဝန်ဆောင်မှုများသည် သင့်ငွေကြေးဒေတာအပေါ် အခြေခံ၍ အကြံပြုချက်များနှင့် ထိုးထွင်းသိမြင်မှုများ ပေးပါသည်။ ကျေးဇူးပြု၍ သတိပြုပါ−\n\n• AI ၏ ထိုးထွင်းသိမြင်မှုများသည် အကြံပြုချက်များသာဖြစ်ပြီး၊ ပညာရှင်ဆန်သော ငွေကြေးအကြံဉာဏ် မဟုတ်ပါ\n• မည်သည့်လုပ်ဆောင်ချက်မဆို မလုပ်ဆောင်မီ အကြံပြုချက်များအားလုံးကို စစ်ဆေးသင့်ပါသည်\n• AI ၏ အကြံပြုချက်များအပေါ် အခြေခံ၍ ချမှတ်သော ဆုံးဖြတ်ချက်များအတွက် ကျွန်ုပ်တို့ တာဝန်မယူပါ\n• ရလဒ်များသည် သင့်ငွေကြေးအခြေအနေပေါ် မူတည်၍ ကွဲပြားနိုင်ပါသည်',
-      'termsPremiumSubTitle': '၆။ Premium စာရင်းသွင်းမှု',
-      'termsPremiumSubBody': 'Premium ဝန်ဆောင်မှုများကို အသုံးပြုရန် တက်ကြွစွာ စာရင်းသွင်းမှု လိုအပ်ပါသည်−\n\n• စာရင်းသွင်းမှုများကို သင်ရွေးချယ်သော အစီအစဉ်အလိုက် ကျသင့်ငွေတောင်းခံပါမည်\n• နောက်ငွေတောင်းခံမည့် သံသရာမတိုင်မီ အချိန်မရွေး ပယ်ဖျက်နိုင်ပါသည်\n• ငွေပြန်အမ်းမှုများကို ကျွန်ုပ်တို့၏ ငွေပြန်အမ်းမူဝါဒအတိုင်း ဆောင်ရွက်ပေးပါမည်\n• Premium ဝန်ဆောင်မှုများ အသုံးပြုခွင့်သည် စာရင်းသွင်းမှု သက်တမ်းကုန်ဆုံးသောအခါ ပြီးဆုံးသွားပါမည်',
+      'termsPlansSubTitle': '၆။ အခပေး အစီအစဉ်များ',
+      'termsPlansSubBody': 'Plus နှင့် Pro ဝန်ဆောင်မှုများကို အသုံးပြုရန် တက်ကြွသော အစီအစဉ် လိုအပ်ပါသည်−\n\n• အစီအစဉ်များကို သင်ရွေးချယ်သော အစီအစဉ်အလိုက် ကျသင့်ငွေတောင်းခံပါမည်\n• နောက်ငွေတောင်းခံမည့် သံသရာမတိုင်မီ အချိန်မရွေး ပယ်ဖျက်နိုင်ပါသည်\n• ငွေပြန်အမ်းမှုများကို ကျွန်ုပ်တို့၏ ငွေပြန်အမ်းမူဝါဒအတိုင်း ဆောင်ရွက်ပေးပါမည်\n• AI ဝန်ဆောင်မှုများတွင် သင့်အစီအစဉ်ပေါ်မူတည်သော အသုံးပြုမှု ကန့်သတ်ချက်များ ရှိပါသည်\n• သင့်အစီအစဉ် သက်တမ်းကုန်ဆုံးသောအခါ Plus နှင့် Pro ဝန်ဆောင်မှုများ အသုံးပြုခွင့် ပြီးဆုံးသွားပါမည်',
       'termsDataProcessingTitle': '၇။ ဒေတာလုပ်ဆောင်မှု',
       'termsDataProcessingBody': 'ကျွန်ုပ်တို့သည် သင့်ငွေကြေးဒေတာများကို အောက်ပါ ရည်ရွယ်ချက်များအတွက် လုပ်ဆောင်ပါသည်−\n\n• သင့်အတွက် အထူးပြင်ဆင်ထားသော ထိုးထွင်းသိမြင်မှုများနှင့် အကြံပြုချက်များ ပေးရန်\n• ကျွန်ုပ်တို့၏ ဝန်ဆောင်မှုများနှင့် AI algorithm များကို ပိုမိုကောင်းမွန်အောင် ပြုလုပ်ရန်\n• အစီရင်ခံစာများနှင့် ခွဲခြမ်းစိတ်ဖြာမှုများ ထုတ်ပေးရန်\n• လုံခြုံရေးကို သေချာစေပြီး လိမ်လည်မှုများကို ကာကွယ်ရန်\n\nဒေတာလုပ်ဆောင်မှုအားလုံးသည် ကျွန်ုပ်တို့၏ ကိုယ်ရေးအချက်အလက်မူဝါဒနှင့် ကိုက်ညီပါသည်။',
       'termsIntellectualPropertyTitle': '၈။ ဉာဏပစ္စည်းပိုင်ဆိုင်မှု',
@@ -1931,8 +1956,6 @@ class AppLocalizations {
       'monthlyInsightsTitle': 'လစဉ် သုံးသပ်ချက်များ',
       'monthlyInsightsDesc': 'သင့်လစဉ်သုံးသပ်ချက်များ အသင့်ဖြစ်သောအခါ',
       'defaultUserName': 'အသုံးပြုသူ',
-      'premiumMemberLabel': 'ပရီမီယံ အသင်းဝင်',
-      'freePlanLabel': 'အခမဲ့ အစီအစဉ်',
       'currentLanguageName': 'မြန်မာ',
       'appVersion': 'ဗားရှင်း ၁.၀.၀',
       'viewOurPrivacyPolicy': 'ကျွန်ုပ်တို့၏ ကိုယ်ရေးအချက်အလက်မူဝါဒကို ကြည့်ရန်',
@@ -1972,7 +1995,7 @@ class AppLocalizations {
       'biggestIncomeSourceMiddle': 'သည် သင်၏ အကြီးဆုံး ဝင်ငွေအရင်းအမြစ် ဖြစ်ပါသည် —',
       'biggestIncomeSourceSuffix': 'ဤကာလအတွင်း ဝင်ငွေ၏။',
       'regenerate': 'ပြန်လည်ထုတ်လုပ်ရန်',
-      'threeInsightsWaiting': 'သုံးသပ်ချက် သုံးခု စောင့်နေပါသည်။ ပရီမီယံသည် သင့်ငွေစာရင်းများကို အပတ်စဉ် ဖတ်ပေးပါသည် — ကိုယ်တိုင်လုပ်ဆောင်စရာ မလိုပါ။',
+      'weeklyInsightsWithPlans': 'Plus နှင့် Pro သည် သင့်ငွေစာရင်းများကို အပတ်စဉ် ဖတ်ပေးပါသည် — ကိုယ်တိုင်လုပ်ဆောင်စရာ မလိုပါ။',
       'swipeNotificationToDelete': 'အကြောင်းကြားစာကို ဖျက်ရန် ဘေးသို့ ပွတ်ဆွဲပါ',
       'justNow': 'အခုလေးတင်',
       'minutesAgoSuffix': ' မိနစ်က',
@@ -1985,8 +2008,8 @@ class AppLocalizations {
       'samePdfToViberOrEmail': 'PDF အတူတူပါပဲ၊ Viber သို့မဟုတ် အီးမေးလ်သို့ တိုက်ရိုက်ပို့ရန်',
       'ofTotal': 'စုစုပေါင်း၏',
       'txnsAbbrev': 'စာရင်း',
-      'welcomeToPremiumCelebration': '🎉 ပရီမီယံသို့ ကြိုဆိုပါတယ်!',
-      'oneMonthFreePremiumAccess': 'သင့်တွင် ယခု ၁ လ အခမဲ့ ပရီမီယံအသုံးပြုခွင့် ရရှိပါပြီ။ လုပ်ဆောင်ချက်အားလုံးကို ခံစားလိုက်ပါ!',
+      'welcomeToPlusCelebration': '🎉 Plus သို့ ကြိုဆိုပါတယ်!',
+      'oneMonthFreePlusAccess': 'သင့်တွင် ယခု ၁ လ အခမဲ့ Plus အသုံးပြုခွင့် ရရှိပါပြီ။ လုပ်ဆောင်ချက်အားလုံးကို ခံစားလိုက်ပါ!',
       'letsGo': 'စလိုက်ကြရအောင်!',
       'couldNotClaimFreeTrial': 'အခမဲ့စမ်းသပ်ကာလကို ရယူ၍ မရပါ။',
       'oneMonthFreeCaps': 'တစ်လ အခမဲ့',
@@ -2089,6 +2112,45 @@ class AppLocalizations {
       'goalOverdueHint': 'ပစ်မှတ်ရက် ကျော်လွန်သွားပါပြီ။ ဤရည်မှန်းချက်ကို ဆက်လက်ခြေရာခံရန် ရက်ကို တိုးပါ။',
       'goalExtendDate': 'ရက် တိုးရန်',
       'deleteAccountPasswordHelper': 'ဖျက်ရန် အတည်ပြုချက် လိုအပ်ပါသည်။',
+      'planNameFree': 'အခမဲ့',
+      'planNamePlus': 'Plus',
+      'planNamePro': 'Pro',
+      'planNameLabel': '{plan} အစီအစဉ်',
+      'planTrialBadge': 'စမ်းသုံးကာလ',
+      'planUsageLeftWeek': 'ဤအပတ်တွင် {limit} ခုအနက် {remaining} ခု ကျန်သည်',
+      'planUsageLeftMonth': 'ဤလတွင် {limit} ခုအနက် {remaining} ခု ကျန်သည်',
+      'planLimitReachedTitle': 'သတ်မှတ်ချက် ပြည့်သွားပါပြီ',
+      'planCostCapTitle': 'ဤလအတွက် AI အသုံးပြုခွင့် ပြည့်သွားပါပြီ',
+      'planLimitResetsOn': '{date} တွင် ပြန်လည်ရရှိမည်',
+      'planLimitLockedBody': '{feature} သည် သင့်အစီအစဉ်တွင် မပါဝင်ပါ။',
+      'planLimitReachedBody': '{feature} အတွက် အသုံးပြုခွင့် ကုန်သွားပါပြီ။',
+      'planCostCapBody': 'ဤလအတွက် AI အသုံးပြုခွင့် ပြည့်သွားပါပြီ။',
+      'planSheetNotNow': 'နောက်မှ',
+      'planFeature_chat': 'AI စကားပြောခြင်း',
+      'planFeature_chat_advanced': 'Advanced စကားပြောခြင်း',
+      'planFeature_insight_monthly': 'လစဉ်သုံးသပ်ချက်',
+      'planFeature_insight_weekly': 'အပတ်စဉ်သုံးသပ်ချက်',
+      'planFeature_insight_translation': 'သုံးသပ်ချက် ဘာသာပြန်ခြင်း',
+      'planFeature_entry': 'ပြေစာ၊ စာသားနှင့် အသံဖြင့် စာရင်းသွင်းခြင်း',
+      'planFeature_budget_suggestion': 'AI ဘတ်ဂျက် အကြံပြုချက်',
+      'planFeature_reports': 'PDF အစီရင်ခံစာ',
+      'planCurrent': 'လက်ရှိအစီအစဉ်',
+      'planTrialActive': '{plan} စမ်းသုံးကာလ',
+      'planTrialEnds': 'စမ်းသုံးကာလ {date} တွင် ကုန်ဆုံးမည်',
+      'planPerWeek': 'တစ်ပတ်လျှင်',
+      'planPerMonth': 'တစ်လလျှင်',
+      'planIncluded': 'ပါဝင်သည်',
+      'planNotIncluded': 'မပါဝင်ပါ',
+      'planContactTitle': 'အဆင့်မြှင့်ရန် အဆင်သင့်ပြီလား?',
+      'planDetailsUnavailable': 'အစီအစဉ် အသေးစိတ်ကို ယခု မရရှိနိုင်ပါ။',
+      'voiceNothingHeard': 'ဘာမှ မကြားလိုက်ရပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
+      'voiceRetryHint': 'သင့်အသံသွင်းချက်ကို ဖတ်ပြီးပြီဖြစ်၍ ထပ်ကြိုးစားခြင်းသည် အသုံးပြုခွင့် ထပ်မံမကုန်ပါ။',
+      'chatModeStandard': 'Standard',
+      'chatModeAdvanced': 'Advanced',
+      'chatAdvancedUsedUp': 'Advanced အသုံးပြုခွင့် {date} အထိ ကုန်သွားပါပြီ။ ဤအဖြေကို Standard မှ ပေးထားပါသည်။',
+      'chatAdvancedUsedUpNoDate': 'Advanced အသုံးပြုခွင့် ယခုအတွက် ကုန်သွားပါပြီ။ ဤအဖြေကို Standard မှ ပေးထားပါသည်။',
+      'insightLangEnglish': 'English',
+      'insightLangMyanmar': 'မြန်မာ',
     }
   };
 
@@ -2118,7 +2180,6 @@ class AppLocalizations {
   String get speakYourTransaction => translate('speakYourTransaction');
   String get scanReceipt => translate('scanReceipt');
   String get takeUploadPhoto => translate('takeUploadPhoto');
-  String get premium => translate('premium');
   String get transactionAdded => translate('transactionAdded');
   String get transactionUpdated => translate('transactionUpdated');
   String get transactionDeleted => translate('transactionDeleted');
@@ -2221,8 +2282,8 @@ class AppLocalizations {
 
   // Image Input Screen Getters
   String get imageInputTitle => translate('imageInputTitle');
-  String get premiumFeatureTitle => translate('premiumFeatureTitle');
-  String get premiumFeatureUpgradeDescImg => translate('premiumFeatureUpgradeDescImg');
+  String get planFeatureLockedTitle => translate('planFeatureLockedTitle');
+  String get planUpgradeDescImg => translate('planUpgradeDescImg');
   String get upgradeNowButton => translate('upgradeNowButton');
   String get tapToAddImagePlaceholder => translate('tapToAddImagePlaceholder');
   String get cameraOrGalleryPlaceholder => translate('cameraOrGalleryPlaceholder');
@@ -2247,7 +2308,7 @@ class AppLocalizations {
 
   // Voice Input Screen Getters
   String get voiceInputTitle => translate('voiceInputTitle'); // Used for the screen title
-  String get premiumFeatureUpgradeDescVoice => translate('premiumFeatureUpgradeDescVoice');
+  String get planUpgradeDescVoice => translate('planUpgradeDescVoice');
   String get recordingStatus => translate('recordingStatus');
   String get tapToRecordStatus => translate('tapToRecordStatus');
   String get transcriptionTitle => translate('transcriptionTitle');
@@ -2473,14 +2534,13 @@ class AppLocalizations {
   String get changeResponseStyle => translate('changeResponseStyle');
   String get clearHistory => translate('clearHistory');
   String get loadingChatHistory => translate('loadingChatHistory');
-  String get upgradeToPremium => translate('upgradeToPremium');
+  String get upgradePlan => translate('upgradePlan');
   String get unlockFullCapabilities => translate('unlockFullCapabilities');
   String get upgrade => translate('upgrade');
   String get helloAi => translate('helloAi');
   String get aiChatDes => translate('aiChatDes');
   String get tryAskingMeSomething => translate('tryAskingMeSomething');
   String get aiIsTyping => translate('aiIsTyping');
-  String get upgradeToPremiumToChat => translate('upgradeToPremiumToChat');
   String get aiIsResponding => translate('aiIsResponding');
   String get askAboutFinances => translate('askAboutFinances');
   String get clearChatHistory => translate('clearChatHistory');
@@ -2571,7 +2631,7 @@ class AppLocalizations {
   String get subscription => translate('subscription');
   String get manageSubscription => translate('manageSubscription');
   String get viewManageSubscription => translate('viewManageSubscription');
-  String get unlockPremiumFeatures => translate('unlockPremiumFeatures');
+  String get unlockMoreWithPlans => translate('unlockMoreWithPlans');
   String get about => translate('about');
   String get aboutToePwar => translate('aboutToePwar');
 
@@ -2715,12 +2775,10 @@ class AppLocalizations {
 
 
   //subscription screen getters
-  String get welcomeToPremium => translate('welcomeToPremium');
-  String get accessAllPremiumFeatures => translate('accessAllPremiumFeatures');
   String get getStarted => translate('getStarted');
-  String get premiumStatus => translate('premiumStatus');
-  String get premiumActive => translate('premiumActive');
-  String get premiumFeatures => translate('premiumFeatures');
+  String get yourPlanTitle => translate('yourPlanTitle');
+  String planActive(String plan) => translate('planActive').replaceAll('{plan}', plan);
+  String get comparePlans => translate('comparePlans');
   String get aiBudgetSuggestions => translate('aiBudgetSuggestions');
   String get aiBudgetSuggestionsDes => translate('aiBudgetSuggestionsDes');
   String get voiceInputDes => translate('voiceInputDes');
@@ -2729,7 +2787,6 @@ class AppLocalizations {
   String get aiFinancialAssistant => translate('aiFinancialAssistant');
   String get aiFinancialAssistantDes => translate('aiFinancialAssistantDes');
   String get aiInsightsDes => translate('aiInsightsDes');
-  String get premiumPlan => translate('premiumPlan');
   String get tryCancelAnytime => translate('tryCancelAnytime');
   String get contactAdmin => translate('contactAdmin');
   String get contactSupport => translate('contactSupport');
@@ -2786,7 +2843,6 @@ class AppLocalizations {
   String get monthOctober => translate('monthOctober');
   String get monthNovember => translate('monthNovember');
   String get monthDecember => translate('monthDecember');
-  String get premiumFeatureDialogContent => translate('premiumFeatureDialogContent');
 
   // Localization sweep — transactions batch
   String get pickCategoryTitle => translate('pickCategoryTitle');
@@ -2922,8 +2978,8 @@ class AppLocalizations {
   String get termsUserResponsibilitiesBody => translate('termsUserResponsibilitiesBody');
   String get termsAiFeaturesTitle => translate('termsAiFeaturesTitle');
   String get termsAiFeaturesBody => translate('termsAiFeaturesBody');
-  String get termsPremiumSubTitle => translate('termsPremiumSubTitle');
-  String get termsPremiumSubBody => translate('termsPremiumSubBody');
+  String get termsPlansSubTitle => translate('termsPlansSubTitle');
+  String get termsPlansSubBody => translate('termsPlansSubBody');
   String get termsDataProcessingTitle => translate('termsDataProcessingTitle');
   String get termsDataProcessingBody => translate('termsDataProcessingBody');
   String get termsIntellectualPropertyTitle => translate('termsIntellectualPropertyTitle');
@@ -2976,8 +3032,6 @@ class AppLocalizations {
   String get monthlyInsightsTitle => translate('monthlyInsightsTitle');
   String get monthlyInsightsDesc => translate('monthlyInsightsDesc');
   String get defaultUserName => translate('defaultUserName');
-  String get premiumMemberLabel => translate('premiumMemberLabel');
-  String get freePlanLabel => translate('freePlanLabel');
   String get currentLanguageName => translate('currentLanguageName');
   String get appVersion => translate('appVersion');
   String get viewOurPrivacyPolicy => translate('viewOurPrivacyPolicy');
@@ -3017,7 +3071,7 @@ class AppLocalizations {
   String get biggestIncomeSourceMiddle => translate('biggestIncomeSourceMiddle');
   String get biggestIncomeSourceSuffix => translate('biggestIncomeSourceSuffix');
   String get regenerate => translate('regenerate');
-  String get threeInsightsWaiting => translate('threeInsightsWaiting');
+  String get weeklyInsightsWithPlans => translate('weeklyInsightsWithPlans');
   String get swipeNotificationToDelete => translate('swipeNotificationToDelete');
   String get justNow => translate('justNow');
   String get minutesAgoSuffix => translate('minutesAgoSuffix');
@@ -3030,8 +3084,8 @@ class AppLocalizations {
   String get samePdfToViberOrEmail => translate('samePdfToViberOrEmail');
   String get ofTotal => translate('ofTotal');
   String get txnsAbbrev => translate('txnsAbbrev');
-  String get welcomeToPremiumCelebration => translate('welcomeToPremiumCelebration');
-  String get oneMonthFreePremiumAccess => translate('oneMonthFreePremiumAccess');
+  String get welcomeToPlusCelebration => translate('welcomeToPlusCelebration');
+  String get oneMonthFreePlusAccess => translate('oneMonthFreePlusAccess');
   String get letsGo => translate('letsGo');
   String get couldNotClaimFreeTrial => translate('couldNotClaimFreeTrial');
   String get oneMonthFreeCaps => translate('oneMonthFreeCaps');
@@ -3133,6 +3187,44 @@ class AppLocalizations {
   String get goalOverdueHint => translate('goalOverdueHint');
   String get goalExtendDate => translate('goalExtendDate');
   String get deleteAccountPasswordHelper => translate('deleteAccountPasswordHelper');
+  String get planNameFree => translate('planNameFree');
+  String get planNamePlus => translate('planNamePlus');
+  String get planNamePro => translate('planNamePro');
+  String planNameLabel(String plan) => translate('planNameLabel').replaceAll('{plan}', plan);
+  String get planTrialBadge => translate('planTrialBadge');
+  String planUsageLeftWeek(int remaining, int limit) => translate('planUsageLeftWeek')
+      .replaceAll('{remaining}', '$remaining')
+      .replaceAll('{limit}', '$limit');
+  String planUsageLeftMonth(int remaining, int limit) => translate('planUsageLeftMonth')
+      .replaceAll('{remaining}', '$remaining')
+      .replaceAll('{limit}', '$limit');
+  String get planLimitReachedTitle => translate('planLimitReachedTitle');
+  String get planCostCapTitle => translate('planCostCapTitle');
+  String planLimitResetsOn(String date) => translate('planLimitResetsOn').replaceAll('{date}', date);
+  String planLimitLockedBody(String feature) => translate('planLimitLockedBody').replaceAll('{feature}', feature);
+  String planLimitReachedBody(String feature) => translate('planLimitReachedBody').replaceAll('{feature}', feature);
+  String get planCostCapBody => translate('planCostCapBody');
+  String get planSheetNotNow => translate('planSheetNotNow');
+  String get planCurrent => translate('planCurrent');
+  String planTrialActive(String plan) => translate('planTrialActive').replaceAll('{plan}', plan);
+  String planTrialEnds(String date) => translate('planTrialEnds').replaceAll('{date}', date);
+  String get planPerWeek => translate('planPerWeek');
+  String get planPerMonth => translate('planPerMonth');
+  String get planIncluded => translate('planIncluded');
+  String get planNotIncluded => translate('planNotIncluded');
+  String get planContactTitle => translate('planContactTitle');
+  String get planDetailsUnavailable => translate('planDetailsUnavailable');
+  String get voiceNothingHeard => translate('voiceNothingHeard');
+  String get voiceRetryHint => translate('voiceRetryHint');
+  String get chatModeStandard => translate('chatModeStandard');
+  String get chatModeAdvanced => translate('chatModeAdvanced');
+  String chatAdvancedUsedUp(String date) => translate('chatAdvancedUsedUp').replaceAll('{date}', date);
+  String get chatAdvancedUsedUpNoDate => translate('chatAdvancedUsedUpNoDate');
+  String get insightLangEnglish => translate('insightLangEnglish');
+  String get insightLangMyanmar => translate('insightLangMyanmar');
+
+  /// Display name of a quota feature key (`chat`, `entry`, ...) as the server reports it.
+  String planFeatureName(String feature) => translate('planFeature_$feature');
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

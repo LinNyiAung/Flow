@@ -19,7 +19,7 @@ void authFlows() {
     e2eTest('auth: wrong password shows error', (t) async {
       step('enter wrong password');
       final fields = find.byType(TextFormField);
-      await enter(fields.at(0), premium.email);
+      await enter(fields.at(0), plus.email);
       await enter(fields.at(1), 'WrongPass999');
       await hideKeyboard();
       await tap(find.widgetWithText(FilledButton, L.signIn));
@@ -37,14 +37,14 @@ void authFlows() {
       await expectSoon(find.text(L.enterPasswordError), 'No "enter password" validation on empty login');
     });
 
-    e2eTest('auth: login success (premium) then logout', (t) async {
-      await login(premium);
+    e2eTest('auth: login success (Plus) then logout', (t) async {
+      await login(plus);
       step('home visible');
       check(find.byType(HomeScreen).evaluate().isNotEmpty, 'Home not shown after login');
       await logout();
       check(find.byType(LoginScreen).evaluate().isNotEmpty, 'Login not shown after logout');
       step('login again after logout');
-      await login(premium);
+      await login(plus);
       await logout();
     });
 
@@ -77,7 +77,7 @@ void authFlows() {
       await tap(find.widgetWithText(FilledButton, L.createAccountButton));
       await expectSoon(find.text(L.enterValidEmailError), 'Register: no invalid-email message');
       step('existing email');
-      await enter(fields.at(1), premium.email);
+      await enter(fields.at(1), plus.email);
       await hideKeyboard();
       await tap(find.widgetWithText(FilledButton, L.createAccountButton));
       await expectSoon(find.byIcon(Icons.error_outline_rounded),

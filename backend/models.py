@@ -37,10 +37,10 @@ class LanguageUpdate(BaseModel):
 class CurrencyUpdate(BaseModel):
     default_currency: Currency
 
-# NEW: Add subscription type enum
 class SubscriptionType(str, Enum):
     FREE = "free"
-    PREMIUM = "premium"
+    PLUS = "plus"
+    PRO = "pro"
 
 class UserCreate(BaseModel):
     name: str
@@ -188,6 +188,8 @@ class TransactionExtraction(BaseModel):
 
 class TextExtractionRequest(BaseModel):
     text: str
+    # The voice_token transcribe-audio returned for this exact text: the voice entry is then one use, not two.
+    voice_token: Optional[str] = None  # any value is accepted: an invalid or oversize one is ignored, never a 422
 
 class MultipleTransactionExtraction(BaseModel):
     transactions: List[TransactionExtraction]

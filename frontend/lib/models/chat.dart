@@ -77,15 +77,43 @@ class ChatMessage {
   }
 }
 
+/// Which model answers a chat message (Pro only: Advanced). The name is the
+/// value the server's `mode` field takes.
+enum ChatMode {
+  standard,
+  advanced;
+
+  static ChatMode fromName(String? name) =>
+      ChatMode.values.where((m) => m.name == name).firstOrNull ?? ChatMode.standard;
+}
+
+/// The first frame of the chat stream: which model really answers, and
+/// whether an Advanced request fell back to Standard because the Advanced
+/// allowance is used up.
+class ChatStreamMeta {
+  final ChatMode modeUsed;
+  final bool advancedExhausted;
+
+  const ChatStreamMeta({required this.modeUsed, this.advancedExhausted = false});
+
+  factory ChatStreamMeta.fromFrame(Map<dynamic, dynamic> frame) => ChatStreamMeta(
+        modeUsed: ChatMode.fromName(
+            frame['mode_used'] is String ? frame['mode_used'] as String : null),
+        advancedExhausted: frame['advanced_exhausted'] == true,
+      );
+}
+
 class ChatRequest {
   final String message;
   final List<ChatMessage>? chatHistory;
   final ResponseStyle? responseStyle;
+  final ChatMode mode;
 
   ChatRequest({
     required this.message,
     this.chatHistory,
     this.responseStyle,
+    this.mode = ChatMode.standard,
   });
 
   Map<String, dynamic> toJson() {
@@ -93,6 +121,7 @@ class ChatRequest {
       'message': message,
       'chat_history': chatHistory?.map((msg) => msg.toJson()).toList(),
       if (responseStyle != null) 'response_style': responseStyle!.name,
+      'mode': mode.name,
     };
   }
 }

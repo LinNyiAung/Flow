@@ -62,7 +62,7 @@ check(r.status_code == 200 and r.json() == {"version": "1.2.0", "download_url": 
 # --- CORS: browsers can read Content-Disposition on the PDF download
 email = f"dl-{uuid.uuid4().hex[:5]}@example.com"
 c.post("/api/auth/register", json={"name": "dl", "email": email, "password": "secret123"})
-db.users.update_one({"email": email}, {"$set": {"is_verified": True, "subscription_type": "premium", "subscription_expires_at": None}})
+db.users.update_one({"email": email}, {"$set": {"is_verified": True, "subscription_type": "plus", "subscription_expires_at": None}})
 token = c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json()["access_token"]
 r = c.post("/api/reports/download", headers={"Authorization": f"Bearer {token}", "Origin": "http://example.com"},
            json={"period": "month", "currency": "usd"})

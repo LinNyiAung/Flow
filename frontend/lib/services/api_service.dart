@@ -12,6 +12,7 @@ import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/notification.dart';
 import 'package:frontend/models/notification_preferences.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/report.dart';
 import 'package:frontend/models/voice_image_models.dart';
@@ -94,6 +95,71 @@ class ApiException implements Exception {
 /// not been verified yet (HTTP 403).
 class EmailNotVerifiedException extends ApiException {
   EmailNotVerifiedException(super.message) : super(statusCode: 403);
+}
+
+/// A plan check refused an AI or paid request: HTTP 403 `plan_feature_locked`
+/// (the feature is not in the user's plan) or HTTP 429 `plan_limit_reached`
+/// (this period's allowance is used up) / `plan_cost_cap` (the hidden monthly
+/// AI limit). Decide what to do from [code], never from [message]; [message]
+/// is already in the user's language, so it may be shown.
+class PlanLimitException extends ApiException {
+  static const String codeLocked = 'plan_feature_locked';
+  static const String codeLimitReached = 'plan_limit_reached';
+  static const String codeCostCap = 'plan_cost_cap';
+  static const List<String> codes = [codeLocked, codeLimitReached, codeCostCap];
+
+  final String code;
+
+  /// The quota feature key (`chat`, `entry`, ...), or null on the few routes
+  /// that only need a paid plan.
+  final String? feature;
+
+  /// When the allowance is back; null for a locked feature.
+  final DateTime? resetsAt;
+
+  /// True when a higher plan exists, so the sheet offers Upgrade.
+  final bool upgradeAvailable;
+
+  PlanLimitException({
+    required this.code,
+    required int statusCode,
+    String message = '',
+    this.feature,
+    this.resetsAt,
+    this.upgradeAvailable = false,
+  }) : super(message, statusCode: statusCode);
+
+  bool get isLocked => code == codeLocked;
+  bool get isLimitReached => code == codeLimitReached;
+  bool get isCostCap => code == codeCostCap;
+
+  /// Parses an error response body of the shape
+  /// `{"detail": {"code", "feature", "resets_at", "upgrade_available",
+  /// "message"}}`. Returns null for any other body (a plain 403 / 429, a
+  /// non-JSON page, an unknown code).
+  static PlanLimitException? tryParse(int statusCode, String body) {
+    if (statusCode != 403 && statusCode != 429) return null;
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final detail = decoded['detail'];
+    if (detail is! Map) return null;
+    final code = detail['code'];
+    if (code is! String || !codes.contains(code)) return null;
+    final feature = detail['feature'];
+    return PlanLimitException(
+      code: code,
+      statusCode: statusCode,
+      message: detail['message'] is String ? detail['message'] as String : '',
+      feature: feature is String && feature.isNotEmpty ? feature : null,
+      resetsAt: parseInstantOrNull(detail['resets_at']),
+      upgradeAvailable: detail['upgrade_available'] == true,
+    );
+  }
 }
 
 /// HTTP client used for every API call: applies per-endpoint timeouts and
@@ -263,6 +329,11 @@ class ApiService {
   /// 401s that parallel requests produce).
   static String? _notifiedExpiredToken;
 
+  /// Called after a request that may have used up, or hit, a plan allowance
+  /// (an AI answer, or a plan error), so the app refreshes `GET /api/plan`
+  /// and every counter shows the new numbers. Set by the app root.
+  static VoidCallback? onPlanUsageChanged;
+
   /// Auth endpoints whose 401/403 means "wrong credentials / unverified",
   /// not "session expired".
   static const List<String> _sessionCheckExemptPaths = [
@@ -357,10 +428,25 @@ class ApiService {
       return messages.isEmpty ? null : messages.join('\n');
     }
     if (detail is Map && detail['msg'] != null) return detail['msg'].toString();
+    // Plan errors: {"code", "feature", "message", ...}; the message is
+    // already in the user's language.
+    if (detail is Map && detail['message'] is String) {
+      return detail['message'] as String;
+    }
     return detail.toString();
   }
 
+  /// A [PlanLimitException] for a plan error (403 / 429 with a plan code),
+  /// otherwise a plain [ApiException] with the server's message.
   static ApiException apiError(http.Response response, String fallback) {
+    final planError = PlanLimitException.tryParse(
+      response.statusCode,
+      response.body,
+    );
+    if (planError != null) {
+      onPlanUsageChanged?.call();
+      return planError;
+    }
     return ApiException(
       errorMessage(response, fallback),
       statusCode: response.statusCode,
@@ -728,14 +814,22 @@ class ApiService {
     }
   }
 
-  static Future<bool> canAccessPremiumFeature() async {
-    try {
-      final status = await getSubscriptionStatus();
-      return status.isPremium;
-    } catch (e) {
-      return false;
+  /// The user's plan, trial state, each feature's allowance this period, every
+  /// plan's limits and the upgrade contact message.
+  static Future<PlanStatus> getPlanStatus() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/plan'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return PlanStatus.fromJson(jsonDecode(response.body));
+    } else {
+      throw apiError(response, 'Failed to get plan');
     }
   }
+
+  static void _notifyPlanUsage() => onPlanUsageChanged?.call();
 
   // Notification Preferences
   static Future<NotificationPreferencesResponse>
@@ -1046,11 +1140,14 @@ class ApiService {
     required String message,
     List<ChatMessage>? chatHistory,
     ResponseStyle? responseStyle,
+    ChatMode mode = ChatMode.standard,
+    void Function(ChatStreamMeta meta)? onMeta,
   }) async* {
     final chatRequest = ChatRequest(
       message: message,
       chatHistory: chatHistory,
       responseStyle: responseStyle ?? ResponseStyle.normal,
+      mode: mode,
     );
 
     final request = http.Request('POST', Uri.parse('$baseUrl/api/chat/stream'));
@@ -1130,6 +1227,12 @@ class ApiService {
             throw ApiException(data['error'].toString());
           }
 
+          // The first frame says which model answers (Advanced can fall back
+          // to Standard) and carries no text.
+          if (data.containsKey('mode_used')) {
+            onMeta?.call(ChatStreamMeta.fromFrame(data));
+          }
+
           final chunk = data['chunk'];
           if (chunk is String && chunk.isNotEmpty) {
             yield chunk;
@@ -1141,6 +1244,8 @@ class ApiService {
     } finally {
       client.close();
       if (identical(_activeChatClient, client)) _activeChatClient = null;
+      // The answer (or a refusal) changed this period's chat count.
+      _notifyPlanUsage();
     }
   }
 
@@ -1384,6 +1489,8 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
+      // A Free user's monthly insight is generated (and counted) on demand.
+      _notifyPlanUsage();
       return Insight.fromJson(jsonDecode(response.body));
     } else {
       throw apiError(response, 'Failed to get insights');
@@ -1403,6 +1510,7 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
+      _notifyPlanUsage();
       return Insight.fromJson(jsonDecode(response.body));
     } else {
       throw apiError(response, 'Failed to regenerate insights');
@@ -1417,23 +1525,6 @@ class ApiService {
 
     if (response.statusCode != 200) {
       throw apiError(response, 'Failed to delete insights');
-    }
-  }
-
-  // NEW: Method to translate existing insights
-  static Future<void> translateInsightsToMyanmar({
-    String insightType = 'weekly',
-  }) async {
-    final url =
-        '$baseUrl/api/insights/translate-myanmar?insight_type=$insightType';
-
-    final response = await _client.post(
-      Uri.parse(url),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode != 200) {
-      throw apiError(response, 'Failed to translate insights');
     }
   }
 
@@ -1622,7 +1713,7 @@ class ApiService {
 
   /// [language] ('en' | 'my') is sent only when the user explicitly chose
   /// it; null lets the backend auto-detect the spoken language.
-  static Future<String> transcribeAudio(
+  static Future<TranscriptionResult> transcribeAudio(
     Uint8List bytes, {
     required String filename,
     String? language,
@@ -1656,8 +1747,8 @@ class ApiService {
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['transcription'];
+        _notifyPlanUsage();
+        return TranscriptionResult.fromJson(jsonDecode(response.body));
       } else {
         throw apiError(response, 'Failed to transcribe audio');
       }
@@ -1668,17 +1759,34 @@ class ApiService {
     }
   }
 
+  /// JSON body of the text extractions. [voiceToken] (from
+  /// [transcribeAudio]) goes with the exact transcript so the voice entry is
+  /// one use; if the text was edited the server ignores it and counts normally.
+  @visibleForTesting
+  static Map<String, dynamic> extractTextBody(
+    String text, {
+    String? voiceToken,
+  }) {
+    return {
+      'text': text,
+      if (voiceToken != null && voiceToken.isNotEmpty)
+        'voice_token': voiceToken,
+    };
+  }
+
   static Future<ExtractedTransactionData> extractTransactionFromText(
-    String text,
-  ) async {
+    String text, {
+    String? voiceToken,
+  }) async {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/transactions/extract-from-text'),
         headers: await _getHeaders(),
-        body: jsonEncode({'text': text}),
+        body: jsonEncode(extractTextBody(text, voiceToken: voiceToken)),
       );
 
       if (response.statusCode == 200) {
+        _notifyPlanUsage();
         return ExtractedTransactionData.fromJson(jsonDecode(response.body));
       } else {
         throw apiError(response, 'Failed to extract transaction');
@@ -1716,6 +1824,7 @@ class ApiService {
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
+        _notifyPlanUsage();
         return ExtractedTransactionData.fromJson(jsonDecode(response.body));
       } else {
         throw apiError(response, 'Failed to extract from image');
@@ -1728,15 +1837,19 @@ class ApiService {
   }
 
   static Future<MultipleExtractedTransactions>
-  extractMultipleTransactionsFromText(String text) async {
+  extractMultipleTransactionsFromText(
+    String text, {
+    String? voiceToken,
+  }) async {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/transactions/extract-multiple-from-text'),
         headers: await _getHeaders(),
-        body: jsonEncode({'text': text}),
+        body: jsonEncode(extractTextBody(text, voiceToken: voiceToken)),
       );
 
       if (response.statusCode == 200) {
+        _notifyPlanUsage();
         return MultipleExtractedTransactions.fromJson(
           jsonDecode(response.body),
         );
@@ -1812,6 +1925,7 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
+      _notifyPlanUsage();
       return AIBudgetSuggestion.fromJson(jsonDecode(response.body));
     } else {
       throw apiError(response, 'Failed to get AI budget suggestions');

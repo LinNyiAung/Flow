@@ -9,8 +9,10 @@ import 'package:frontend/providers/app_version_provider.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/feedback_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/budgets/budgets_screen.dart';
 import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
@@ -97,11 +99,15 @@ class _MyAppState extends State<MyApp> {
   final BudgetProvider _budgetProvider = BudgetProvider();
   final NotificationProvider _notificationProvider = NotificationProvider();
   final FeedbackProvider _feedbackProvider = FeedbackProvider();
+  final PlanProvider _planProvider = PlanProvider();
   final ThemeProvider _themeProvider = ThemeProvider()..loadThemeMode();
 
   /// Web only: there is no push, so refresh when the browser tab becomes
-  /// visible again (premium granted elsewhere, new notifications).
+  /// visible again (plan changed elsewhere, new notifications).
   AppLifecycleListener? _lifecycleListener;
+
+  /// User the plan was last loaded for (see [_onAuthChanged]).
+  String? _planUserId;
 
   @override
   void initState() {
@@ -113,16 +119,48 @@ class _MyAppState extends State<MyApp> {
     _authProvider.onLanguagePreference =
         (code) => _changeLanguage(Locale(code));
     ApiService.onSessionExpired = _handleSessionExpired;
+    // The plan (allowances, locks, trial) loads when a user signs in, after
+    // every AI action, and when an admin changes the plan; what the server
+    // reports is what the rest of the app treats as the user's plan.
+    ApiService.onPlanUsageChanged = _planProvider.refresh;
+    _authProvider.addListener(_onAuthChanged);
+    _planProvider.addListener(_onPlanChanged);
+  }
+
+  /// Pro users (with Advanced left in their plan) get the Standard / Advanced
+  /// switch in chat; everyone else is always answered by Standard.
+  void _syncAdvancedChat() {
+    _chatProvider.setAdvancedAvailable(
+      _authProvider.isAuthenticated &&
+          _authProvider.isPro &&
+          !_planProvider.isLocked(PlanFeature.chatAdvanced),
+    );
+  }
+
+  void _onAuthChanged() {
+    _syncAdvancedChat();
+    final userId = _authProvider.user?.id;
+    if (userId == _planUserId) return;
+    _planUserId = userId;
+    if (userId != null) _planProvider.refresh();
+  }
+
+  void _onPlanChanged() {
+    final status = _planProvider.status;
+    if (status != null) _authProvider.applyPlanStatus(status);
+    _syncAdvancedChat();
   }
 
   void _refreshOnResume() {
     if (_authProvider.isAuthenticated) {
       _authProvider.refreshUserSilently();
+      _planProvider.refresh();
       _notificationProvider.fetchUnreadCount();
     }
   }
 
   void _resetUserState() {
+    _planProvider.reset();
     _transactionProvider.reset();
     _chatProvider.reset();
     _goalProvider.reset();
@@ -157,6 +195,9 @@ class _MyAppState extends State<MyApp> {
   void dispose() {
     _lifecycleListener?.dispose();
     ApiService.onSessionExpired = null;
+    ApiService.onPlanUsageChanged = null;
+    _authProvider.removeListener(_onAuthChanged);
+    _planProvider.removeListener(_onPlanChanged);
     super.dispose();
   }
 
@@ -173,6 +214,7 @@ class _MyAppState extends State<MyApp> {
         ChangeNotifierProvider.value(value: _budgetProvider),
         ChangeNotifierProvider.value(value: _notificationProvider),
         ChangeNotifierProvider.value(value: _feedbackProvider),
+        ChangeNotifierProvider.value(value: _planProvider),
         ChangeNotifierProvider.value(value: _themeProvider),
       ],
       child: Consumer<ThemeProvider>(

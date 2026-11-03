@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
+import 'package:frontend/screens/subscription/subscription_screen.dart';
 
 import '../support/accounts.dart';
 import '../support/harness.dart';
@@ -61,11 +62,11 @@ Future<void> analyticsTour(Type screen, String drawerLabel, {required bool pie})
 void analyticsFlows() {
   group('07 Analytics', () {
     e2eTest('analytics: outflow screen periods/currency/charts', (t) async {
-      await login(premium);
+      await login(plus);
       await analyticsTour(OutflowAnalyticsScreen, L.outflowAnalytics, pie: true);
     });
     e2eTest('analytics: inflow screen periods/currency/charts', (t) async {
-      await login(premium);
+      await login(plus);
       await analyticsTour(InflowAnalyticsScreen, L.inflowAnalytics, pie: false);
     });
   });
@@ -81,7 +82,7 @@ Future<int> _waitReport() => waitAny([
 void reportFlows() {
   group('08 Reports', () {
     e2eTest('reports: week/month/year/custom, multi + single currency, PDF', (t) async {
-      await login(premium);
+      await login(plus);
       await drawerGo(L.financialReports);
       await waitFor(find.byType(ReportsScreen));
       var r = await _waitReport();
@@ -124,10 +125,10 @@ void reportFlows() {
       await tap(find.text('PDF'));
       final d = await waitAny([find.text(L.reportDownloadedSuccessfully), find.textContaining(L.errorDownloadReport)],
           timeout: const Duration(seconds: 90));
-      check(d == 0, 'PDF download (premium) did not succeed: ${d == 1 ? visibleTexts().firstWhere((x) => x.contains(L.errorDownloadReport), orElse: () => '') : 'timeout'}');
+      check(d == 0, 'PDF download (Plus) did not succeed: ${d == 1 ? visibleTexts().firstWhere((x) => x.contains(L.errorDownloadReport), orElse: () => '') : 'timeout'}');
     });
 
-    e2eTest('reports: free user PDF download → premium gate', (t) async {
+    e2eTest('reports: Free user PDF download → Upgrade screen, no download', (t) async {
       await login(free);
       await drawerGo(L.financialReports);
       await waitFor(find.byType(ReportsScreen));
@@ -141,25 +142,25 @@ void reportFlows() {
       await settle(1000);
       final share = find.byIcon(Icons.ios_share_rounded);
       if (!await waitFor(share, timeout: const Duration(seconds: 8), orNull: true)) {
-        // Hidden for free users counts as a gate.
+        appBug('Reports (Free user): no export action, so the PDF lock cannot lead to the Upgrade screen '
+            '(visible: ${visibleTexts().take(20).join(' | ')})');
         return;
       }
       step('free user taps PDF');
       await tap(share);
       await tap(find.text('PDF'));
+      // The PDF is a paid-plan export: Free is sent to the Upgrade screen and nothing is downloaded.
       final d = await waitAny([
+        find.byType(SubscriptionScreen),
         find.text(L.reportDownloadedSuccessfully),
         find.textContaining(L.errorDownloadReport),
-        find.textContaining('remium'),
       ], timeout: const Duration(seconds: 60));
-      final shown = visibleTexts().where((x) => x.contains(L.errorDownloadReport) || x.contains('remium')).join(' | ');
+      final shown = visibleTexts().where((x) => x.contains(L.errorDownloadReport)).join(' | ');
       // ignore: avoid_print
       print('E2E_INFO|free PDF outcome=$d|$shown');
-      check(d != 0, 'Free user could download the PDF report (no premium gate)');
-      if (d == 1) {
-        check(!shown.contains('Exception:'),
-            'Free-user PDF error shows a raw "Exception:" string instead of a premium paywall: $shown');
-      }
+      check(d == 0, 'Free user tapping the PDF export was not sent to the Upgrade screen '
+          '(${d == 1 ? 'the report downloaded' : d == 2 ? 'error shown: $shown' : 'nothing happened'})');
+      check(find.text(L.reportDownloadedSuccessfully).evaluate().isEmpty, 'Free user could download the PDF report');
     });
   });
 }

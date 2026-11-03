@@ -144,7 +144,7 @@ Future<void> pickDateRangeToday() async {
 void transactionFlows() {
   group('03 Transactions', () {
     e2eTest('tx: add outflow via keypad + quick chip + note; Home updates', (t) async {
-      await login(premium);
+      await login(plus);
       final before = homeOutflowStat();
       await openAddTransaction();
       final note = 'e2e outflow ${_stamp()}';
@@ -164,7 +164,7 @@ void transactionFlows() {
       await expectSoon(find.byType(HomeScreen), 'Saving an outflow did not return to Home');
       await expectSoon(find.text(L.transactionAdded), 'No "Transaction added" snackbar after save', timeout: const Duration(seconds: 6));
       step('verify via API');
-      final txs = await apiTransactions(premium, limit: 20);
+      final txs = await apiTransactions(plus, limit: 20);
       final match = txs.where((x) => x['description'] == note).toList();
       check(match.length == 1 && (match.first['amount'] as num) == 12.5 && match.first['type'] == 'outflow',
           'Created outflow not found / wrong in API: $match');
@@ -175,7 +175,7 @@ void transactionFlows() {
     });
 
     e2eTest('tx: add inflow with category sheet', (t) async {
-      await login(premium);
+      await login(plus);
       await openAddTransaction();
       step('switch to inflow');
       await tap(find.descendant(of: find.byType(AddTransactionScreen), matching: find.text(L.inflow)).first);
@@ -187,14 +187,14 @@ void transactionFlows() {
       await addNote(note);
       await saveAdd();
       await expectSoon(find.byType(HomeScreen), 'Saving an inflow did not return to Home');
-      final txs = await apiTransactions(premium, limit: 20);
+      final txs = await apiTransactions(plus, limit: 20);
       final match = txs.where((x) => x['description'] == note).toList();
       check(match.length == 1 && match.first['type'] == 'inflow' && match.first['main_category'] == cat.$1,
           'Created inflow not found / wrong in API: $match');
     });
 
     e2eTest('tx: amount validation + rapid type toggle', (t) async {
-      await login(premium);
+      await login(plus);
       await openAddTransaction();
       step('save empty');
       await saveAdd();
@@ -276,7 +276,7 @@ void transactionFlows() {
     });
 
     e2eTest('tx: list filters (type, currency, date today) + clear', (t) async {
-      await login(premium);
+      await login(plus);
       await openTransactionsList();
       final total = listCount();
       check(total != null && total > 0, 'Transactions list shows no count / no rows');
@@ -314,7 +314,7 @@ void transactionFlows() {
     });
 
     e2eTest('tx: edit amount/category/date from list; list refreshes', (t) async {
-      await login(premium);
+      await login(plus);
       // Create a dedicated row to edit via the UI.
       await openAddTransaction();
       final note = 'e2e edit ${_stamp()}';
@@ -353,7 +353,7 @@ void transactionFlows() {
       await tap(find.text(L.updateTransactionButton));
       await expectSoon(find.byType(TransactionsListScreen), 'Update did not return to the list');
       await settle(2500);
-      final api = (await apiTransactions(premium)).where((x) => x['description'] == note).toList();
+      final api = (await apiTransactions(plus)).where((x) => x['description'] == note).toList();
       check(api.length == 1 && (api.first['amount'] as num) == 42 && api.first['main_category'] == cat.$1,
           'Edited transaction wrong in API: $api');
       if (api.isNotEmpty) {
@@ -365,7 +365,7 @@ void transactionFlows() {
     });
 
     e2eTest('tx: clearing a note persists (reopen shows no note)', (t) async {
-      await login(premium);
+      await login(plus);
       await openAddTransaction();
       final note = 'e2e note ${_stamp()}';
       await typeAmount('21');
@@ -389,7 +389,7 @@ void transactionFlows() {
       await waitFor(find.byType(TransactionsListScreen));
       await settle(2000);
       step('verify cleared note');
-      final token = await apiToken(premium);
+      final token = await apiToken(plus);
       final all = (await apiGet(token, '/api/transactions?limit=200&skip=0')) as List;
       final still = all.where((x) => x['description'] == note).toList();
       check(still.isEmpty,
@@ -404,7 +404,7 @@ void transactionFlows() {
     });
 
     e2eTest('tx: delete from list refreshes list; delete from Home shows snackbar', (t) async {
-      await login(premium);
+      await login(plus);
       for (final amt in ['17', '18']) {
         await openAddTransaction();
         await typeAmount(amt);
@@ -428,7 +428,7 @@ void transactionFlows() {
       final backOnList = find.byType(TransactionsListScreen).hitTestable().evaluate().isNotEmpty &&
           find.byType(EditTransactionScreen).evaluate().isEmpty;
       check(backOnList, 'After deleting, the app is not back on the transactions list (screen: ${E2E.screen})');
-      final api = await apiTransactions(premium, limit: 300);
+      final api = await apiTransactions(plus, limit: 300);
       check(!api.any((x) => (x['description'] ?? '').toString().startsWith('e2e del 17')),
           'Deleted transaction still exists in the API');
       await settle(1500);

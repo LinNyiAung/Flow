@@ -6,12 +6,16 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:frontend/models/budget.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/insight_errors.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../models/insight.dart';
 import '../../providers/insight_provider.dart';
 import '../../widgets/app_drawer.dart';
@@ -27,10 +31,33 @@ class _InsightsScreenState extends State<InsightsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final insightProvider =
+          Provider.of<InsightProvider>(context, listen: false);
+      // The remembered English / မြန်မာ choice, before the first request.
+      await insightProvider.loadPreferredLanguage();
+      if (!mounted) return;
+      // Weekly insights are not in every plan (Free): open on the monthly
+      // insight there instead of a locked page.
+      if (insightProvider.insightType == 'weekly' &&
+          _isTypeLocked(insightProvider)) {
+        insightProvider.setInsightType('monthly');
+      }
       _fetchInsights();
       _fetchHealthScoreInputs();
     });
+  }
+
+  /// True when the shown insight type (weekly / monthly) is not in the user's
+  /// plan. Until the plan has loaded, weekly counts as locked for a user
+  /// without a paid plan and monthly as open.
+  bool _isTypeLocked(InsightProvider insightProvider) {
+    final isWeekly = insightProvider.insightType == 'weekly';
+    final isPaid = Provider.of<AuthProvider>(context, listen: false).isPaid;
+    return Provider.of<PlanProvider>(context, listen: false).isLocked(
+      isWeekly ? PlanFeature.insightWeekly : PlanFeature.insightMonthly,
+      whenUnknown: isWeekly && !isPaid,
+    );
   }
 
   // Health-score inputs, kept local to this screen so they never overwrite
@@ -81,14 +108,33 @@ class _InsightsScreenState extends State<InsightsScreen> {
     );
   }
 
-  Future<void> _fetchInsights() async {
-    final locale = Localizations.localeOf(context);
-    final language = locale.languageCode == 'my' ? 'mm' : 'en';
+  /// True when the plan has no insight translation (Free), so မြန်မာ is
+  /// locked and insights are shown in English.
+  bool _translationLocked() {
+    final isPaid = Provider.of<AuthProvider>(context, listen: false).isPaid;
+    return !isPaid ||
+        Provider.of<PlanProvider>(context, listen: false).isLocked(PlanFeature.insightTranslation);
+  }
 
-    await Provider.of<InsightProvider>(
+  /// The language the server is asked for: the toggle's choice, which starts
+  /// on the app language; always English without translation. It is not the
+  /// profile language.
+  String _wantedLanguage(InsightProvider insightProvider) {
+    final appLanguage = Localizations.localeOf(context).languageCode == 'my' ? 'mm' : 'en';
+    return insightProvider.wantedLanguage(
+      translationAvailable: !_translationLocked(),
+      appLanguage: appLanguage,
+    );
+  }
+
+  Future<void> _fetchInsights() async {
+    final insightProvider = Provider.of<InsightProvider>(
       context,
       listen: false,
-    ).fetchInsights(language: language);
+    );
+    // A locked type has nothing to fetch (the server would answer 403).
+    if (_isTypeLocked(insightProvider)) return;
+    await insightProvider.fetchInsights(language: _wantedLanguage(insightProvider));
   }
 
   Future<void> _regenerateInsights() async {
@@ -96,8 +142,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       context,
       listen: false,
     );
-    final locale = Localizations.localeOf(context);
-    final language = locale.languageCode == 'my' ? 'mm' : 'en';
+    final language = _wantedLanguage(insightProvider);
     final localizations = AppLocalizations.of(context);
 
     // Keep a reference to the progress dialog's own route: it is removed by
@@ -147,10 +192,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (!mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
+    final planLimit = insightProvider.actionPlanLimit;
     if (success) {
       messenger.showSnackBar(
         SnackBar(content: Text(localizations.insightsRegeneratedSuccessfully)),
       );
+    } else if (planLimit != null && insightProvider.insight != null) {
+      // Refused by the plan (e.g. the monthly AI limit): the limit sheet says why.
+      await showPlanLimitSheet(context, planLimit);
     } else if (insightProvider.insight != null) {
       // The previous insight is kept on screen; report the failure here.
       final raw = insightProvider.actionError;
@@ -171,7 +220,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget build(BuildContext context) {
     final insightProvider = Provider.of<InsightProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
+    // Rebuild when the plan (locks, allowances) changes.
+    context.watch<PlanProvider>();
     final localizations = AppLocalizations.of(context);
+    final typeLocked = _isTypeLocked(insightProvider);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -185,7 +237,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
         ),
         title: Text(localizations.aiInsights),
         actions: [
-          if (authProvider.isPremium)
+          // Regenerating is a paid-plan action (the server refuses Free).
+          if (authProvider.isPaid && !typeLocked)
             IconButton(
               icon: const Icon(Icons.refresh_rounded),
               tooltip: localizations.regenerate,
@@ -220,16 +273,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _fetchInsights,
-        child: authProvider.isPremium
-            ? _buildPremiumBody(insightProvider)
-            : _buildLockedBody(insightProvider),
+        child: typeLocked
+            ? _buildLockedBody(insightProvider)
+            : _buildInsightBody(insightProvider),
       ),
     );
   }
 
-  // ── Premium ──────────────────────────────────────────────────────
+  // ── Insight ──────────────────────────────────────────────────────
 
-  Widget _buildPremiumBody(InsightProvider insightProvider) {
+  Widget _buildInsightBody(InsightProvider insightProvider) {
     final localizations = AppLocalizations.of(context);
 
     if (insightProvider.isLoading ||
@@ -257,7 +310,16 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
       children: [
         _periodToggle(insightProvider),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
+        // A Free user's monthly insight is counted ("1 of 1 left this month");
+        // included insights show nothing here.
+        PlanUsageLine(
+          feature: insightProvider.insightType == 'monthly'
+              ? PlanFeature.insightMonthly
+              : PlanFeature.insightWeekly,
+          padding: const EdgeInsets.only(bottom: 4),
+        ),
+        const SizedBox(height: 4),
         _headerCard(insightProvider, periodLabel, scheme),
         const SizedBox(height: 12),
         if (healthScore != null) ...[
@@ -282,27 +344,47 @@ class _InsightsScreenState extends State<InsightsScreen> {
     String periodLabel,
     ColorScheme scheme,
   ) {
+    final note = insightProvider.translationNote;
     return Card(
       color: scheme.tertiaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.lightbulb_rounded, size: 20, color: scheme.tertiary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                periodLabel,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.tertiary,
+            Row(
+              children: [
+                Icon(Icons.lightbulb_rounded, size: 20, color: scheme.tertiary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    periodLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.tertiary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
+                const SizedBox(width: 8),
+                _languageToggle(insightProvider, scheme),
+              ],
             ),
-            const SizedBox(width: 8),
-            _translateChip(insightProvider, scheme),
+            // Myanmar was asked for but the server refused to translate it (a
+            // limit): the English insight is shown and this says why.
+            if (note != null && note.message.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                note.message,
+                key: const ValueKey('insight-translation-note'),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onTertiaryContainer,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -490,62 +572,93 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   // In the header, next to the period label, rather than below the full
   // report — buried under a long scroll of sections, it wasn't reachable
-  // without scrolling all the way down.
-  Widget _translateChip(InsightProvider insightProvider, ColorScheme scheme) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => _toggleInsightLanguage(insightProvider),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          border: Border.all(color: scheme.tertiary),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.translate_rounded, size: 15, color: scheme.tertiary),
-            const SizedBox(width: 5),
-            Text(
-              // Shows the language a tap switches *to*, matching the
-              // mockup's translate toggle.
-              insightProvider.currentLanguage == 'mm' ? 'ENGLISH' : 'မြန်မာ',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: scheme.onTertiaryContainer,
-                letterSpacing: 0.2,
+  // without scrolling all the way down. The language is chosen here, not by
+  // the app language; for a plan without translation (Free) မြန်မာ carries a
+  // lock and opens the Upgrade screen.
+  Widget _languageToggle(InsightProvider insightProvider, ColorScheme scheme) {
+    final localizations = AppLocalizations.of(context);
+    final locked = _translationLocked();
+
+    Widget seg(String language, String label, {bool lock = false}) {
+      final selected = insightProvider.currentLanguage == language;
+      return InkWell(
+        key: ValueKey('insight-lang-$language'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: selected ? null : () => _selectInsightLanguage(insightProvider, language),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? scheme.tertiary : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (lock) ...[
+                Icon(Icons.lock_rounded, size: 12, color: scheme.onTertiaryContainer),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? scheme.onTertiary : scheme.onTertiaryContainer,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.tertiary),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          seg('en', localizations.insightLangEnglish),
+          seg('mm', localizations.insightLangMyanmar, lock: locked),
+        ],
       ),
     );
   }
 
-  /// Mirrors the mockup's `toggleInsightLang` action: flips to the other
-  /// language if the insight already carries that translation, otherwise
-  /// fetches the Myanmar translation on demand.
-  Future<void> _toggleInsightLanguage(InsightProvider insightProvider) async {
-    final target = insightProvider.currentLanguage == 'mm' ? 'en' : 'mm';
-    if (target == 'mm' && insightProvider.insight?.contentMm == null) {
-      final success = await insightProvider.translateToMyanmar();
-      if (!mounted || success) return;
-      final localizations = AppLocalizations.of(context);
-      final raw = insightProvider.actionError;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            raw == null
-                ? localizations.failedToRegenerateInsights
-                : _friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1,
-          ),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    } else {
-      insightProvider.setLanguage(target);
+  /// A tap on English / မြန်မာ. The insight is shown in that language (a
+  /// Myanmar translation that does not exist yet is made once by the server
+  /// and stored). Without translation in the plan, မြန်မာ opens the Upgrade
+  /// screen and the insight stays in English.
+  Future<void> _selectInsightLanguage(InsightProvider insightProvider, String language) async {
+    if (language == 'mm' && _translationLocked()) {
+      await Navigator.pushNamed(context, '/subscription');
+      return;
     }
+    final success = await insightProvider.showLanguage(language);
+    if (!mounted || success) return;
+    // The server says the plan has no translation (the app's plan was out of
+    // date) or the limit sheet explains a limit; otherwise show the failure.
+    if (insightProvider.insight?.translationLocked == true) {
+      await Navigator.pushNamed(context, '/subscription');
+      return;
+    }
+    final planLimit = insightProvider.actionPlanLimit;
+    if (planLimit != null) {
+      await showPlanLimitSheet(context, planLimit);
+      return;
+    }
+    final localizations = AppLocalizations.of(context);
+    final raw = insightProvider.actionError;
+    if (raw == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
   }
 
   Widget _periodToggle(InsightProvider insightProvider) {
@@ -623,7 +736,22 @@ class _InsightsScreenState extends State<InsightsScreen> {
     );
   }
 
+  /// Full-page state for a request the plan refused (nothing else to show).
+  Widget _buildPlanLimit(PlanLimitException limit) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 24),
+      children: [
+        PlanLimitSheet(
+          error: limit,
+          onUpgrade: () => Navigator.pushNamed(context, '/subscription'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildError(InsightProvider insightProvider, AppLocalizations localizations) {
+    final planLimit = insightProvider.errorPlanLimit;
+    if (planLimit != null) return _buildPlanLimit(planLimit);
     final scheme = Theme.of(context).colorScheme;
     final (message, details) =
         _friendlyInsightError(insightProvider.error!, insightProvider.errorStatusCode, localizations);
@@ -697,11 +825,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
     );
   }
 
-  // ── Locked (free) ────────────────────────────────────────────────
+  // ── Locked (not in the plan) ─────────────────────────────────────
 
   // The health score is computed locally from the user's own budget and
   // transaction data (see _computeHealthScore) — it isn't an AI feature,
-  // so it's shown for real even to non-premium users rather than faked or
+  // so it's shown for real even when the insights are locked rather than faked or
   // blurred. Only the AI-generated report sections below it are locked,
   // shown as a plain list of what's included rather than a wall of raw
   // report text run through a blur filter (which used to leak markdown
@@ -726,7 +854,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
+      physics: const AlwaysScrollableScrollPhysics(),
       children: [
+        // Keeps the other insight type one tap away (Free has the monthly one).
+        _periodToggle(insightProvider),
+        const SizedBox(height: 12),
         if (healthScore != null) ...[
           _healthScoreCard(healthScore, scheme),
           const SizedBox(height: 12),
@@ -765,7 +897,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             child: Column(
               children: [
                 Text(
-                  localizations.threeInsightsWaiting,
+                  localizations.weeklyInsightsWithPlans,
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.5),
                   textAlign: TextAlign.center,
                 ),

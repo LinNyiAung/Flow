@@ -38,7 +38,7 @@ Future<void> openSettingsRow(String title) async {
 void notificationFlows() {
   group('11 Notifications', () {
     e2eTest('notifications: list, tap routes, mark all read, swipe delete', (t) async {
-      await login(premium);
+      await login(plus);
       await openNotifications();
       for (final title in ['Large transaction', 'Recurring rent added', 'Welcome to the new version']) {
         check(await scrollTo(find.text(title), maxSwipes: 4), 'Notifications: "$title" not listed');
@@ -55,6 +55,20 @@ void notificationFlows() {
           await waitFor(find.byType(NotificationsScreen));
           await settle(1000);
         }
+      }
+      step('tap the trial reminder (a plan notification: icon + Upgrade screen)');
+      const trialTitle = 'Your Plus Trial Ends Soon';
+      check(await scrollTo(find.text(trialTitle), maxSwipes: 4), 'Notifications: "$trialTitle" not listed');
+      check(find.byIcon(Icons.workspace_premium_rounded).evaluate().isNotEmpty,
+          'Notifications: the trial reminder has no plan icon (it fell back to the broadcast icon)');
+      await tap(find.text(trialTitle).first);
+      final upgrade = await waitFor(find.byType(SubscriptionScreen), timeout: const Duration(seconds: 10), orNull: true);
+      check(upgrade, 'Tapping the trial reminder did not open the Upgrade screen');
+      if (upgrade) {
+        await settle(1500);
+        await back();
+        await waitFor(find.byType(NotificationsScreen));
+        await settle(1000);
       }
       step('tap goal notification (no goal id)');
       await scrollTo(find.text('Goal achieved: New laptop'), maxSwipes: 4);
@@ -90,14 +104,14 @@ void notificationFlows() {
           .toList();
       check(badgeTexts.isEmpty, 'Bell badge still shows $badgeTexts after marking all read');
       step('server state');
-      final token = await apiToken(premium);
+      final token = await apiToken(plus);
       final list = await apiGet(token, '/api/notifications?limit=50');
       final items = list is List ? list : (list['notifications'] as List? ?? const []);
       check(!items.any((n) => n['title'] == 'Welcome to the new version'), 'Swiped notification still exists server-side');
     });
 
     e2eTest('notifications: settings toggles', (t) async {
-      await login(premium);
+      await login(plus);
       await openSettings();
       await openSettingsRow(L.notificationSettings);
       await waitFor(find.byType(NotificationSettingsScreen));
@@ -130,9 +144,9 @@ void notificationFlows() {
 void settingsFlows() {
   group('12 Settings', () {
     e2eTest('settings: edit profile name (and restore)', (t) async {
-      await login(premium);
+      await login(plus);
       await openSettings();
-      for (final newName in ['Maya E2E', premium.name]) {
+      for (final newName in ['Maya E2E', plus.name]) {
         await openSettingsRow(L.editProfile);
         await waitFor(find.byType(EditProfileScreen));
         await enter(find.byType(TextFormField).first, newName);
@@ -146,7 +160,7 @@ void settingsFlows() {
         // skipOffstage: false — the list keeps its scroll offset, which can leave
         // the profile card built in the cache area just above the viewport.
         await expectSoon(find.text(newName, skipOffstage: false), 'Settings does not show the new name "$newName"');
-        final me = await apiGet(await apiToken(premium), '/api/auth/me');
+        final me = await apiGet(await apiToken(plus), '/api/auth/me');
         check(me['name'] == newName, 'Server name not updated to "$newName": ${me['name']}');
       }
       step('name validation');
@@ -165,7 +179,7 @@ void settingsFlows() {
     });
 
     e2eTest('settings: language → Myanmar (home + drawer) → English', (t) async {
-      await login(premium);
+      await login(plus);
       await openSettings();
       await openSettingsRow(L.language);
       await tap(find.text('မြန်မာ'));
@@ -193,13 +207,13 @@ void settingsFlows() {
       await scrollTo(find.text(L.availableToSpend), dy: 400, maxSwipes: 10);
       await expectSoon(find.text(L.availableToSpend), 'Home not back in English');
       step('language persisted server-side');
-      final token = await apiToken(premium);
+      final token = await apiToken(plus);
       final me = await apiGet(token, '/api/auth/me');
       check(me['language'] == 'en', 'Server language not reset to en: ${me['language']}');
     });
 
     e2eTest('settings: dark theme on Home/Budgets/Goals then light', (t) async {
-      await login(premium);
+      await login(plus);
       await openSettings();
       await openSettingsRow(L.theme);
       await tap(find.text(L.themeDark));
@@ -225,7 +239,7 @@ void settingsFlows() {
     });
 
     e2eTest('settings: feedback form submit', (t) async {
-      await login(premium);
+      await login(plus);
       await openSettings();
       await openSettingsRow(L.sendFeedback);
       await waitFor(find.byType(FeedbackScreen));
@@ -246,17 +260,17 @@ void settingsFlows() {
       await expectSoon(find.byType(SettingsScreen), 'Feedback submit did not return to Settings');
     });
 
-    e2eTest('settings: free user claims trial → Premium Active', (t) async {
+    e2eTest('settings: free user claims trial → Plus trial', (t) async {
       await login(free);
       await drawerGo(L.subscription);
       await waitFor(find.byType(SubscriptionScreen));
       await scrollTo(find.text(L.claimOneMonthFree));
       await tap(find.text(L.claimOneMonthFree));
-      await expectSoon(find.text(L.welcomeToPremiumCelebration), 'Claim trial: no celebration dialog', timeout: const Duration(seconds: 30));
+      await expectSoon(find.text(L.welcomeToPlusCelebration), 'Claim trial: no celebration dialog', timeout: const Duration(seconds: 30));
       if (find.text(L.letsGo).evaluate().isNotEmpty) await tap(find.text(L.letsGo));
       await settle(1500);
-      await expectSoon(find.text(L.premiumActive), 'Subscription screen does not show "Premium Active" after claiming the trial');
-      step('premium unlocked in drawer/insights');
+      await expectSoon(find.text(L.planTrialActive(L.planNamePlus)), 'Subscription screen does not show the Plus trial after claiming it');
+      step('plus unlocked in drawer/insights');
       await goHome();
       await drawerGo(L.aiInsights);
       check(await waitFor(find.text(L.tryOneMonthFree), timeout: const Duration(seconds: 4), orNull: true) == false,

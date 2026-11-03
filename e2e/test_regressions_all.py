@@ -126,7 +126,7 @@ bug("admin audit log shows enum repr like 'Platform.ALL'", any("Platform." in (l
 
 # 7. placeholder insight not re-inserted on every GET
 email4, tok4, uid4 = new_user("placeholder")
-db.users.update_one({"_id": uid4}, {"$set": {"subscription_type": "premium", "subscription_expires_at": None}})
+db.users.update_one({"_id": uid4}, {"$set": {"subscription_type": "plus", "subscription_expires_at": None}})
 db.budgets.insert_one({"_id": "stale-" + uuid.uuid4().hex[:6], "user_id": uid4, "name": "Old", "period": "custom", "currency": "usd",
                        "start_date": now - timedelta(days=60), "end_date": now - timedelta(days=30), "category_budgets": [],
                        "total_budget": 10, "total_spent": 0, "remaining_budget": 10, "percentage_used": 0, "status": "active",

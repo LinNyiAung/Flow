@@ -232,7 +232,8 @@ def t_subscription():
     section("Subscription / free trial")
     r = c.get("/api/auth/subscription-status", headers=H(S["A"]))
     ok("subscription-status (free user)", r.status_code == 200, r.text)
-    r = c.post("/api/chat/stream", headers=H(S["A"]), json={"message": "hi"})
+    # Chat is open to Free (counted: see test_plans); weekly insights are still a paid-only endpoint.
+    r = c.get("/api/insights", headers=H(S["A"]), params={"insight_type": "weekly"})
     ok("premium endpoint blocked for free user", r.status_code == 403, r.status_code)
 
     r = c.post("/api/auth/claim-free-trial", headers=H(S["A"]))
@@ -248,7 +249,7 @@ def t_subscription():
     r = c.post("/api/auth/claim-free-trial", headers=H(S["A"]))
     ok("second trial claim rejected", r.status_code == 400, r.status_code)
 
-    db.users.update_one({"_id": S["B_id"]}, {"$set": {"subscription_type": "premium", "subscription_expires_at": None}})
+    db.users.update_one({"_id": S["B_id"]}, {"$set": {"subscription_type": "plus", "subscription_expires_at": None}})
     r = c.post("/api/auth/claim-free-trial", headers=H(S["B"]))
     after = db.users.find_one({"_id": S["B_id"]})
     bug("lifetime premium user downgraded to 30-day expiry by claiming trial",
@@ -257,8 +258,8 @@ def t_subscription():
 
     # expired premium is blocked
     tok, uid, _, _ = register_verified("Exp", "expired@example.com", "secret123")
-    db.users.update_one({"_id": uid}, {"$set": {"subscription_type": "premium", "subscription_expires_at": datetime.now(UTC) - timedelta(days=1)}})
-    r = c.post("/api/chat/stream", headers=H(tok), json={"message": "hi"})
+    db.users.update_one({"_id": uid}, {"$set": {"subscription_type": "plus", "subscription_expires_at": datetime.now(UTC) - timedelta(days=1)}})
+    r = c.get("/api/insights", headers=H(tok), params={"insight_type": "weekly"})
     ok("expired premium blocked from premium endpoints", r.status_code == 403, r.status_code)
 
 
@@ -717,7 +718,8 @@ def t_ai():
     r = c.post("/api/transactions/extract-from-text", headers=H(A), json={"text": "coffee 3 dollars"})
     rec("extract-from-text (AI stubbed)", "INFO", f"{r.status_code} {r.text[:150]}")
     r = c.post("/api/transactions/extract-from-text", headers=H(S["B"]), json={"text": "coffee"})
-    ok("extract-from-text requires premium", r.status_code == 403, r.status_code)
+    ok("extract-from-text is open to a Free user within the Free entry allowance (10 a month)",
+       r.status_code == 200 and r.json().get("amount") == 2.5, f"{r.status_code} {r.text[:150]}")
 
     r = c.post("/api/transactions/batch-create", headers=H(A), json=[
         {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Coffee & Snacks", "date": iso(now), "amount": 3, "currency": "usd"},
@@ -772,7 +774,7 @@ def t_admin():
     r = c.get("/api/admin/users/nope", headers=H(AD))
     ok("user detail 404", r.status_code == 404, r.status_code)
     r = c.put(f"/api/admin/users/{S['B_id']}/subscription", headers=H(AD),
-              json={"subscription_type": "premium", "subscription_expires_at": iso(now + timedelta(days=30))})
+              json={"subscription_type": "plus", "subscription_expires_at": iso(now + timedelta(days=30))})
     ok("grant premium", r.status_code == 200, r.text[:200])
     r = c.get("/api/auth/subscription-status", headers=H(S["B"]))
     bug("subscription-status 500 after admin grants time-limited premium", r.status_code == 500, f"{r.status_code}")
@@ -808,7 +810,7 @@ def t_admin():
     r = c.get("/api/admin/ai-usage/users", headers=H(AD), params={"start_date": iso(now - timedelta(days=1)), "end_date": iso(now)})
     ok("ai-usage/users accepts a date range", r.status_code == 200, f"{r.status_code} {r.text[:150]}")
     r = c.post("/api/admin/broadcast-notification", headers=H(AD),
-               json={"title": "Hello", "message": "hi", "target_users": "premium"})
+               json={"title": "Hello", "message": "hi", "target_users": "paid"})
     ok("broadcast (default type)", r.status_code == 200, r.text[:200])
     rec("broadcast result", "INFO", r.text[:200])
     r = c.get("/api/notifications", headers=H(S["A"]))

@@ -31,7 +31,7 @@ Future<void> setDefaultCurrency(String displayName) async {
 void homeFlows() {
   group('02 Home', () {
     e2eTest('home: balance card, currency switch, recent, pace, bell', (t) async {
-      await login(premium);
+      await login(plus);
       step('hero values');
       await expectSoon(find.text(L.availableToSpend), 'Home: "Available to spend" hero missing');
       final v = heroValue();
@@ -40,7 +40,7 @@ void homeFlows() {
       check(hasText('USD'), 'Home hero: USD currency pill missing');
 
       step('bell unread count');
-      final token = await apiToken(premium);
+      final token = await apiToken(plus);
       final unread = ((await apiGet(token, '/api/notifications/unread-count')) as Map)['unread_count'] as int;
       final expected = unread > 9 ? '9+' : '$unread';
       final badge = find.descendant(of: find.byType(AppBar), matching: find.text(expected));
@@ -51,7 +51,7 @@ void homeFlows() {
       check(hasText(L.spendingPace), 'Home: Spending pace card missing');
       await scrollTo(find.text(L.recentTransactions));
       check(hasText(L.recentTransactions), 'Home: Recent header missing');
-      check(!hasText(L.noTransactions), 'Home: Recent list empty for the rich premium account');
+      check(!hasText(L.noTransactions), 'Home: Recent list empty for the rich Plus account');
 
       step('scroll whole home (budgets/goals/shortcuts)');
       await scrollTo(find.text(L.financialReports), maxSwipes: 12);

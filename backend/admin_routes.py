@@ -44,8 +44,12 @@ from admin_models import (
 )
 from firebase_service import send_fcm_data_message, send_fcm_to_multiple
 from notification_service import should_send_notification
-from subscription_service import active_premium_filter, effectively_free_filter
+from subscription_service import active_paid_filter, active_plan_filter, effectively_free_filter
 from models import Currency, SubscriptionType
+from plans import periods, quota, store
+from plans.access import effective_plan
+from plans.catalog import FEATURES, PERIODS
+from sql import plans as plans_db
 from sqlalchemy.exc import IntegrityError
 from sql import admins as admins_db
 from sql import users as users_db
@@ -71,6 +75,16 @@ def _to_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC)
+
+
+async def _plan_counts(now: datetime, *conditions) -> Dict[str, int]:
+    """Users per plan right now, with any extra conditions: free (incl. expired paid plans), plus, pro, paid (plus+pro)."""
+    return {
+        "free": await users_db.count_users(effectively_free_filter(now), *conditions),
+        "plus": await users_db.count_users(active_plan_filter("plus", now), *conditions),
+        "pro": await users_db.count_users(active_plan_filter("pro", now), *conditions),
+        "paid": await users_db.count_users(active_paid_filter(now), *conditions),
+    }
 
 
 async def _find_admin_by_email(email: str) -> Optional[dict]:
@@ -642,13 +656,10 @@ async def update_user_subscription(
             detail="User not found"
         )
 
-    update_data = {
-        "subscription_type": subscription_data.subscription_type.value,
-        # Always store timezone-aware UTC
-        "subscription_expires_at": _to_aware_utc(subscription_data.subscription_expires_at)
-    }
-
-    await users_db.update_user(user_id, **update_data)
+    # Always store timezone-aware UTC. Any admin change ends the free-trial marker (and with it the trial reminders):
+    # a plan an admin sets is never shown or treated as a trial.
+    await users_db.set_plan(user_id, subscription_data.subscription_type.value,
+                            _to_aware_utc(subscription_data.subscription_expires_at))
 
     # Send a silent FCM data-only message so the app refreshes instantly.
     # Blocking firebase call runs in a threadpool so the event loop isn't blocked.
@@ -682,6 +693,70 @@ async def update_user_subscription(
         "message": "User subscription updated successfully",
         "fcm_refresh_sent": fcm_sent
     }
+
+
+@router.get("/users/{user_id}/usage")
+async def get_user_usage(
+    user_id: str = Path(...),
+    current_admin: dict = Depends(require_moderator_or_above)
+):
+    """This period's AI usage per feature for one user, plus this month's AI spend and the hidden cost cap.
+
+    Costs are for admins only; users never see them. Spend is measured from the later of the month start and the
+    user's last usage reset, the same window the cost cap uses.
+    """
+    user = await users_db.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    now = datetime.now(UTC)
+    plan = effective_plan(user, now)
+    limits = store.limits(plan)
+    counts = await plans_db.read_counters(user_id, {p: periods.period_start(p, now) for p in PERIODS})
+
+    features = {}
+    for feature in FEATURES:
+        limit = limits[feature]
+        if limit.mode == "counted":
+            features[feature] = {"mode": "counted", "used": counts.get((feature, limit.period), 0),
+                                 "limit": limit.quota, "period": limit.period}
+        else:
+            features[feature] = {"mode": limit.mode, "used": None, "limit": None, "period": None}
+
+    return {
+        "plan": plan,
+        "features": features,
+        "month_spend_usd": round(await quota.month_spend(user, now), 6),
+        "cost_cap_usd": store.cost_cap(plan),
+        "cost_cap_reached": await quota.over_cost_cap(user, now),
+    }
+
+
+@router.post("/users/{user_id}/reset-usage")
+async def reset_user_usage(
+    user_id: str = Path(...),
+    current_admin: dict = Depends(require_admin_or_super)
+):
+    """Give the user a fresh allowance: clears this week's and month's counts and restarts the cost-cap window.
+
+    ai_usage rows are kept (cost reports depend on them).
+    """
+    user = await users_db.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    await quota.reset_usage(user_id, current_admin["_id"])
+
+    await log_admin_action(
+        admin_id=current_admin["_id"],
+        admin_email=current_admin["email"],
+        action="reset_user_usage",
+        target_user_id=user_id,
+        target_user_email=user["email"],
+        details="Reset AI usage: cleared this week's and month's counts and restarted the cost-cap window"
+    )
+
+    return {"message": "User usage reset successfully"}
 
 
 @router.delete("/users/{user_id}")
@@ -723,9 +798,9 @@ async def delete_user(
 async def get_user_stats(current_admin: dict = Depends(require_moderator_or_above)):
     """Get user statistics"""
     total_users = await users_db.count_users()
-    # Expired premium counts as free (subscription_service has the one definition).
-    free_users = await users_db.count_users(effectively_free_filter())
-    premium_users = await users_db.count_users(active_premium_filter())
+    # An expired Plus/Pro counts as free (subscription_service has the one definition).
+    now = datetime.now(UTC)
+    plan_counts = await _plan_counts(now)
 
     thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
     new_users_last_30_days = await users_db.count_users(users_db.users.c.created_at >= thirty_days_ago)
@@ -744,8 +819,10 @@ async def get_user_stats(current_admin: dict = Depends(require_moderator_or_abov
 
     return UserStatsResponse(
         total_users=total_users,
-        free_users=free_users,
-        premium_users=premium_users,
+        free_users=plan_counts["free"],
+        plus_users=plan_counts["plus"],
+        pro_users=plan_counts["pro"],
+        paid_users=plan_counts["paid"],
         new_users_last_30_days=new_users_last_30_days,
         active_users_last_7_days=active_users_last_7_days,
         total_transactions=total_transactions,
@@ -762,8 +839,7 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
     month_start = now - timedelta(days=30)
 
     total_users = await users_db.count_users()
-    free_users = await users_db.count_users(effectively_free_filter(now))
-    premium_users = await users_db.count_users(active_premium_filter(now))
+    plan_counts = await _plan_counts(now)
 
     created = users_db.users.c.created_at
     new_users_today = await users_db.count_users(created >= today_start)
@@ -787,8 +863,10 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
 
     return SystemStatsResponse(
         total_users=total_users,
-        free_users=free_users,
-        premium_users=premium_users,
+        free_users=plan_counts["free"],
+        plus_users=plan_counts["plus"],
+        pro_users=plan_counts["pro"],
+        paid_users=plan_counts["paid"],
         total_transactions=total_transactions,
         total_goals=total_goals,
         total_budgets=total_budgets,
@@ -815,11 +893,13 @@ async def broadcast_notification(
         notification_type = broadcast_data.notification_type.value
 
         conditions = []
-        # Expired premium users are effectively free: target them with the free group.
+        # Expired Plus/Pro users are effectively free: target them with the free group.
         if broadcast_data.target_users == "free":
             conditions.append(effectively_free_filter())
-        elif broadcast_data.target_users == "premium":
-            conditions.append(active_premium_filter())
+        elif broadcast_data.target_users == "paid":
+            conditions.append(active_paid_filter())
+        elif broadcast_data.target_users in ("plus", "pro"):
+            conditions.append(active_plan_filter(broadcast_data.target_users))
 
         users = await users_db.list_fields(["fcm_token"], *conditions)
         total_users = len(users)
@@ -915,20 +995,22 @@ async def get_broadcast_stats(
         now = datetime.now(UTC)
         has_fcm = users_db.HAS_DEVICE
         total_users = await users_db.count_users()
-        free_users = await users_db.count_users(effectively_free_filter(now))
-        premium_users = await users_db.count_users(active_premium_filter(now))
+        reach = await _plan_counts(now)
+        reach_with_push = await _plan_counts(now, has_fcm)
 
         users_with_fcm = await users_db.count_users(has_fcm)
-        free_with_fcm = await users_db.count_users(effectively_free_filter(now), has_fcm)
-        premium_with_fcm = await users_db.count_users(active_premium_filter(now), has_fcm)
 
         return {
             "total_users": total_users,
-            "free_users": free_users,
-            "premium_users": premium_users,
+            "free_users": reach["free"],
+            "plus_users": reach["plus"],
+            "pro_users": reach["pro"],
+            "paid_users": reach["paid"],
             "users_with_push_enabled": users_with_fcm,
-            "free_with_push": free_with_fcm,
-            "premium_with_push": premium_with_fcm
+            "free_with_push": reach_with_push["free"],
+            "plus_with_push": reach_with_push["plus"],
+            "pro_with_push": reach_with_push["pro"],
+            "paid_with_push": reach_with_push["paid"]
         }
 
     except Exception as e:

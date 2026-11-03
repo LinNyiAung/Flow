@@ -5,6 +5,7 @@ import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/app_logo.dart';
+import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -102,7 +103,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                       ),
-                      if (authProvider.isPremium)
+                      if (authProvider.isPaid)
                         Positioned(
                           bottom: -2,
                           right: -2,
@@ -134,30 +135,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: authProvider.isPremium ? scheme.tertiaryContainer : scheme.secondaryContainer,
+                            color: authProvider.isPaid ? scheme.tertiaryContainer : scheme.secondaryContainer,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                authProvider.isPremium ? Icons.star_rounded : Icons.lock_rounded,
+                                authProvider.isPaid ? Icons.star_rounded : Icons.lock_rounded,
                                 size: 12,
-                                color: authProvider.isPremium ? scheme.onTertiaryContainer : scheme.primary,
+                                color: authProvider.isPaid ? scheme.onTertiaryContainer : scheme.primary,
                               ),
                               const SizedBox(width: 5),
                               Text(
-                                authProvider.isPremium ? localizations.premiumMemberLabel : localizations.freePlanLabel,
+                                authProvider.isTrial
+                                    ? localizations.planTrialActive(localizations.planName(authProvider.plan))
+                                    : localizations.planNameLabel(localizations.planName(authProvider.plan)),
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
-                                  color: authProvider.isPremium ? scheme.onTertiaryContainer : scheme.primary,
+                                  color: authProvider.isPaid ? scheme.onTertiaryContainer : scheme.primary,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        if (authProvider.isPremium && authProvider.subscriptionExpiresAt != null) ...[
+                        if (authProvider.isPaid && authProvider.subscriptionExpiresAt != null) ...[
                           const SizedBox(height: 6),
                           Text(
                             '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
@@ -277,13 +280,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 10),
           Card(
             child: AppListRow(
-              icon: authProvider.isPremium ? Icons.star_rounded : Icons.upgrade_rounded,
+              icon: authProvider.isPaid ? Icons.star_rounded : Icons.upgrade_rounded,
               iconBg: scheme.tertiaryContainer,
               iconColor: scheme.onTertiaryContainer,
-              title: authProvider.isPremium ? localizations.manageSubscription : localizations.upgradeToPremium,
-              subtitle: authProvider.isPremium
+              title: authProvider.isPaid ? localizations.manageSubscription : localizations.upgradePlan,
+              subtitle: authProvider.isPaid
                   ? localizations.viewManageSubscription
-                  : localizations.unlockPremiumFeatures,
+                  : localizations.unlockMoreWithPlans,
               onTap: () {
                 Navigator.pushNamed(context, '/subscription');
               },

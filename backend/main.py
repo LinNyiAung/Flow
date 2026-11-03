@@ -11,11 +11,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import DBAPIError
+from starlette.background import BackgroundTask
 
 from finite_utils import SafeJSONResponse, json_safe
 
 from firebase_service import initialize_firebase
-from utils import get_current_user, get_user_balance, require_premium
+from utils import ensure_paid, get_current_user, get_user_balance
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
 from scheduler import start_scheduler
 from pdf_generator import generate_financial_report_pdf
@@ -61,6 +62,14 @@ from ai_admin_routes import router as ai_admin_router
 from ai_providers import settings as ai_provider_settings
 from ai_providers.errors import redact
 
+# Plans and AI quotas: admin API and the limits cache it feeds
+from plans_admin_routes import router as plans_admin_router
+from plans_routes import plan_error_handler, router as plans_router
+from plans import periods, quota
+from plans import store as plan_store
+from plans.access import COST_CAP, LIMIT_REACHED, PlanError, effective_plan
+from tz_utils import as_utc
+
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
 
@@ -76,6 +85,8 @@ app.include_router(feedback_router)
 app.include_router(app_version_admin_router)
 app.include_router(app_version_user_router)
 app.include_router(ai_admin_router)
+app.include_router(plans_admin_router)
+app.include_router(plans_router)
 
 
 @app.on_event("startup")
@@ -91,6 +102,13 @@ async def startup_db_client():
         print(f"⚠️ Could not load the AI provider settings at startup ({type(e).__name__}); will retry")
     app.state.ai_settings_refresh = ai_provider_settings.start_refresh_loop()
 
+    # Plan limits, cost caps and upgrade contact: same pattern. Until a load succeeds the catalogue defaults apply.
+    try:
+        await plan_store.load()
+    except Exception as e:
+        print(f"⚠️ Could not load the plan limits at startup ({type(e).__name__}); will retry")
+    app.state.plans_refresh = plan_store.start_refresh_loop()
+
     try:
         from scheduler import start_scheduler
         app.state.scheduler = start_scheduler()
@@ -103,6 +121,8 @@ async def startup_db_client():
 async def shutdown_db_client():
     if hasattr(app.state, "ai_settings_refresh"):
         app.state.ai_settings_refresh.cancel()
+    if hasattr(app.state, "plans_refresh"):
+        app.state.plans_refresh.cancel()
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown()
         print("🛑 Scheduler shut down successfully")
@@ -184,6 +204,10 @@ def _pg_sqlstate(exc: BaseException) -> Optional[str]:
                 return code
         exc = getattr(exc, "orig", None) or exc.__cause__ or exc.__context__
     return None
+
+
+# A plan check refused the request (feature locked, allowance used up, cost cap): 403 / 429 with a stable code.
+app.add_exception_handler(PlanError, plan_error_handler)
 
 
 @app.exception_handler(DBAPIError)
@@ -269,22 +293,58 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+async def _reserve_chat(user: dict, mode: str):
+    """Reserve one chat use -> (reservation, mode_used, advanced_exhausted). Raises PlanError (chat locked, used up,
+    or the cost cap reached), which the app-level handler turns into a 403 / 429.
+
+    Advanced is answered only for a Pro user with Advanced allowance left; it reserves chat and chat_advanced together.
+    When Advanced is used up the message is answered as Standard and flagged advanced_exhausted. Anyone else asking
+    for Advanced (Free, Plus, or a Pro plan whose Advanced the owner locked) is simply answered as Standard.
+    """
+    advanced_exhausted = False
+    if mode == "advanced" and effective_plan(user) == "pro":
+        try:
+            return await quota.reserve(user, "chat", also=("chat_advanced",)), "advanced", False
+        except PlanError as e:
+            if e.feature != "chat_advanced":
+                raise  # chat itself is locked or used up, or the cost cap: Standard would be refused too
+            advanced_exhausted = e.code == LIMIT_REACHED
+    return await quota.reserve(user, "chat"), "standard", advanced_exhausted
+
+
+async def _give_back(reservation: "quota.Reservation") -> None:
+    """Release a chat use that was not kept (a no-op once committed or released). Never raises: a failed release is
+    logged, so it can't break the stream or hide the original error."""
+    try:
+        await reservation.release()
+    except Exception as e:  # noqa: BLE001
+        print(f"❌ Could not give back a chat use for user {reservation.user_id}: {type(e).__name__}: {redact(str(e))}")
+
+
 @app.post("/api/chat/stream")
 async def stream_chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Stream chat response from AI (Server-Sent Events, media type text/event-stream).
 
     Frames (each `data: <json>\\n\\n`):
+      - meta (always first, once): {"chunk": "", "done": false, "mode_used": "standard"|"advanced",
+                                    "advanced_exhausted": bool, "timestamp": ...}
       - chunk: {"chunk": "...", "done": false, "timestamp": ...}
       - final: {"chunk": "", "done": true, "full_response": "...", "timestamp": ...}
       - error: {"error": "<user-friendly message>", "done": true, "timestamp": ...}
     On error the exchange is NOT saved to chat history.
 
-    The answer comes from the "chat" feature's provider chain (admin panel / server settings), which also
-    records the usage. `ai_provider` in the body (sent by old apps) is validated and ignored.
+    Each message uses one chat (and, answered as Advanced, one chat_advanced) allowance. It is reserved before the
+    stream starts, so a refusal is a normal 403 / 429 with the plan-error body. The use is kept when the answer
+    completes, or when the client disconnects after the first chunk of the answer was sent. It is given back when the
+    AI fails (before or after the first chunk: the error frame) or the client leaves before the first chunk.
+
+    The answer comes from the "chat" feature's provider chain, or "chat_advanced" for an Advanced answer (admin
+    panel / server settings); the runner records the usage. `ai_provider` in the body (sent by old apps) is
+    validated and ignored.
     """
     user_id = current_user["_id"]
 
@@ -304,54 +364,95 @@ async def stream_chat_with_ai(
 
     response_style = chat_request.response_style.value if chat_request.response_style else "normal"
 
+    # Last step before the response: nothing may raise between the reservation and handing it to the stream.
+    reservation, mode_used, advanced_exhausted = await _reserve_chat(current_user, chat_request.mode)
+    feature = "chat_advanced" if mode_used == "advanced" else "chat"
+
+    # What the stream got to: whether a chunk of the answer reached the client, and whether the AI failed.
+    progress = {"first_sent": False, "failed": False}
+
+    async def settle():
+        """Keep or give back the use, once (later calls do nothing): a failed AI request never counts; an answer that
+        reached the client counts, even if the client then left; a stream that ended before any answer gives it back."""
+        if reservation.committed or reservation.released:
+            return
+        if progress["first_sent"] and not progress["failed"]:
+            reservation.commit()
+        else:
+            await _give_back(reservation)
+
     async def generate_stream():
         full_response = ""
         error_message = None
 
         try:
-            # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
-            async with aclosing(financial_chatbot.stream_chat(
-                user_id=user_id,
-                message=chat_request.message,
-                chat_history=chat_history,
-                response_style=response_style
-            )) as stream:
-                async for chunk_text, _usage in stream:  # usage is already tracked by the provider runner
-                    if chunk_text:
-                        full_response += chunk_text
-                        yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
-                        await asyncio.sleep(0.01)
-        except ChatServiceError as e:
-            error_message = e.user_message
-        except Exception as e:
-            print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {redact(str(e))}")
-            error_message = ChatServiceError.DEFAULT_MESSAGE
+            yield _sse({"chunk": "", "done": False, "mode_used": mode_used, "advanced_exhausted": advanced_exhausted,
+                        "timestamp": datetime.now(UTC).isoformat()})
+            try:
+                # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
+                async with aclosing(financial_chatbot.stream_chat(
+                    user_id=user_id,
+                    message=chat_request.message,
+                    chat_history=chat_history,
+                    response_style=response_style,
+                    feature=feature,
+                )) as stream:
+                    async for chunk_text, _usage in stream:  # usage is already tracked by the provider runner
+                        if chunk_text:
+                            full_response += chunk_text
+                            yield _sse({"chunk": chunk_text, "done": False, "timestamp": datetime.now(UTC).isoformat()})
+                            progress["first_sent"] = True  # resumed only once that chunk was sent
+                            await asyncio.sleep(0.01)
+            except ChatServiceError as e:
+                error_message = e.user_message
+            except Exception as e:
+                print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {redact(str(e))}")
+                error_message = ChatServiceError.DEFAULT_MESSAGE
 
-        if error_message:
-            # Do not persist failed exchanges.
-            yield _sse({"error": error_message, "done": True, "timestamp": datetime.now(UTC).isoformat()})
-            return
+            if error_message:
+                # A failed AI request, before or after the first chunk: nothing saved, the use given back.
+                progress["failed"] = True
+                await settle()
+                yield _sse({"error": error_message, "done": True, "timestamp": datetime.now(UTC).isoformat()})
+                return
 
-        if full_response:
-            # Saved BEFORE the "done" frame: the client may disconnect as soon as it
-            # sees done:true, which would cancel anything after the yield.
-            await save_chat_session(user_id, chat_request.message, full_response)
+            if full_response:
+                # Saved BEFORE the "done" frame: the client may disconnect as soon as it
+                # sees done:true, which would cancel anything after the yield.
+                await save_chat_session(user_id, chat_request.message, full_response)
 
-        yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
+            await settle()  # the answer completed: the use is kept
+            yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
+        finally:
+            # Closed or cancelled early (the client left): kept if an answer chunk had reached the client, otherwise
+            # given back. Shielded so a cancelled request still completes a release.
+            if not (reservation.committed or reservation.released):
+                await asyncio.shield(settle())
+
+    async def settle_unstarted():
+        # Also run after the response ends: a client gone before the stream started never runs generate_stream's
+        # finally. A no-op once the stream settled the use itself.
+        # Relies on ASGI spec 2.3 disconnect handling (uvicorn 0.54 reports 2.3): Starlette then listens for the
+        # disconnect, cancels the stream and still runs this background task. On a server reporting spec >= 2.4
+        # Starlette neither listens for disconnects nor runs `background` after a ClientDisconnect, so a stream whose
+        # client left before any chunk would run to completion and commit its use. Revisit this when the server or
+        # Starlette changes (re-run the e2e disconnect-before-first-chunk check).
+        await settle()
 
     return StreamingResponse(
         generate_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        background=BackgroundTask(settle_unstarted),
     )
 
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Chat with AI about financial data (deprecated - use /stream)"""
+    """Chat with AI about financial data (deprecated - use /stream). Makes no AI call, so it uses no allowance."""
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail="This endpoint is deprecated. Please use /api/chat/stream instead."
@@ -424,22 +525,89 @@ async def _generate_insight(user_id: str, insight_type: str):
     return await generate_weekly_insight(user_id)
 
 
-async def _ensure_myanmar_translation(insight: dict, user_id: str) -> dict:
-    """Translate (and cache) content_mm if missing. Placeholders never hit the paid API."""
+def _is_new_real_insight(insight: Optional[dict]) -> bool:
+    """A freshly generated, non-placeholder insight: the only result that uses an allowance. A welcome
+    placeholder, an older insight returned for a quiet period (is_reused) and an empty result do not."""
+    return (_insight_has_content(insight) and not insight.get("is_placeholder")
+            and not insight.get("is_reused"))
+
+
+async def _generate_counted(user: dict, insight_type: str):
+    """One on-demand insight, reserved on the plan first (a locked insight type, the hidden cost cap or a used-up
+    allowance raise PlanError, which no handler may swallow) and counted only when the result is a new real insight.
+
+    An included insight reserves nothing but is still refused at the cost cap. A placeholder, an older insight
+    reused for a quiet period, an empty result or any failure gives the reservation back.
+    """
+    reservation = await quota.reserve(user, f"insight_{insight_type}")
+    try:
+        insight = await _generate_insight(user["_id"], insight_type)
+    except BaseException:
+        await quota.give_back(reservation)
+        raise
+    if _is_new_real_insight(insight):
+        reservation.commit()
+    else:
+        await quota.give_back(reservation)
+    return insight
+
+
+def _translation_locked(user: dict) -> bool:
+    """True when the user's plan does not include insight translation: Free never gets one (whatever the owner sets for
+    it), and any plan whose insight_translation limit the owner locked."""
+    plan = effective_plan(user)
+    return plan == "free" or plan_store.limits(plan)["insight_translation"].mode == "locked"
+
+
+def _needs_translation_call(insight: dict) -> bool:
+    """True when showing the insight in Myanmar needs an AI call: no stored translation and not a welcome placeholder."""
+    from insights_service import _is_placeholder_text
+
     if insight.get("content_mm"):
-        return insight
+        return False
+    flag = insight.get("is_placeholder")
+    return not (flag or (flag is None and _is_placeholder_text(insight["content"])))
+
+
+async def _ensure_myanmar_translation(insight: dict, user: dict) -> dict:
+    """Translate (and cache) content_mm if missing. Placeholders never hit the paid API and a stored translation costs
+    nothing; only a real translation call is reserved on the user's plan (the cost cap applies) and counted."""
+    if not _needs_translation_call(insight):
+        if insight.get("content_mm"):
+            return insight
+        # A welcome placeholder: the canned translation, no AI call and nothing to reserve.
+        reservation = None
+    else:
+        reservation = await quota.reserve(user, "insight_translation")  # PlanError: locked, cost cap, used up
 
     from insights_service import translate_insight_to_myanmar
 
-    myanmar_content = await translate_insight_to_myanmar(
-        insight["content"],
-        user_id=user_id,
-        # None (legacy docs without the flag) falls back to text detection
-        is_placeholder=insight.get("is_placeholder"),
-    )
-    await insights_db.set_translation(insight["_id"], myanmar_content)
+    try:
+        myanmar_content = await translate_insight_to_myanmar(
+            insight["content"],
+            user_id=user["_id"],
+            # None (legacy docs without the flag) falls back to text detection
+            is_placeholder=insight.get("is_placeholder"),
+        )
+        await insights_db.set_translation(insight["_id"], myanmar_content)
+    except BaseException:
+        if reservation:
+            await quota.give_back(reservation)
+        raise
+    if reservation:
+        reservation.commit()
     insight["content_mm"] = myanmar_content
     return insight
+
+
+async def _translate_if_possible(insight: dict, user: dict):
+    """Myanmar for a Plus/Pro user: (insight, None) when translated or already stored. A plan refusal of the translation
+    itself (the hidden cost cap, a used-up counted allowance) must not hide the English insight, which exists and costs
+    nothing to show: it returns (insight, the limit error's detail) and the insight keeps its content_mm empty."""
+    try:
+        return await _ensure_myanmar_translation(insight, user), None
+    except PlanError as e:
+        return insight, e.detail()
 
 
 def _insight_http_error(e: Exception, action: str) -> HTTPException:
@@ -480,7 +648,13 @@ def _insight_has_content(insight: Optional[dict]) -> bool:
     return isinstance(content, str) and bool(content.strip())
 
 
-def _insight_response(insight: dict) -> InsightResponse:
+def _insight_response(insight: dict, translation_locked: bool = False, plan_translates: bool = True,
+                      translation_unavailable: Optional[dict] = None) -> InsightResponse:
+    """translation_locked: Myanmar was requested but the plan has no translation (reported to the app).
+    translation_unavailable: Myanmar was requested, the plan has translation, but the translation was refused (cost cap,
+    used-up allowance): the limit error's detail, else None. The English insight is still returned.
+    plan_translates False: the plan has no translation at all, so a Myanmar text stored earlier (for example while the
+    user was on Plus) is not handed out."""
     if not _insight_has_content(insight):
         # Never build a response from a legacy/empty document (content=None -> 500).
         raise HTTPException(
@@ -491,9 +665,65 @@ def _insight_response(insight: dict) -> InsightResponse:
         id=insight["_id"],
         user_id=insight["user_id"],
         content=insight["content"],
-        content_mm=insight.get("content_mm"),
+        content_mm=insight.get("content_mm") if plan_translates else None,
         generated_at=insight["generated_at"],
-        expires_at=insight.get("expires_at")
+        expires_at=insight.get("expires_at"),
+        translation_locked=translation_locked,
+        translation_unavailable=translation_unavailable,
+    )
+
+
+async def _free_monthly_insight(user: dict, latest: Optional[dict]) -> dict:
+    """The monthly insight a Free user sees: generated on demand, once per calendar month (app timezone).
+
+    - A real (non-placeholder) monthly insight generated this month, by this on-demand call or by the scheduler while
+      the user was on a paid plan, is shown and nothing is counted.
+    - Otherwise one insight is generated, covering the same period the scheduled monthly job would cover if it ran now
+      (generate_monthly_insight is the job's own function). A real insight counts as the month's use; a welcome
+      placeholder (no data yet) and an older insight reused for a quiet month do not.
+    - A stored placeholder with still no data is not regenerated: the latest older real insight is shown if there is one.
+    - If generation fails, the latest older insight is shown and nothing is counted; with nothing stored the error
+      is surfaced, as for Plus and Pro.
+    - If the month's use is gone or the hidden cost cap is reached, the latest older real insight is shown (200, nothing
+      counted); with none stored the 429 PlanError is raised. An owner-locked insight is still a 403.
+    `latest` is the newest stored insight.
+    """
+    from insights_service import _latest_real_insight, user_has_insight_data
+
+    user_id = user["_id"]
+    real = await _latest_real_insight(user_id, "monthly")
+    this_month = periods.period_start("month", datetime.now(UTC))
+    if real and real.get("generated_at") and periods.period_start("month", as_utc(real["generated_at"])) == this_month:
+        return real
+    if latest and latest.get("is_placeholder") and not await user_has_insight_data(user_id, "monthly"):
+        return real or latest
+
+    error: Optional[Exception] = None
+    generated = None
+    try:
+        generated = await _generate_counted(user, "monthly")
+    except PlanError as e:
+        # Blocked from generating this month's insight (the month's use is gone, the hidden cost cap): an older real
+        # insight costs nothing to show, so it is returned instead of the 429. With none stored the refusal stands.
+        # A locked insight (the owner locked it for Free) stays a 403.
+        if e.code in (LIMIT_REACHED, COST_CAP) and real:
+            return real
+        raise
+    except Exception as e:  # AI down, rate limited, unusable answer: fall back to what is stored
+        error = e
+        print(f"⚠️ Generating the monthly insight for user {user_id} failed "
+              f"({type(e).__name__}: {redact(str(e))}); falling back to the stored insight")
+    if _insight_has_content(generated):
+        return generated
+    fallback = real or latest
+    if _insight_has_content(fallback):
+        return fallback
+    # Nothing stored to show: surface the failure (429 / 503 / 500) as for any first generation.
+    if error is not None:
+        raise error
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Couldn't generate your monthly insight right now. Please try again later.",
     )
 
 
@@ -502,18 +732,32 @@ async def get_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(get_current_user)
 ):
     """Get latest AI-generated financial insights.
 
     `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is shown.
+
+    By plan: weekly insights are locked for Free (403). A Free user's monthly insight is generated on demand, once a
+    month (see _free_monthly_insight). `language` is the display language asked for by this request (not the profile's):
+    Myanmar is translated once and stored for Plus and Pro; Free is never translated and gets English with
+    translation_locked true.
     """
     user_id = current_user["_id"]
+    if insight_type == "weekly":
+        quota.require_unlocked(current_user, "insight_weekly")  # outside the handlers below: a PlanError passes through
+    plan_translates = not _translation_locked(current_user)
+    translation_locked = language == "mm" and not plan_translates
     try:
         from insights_service import latest_valid_insight, user_has_insight_data, _latest_real_insight
 
         # Legacy insights with content None / "" are treated as missing (skipped here).
         latest_insight = await latest_valid_insight(user_id, insight_type)
+
+        if effective_plan(current_user) == "free" and insight_type == "monthly":
+            # Free is never translated: English only, whatever language was asked for (no translation call).
+            latest_insight = await _free_monthly_insight(current_user, latest_insight)
+            return _insight_response(latest_insight, translation_locked, plan_translates=False)
 
         # A stored "welcome" placeholder is replaced once the user has real data (incl.
         # transactions in the current, incomplete period). If they don't, but they have
@@ -525,9 +769,10 @@ async def get_insights(
                     print(f"🔄 Replacing placeholder {insight_type} insight for user {user_id} (user now has data)")
                     regenerated = None
                     try:
-                        regenerated = await _generate_insight(user_id, insight_type)
+                        regenerated = await _generate_counted(current_user, insight_type)
                     except Exception as gen_error:
-                        # AI down / rate limited: something stored is still worth showing.
+                        # AI down / rate limited / the cost cap reached (a PlanError): something stored is still
+                        # worth showing, and nothing was generated.
                         print(f"⚠️ Regenerating {insight_type} insight for user {user_id} failed "
                               f"({type(gen_error).__name__}: {gen_error}); falling back to the stored insight")
                     if _insight_has_content(regenerated):
@@ -548,19 +793,20 @@ async def get_insights(
         if not latest_insight:
             # Nothing stored at all: generation errors are surfaced (429/503/500).
             print(f"🔄 No {insight_type} insight found, generating the first one for user {user_id}")
-            latest_insight = await _generate_insight(user_id, insight_type)
+            latest_insight = await _generate_counted(current_user, insight_type)
             if not _insight_has_content(latest_insight):
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=f"Couldn't generate your {insight_type} insight right now. Please try again later.",
                 )
 
-        if language == "mm":
-            latest_insight = await _ensure_myanmar_translation(latest_insight, user_id)
+        translation_unavailable = None
+        if language == "mm" and plan_translates:
+            latest_insight, translation_unavailable = await _translate_if_possible(latest_insight, current_user)
 
-        return _insight_response(latest_insight)
+        return _insight_response(latest_insight, translation_locked, plan_translates, translation_unavailable)
 
-    except HTTPException:
+    except (HTTPException, PlanError):
         raise
     except Exception as e:
         print(f"❌ Error getting insights: {type(e).__name__}: {e}")
@@ -594,13 +840,21 @@ async def regenerate_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored."""
+    """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored.
+
+    Locked for Free (403, whatever the type): regenerating is a paid-plan action. Plus and Pro are refused at the hidden
+    cost cap. `language` is the display language of this request (see GET /api/insights).
+    """
+    # Outside the handlers below: a PlanError passes through
+    ensure_paid(current_user)  # feature None: the refusal reads "only on Plus and Pro" (Free does include a monthly insight)
+    plan_translates = not _translation_locked(current_user)
+    translation_locked = language == "mm" and not plan_translates
     try:
         print(f"🔄 Force regenerating {insight_type} insights for user {current_user['_id']}")
 
-        new_insight = await _generate_insight(current_user["_id"], insight_type)
+        new_insight = await _generate_counted(current_user, insight_type)
 
         if not _insight_has_content(new_insight):
             raise HTTPException(
@@ -608,12 +862,13 @@ async def regenerate_insights(
                 detail=f"Couldn't regenerate your {insight_type} insight right now. Please try again later.",
             )
 
-        if language == "mm":
-            new_insight = await _ensure_myanmar_translation(new_insight, current_user["_id"])
+        translation_unavailable = None
+        if language == "mm" and plan_translates:
+            new_insight, translation_unavailable = await _translate_if_possible(new_insight, current_user)
 
         print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
-        return _insight_response(new_insight)
-    except HTTPException:
+        return _insight_response(new_insight, translation_locked, plan_translates, translation_unavailable)
+    except (HTTPException, PlanError):
         raise
     except Exception as e:
         print(f"❌ Error regenerating insights: {type(e).__name__}: {e}")
@@ -626,13 +881,17 @@ async def regenerate_insights(
 async def translate_insights_to_myanmar(
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(get_current_user)
 ):
     """Translate the latest weekly or monthly insight to Myanmar.
 
     `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is
-    translated on the insight_translation provider chain.
+    translated on the insight_translation provider chain. Locked for Free (403); Plus and Pro are refused at
+    the hidden cost cap when a translation call is needed.
     """
+    # Outside the handlers below: a PlanError passes through
+    ensure_paid(current_user, "insight_translation")
+    quota.require_unlocked(current_user, "insight_translation")
     try:
         from insights_service import latest_valid_insight
 
@@ -646,11 +905,11 @@ async def translate_insights_to_myanmar(
             return {"message": "Myanmar translation already exists", "already_translated": True}
 
         print(f"🔄 Translating {insight_type} insights to Myanmar for user {current_user['_id']}")
-        await _ensure_myanmar_translation(insight, current_user["_id"])
+        await _ensure_myanmar_translation(insight, current_user)
 
         return {"message": "Translation completed successfully", "already_translated": False}
 
-    except HTTPException:
+    except (HTTPException, PlanError):
         raise
     except Exception as e:
         print(f"❌ Translation error: {type(e).__name__}: {e}")
@@ -661,19 +920,25 @@ async def translate_insights_to_myanmar(
 
 @app.post("/api/insights/generate-weekly")
 async def manually_generate_weekly_insights(
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain)"""
+    """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain).
+
+    Locked for Free (403); Plus and Pro are refused at the hidden cost cap."""
+    # Outside the handlers below: a PlanError passes through
+    ensure_paid(current_user, "insight_weekly")
     try:
-        from insights_service import generate_weekly_insight, is_rate_limit_error
+        from insights_service import is_rate_limit_error
 
         # Same shape as before ({provider: outcome}), keyed by the provider that answered, or by the
         # feature's main provider when nothing was generated.
         provider = ai_provider_settings.resolve("insight_weekly").main.provider
         try:
-            insight = await generate_weekly_insight(current_user["_id"])
+            insight = await _generate_counted(current_user, "weekly")
             outcome = "success" if insight else "failed"
             provider = (insight or {}).get("ai_provider") or provider
+        except PlanError:
+            raise
         except Exception as e:
             print(f"❌ Manual weekly insight failed: {type(e).__name__}: {redact(str(e))}")
             # No raw exception text in the response.
@@ -685,6 +950,8 @@ async def manually_generate_weekly_insights(
             "results": results
         }
 
+    except PlanError:
+        raise
     except Exception as e:
         print(f"Error in manual weekly generation: {redact(str(e))}")
         raise _insight_http_error(e, "generate weekly insights")

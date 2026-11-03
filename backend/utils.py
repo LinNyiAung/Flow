@@ -7,6 +7,8 @@ from fastapi import Depends, HTTPException , status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_chatbot import financial_chatbot
+from plans.access import LOCKED, PlanError, effective_plan, user_language
+from plans.catalog import PAID_PLANS
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import users as users_db
@@ -207,24 +209,15 @@ async def get_user_money_lock(user_id: str) -> AsyncIterator[None]:
             yield
 
 
-async def require_premium(current_user: dict = Depends(get_current_user)):
-    """Middleware to check if user has premium subscription"""
-    subscription_type = current_user.get("subscription_type", "free")
+def ensure_paid(user: dict, feature: Optional[str] = None) -> None:
+    """Raise the plan_feature_locked 403 unless the user is on a paid plan (Plus or Pro) right now.
 
-    if subscription_type == "premium":
-        # Check if subscription hasn't expired
-        expires_at = current_user.get("subscription_expires_at")
-        if expires_at:
-            # FIX: Ensure expires_at is timezone-aware before comparison
-            expires_at_utc = ensure_utc_datetime(expires_at)
-            if expires_at_utc > datetime.now(UTC):
-                return current_user
-        elif not expires_at:  # Lifetime premium (no expiration date)
-            return current_user
+    An expired paid plan counts as free at once (plans.access.effective_plan), without waiting for the hourly
+    expiry job. Free users get the same 403 as a locked quota feature: code plan_feature_locked,
+    upgrade_available true and a message in their language. `feature` is the route's quota feature key, or None.
+    """
+    if effective_plan(user) not in PAID_PLANS:
+        raise PlanError(LOCKED, feature, upgrade_available=True, lang=user_language(user))
 
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="This feature requires a premium subscription"
-    )
 
 

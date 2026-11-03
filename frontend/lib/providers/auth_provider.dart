@@ -6,6 +6,7 @@ import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/services/pending_fcm_unregister.dart';
+import '../models/plan_status.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
 
@@ -71,15 +72,18 @@ class AuthProvider with ChangeNotifier {
   bool get hasClaimedFreeTrial => _user?.hasClaimedFreeTrial ?? false;
   String? get pendingVerificationEmail => _pendingVerificationEmail;
 
-  bool get isPremium => _user?.isPremium ?? false;
-  SubscriptionType get subscriptionType =>
-      _user?.subscriptionType ?? SubscriptionType.free;
+  /// The plan the user has right now (an expired Plus / Pro plan is Free).
+  Plan get plan => _user?.effectivePlan ?? Plan.free;
+  bool get isPaid => _user?.isPaid ?? false;
+  bool get isPro => _user?.isPro ?? false;
+  bool get isTrial => _user?.isTrial ?? false;
+  DateTime? get trialEndsAt => _user?.trialEndsAt;
   DateTime? get subscriptionExpiresAt => _user?.subscriptionExpiresAt;
   Currency get defaultCurrency => _user?.defaultCurrency ?? Currency.usd;
 
   AuthProvider() {
     // Listen for silent FCM subscription_updated messages so the UI
-    // reflects premium access the moment admin grants it — no sign-out needed.
+    // reflects a plan change the moment admin makes it — no sign-out needed.
     _subscriptionUpdateSub = NotificationEventBus()
         .onSubscriptionUpdated
         .listen((_) => refreshUserSilently());
@@ -265,13 +269,44 @@ class AuthProvider with ChangeNotifier {
     if (_user == null) return;
     try {
       final refreshed = await ApiService.getCurrentUser();
-      if (_user == null || refreshed.id != _user!.id) return;
-      _user = refreshed;
+      final previous = _user;
+      if (previous == null || refreshed.id != previous.id) return;
+      // /api/auth/me carries no trial state: keep what /api/plan told us
+      // while the plan is unchanged (the next plan refresh corrects it).
+      final samePlan = refreshed.plan == previous.plan &&
+          refreshed.subscriptionExpiresAt == previous.subscriptionExpiresAt;
+      _user = samePlan && !refreshed.isTrial
+          ? refreshed.copyWith(
+              isTrial: previous.isTrial,
+              trialEndsAt: previous.trialEndsAt,
+            )
+          : refreshed;
       notifyListeners();
     } catch (e) {
       // Background refresh — don't clear the user or show an error.
       debugPrint('AuthProvider: silent refresh failed: $e');
     }
+  }
+
+  /// Applies the plan the server reported (`GET /api/plan`), which is what
+  /// the server enforces. Notifies only when something changed.
+  void applyPlanStatus(PlanStatus status) {
+    final user = _user;
+    if (user == null) return;
+    final unchanged = user.plan == status.plan &&
+        user.subscriptionExpiresAt == status.expiresAt &&
+        user.isTrial == status.isTrial &&
+        user.trialEndsAt == status.trialEndsAt;
+    if (unchanged) return;
+    _user = user.copyWith(
+      plan: status.plan,
+      subscriptionExpiresAt: status.expiresAt,
+      clearSubscriptionExpiresAt: status.expiresAt == null,
+      isTrial: status.isTrial,
+      trialEndsAt: status.trialEndsAt,
+      clearTrialEndsAt: status.trialEndsAt == null,
+    );
+    notifyListeners();
   }
 
   // ─── Public refresh (can be called manually, e.g. pull-to-refresh) ───────
@@ -280,9 +315,10 @@ class AuthProvider with ChangeNotifier {
       final status = await ApiService.getSubscriptionStatus();
       if (_user != null) {
         _user = _user!.copyWith(
-          subscriptionType: status.subscriptionType,
+          plan: status.storedPlan,
           subscriptionExpiresAt: status.expiresAt,
           clearSubscriptionExpiresAt: status.expiresAt == null,
+          isTrial: status.isTrial,
         );
         notifyListeners();
       }
@@ -413,12 +449,6 @@ class AuthProvider with ChangeNotifier {
       _setLoading(false);
       return false;
     }
-  }
-
-  Future<bool> canAccessPremiumFeature(BuildContext context) async {
-    if (isPremium) return true;
-    await _showUpgradeDialog(context);
-    return false;
   }
 
   Future<bool> updateProfile({required String name}) async {
@@ -660,29 +690,4 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<void> _showUpgradeDialog(BuildContext context) async {
-    showDialog(
-      context: context,
-      builder: (context) {
-        final localizations = AppLocalizations.of(context);
-        return AlertDialog(
-          title: Text(localizations.premiumFeatureTitle),
-          content: Text(localizations.premiumFeatureDialogContent),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(localizations.dialogCancel),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/subscription');
-              },
-              child: Text(localizations.upgrade),
-            ),
-          ],
-        );
-      },
-    );
-  }
 }

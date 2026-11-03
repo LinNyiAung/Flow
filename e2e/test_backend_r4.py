@@ -20,7 +20,7 @@ now = datetime.now(UTC)
 def user(premium=False):
     email = f"r4-{uuid.uuid4().hex[:6]}@example.com"
     c.post("/api/auth/register", json={"name": "R4", "email": email, "password": "secret123"})
-    upd = {"is_verified": True} | ({"subscription_type": "premium", "subscription_expires_at": None} if premium else {})
+    upd = {"is_verified": True} | ({"subscription_type": "plus", "subscription_expires_at": None} if premium else {})
     db.users.update_one({"email": email}, {"$set": upd})
     return c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json()["access_token"], db.users.find_one({"email": email})["_id"]
 

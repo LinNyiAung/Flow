@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/android_download_link.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/plan_badge.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -23,7 +24,7 @@ class _DrawerNavItem {
   final bool isActive;
 
   /// Per-item badge copy (mockup: "3 NEW" / "TRY FREE" / "FREE MONTH" — not
-  /// a generic "PREMIUM" pill). Null means no badge.
+  /// a generic plan pill). Null means no badge.
   final String? badgeText;
 }
 
@@ -37,7 +38,7 @@ class AppDrawer extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final currentRoute = ModalRoute.of(context)?.settings.name;
     final isHome = currentRoute == '/';
-    final isPremium = authProvider.isPremium;
+    final isPaid = authProvider.isPaid;
 
     void go(String routeName) {
       Navigator.pop(context);
@@ -46,7 +47,7 @@ class AppDrawer extends StatelessWidget {
 
     // Order, icons and route keys mirror the mockup's `nav` list (lines
     // 3195-3212): Dashboard, Transactions, Budgets, Goals, AI assistant,
-    // Inflow analytics, Outflow analytics, Reports, Insights, Premium.
+    // Inflow analytics, Outflow analytics, Reports, Insights, Plans.
     final navItems = <_DrawerNavItem>[
       _DrawerNavItem(
         icon: Icons.space_dashboard_rounded,
@@ -88,7 +89,6 @@ class AppDrawer extends StatelessWidget {
         icon: Icons.forum_rounded,
         label: localizations.aiAssistant,
         isActive: currentRoute == '/ai-chat',
-        badgeText: !isPremium ? localizations.badgeTryFree : null,
         onTap: () => go('/ai-chat'),
       ),
       _DrawerNavItem(
@@ -113,14 +113,16 @@ class AppDrawer extends StatelessWidget {
         icon: Icons.lightbulb_rounded,
         label: localizations.aiInsights,
         isActive: currentRoute == '/insights',
-        badgeText: !isPremium ? localizations.badgeThreeNew : null,
         onTap: () => go('/insights'),
       ),
       _DrawerNavItem(
         icon: Icons.workspace_premium_rounded,
         label: localizations.subscription,
         isActive: currentRoute == '/subscription',
-        badgeText: !isPremium ? localizations.badgeFreeMonth : null,
+        // The one-time free month is only on offer until it has been claimed.
+        badgeText: !isPaid && !authProvider.hasClaimedFreeTrial
+            ? localizations.badgeFreeMonth
+            : null,
         onTap: () => go('/subscription'),
       ),
     ];
@@ -156,12 +158,11 @@ class AppDrawer extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (isPremium) ...[
+                      if (isPaid) ...[
                         SizedBox(width: responsive.sp8),
-                        StatusPill(
-                          label: localizations.premium.toUpperCase(),
-                          background: scheme.tertiaryContainer,
-                          foreground: scheme.tertiary,
+                        PlanBadge(
+                          plan: authProvider.plan,
+                          isTrial: authProvider.isTrial,
                         ),
                       ],
                     ],
@@ -186,7 +187,7 @@ class AppDrawer extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (isPremium && authProvider.subscriptionExpiresAt != null)
+                  if (isPaid && authProvider.subscriptionExpiresAt != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(

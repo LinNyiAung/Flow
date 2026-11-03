@@ -96,8 +96,11 @@ _RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_n
                  "unsupported_param",  # OpenAI's 400 code unsupported_parameter (e.g. max_tokens on a reasoning model)
                  "unsupported_value")  # OpenAI's 400 code unsupported_value, param temperature (reasoning models)
 # An odd successful answer, not an error. length_once: a reply cut off at the output limit (OpenAI finish_reason
-# "length", Gemini MAX_TOKENS, Claude stop_reason "max_tokens"), on the first matching call only.
-_ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once")
+# "length", Gemini MAX_TOKENS, Claude stop_reason "max_tokens"), on the first matching call only. slow: a normal
+# streamed answer that waits SLOW_STREAM_DELAY seconds before each part (so a client can disconnect mid-stream).
+# no_transactions: a valid JSON answer to the multi-transaction prompt that finds nothing (an empty "transactions").
+_ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once", "slow", "no_transactions")
+SLOW_STREAM_DELAY = 1.0
 _ONCE_KINDS = ("length_once",)  # consumed by the first matching call, even without "times"
 FAKE_KINDS = _RAISING_KINDS + _ANSWER_KINDS  # later tasks add kinds here
 
@@ -152,7 +155,8 @@ def set_fake_ai(**kinds):
     timeout, model_not_found, bad_request, echo_key, odd_error, invalid_model, unsupported_param, unsupported_value
     (raise); refusal (claude), empty, bad_json (odd successful
     answer); fail_mid_stream (streaming calls only); length_once (a reply cut off at the output limit, on the
-    first matching call only). Model-scoped keys need dict unpacking:
+    first matching call only); slow (streaming calls wait SLOW_STREAM_DELAY seconds before each part);
+    no_transactions (JSON-mode answers carry an empty "transactions" list). Model-scoped keys need dict unpacking:
     set_fake_ai(**{"claude@claude-typo": "model_not_found"}); a count limits a failure:
     set_fake_ai(claude={"kind": "rate_limit", "times": 2}). Typos raise ValueError.
     """
@@ -248,10 +252,12 @@ def _begin(provider, target, model, streaming=False, **extra):
     return kind
 
 
-def _stream_delay():
+def _stream_delay(kind=None):
     # E2E_FAKE_AI_DELAY (seconds, default 0) slows the stream so a client
-    # can be checked mid-stream (e.g. the web chat's Cancel button).
-    return float(os.environ.get("E2E_FAKE_AI_DELAY") or 0)
+    # can be checked mid-stream (e.g. the web chat's Cancel button). The "slow"
+    # kind does the same for one provider, steered from a test.
+    delay = float(os.environ.get("E2E_FAKE_AI_DELAY") or 0)
+    return max(delay, SLOW_STREAM_DELAY) if kind == "slow" else delay
 
 
 def _canned_json(prompt):
@@ -284,6 +290,9 @@ def _answer_text(kind, prompt, wants_json):
         return ""
     if kind == "bad_json":
         return "not json"
+    if kind == "no_transactions" and wants_json:
+        return json.dumps({"transactions": [], "total_count": 0, "overall_confidence": 0.5,
+                           "analysis": "No transactions found in the text"})
     text = _canned_json(prompt) if wants_json else FAKE_REPLY
     if kind == "length_once":  # cut off at the output limit
         return text[:max(1, len(text) // 2)]
@@ -314,7 +323,7 @@ class _FakeCompletions:
             return _ns(choices=[_ns(message=_ns(content=text), finish_reason=finish)], usage=usage, model="fake")
 
         async def gen():
-            delay = _stream_delay()
+            delay = _stream_delay(kind)
             parts = _stream_parts(text)
             for i, part in enumerate(parts):
                 if delay:
@@ -380,7 +389,7 @@ class _FakeGeminiModels:
         parts = _stream_parts(text)
 
         async def gen():
-            delay = _stream_delay()
+            delay = _stream_delay(kind)
             for i, part in enumerate(parts):
                 if delay:
                     await asyncio.sleep(delay)
@@ -464,7 +473,7 @@ class _FakeClaudeStream:
     @property
     def text_stream(self):
         async def gen():
-            delay = _stream_delay()
+            delay = _stream_delay(self._kind)
             for part in self._parts:
                 if delay:
                     await asyncio.sleep(delay)

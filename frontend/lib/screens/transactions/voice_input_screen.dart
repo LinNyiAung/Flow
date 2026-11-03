@@ -2,11 +2,14 @@ import 'dart:typed_data';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
-import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/amount_entry_dialog.dart';
+import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:frontend/widgets/plan_usage_line.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -15,6 +18,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/voice_image_models.dart';
+import 'voice_extraction.dart';
 import 'package:intl/intl.dart';
 
 class VoiceInputScreen extends StatefulWidget {
@@ -29,6 +33,10 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   bool _isProcessing = false;
   bool _isSaving = false;
   String? _transcribedText;
+
+  /// The transcript and voice token of the recording whose extraction has not
+  /// succeeded yet; set only while a retry is possible.
+  VoiceExtraction? _extraction;
   MultipleExtractedTransactions? _extractedData;
   List<bool> _selected = [];
   String? _error;
@@ -98,6 +106,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           _isRecording = true;
           _error = null;
           _transcribedText = null;
+          _extraction = null;
           _extractedData = null;
           _selected = [];
         });
@@ -157,26 +166,77 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
       );
       if (!mounted) return;
 
+      // A silent recording is not an entry (nothing was used up): say so
+      // instead of asking the AI to read an empty text.
+      if (transcription.isSilent) {
+        setState(() {
+          _error = AppLocalizations.of(context).voiceNothingHeard;
+          _isProcessing = false;
+        });
+        return;
+      }
+
+      // Kept (with the voice token) so a failed extraction can be retried
+      // without recording again.
+      final extraction = VoiceExtraction(transcription);
       setState(() {
-        _transcribedText = transcription;
+        _transcribedText = extraction.transcript;
+        _extraction = extraction;
       });
 
-      // Step 2: Extract multiple transaction data
-      final extractedData = await ApiService.extractMultipleTransactionsFromText(transcription);
+      // Step 2: Extract multiple transaction data. The voice token goes back
+      // with the exact transcript, so the whole voice entry is one use.
+      await _runExtraction(extraction);
+    } catch (e) {
       if (!mounted) return;
+      setState(() {
+        // A plan limit is explained by the sheet below, not by the error box.
+        _error = e is PlanLimitException
+            ? null
+            : e.toString().replaceAll('Exception: ', '');
+        _isProcessing = false;
+      });
+      await handlePlanLimitError(context, e);
+    }
+  }
+
+  /// Step 2 of a voice entry: reads the transcript into transactions. A failure
+  /// that is not a plan refusal keeps [_extraction] so "Try again" can repeat
+  /// it with the same transcript and voice token (no new recording, no second
+  /// entry used).
+  Future<void> _runExtraction(VoiceExtraction extraction) async {
+    try {
+      final extractedData = await extraction.extract();
+      if (!mounted || !identical(_extraction, extraction)) return;
 
       setState(() {
         _extractedData = extractedData;
         _selected = List<bool>.filled(extractedData.transactions.length, true);
         _isProcessing = false;
+        _extraction = null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || !identical(_extraction, extraction)) return;
+      final retryable = VoiceExtraction.canRetryAfter(e);
       setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
+        // A plan limit is explained by the sheet below, not by the error box.
+        _error = retryable ? e.toString().replaceAll('Exception: ', '') : null;
         _isProcessing = false;
+        if (!retryable) _extraction = null;
       });
+      await handlePlanLimitError(context, e);
     }
+  }
+
+  /// "Try again" after a failed extraction: the same transcript and voice token.
+  Future<void> _retryExtraction() async {
+    final extraction = _extraction;
+    if (extraction == null || _isProcessing) return;
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+    await _runExtraction(extraction);
   }
 
   List<ExtractedTransactionData> get _selectedTransactions {
@@ -253,6 +313,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   void _resetVoice() {
     setState(() {
       _transcribedText = null;
+      _extraction = null;
       _extractedData = null;
       _selected = [];
       _error = null;
@@ -268,7 +329,10 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
+    // Voice entry is open to every plan (with an allowance) unless the owner
+    // left it out of this plan.
+    final entryLocked =
+        context.watch<PlanProvider>().isLocked(PlanFeature.entry);
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
 
@@ -289,10 +353,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(
             children: [
-              if (!authProvider.isPremium) _buildPremiumUpsell(localizations),
+              if (entryLocked) _buildLockedUpsell(localizations),
 
-              if (authProvider.isPremium) ...[
-                SizedBox(height: 24),
+              if (!entryLocked) ...[
+                const PlanUsageLine(feature: PlanFeature.entry),
+                SizedBox(height: 16),
                 if (_extractedData == null) _buildRecordingArea(localizations),
                 if (_extractedData != null) _buildExtractedResults(localizations),
               ],
@@ -303,11 +368,32 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                   padding: const EdgeInsets.all(16),
                   margin: const EdgeInsets.only(top: 20),
                   decoration: BoxDecoration(color: scheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.error_outline_rounded, color: scheme.error),
-                      SizedBox(width: 12),
-                      Expanded(child: Text(_error!, style: TextStyle(color: scheme.onErrorContainer))),
+                      Row(
+                        children: [
+                          Icon(Icons.error_outline_rounded, color: scheme.error),
+                          SizedBox(width: 12),
+                          Expanded(child: Text(_error!, style: TextStyle(color: scheme.onErrorContainer))),
+                        ],
+                      ),
+                      // The recording was transcribed but reading it failed:
+                      // retry with the same transcript, no new recording.
+                      if (_extraction != null && !_isProcessing && _extractedData == null) ...[
+                        SizedBox(height: 8),
+                        Text(
+                          localizations.voiceRetryHint,
+                          style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
+                        ),
+                        SizedBox(height: 8),
+                        FilledButton.icon(
+                          key: const ValueKey('voice-extraction-retry'),
+                          onPressed: _retryExtraction,
+                          icon: Icon(Icons.refresh_rounded),
+                          label: Text(localizations.tryAgain),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -319,7 +405,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     );
   }
 
-  Widget _buildPremiumUpsell(AppLocalizations localizations) {
+  Widget _buildLockedUpsell(AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
@@ -331,12 +417,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           Icon(Icons.star_rounded, color: scheme.tertiary, size: 32),
           SizedBox(height: 12),
           Text(
-            localizations.premiumFeatureTitle,
+            localizations.planFeatureLockedTitle,
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: scheme.onTertiaryContainer),
           ),
           SizedBox(height: 8),
           Text(
-            localizations.premiumFeatureUpgradeDescVoice,
+            localizations.planUpgradeDescVoice,
             style: TextStyle(fontSize: 14, color: scheme.onTertiaryContainer),
             textAlign: TextAlign.center,
           ),

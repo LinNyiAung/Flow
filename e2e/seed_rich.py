@@ -21,20 +21,25 @@ for col in ("users", "transactions", "budgets", "goals", "notifications", "insig
             "notification_preferences", "ai_usage", "app_versions"):
     db[col].delete_many({})
 
+# plan: free | plus | pro. Every account is created fresh by this script, so every AI allowance starts at zero. Two
+# accounts exist for one flow each, so what other flows use up cannot change their numbers: "pro" (the Advanced chat
+# flow uses up its Advanced allowance) and "freelimit" (the Free chat-limit flow sends the whole week's 5 messages).
 ACCOUNTS = {
-    "premium": {"name": "Maya Premium", "email": "maya@example.com", "password": "MayaPass123", "premium": True, "language": "en"},
-    "free": {"name": "Felix Free", "email": "felix@example.com", "password": "FelixPass123", "premium": False, "language": "en"},
-    "myanmar": {"name": "Aung Myanmar", "email": "aung@example.com", "password": "AungPass123", "premium": True, "language": "my"},
-    "empty": {"name": "Nina New", "email": "nina@example.com", "password": "NinaPass123", "premium": False, "language": "en"},
-    "deleteme": {"name": "Dee Delete", "email": "dee@example.com", "password": "DeePass1234", "premium": False, "language": "en"},
+    "plus": {"name": "Maya Plus", "email": "maya@example.com", "password": "MayaPass123", "plan": "plus", "language": "en"},
+    "free": {"name": "Felix Free", "email": "felix@example.com", "password": "FelixPass123", "plan": "free", "language": "en"},
+    "pro": {"name": "Priya Pro", "email": "priya@example.com", "password": "PriyaPass123", "plan": "pro", "language": "en"},
+    "freelimit": {"name": "Frida Free", "email": "frida@example.com", "password": "FridaPass123", "plan": "free", "language": "en"},
+    "myanmar": {"name": "Aung Myanmar", "email": "aung@example.com", "password": "AungPass123", "plan": "plus", "language": "my"},
+    "empty": {"name": "Nina New", "email": "nina@example.com", "password": "NinaPass123", "plan": "free", "language": "en"},
+    "deleteme": {"name": "Dee Delete", "email": "dee@example.com", "password": "DeePass1234", "plan": "free", "language": "en"},
 }
 tokens = {}
 for key, a in ACCOUNTS.items():
     r = c.post("/api/auth/register", json={"name": a["name"], "email": a["email"], "password": a["password"]})
     assert r.status_code == 200, r.text
     upd = {"is_verified": True, "language": a["language"]}
-    if a["premium"]:
-        upd |= {"subscription_type": "premium", "subscription_expires_at": datetime.now(UTC) + timedelta(days=200), "has_claimed_free_trial": True}
+    if a["plan"] != "free":
+        upd |= {"subscription_type": a["plan"], "subscription_expires_at": datetime.now(UTC) + timedelta(days=200), "has_claimed_free_trial": True}
     db.users.update_one({"email": a["email"]}, {"$set": upd})
     tokens[key] = c.post("/api/auth/login", json={"email": a["email"], "password": a["password"]}).json()["access_token"]
     a["id"] = db.users.find_one({"email": a["email"]})["_id"]
@@ -57,7 +62,7 @@ def tx(tok, t, main, sub, amount, cur, days_ago, desc, recurrence=None):
     return r.json()["id"]
 
 
-for key in ("premium", "free", "myanmar"):
+for key in ("plus", "free", "pro", "myanmar"):
     tok = tokens[key]
     big = key != "free"
     for m in range(4):
@@ -90,7 +95,7 @@ for key in ("premium", "free", "myanmar"):
                                           "target_date": (today - timedelta(days=4)).isoformat()})
     c.post("/api/goals", headers=H, json={"name": "Pay off card", "target_amount": 2_000_000, "goal_type": "debt_reduction", "initial_contribution": 250_000, "currency": "mmk"})
     c.post("/api/feedback", headers=H, json={"category": "feature_request", "message": "Dark mode for charts please", "rating": 4})
-    if big:  # premium users: stored insights so the screen has content without AI
+    if big:  # Plus/Pro users: stored insights so the screen has content without AI
         for prov in ("openai", "gemini"):
             for typ in ("weekly", "monthly"):
                 db.insights.insert_one({"_id": str(uuid.uuid4()), "user_id": ACCOUNTS[key]["id"], "ai_provider": prov, "insight_type": typ,
@@ -100,11 +105,13 @@ for key in ("premium", "free", "myanmar"):
     # a few notifications incl. recurring/large-tx types that route to the transactions screen
     for t_, title in (("large_transaction", "Large transaction"), ("recurring_transaction_created", "Recurring rent added"),
                       ("budget_threshold", "80% of Monthly essentials used"), ("goal_achieved", "Goal achieved: New laptop"),
-                      ("system_broadcast", "Welcome to the new version")):
+                      ("system_broadcast", "Welcome to the new version"),
+                      # What the trial reminder job sends (a type the app routes to the Upgrade screen).
+                      *((("trial_ending_soon", "Your Plus Trial Ends Soon"),) if key == "plus" else ())):
         db.notifications.insert_one({"_id": str(uuid.uuid4()), "user_id": ACCOUNTS[key]["id"], "type": t_, "title": title,
                                      "message": f"{title} — details here.", "created_at": now - timedelta(hours=random.randint(1, 72)),
                                      "is_read": False, "currency": "usd"})
 
-json.dump({k: {kk: v[kk] for kk in ("name", "email", "password", "premium", "language")} for k, v in ACCOUNTS.items()},
+json.dump({k: {kk: v[kk] for kk in ("name", "email", "password", "plan", "language")} for k, v in ACCOUNTS.items()},
           open(os.path.join(HERE, "seed_accounts.json"), "w"), indent=1)
 print("seeded:", {k: db.transactions.count_documents({"user_id": v["id"]}) for k, v in ACCOUNTS.items()})

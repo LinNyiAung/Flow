@@ -9,7 +9,8 @@ from pydantic import ValidationError
 from ai_providers.errors import AllProvidersFailed
 from models import Currency
 from finite_utils import finite_or
-from utils import get_current_user, require_premium
+from utils import get_current_user
+from plans import quota
 
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
 from budget_service import (
@@ -102,12 +103,30 @@ def _summarize(budgets: List[dict]) -> dict:
 @router.post("/ai-suggest", response_model=AIBudgetSuggestion)
 async def get_ai_budget_suggestions(
     request: AIBudgetRequest,
-    current_user: dict = Depends(require_premium)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get AI-generated budget suggestions (Premium Feature)"""
-    try:
-        analyzer = BudgetAnalyzer(current_user["_id"])
+    """Get AI-generated budget suggestions: one "budget_suggestion" use per request that the AI answered.
 
+    The use is reserved before the AI call (a PlanError passes through the handlers below) and kept only when the
+    AI's answer is what comes back. An error, and the simple rule-based suggestions that replace an AI that could not
+    answer (or that had too little data to be asked), give it back.
+    """
+    analyzer = BudgetAnalyzer(current_user["_id"])
+    reservation = await quota.reserve(current_user, "budget_suggestion")
+    try:
+        suggestions = await _ai_budget_suggestions(request, analyzer)
+    except BaseException:
+        await quota.give_back(reservation)
+        raise
+    if analyzer.used_ai:
+        reservation.commit()
+    else:
+        await quota.give_back(reservation)
+    return suggestions
+
+
+async def _ai_budget_suggestions(request: AIBudgetRequest, analyzer: BudgetAnalyzer):
+    try:
         suggestions = await analyzer.generate_ai_suggestions(
             period=request.period,
             start_date=request.start_date,

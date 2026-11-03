@@ -25,7 +25,7 @@ def rec(name, status, detail=""):
 
 email = f"heavy-{uuid.uuid4().hex[:6]}@example.com"
 c.post("/api/auth/register", json={"name": "Heavy", "email": email, "password": "secret123"})
-db.users.update_one({"email": email}, {"$set": {"is_verified": True, "subscription_type": "premium", "subscription_expires_at": None}})
+db.users.update_one({"email": email}, {"$set": {"is_verified": True, "subscription_type": "plus", "subscription_expires_at": None}})
 tok = c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json()["access_token"]
 uid = db.users.find_one({"email": email})["_id"]
 

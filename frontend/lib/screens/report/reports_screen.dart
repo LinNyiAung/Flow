@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/platform/file_saver.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
@@ -108,9 +110,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
       return;
     }
 
-    // PDF export is a premium feature: send free users to the paywall
-    // instead of letting the server reject the request.
-    if (!Provider.of<AuthProvider>(context, listen: false).isPremium) {
+    // PDF export is not in every plan (Free): send those users to the
+    // Upgrade screen instead of letting the server reject the request.
+    // Until the plan has loaded, a user without a paid plan counts as locked.
+    final isPaid = Provider.of<AuthProvider>(context, listen: false).isPaid;
+    final reportsLocked = Provider.of<PlanProvider>(context, listen: false)
+        .isLocked(PlanFeature.reports, whenUnknown: !isPaid);
+    if (reportsLocked) {
       Navigator.pushNamed(context, '/subscription');
       return;
     }
@@ -144,8 +150,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isDownloading = false);
-      // Premium lapsed since the screen opened: the server says 403.
-      if (e is ApiException && e.statusCode == 403) {
+      // The plan changed since the screen opened (e.g. it ended): the
+      // server says plan_feature_locked.
+      if (e is PlanLimitException) {
         Navigator.pushNamed(context, '/subscription');
         return;
       }

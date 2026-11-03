@@ -1178,9 +1178,11 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
         return prompt
 
-    async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None, response_style: str = "normal"):
+    async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None,
+                          response_style: str = "normal", feature: str = "chat"):
         """
-        Stream a chat answer from the "chat" feature's provider chain, with RAG context and response style.
+        Stream a chat answer from `feature`'s provider chain ("chat", or Pro's "chat_advanced": same persona, prompt
+        and max tokens, its own providers), with RAG context and response style.
 
         Yields (chunk, None) for each text chunk, then ("", usage) once, where usage has input_tokens,
         output_tokens, total_tokens, model_name, provider and fallback_from. The runner has already recorded
@@ -1336,7 +1338,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             # (it never stitches two providers' text together). aclosing: if our consumer stops early (client
             # disconnect), the runner's and the provider's streams are closed right away.
             result = None
-            async with aclosing(ai_runner.run_stream("chat", user_id=user_id, prompt=prompt)) as items:
+            async with aclosing(ai_runner.run_stream(feature, user_id=user_id, prompt=prompt)) as items:
                 async for item in items:
                     if isinstance(item, ai_runner.RunResult):
                         result = item
