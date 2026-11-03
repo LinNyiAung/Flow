@@ -66,7 +66,7 @@ Future<void> apiAdvancedChats(String token, int times) async {
 
 void insightFlows() {
   group('09 Insights', () {
-    e2eTest('insights: weekly/monthly stored content, Myanmar toggle, regenerate', (t) async {
+    e2eTest('insights: weekly/monthly stored content, Myanmar toggle, no regenerate', (t) async {
       await login(plus);
       await drawerGo(L.aiInsights);
       await waitFor(find.byType(InsightsScreen));
@@ -108,27 +108,8 @@ void insightFlows() {
       } else {
         appBug('Insights: English / မြန်မာ toggle missing');
       }
-      step('regenerate (default provider)');
-      await tap(find.byTooltip(L.regenerate), settleMs: 100);
-      final sawDialog = await waitFor(find.text(L.generatingInsights), timeout: const Duration(seconds: 5), orNull: true);
-      // ignore: avoid_print
-      print('E2E_INFO|regenerate progress dialog shown=$sawDialog');
-      await waitGone(find.text(L.generatingInsights), timeout: const Duration(seconds: 200));
-      final outcome = await waitAny([find.text(L.insightsRegeneratedSuccessfully), find.byType(SnackBar)],
-          timeout: const Duration(seconds: 6));
-      final snack = outcome < 0
-          ? '(no snackbar)'
-          : find.descendant(of: find.byType(SnackBar), matching: find.byType(Text)).evaluate()
-              .map((e) => (e.widget as Text).data).join(' | ');
-      final ip = insightProvider();
-      // ignore: avoid_print
-      print('E2E_INFO|after regenerate: loading=${ip.isLoading} actionError=${ip.actionError} error=${ip.error}');
-      check(outcome >= 0, 'Insights regenerate (backend failed: ${ip.actionError}) finished without any success or error feedback (no snackbar)');
-      // ignore: avoid_print
-      print('E2E_INFO|regenerate outcome: $snack');
-      check(find.textContaining('summary').evaluate().isNotEmpty || hasText(L.insightsRegeneratedSuccessfully),
-          'Insights: content disappeared after a regenerate (snackbar: $snack)');
-      check(!snack.contains('Exception'), 'Insights regenerate error shows raw exception text: $snack');
+      step('no regenerate button');
+      check(find.byTooltip(L.regenerate).evaluate().isEmpty, 'Insights (Plus): the regenerate button is shown');
     });
 
     e2eTest('insights + chat (Free): monthly insight and chat are open with allowances; weekly is locked', (t) async {

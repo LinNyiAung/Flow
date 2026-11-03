@@ -137,90 +137,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
     await insightProvider.fetchInsights(language: _wantedLanguage(insightProvider));
   }
 
-  Future<void> _regenerateInsights() async {
-    final insightProvider = Provider.of<InsightProvider>(
-      context,
-      listen: false,
-    );
-    final language = _wantedLanguage(insightProvider);
-    final localizations = AppLocalizations.of(context);
-
-    // Keep a reference to the progress dialog's own route: it is removed by
-    // reference (only if still showing), so a late completion can never pop
-    // the Insights screen or whatever route is on top by then. PopScope
-    // blocks the Android back button (barrierDismissible only covers taps).
-    final navigator = Navigator.of(context);
-    final progressRoute = DialogRoute<void>(
-      context: context,
-      barrierDismissible: false,
-      themes: InheritedTheme.capture(from: context, to: navigator.context),
-      builder: (dialogContext) {
-        return PopScope(
-          canPop: false,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Theme.of(dialogContext).colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(
-                    localizations.generatingInsights,
-                    style: Theme.of(dialogContext).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-    navigator.push(progressRoute);
-
-    final success = await insightProvider.regenerateInsights(
-      language: language,
-    );
-
-    if (progressRoute.isActive) {
-      progressRoute.navigator?.removeRoute(progressRoute);
-    }
-    if (!mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-    final planLimit = insightProvider.actionPlanLimit;
-    if (success) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(localizations.insightsRegeneratedSuccessfully)),
-      );
-    } else if (planLimit != null && insightProvider.insight != null) {
-      // Refused by the plan (e.g. the monthly AI limit): the limit sheet says why.
-      await showPlanLimitSheet(context, planLimit);
-    } else if (insightProvider.insight != null) {
-      // The previous insight is kept on screen; report the failure here.
-      final raw = insightProvider.actionError;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            raw == null
-                ? localizations.failedToRegenerateInsights
-                : _friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1,
-          ),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final insightProvider = Provider.of<InsightProvider>(context);
-    final authProvider = Provider.of<AuthProvider>(context);
-    // Rebuild when the plan (locks, allowances) changes.
+    // Rebuild when the user or the plan (locks, allowances) changes.
+    context.watch<AuthProvider>();
     context.watch<PlanProvider>();
     final localizations = AppLocalizations.of(context);
     final typeLocked = _isTypeLocked(insightProvider);
@@ -237,13 +158,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
         ),
         title: Text(localizations.aiInsights),
         actions: [
-          // Regenerating is a paid-plan action (the server refuses Free).
-          if (authProvider.isPaid && !typeLocked)
-            IconButton(
-              icon: const Icon(Icons.refresh_rounded),
-              tooltip: localizations.regenerate,
-              onPressed: insightProvider.isLoading ? null : _regenerateInsights,
-            ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Consumer<NotificationProvider>(
@@ -291,8 +205,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     }
 
     // Full-page error only when there is no insight to show. (A failed
-    // fetch clears the insight first, so a stale one never appears; a
-    // failed regenerate keeps the current one and reports via snackbar.)
+    // fetch clears the insight first, so a stale one never appears.)
     if (insightProvider.insight == null) {
       return insightProvider.error != null
           ? _buildError(insightProvider, localizations)
