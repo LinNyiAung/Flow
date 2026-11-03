@@ -13,6 +13,7 @@ import logging
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 
+from plans import store
 from plans.catalog import PAID_PLANS
 from sql import users as users_db
 from firebase_service import send_fcm_data_message
@@ -157,3 +158,44 @@ async def send_trial_reminders(now: Optional[datetime] = None) -> int:
     if sent:
         logger.info(f"Trial reminder job: sent {sent} reminder(s)")
     return sent
+
+
+async def notify_plan_activated(user: dict, plan: str, expires_at: Optional[datetime]) -> None:
+    """Tell the user an admin has put them on Plus or Pro ("plan_activated"), with the end date when the plan has one.
+
+    Goes through create_notification like the trial reminders (stored, pushed where the user has a token, and skipped
+    when the user's stored preference for the type is off). A failure is logged and swallowed: the admin's plan change
+    has already happened and must not fail because the notice could not be sent.
+    """
+    try:
+        lang = user_language(user)
+        name = _plan_name(plan)
+        if expires_at is None:
+            message = translate("plan_activated_msg", lang, plan=name)
+        else:
+            message = translate("plan_activated_msg_until", lang, plan=name, date=format_date(expires_at, lang))
+        await create_notification(
+            user_id=user["_id"],
+            notification_type="plan_activated",
+            title=translate("plan_activated_title", lang, plan=name),
+            message=message,
+        )
+    except Exception as e:
+        logger.error(f"Could not create plan-activated notification for user {user.get('_id')}: {e}")
+
+
+async def notify_upgrade_request_declined(user: dict, plan: str) -> None:
+    """Tell the user their upgrade request for `plan` was closed without a plan change ("upgrade_request_declined"):
+    the owner's contact message (in the user's language) when one is set, otherwise a generic "contact us" sentence.
+    A failure is logged and swallowed, like notify_plan_activated."""
+    try:
+        lang = user_language(user)
+        contact = (store.upgrade_contact().get(lang) or "").strip() or translate("upgrade_request_contact_default", lang)
+        await create_notification(
+            user_id=user["_id"],
+            notification_type="upgrade_request_declined",
+            title=translate("upgrade_request_declined_title", lang),
+            message=translate("upgrade_request_declined_msg", lang, plan=_plan_name(plan), contact=contact),
+        )
+    except Exception as e:
+        logger.error(f"Could not create request-declined notification for user {user.get('_id')}: {e}")

@@ -14,6 +14,7 @@ from admin_utils import log_admin_action, require_admin_or_super, require_modera
 from plans import store
 from plans.access import effective_plan, is_trial
 from plans.catalog import FEATURES, PLANS, Limit
+from subscription_service import notify_upgrade_request_declined
 from sql import upgrade_requests as requests_db
 from sql import users as users_db
 
@@ -130,13 +131,16 @@ requests_router = APIRouter(prefix="/api/admin/upgrade-requests", tags=["admin",
 def _request_row(row: dict) -> dict:
     plan = effective_plan({"subscription_type": row["subscription_type"],
                            "subscription_expires_at": row["subscription_expires_at"]})
+    on_trial = plan != "free" and is_trial({"trial_ends_at": row["trial_ends_at"]})
     return {
         "id": row["_id"],
         "user_id": row["user_id"],
         "name": row["user_name"],
         "email": row["user_email"],
         "current_plan": plan,
-        "is_trial": plan != "free" and is_trial({"trial_ends_at": row["trial_ends_at"]}),
+        "is_trial": on_trial,
+        # When the trial ends, for "On trial until {date}" in the admin panel; null when the user is not on a trial.
+        "trial_ends_at": row["trial_ends_at"].isoformat() if on_trial else None,
         "requested_plan": row["plan"],
         "note": row["note"],
         "created_at": row["created_at"].isoformat(),
@@ -173,6 +177,10 @@ async def _handle(request_id: str, new_status: str, action: str, current_admin: 
         target_user_email=user["email"] if user else None,
         details=f"Upgrade request for {request['plan']}: {new_status}",
     )
+    # A dismissal is the one answer the user is not otherwise shown (an admin plan change tells them itself; "done" is
+    # bookkeeping), so tell them. Never fails the call.
+    if new_status == "dismissed" and user:
+        await notify_upgrade_request_declined(user, request["plan"])
     return {"id": row["_id"], "status": row["status"], "handled_at": row["handled_at"].isoformat()}
 
 

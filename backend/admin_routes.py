@@ -44,7 +44,7 @@ from admin_models import (
 )
 from firebase_service import send_fcm_data_message, send_fcm_to_multiple
 from notification_service import should_send_notification
-from subscription_service import active_paid_filter, active_plan_filter, effectively_free_filter
+from subscription_service import active_paid_filter, active_plan_filter, effectively_free_filter, notify_plan_activated
 from models import Currency, SubscriptionType
 from plans import periods, quota, store
 from plans.access import effective_plan
@@ -684,6 +684,11 @@ async def update_user_subscription(
             target_user_email=user["email"],
             details=f"Upgrade request for {closed['plan']}: done (plan set to {subscription_data.subscription_type.value})",
         )
+
+    # Tell the user (stored notification + push) that Plus / Pro is now theirs, whether or not they had asked for it.
+    # Nothing for Free, or for a plan whose end date has already passed (it is not active). Never fails this call.
+    if new_plan != "free":
+        await notify_plan_activated(user, new_plan, expires_at)
 
     # Send a silent FCM data-only message so the app refreshes instantly.
     # Blocking firebase call runs in a threadpool so the event loop isn't blocked.

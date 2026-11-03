@@ -17,8 +17,8 @@ MYANMAR = re.compile("[က-႟]")
 BEFORE_REQUESTS = "e1b6d3a8f245"  # the revision the upgrade_requests migration revises
 REQUEST_KEYS = {"plan", "note", "status", "created_at"}
 PLAN_REQUEST_KEYS = {"plan", "note", "created_at"}
-ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "requested_plan", "note", "created_at",
-                  "status", "handled_at"}
+ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "trial_ends_at", "requested_plan", "note",
+                  "created_at", "status", "handled_at"}
 
 
 def parse(value):
@@ -37,6 +37,7 @@ async def run(t):
     admin_id = db.admins.find_one({"email": made["admin"]})["_id"]
     super_id = db.admins.find_one({"email": made["super_admin"]})["_id"]
     tag = uuid.uuid4().hex[:5]
+    saved_contact = None
 
     def register(name, lang="en"):
         email = f"t8r-{name}-{tag}@example.com"
@@ -222,9 +223,19 @@ async def run(t):
         row = listed(MOD, trial_uid)
         check(row is not None and row["current_plan"] == "plus" and row["is_trial"] is True and row["requested_plan"] == "plus",
               "upgrade_request_trial: the admin list marks the trial user (is_trial true, current plan plus)", row)
+        check(row is not None and row["trial_ends_at"] is not None
+              and abs((parse(row["trial_ends_at"]) - trial_ends).total_seconds()) < 1,
+              "upgrade_request_trial: the row carries trial_ends_at, the end of the trial (the admin panel shows it)", row)
         check(ask(trial_h, "pro").status_code == 200, "upgrade_request_trial: a trial user may ask for Pro too")
+        check((c.get("/api/plan", headers=trial_h).json().get("upgrade_request") or {}).get("plan") == "pro",
+              "upgrade_request_trial: the request stays pending while the trial runs (a trial does not fulfil it)")
         check(listed(MOD, plus_uid)["is_trial"] is False and listed(MOD, exp_uid)["is_trial"] is False,
               "upgrade_request_trial: users who are not on a trial are not marked")
+        check(listed(MOD, plus_uid)["trial_ends_at"] is None and listed(MOD, exp_uid)["trial_ends_at"] is None,
+              "upgrade_request_trial: and have trial_ends_at null")
+        db.users.update_one({"_id": exp_uid}, {"$set": {"trial_ends_at": datetime.now(UTC) - timedelta(days=3)}})
+        check(listed(MOD, exp_uid)["trial_ends_at"] is None and listed(MOD, exp_uid)["is_trial"] is False,
+              "upgrade_request_trial: a trial that has ended leaves trial_ends_at null (nothing to show)")
         trial_auto = set_plan(trial_uid, "plus", datetime.now(UTC) + timedelta(days=30))
         check(trial_auto and rows(trial_uid)[0][3] == "pending",
               "upgrade_request_trial: the admin setting Plus does not answer the user's request for Pro")
@@ -384,7 +395,171 @@ async def run(t):
         detail = c.get(f"/api/admin/users/{exp_uid}", headers=MOD).json()
         check(detail.get("effective_plan") == "free" and detail.get("subscription_type") == "plus",
               "admin_users_effective_plan: the user detail has effective_plan too", detail)
+
+        # ---- tell the user what happened: plan_activated and upgrade_request_declined notifications
+        from plans.access import MONTHS_MY, format_date
+
+        def notes(user_id, *types):
+            found = db.notifications.find({"user_id": user_id, "type": {"$in": list(types)}})
+            return sorted(found, key=lambda n: n["created_at"])
+
+        def request_for(label, plan="plus", lang="en"):
+            u, hh = register(label, lang)
+            ask(hh, plan)
+            return u, hh
+
+        def plan_of(user_id):
+            with t.connect() as conn:
+                return conn.execute("SELECT subscription_type FROM users WHERE id = %s", (user_id,)).fetchone()[0]
+
+        def put_contact(en, my):
+            snap = c.get("/api/admin/plans", headers=AD).json()
+            snap["upgrade_contact"] = {"en": en, "my": my}
+            return c.put("/api/admin/plans", headers=AD, json=snap).status_code == 200
+
+        def dismiss(user_id):
+            return c.post(f"/api/admin/upgrade-requests/{listed(MOD, user_id)['id']}/dismiss", headers=AD).status_code
+
+        ends = datetime(2099, 3, 5, 12, 0, tzinfo=UTC)
+
+        # plan_activated: Plus with an end date, with a pending request (which the change also closes)
+        n_uid, n_h = request_for("act-plus")
+        check(set_plan(n_uid, "plus", ends), "setup: set Plus with an end date")
+        got = notes(n_uid, "plan_activated")
+        check(len(got) == 1 and got[0]["message"] == f"Your Plus plan is now active. It runs until {format_date(ends, 'en')}."
+              and "Plus" in got[0]["title"] and got[0]["is_read"] is False,
+              "plan_activated: Plus with an end date tells the user it is active and until when (English)", got)
+        check(rows(n_uid)[0][3] == "done" and not notes(n_uid, "upgrade_request_declined"),
+              "plan_activated: the request is closed by the change and the user is not told it was declined")
+        # without a request, Pro for life: no end-date sentence
+        p_uid, _ = register("act-pro")
+        check(set_plan(p_uid, "pro"), "setup: set Pro for life")
+        got = notes(p_uid, "plan_activated")
+        check(len(got) == 1 and got[0]["message"] == "Your Pro plan is now active." and "Pro" in got[0]["title"],
+              "plan_activated: Pro without a request and without an end date has no 'runs until' sentence", got)
+        # Pro for a period, without a request; Plus for life, with a pending request for Pro (stays pending)
+        q_uid, _ = register("act-pro-dated")
+        set_plan(q_uid, "pro", ends)
+        got = notes(q_uid, "plan_activated")
+        check(len(got) == 1 and got[0]["message"] == f"Your Pro plan is now active. It runs until {format_date(ends, 'en')}.",
+              "plan_activated: Pro with an end date, without a request", got)
+        r_uid, _ = request_for("act-plus-life", "pro")
+        set_plan(r_uid, "plus")
+        got = notes(r_uid, "plan_activated")
+        check(len(got) == 1 and got[0]["message"] == "Your Plus plan is now active." and rows(r_uid)[0][3] == "pending",
+              "plan_activated: Plus for life while Pro is requested: told about Plus, the Pro request stays pending", got)
+        # every admin set sends one: setting Plus again later is a new change
+        set_plan(r_uid, "plus", ends)
+        check(len(notes(r_uid, "plan_activated")) == 2, "plan_activated: each admin set to Plus or Pro sends one")
+        # Myanmar user: Myanmar text with the Burmese month name
+        m_uid, _ = request_for("act-my", "plus", "my")
+        set_plan(m_uid, "plus", ends)
+        got = notes(m_uid, "plan_activated")
+        check(len(got) == 1 and MYANMAR.search(got[0]["title"]) and MYANMAR.search(got[0]["message"])
+              and format_date(ends, "my") in got[0]["message"] and MONTHS_MY[2] in got[0]["message"]
+              and "Plus" in got[0]["message"] and "now active" not in got[0]["message"],
+              "plan_activated: a Myanmar user gets Myanmar text with the Burmese month name", got)
+        m2_uid, _ = register("act-my-life", "my")
+        set_plan(m2_uid, "pro")
+        got = notes(m2_uid, "plan_activated")
+        check(len(got) == 1 and MYANMAR.search(got[0]["message"]) and "Pro" in got[0]["message"]
+              and not any(month in got[0]["message"] for month in MONTHS_MY),
+              "plan_activated: a Myanmar user on a plan without an end date gets no date", got)
+        # nothing for Free, nothing for a plan that has already ended
+        z_uid, _ = request_for("act-free")
+        set_plan(z_uid, "free")
+        check(not notes(z_uid, "plan_activated", "upgrade_request_declined"), "plan_activated: setting Free sends nothing")
+        y_uid, _ = register("act-past")
+        set_plan(y_uid, "plus", datetime.now(UTC) - timedelta(days=1))
+        check(not notes(y_uid, "plan_activated"), "plan_activated: a plan that has already ended is not 'now active': nothing sent")
+        # a trial user whose plan the admin sets
+        tr_uid, _ = register("act-trial")
+        db.users.update_one({"_id": tr_uid}, {"$set": {"subscription_type": "plus", "trial_ends_at": trial_ends,
+                                                       "subscription_expires_at": trial_ends}})
+        set_plan(tr_uid, "pro", ends)
+        check(len(notes(tr_uid, "plan_activated")) == 1, "plan_activated: a trial user whose plan the admin sets is told too")
+        # like the trial reminders, the notice goes through create_notification: an explicit preference of "off" is honoured
+        pr_uid, pr_h = register("act-pref")
+        r = c.put("/api/notifications/preferences", headers=pr_h, json={"preferences": {"plan_activated": False}})
+        set_plan(pr_uid, "plus", ends)
+        check(r.status_code == 200 and not notes(pr_uid, "plan_activated") and plan_of(pr_uid) == "plus",
+              "plan_activated: a user whose stored preference for it is off is not notified (the plan still changes)",
+              f"{r.status_code} {r.text[:150]}")
+
+        # upgrade_request_declined: dismiss, contact message unset
+        saved_contact = c.get("/api/admin/plans", headers=AD).json()["upgrade_contact"]
+        check(put_contact("", ""), "setup: clear the upgrade contact")
+        d1_uid, _ = request_for("dec-plain", "pro")
+        check(dismiss(d1_uid) == 200, "setup: dismiss a request for Pro")
+        got = notes(d1_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"] == "Your request for Pro was closed. Contact us if you have questions."
+              and not notes(d1_uid, "plan_activated"),
+              "upgrade_request_declined: without a contact message it says 'Contact us if you have questions.'", got)
+        # with a contact message, in the user's language
+        check(put_contact("Message the owner on Telegram: @flowowner", "ပိုင်ရှင်ကို Telegram မှ ဆက်သွယ်ပါ"),
+              "setup: set the upgrade contact")
+        d2_uid, _ = request_for("dec-contact", "plus")
+        dismiss(d2_uid)
+        got = notes(d2_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"] == "Your request for Plus was closed. Message the owner on Telegram: @flowowner"
+              and "Request" in got[0]["title"] and "Contact us" not in got[0]["message"],
+              "upgrade_request_declined: with a contact message it follows 'was closed.' (English)", got)
+        d3_uid, _ = request_for("dec-my", "plus", "my")
+        dismiss(d3_uid)
+        got = notes(d3_uid, "upgrade_request_declined")
+        check(len(got) == 1 and MYANMAR.search(got[0]["title"]) and "ပိုင်ရှင်ကို Telegram မှ ဆက်သွယ်ပါ" in got[0]["message"]
+              and "Plus" in got[0]["message"] and "Telegram: @flowowner" not in got[0]["message"],
+              "upgrade_request_declined: a Myanmar user gets the Myanmar wording and the Myanmar contact message", got)
+        # a contact message only in the other language is not used: the default sentence in the user's language
+        check(put_contact("Message the owner on Telegram: @flowowner", "  "), "setup: contact in English only")
+        d4_uid, _ = request_for("dec-my-default", "pro", "my")
+        dismiss(d4_uid)
+        got = notes(d4_uid, "upgrade_request_declined")
+        check(len(got) == 1 and MYANMAR.search(got[0]["message"]) and "@flowowner" not in got[0]["message"]
+              and "Contact us" not in got[0]["message"],
+              "upgrade_request_declined: a contact message missing in Myanmar falls back to the default Myanmar sentence", got)
+        put_contact(saved_contact["en"], saved_contact["my"])
+        # a dismissal answered twice (409) notifies once
+        d5_uid, _ = request_for("dec-twice")
+        rid = listed(MOD, d5_uid)["id"]
+        c.post(f"/api/admin/upgrade-requests/{rid}/dismiss", headers=AD)
+        check(c.post(f"/api/admin/upgrade-requests/{rid}/dismiss", headers=AD).status_code == 409
+              and len(notes(d5_uid, "upgrade_request_declined")) == 1,
+              "upgrade_request_declined: a second dismissal is a 409 and sends no second notice")
+        # manual 'done' is bookkeeping: nothing
+        d6_uid, _ = request_for("done-manual")
+        r = c.post(f"/api/admin/upgrade-requests/{listed(MOD, d6_uid)['id']}/done", headers=AD)
+        check(r.status_code == 200 and not notes(d6_uid, "plan_activated", "upgrade_request_declined"),
+              "upgrade_request_done: Mark done sends the user nothing", r.status_code)
+
+        # A failure to notify never fails the admin action: a trigger makes the notification insert fail for one user.
+        f_uid, _ = request_for("fail-notify", "plus")
+        f2_uid, _ = request_for("fail-notify-2", "plus")
+        trigger_user = (f_uid, f2_uid)
+        with t.connect() as conn:
+            conn.execute("CREATE OR REPLACE FUNCTION t8r_refuse_note() RETURNS trigger LANGUAGE plpgsql AS "
+                         "$$ BEGIN RAISE EXCEPTION 't8r: notifications are refused for this user'; END $$")
+            for i, who in enumerate(trigger_user):
+                conn.execute(f"CREATE TRIGGER t8r_refuse_note_{i} BEFORE INSERT ON notifications FOR EACH ROW "
+                             f"WHEN (NEW.user_id = '{who}') EXECUTE FUNCTION t8r_refuse_note()")
+        try:
+            ok = set_plan(f_uid, "plus", ends)
+            check(ok and plan_of(f_uid) == "plus" and rows(f_uid)[0][3] == "done" and not notes(f_uid, "plan_activated"),
+                  "notify_failure: setting the plan still succeeds (200, plan changed, request closed) when the notice cannot be stored",
+                  (ok, plan_of(f_uid)))
+            r = c.post(f"/api/admin/upgrade-requests/{listed(MOD, f2_uid)['id']}/dismiss", headers=AD)
+            check(r.status_code == 200 and r.json().get("status") == "dismissed" and rows(f2_uid)[0][3] == "dismissed",
+                  "notify_failure: dismissing still succeeds when the notice cannot be stored", f"{r.status_code} {r.text[:150]}")
+        finally:
+            with t.connect() as conn:
+                for i in range(len(trigger_user)):
+                    conn.execute(f"DROP TRIGGER IF EXISTS t8r_refuse_note_{i} ON notifications")
+                conn.execute("DROP FUNCTION IF EXISTS t8r_refuse_note()")
     finally:
+        if saved_contact is not None:  # the checks changed the upgrade contact: put the original back
+            snap = c.get("/api/admin/plans", headers=AD).json()
+            snap["upgrade_contact"] = saved_contact
+            c.put("/api/admin/plans", headers=AD, json=snap)
         db.users.delete_many({"email": {"$regex": f"^t8r-.*-{tag}@"}})
         db.admins.delete_many({"email": {"$in": list(made.values())}})
         c.close()

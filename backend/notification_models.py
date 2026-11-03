@@ -27,6 +27,8 @@ class NotificationType(str, Enum):
     SUBSCRIPTION_EXPIRED = "subscription_expired"
     TRIAL_ENDING_SOON = "trial_ending_soon"
     TRIAL_ENDS_TODAY = "trial_ends_today"
+    PLAN_ACTIVATED = "plan_activated"
+    UPGRADE_REQUEST_DECLINED = "upgrade_request_declined"
 
 def parse_notification_type(value) -> NotificationType:
     """
