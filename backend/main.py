@@ -432,6 +432,11 @@ async def stream_chat_with_ai(
     async def settle_unstarted():
         # Also run after the response ends: a client gone before the stream started never runs generate_stream's
         # finally. A no-op once the stream settled the use itself.
+        # Relies on ASGI spec 2.3 disconnect handling (uvicorn 0.54 reports 2.3): Starlette then listens for the
+        # disconnect, cancels the stream and still runs this background task. On a server reporting spec >= 2.4
+        # Starlette neither listens for disconnects nor runs `background` after a ClientDisconnect, so a stream whose
+        # client left before any chunk would run to completion and commit its use. Revisit this when the server or
+        # Starlette changes (re-run the e2e disconnect-before-first-chunk check).
         await settle()
 
     return StreamingResponse(
@@ -595,6 +600,16 @@ async def _ensure_myanmar_translation(insight: dict, user: dict) -> dict:
     return insight
 
 
+async def _translate_if_possible(insight: dict, user: dict):
+    """Myanmar for a Plus/Pro user: (insight, None) when translated or already stored. A plan refusal of the translation
+    itself (the hidden cost cap, a used-up counted allowance) must not hide the English insight, which exists and costs
+    nothing to show: it returns (insight, the limit error's detail) and the insight keeps its content_mm empty."""
+    try:
+        return await _ensure_myanmar_translation(insight, user), None
+    except PlanError as e:
+        return insight, e.detail()
+
+
 def _insight_http_error(e: Exception, action: str) -> HTTPException:
     """
     Map an insight generation/translation failure to a client-safe HTTP error (never the
@@ -633,8 +648,11 @@ def _insight_has_content(insight: Optional[dict]) -> bool:
     return isinstance(content, str) and bool(content.strip())
 
 
-def _insight_response(insight: dict, translation_locked: bool = False, plan_translates: bool = True) -> InsightResponse:
+def _insight_response(insight: dict, translation_locked: bool = False, plan_translates: bool = True,
+                      translation_unavailable: Optional[dict] = None) -> InsightResponse:
     """translation_locked: Myanmar was requested but the plan has no translation (reported to the app).
+    translation_unavailable: Myanmar was requested, the plan has translation, but the translation was refused (cost cap,
+    used-up allowance): the limit error's detail, else None. The English insight is still returned.
     plan_translates False: the plan has no translation at all, so a Myanmar text stored earlier (for example while the
     user was on Plus) is not handed out."""
     if not _insight_has_content(insight):
@@ -651,6 +669,7 @@ def _insight_response(insight: dict, translation_locked: bool = False, plan_tran
         generated_at=insight["generated_at"],
         expires_at=insight.get("expires_at"),
         translation_locked=translation_locked,
+        translation_unavailable=translation_unavailable,
     )
 
 
@@ -781,10 +800,11 @@ async def get_insights(
                     detail=f"Couldn't generate your {insight_type} insight right now. Please try again later.",
                 )
 
+        translation_unavailable = None
         if language == "mm" and plan_translates:
-            latest_insight = await _ensure_myanmar_translation(latest_insight, current_user)
+            latest_insight, translation_unavailable = await _translate_if_possible(latest_insight, current_user)
 
-        return _insight_response(latest_insight, translation_locked, plan_translates)
+        return _insight_response(latest_insight, translation_locked, plan_translates, translation_unavailable)
 
     except (HTTPException, PlanError):
         raise
@@ -828,7 +848,7 @@ async def regenerate_insights(
     cost cap. `language` is the display language of this request (see GET /api/insights).
     """
     # Outside the handlers below: a PlanError passes through
-    ensure_paid(current_user, f"insight_{insight_type}")
+    ensure_paid(current_user)  # feature None: the refusal reads "only on Plus and Pro" (Free does include a monthly insight)
     plan_translates = not _translation_locked(current_user)
     translation_locked = language == "mm" and not plan_translates
     try:
@@ -842,11 +862,12 @@ async def regenerate_insights(
                 detail=f"Couldn't regenerate your {insight_type} insight right now. Please try again later.",
             )
 
+        translation_unavailable = None
         if language == "mm" and plan_translates:
-            new_insight = await _ensure_myanmar_translation(new_insight, current_user)
+            new_insight, translation_unavailable = await _translate_if_possible(new_insight, current_user)
 
         print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
-        return _insight_response(new_insight, translation_locked, plan_translates)
+        return _insight_response(new_insight, translation_locked, plan_translates, translation_unavailable)
     except (HTTPException, PlanError):
         raise
     except Exception as e:

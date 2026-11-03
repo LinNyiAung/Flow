@@ -15,7 +15,8 @@ import httpx
 
 BASE = "http://127.0.0.1:8765"
 PROVIDERS = ("openai", "gemini", "claude")
-RESPONSE_KEYS = {"id", "user_id", "content", "content_mm", "generated_at", "expires_at", "translation_locked"}
+RESPONSE_KEYS = {"id", "user_id", "content", "content_mm", "generated_at", "expires_at", "translation_locked",
+                 "translation_unavailable"}
 MYANMAR = re.compile("[က-႟]")
 
 
@@ -137,9 +138,11 @@ async def run(t):
               and used(fid, "insight_monthly") == 1,
               "free_monthly_on_demand_counts_once: the first GET generates the monthly insight (one AI call) and counts 1",
               f"{r.status_code} {r.text[:160]} calls={len(calls)} used={used(fid, 'insight_monthly')}")
-        check(set(j) == RESPONSE_KEYS and j.get("translation_locked") is False and j.get("content_mm") is None,
-              "insight_response_shape: {id, user_id, content, content_mm, generated_at, expires_at, translation_locked}; "
-              "translation_locked is false unless Myanmar was requested", sorted(j))
+        check(set(j) == RESPONSE_KEYS and j.get("translation_locked") is False and j.get("content_mm") is None
+              and j.get("translation_unavailable") is None,
+              "insight_response_shape: {id, user_id, content, content_mm, generated_at, expires_at, translation_locked, "
+              "translation_unavailable}; translation_locked is false unless Myanmar was requested and translation_unavailable "
+              "is null unless a translation was refused", sorted(j))
         first_id = j.get("id")
         r, calls = calls_of(lambda: get(fh))
         check(r.status_code == 200 and r.json().get("id") == first_id and not calls and used(fid, "insight_monthly") == 1
@@ -287,8 +290,10 @@ async def run(t):
         check(plan_error(r, 403, "plan_feature_locked", "insight_weekly"), "free_weekly_locked: weekly is the default type and is locked too",
               f"{r.status_code}")
         for label, do, feature in (
-                ("regenerate weekly", lambda: c.post("/api/insights/regenerate", headers=wh, params={"insight_type": "weekly"}), "insight_weekly"),
-                ("regenerate monthly", lambda: c.post("/api/insights/regenerate", headers=wh, params={"insight_type": "monthly"}), "insight_monthly"),
+                # regenerate is a paid-plan action: no feature named, so Free (which does include a monthly insight) reads
+                # "only on Plus and Pro" instead of "doesn't include monthly insights"
+                ("regenerate weekly", lambda: c.post("/api/insights/regenerate", headers=wh, params={"insight_type": "weekly"}), None),
+                ("regenerate monthly", lambda: c.post("/api/insights/regenerate", headers=wh, params={"insight_type": "monthly"}), None),
                 ("generate-weekly", lambda: c.post("/api/insights/generate-weekly", headers=wh), "insight_weekly"),
                 ("translate-myanmar", lambda: c.post("/api/insights/translate-myanmar", headers=wh, params={"insight_type": "monthly"}), "insight_translation")):
             r, calls = calls_of(do)
@@ -296,6 +301,10 @@ async def run(t):
                   and rows(wid, "monthly") == 0 and counter_rows(wid, "insight_monthly") == 0,
                   f"free_locked_routes: {label} is 403 plan_feature_locked ({feature}) for Free, with no AI call and nothing counted",
                   f"{r.status_code} {r.text[:160]} {len(calls)} calls")
+        r = c.post("/api/insights/regenerate", headers=wh, params={"insight_type": "monthly"})
+        msg = (r.json().get("detail") or {}).get("message", "") if r.status_code == 403 else ""
+        check("Plus and Pro" in msg and "monthly" not in msg.lower(),
+              "free_regenerate_message: a Free regenerate of the monthly insight says it is only on Plus and Pro", msg)
         mid, mh = register("locked-my", "my")
         r = get(mh, "weekly")
         d = r.json().get("detail") if r.status_code == 403 else {}
@@ -387,9 +396,18 @@ async def run(t):
         check(r.status_code == 200 and r.json().get("id") == stored_cap and not calls,
               "plus_cost_cap: a Plus user over the cap can still read a stored insight", f"{r.status_code} {len(calls)}")
         r, calls = calls_of(lambda: get(ch, "weekly", language="mm"))
-        check(plan_error(r, 429, "plan_cost_cap", "insight_translation") and not calls,
-              "plus_cost_cap: a translation that needs an AI call is refused (429 plan_cost_cap, insight_translation)",
-              f"{r.status_code} {r.text[:160]} {len(calls)} calls")
+        j = r.json() if r.status_code == 200 else {}
+        ua = j.get("translation_unavailable")
+        check(r.status_code == 200 and j.get("id") == stored_cap and j.get("content") and j.get("content_mm") is None
+              and j.get("translation_locked") is False and not calls and set(j) == RESPONSE_KEYS
+              and isinstance(ua, dict) and ua.get("code") == "plan_cost_cap" and ua.get("feature") == "insight_translation"
+              and set(ua) == {"code", "feature", "resets_at", "upgrade_available", "message"} and ua.get("message"),
+              "translation_refused_at_cap_shows_english: a Plus user at the cost cap with a stored untranslated insight gets 200, "
+              "the English content, content_mm null, translation_locked false and translation_unavailable plan_cost_cap (no AI call)",
+              f"{r.status_code} {r.text[:200]} {len(calls)} calls")
+        r, calls = calls_of(lambda: get(ch, "weekly", language="en"))
+        check(r.status_code == 200 and r.json().get("translation_unavailable") is None and not calls,
+              "translation_refused_at_cap_shows_english: asking for English at the cap carries no translation_unavailable", r.text[:160])
         for label, do, feature in (
                 ("regenerate", lambda: c.post("/api/insights/regenerate", headers=ch, params={"insight_type": "weekly"}), "insight_weekly"),
                 ("generate-weekly", lambda: c.post("/api/insights/generate-weekly", headers=ch), "insight_weekly"),
@@ -433,11 +451,26 @@ async def run(t):
             r, calls = calls_of(lambda: get(th, "weekly", language="mm"))
             check(r.status_code == 200 and not calls and used(tid, "insight_translation") == 1,
                   "translation_counted: the stored translation is shown again for free", f"{r.status_code} {len(calls)}")
-            store_insight(tid, "monthly")
+            mid_stored = store_insight(tid, "monthly")
             r, calls = calls_of(lambda: get(th, "monthly", language="mm"))
-            check(plan_error(r, 429, "plan_limit_reached", "insight_translation") and not calls,
-                  "translation_counted: the next insight's translation is refused when the allowance is used up",
-                  f"{r.status_code} {r.text[:160]} {len(calls)}")
+            j = r.json() if r.status_code == 200 else {}
+            ua = j.get("translation_unavailable") or {}
+            check(r.status_code == 200 and j.get("id") == mid_stored and j.get("content_mm") is None and not calls
+                  and ua.get("code") == "plan_limit_reached" and ua.get("feature") == "insight_translation"
+                  and j.get("translation_locked") is False,
+                  "translation_counted: the next insight's translation is refused when the allowance is used up, but the English "
+                  "insight is still returned (200, translation_unavailable plan_limit_reached)",
+                  f"{r.status_code} {r.text[:200]} {len(calls)}")
+            # regenerate in Myanmar with the translation allowance gone: the new English insight is returned, not a 429
+            r, calls = calls_of(lambda: c.post("/api/insights/regenerate", headers=th, params={"insight_type": "monthly", "language": "mm"}))
+            j = r.json() if r.status_code == 200 else {}
+            ua = j.get("translation_unavailable") or {}
+            check(r.status_code == 200 and j.get("content") and j.get("id") != mid_stored and j.get("content_mm") is None
+                  and len(calls) == 1 and ua.get("code") == "plan_limit_reached" and ua.get("feature") == "insight_translation"
+                  and j.get("translation_locked") is False and set(j) == RESPONSE_KEYS,
+                  "translation_refused_regenerate: regenerate (language=mm) with the translation allowance used up returns the new English "
+                  "insight (one AI call) with translation_unavailable plan_limit_reached, not a 429",
+                  f"{r.status_code} {r.text[:200]} {len(calls)}")
             # a welcome placeholder is translated from the canned text: no AI call, nothing used
             phid, phh = register("plus-placeholder", tx=False)
             set_plan(phid, "plus")
@@ -475,6 +508,21 @@ async def run(t):
         finally:
             c.put("/api/admin/plans", headers=AD, json=t.default_body())
             await store.load()
+
+        # ---- Free translation is always locked: the Plans API refuses anything else, readably
+        for mode_cell in ({"mode": "included", "quota": None, "period": None}, {"mode": "counted", "quota": 3, "period": "month"}):
+            body = t.default_body()
+            body["plans"]["free"]["limits"]["insight_translation"] = mode_cell
+            r = c.put("/api/admin/plans", headers=AD, json=body)
+            check(r.status_code == 422 and "free.insight_translation" in r.text and "locked" in r.text,
+                  f"free_translation_always_locked: PUT with Free insight_translation {mode_cell['mode']} is a 422 that says it must stay locked",
+                  f"{r.status_code} {r.text[:200]}")
+        body = t.default_body()
+        body["plans"]["plus"]["limits"]["insight_translation"] = {"mode": "locked", "quota": None, "period": None}
+        r = c.put("/api/admin/plans", headers=AD, json=body)
+        check(r.status_code == 200, "free_translation_always_locked: Plus translation can still be locked (only Free is fixed)", f"{r.status_code} {r.text[:120]}")
+        c.put("/api/admin/plans", headers=AD, json=t.default_body())
+        await store.load()
 
         # ---- scheduler_skips_free_and_capped: the jobs select Plus and Pro, skip ended plans and users at the cost cap
         import insights_service as ins
@@ -547,6 +595,29 @@ async def run(t):
         ran = {u for f, u, bg in seen if f == "insight_weekly"}
         check(sch["plus"] not in ran and sch["pro"] in ran,
               "scheduled_spend_recorded: once a user's recorded spend reaches the plan's cap the next job run skips them", sorted(ran))
+        # the owner locks an insight type for a paid plan: the job skips that plan's users for that type only
+        try:
+            ok = put_plans(lambda body: body["plans"]["plus"]["limits"].update(
+                insight_weekly={"mode": "locked", "quota": None, "period": None}))
+            await store.load()
+            check(ok, "scheduler_skips_locked_type: the owner locks Plus weekly insights (admin API)")
+            with t.connect() as conn:
+                conn.execute("DELETE FROM ai_usage WHERE user_id = %s", (sch["plus"],))  # Plus is under its cap again
+            runner.run, ins.users_db.list_fields = spy, only_ours
+            for job, feature in ((ins.generate_weekly_insights_for_all_users, "insight_weekly"),
+                                 (ins.generate_monthly_insights_for_all_users, "insight_monthly")):
+                seen.clear()
+                await job()
+                ran = {u for f, u, bg in seen if f == feature}
+                want = {sch["pro"], sch["reset"]} if feature == "insight_weekly" else {sch["plus"], sch["pro"], sch["reset"]}
+                check(ran == want,
+                      f"scheduler_skips_locked_type: with Plus weekly locked the {feature} job runs for "
+                      f"{'Pro only' if feature == 'insight_weekly' else 'Plus and Pro (monthly is not locked)'}",
+                      sorted(k for k, v in sch.items() if v in ran))
+        finally:
+            runner.run, ins.users_db.list_fields = orig_run, orig_list
+            c.put("/api/admin/plans", headers=AD, json=t.default_body())
+            await store.load()
     finally:
         try:
             reset_ai()
