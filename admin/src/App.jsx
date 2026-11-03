@@ -15,7 +15,7 @@ import FeedbackManagement from './FeedbackManagement';
 import ErrorBoundary from './ErrorBoundary';
 import {
   apiRequest, errorMessage, onUnauthorized, loadStoredSession, storeSession, clearSession,
-  canWrite, isSuperAdmin, parseLocalDate, toLocalDateInput, getUserUsage, resetUserUsage, getUpgradeRequests,
+  canWrite, isSuperAdmin, parseLocalDate, toLocalDateInput, getUserUsage, resetUserUsage,
 } from './api';
 import { PLANS, PLAN_BADGE, planLabel, featureLabel } from './planLabels';
 
@@ -1140,12 +1140,14 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
   const reload = () => setRefreshKey((k) => k + 1);
 
-  // Pending upgrade requests (sidebar badge): re-read when changing tab and after anything that reloads the data
-  // (a plan change answers a request by itself). A failure just leaves the old count.
+  // Pending upgrade requests (sidebar badge): the system stat is the count. Re-read when changing tab and after
+  // anything that reloads the data (a plan change answers a request by itself). A failure just leaves the old count.
   useEffect(() => {
     let cancelled = false;
-    getUpgradeRequests(token, { status: 'pending', limit: 200 })
-      .then((data) => { if (!cancelled && Array.isArray(data)) setPendingRequests(data.length); })
+    api.getSystemStats(token)
+      .then((data) => {
+        if (!cancelled && Number.isFinite(data?.pending_upgrade_requests)) setPendingRequests(data.pending_upgrade_requests);
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [token, activeTab, refreshKey]);
@@ -1450,7 +1452,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
         {/* Upgrade Requests Tab */}
         {activeTab === 'upgrade-requests' && (
-          <UpgradeRequests token={token} adminRole={admin.role} onOpenUser={openUserById} onChanged={reload} />
+          <UpgradeRequests token={token} adminRole={admin.role} onOpenUser={openUserById} onChanged={reload} refreshSignal={refreshKey} />
         )}
 
         {/* Feedback Tab */}

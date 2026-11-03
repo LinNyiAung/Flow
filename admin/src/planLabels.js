@@ -30,5 +30,5 @@ export const PLAN_BADGE = {
   pro: 'bg-violet-500/15 border-violet-500/30 text-violet-400',
 };
 
-export const planLabel =(plan) => PLAN_LABELS[plan] ?? String(plan);
+export const planLabel = (plan) => PLAN_LABELS[plan] ?? String(plan);
 export const featureLabel = (feature) => FEATURE_LABELS[feature] ?? String(feature);

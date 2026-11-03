@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ArrowUpCircle, Crown, Check, X, Eye, RefreshCw } from 'lucide-react';
-import { getUpgradeRequests, markUpgradeRequestDone, dismissUpgradeRequest, errorMessage, canWrite } from './api';
+import { getUpgradeRequests, markUpgradeRequestDone, dismissUpgradeRequest, errorMessage, canWrite, ApiError } from './api';
 import { PLAN_BADGE, planLabel } from './planLabels';
 
 const STATUSES = [
@@ -29,15 +29,18 @@ const PlanBadge = ({ plan }) => (
  * done or dismiss it. Setting the user's plan (user detail) marks the request done by itself.
  *
  * onOpenUser(userId): show that user's detail panel. onChanged(): a request was handled (the sidebar count changes).
+ * refreshSignal: the dashboard's refresh counter. The list reloads whenever it changes, because a plan change or a
+ * user delete from the user panel can answer or remove a request.
  */
-const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged }) => {
+const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSignal = 0 }) => {
   const [status, setStatus] = useState('pending');
   const [refreshKey, setRefreshKey] = useState(0);
   const [list, setList] = useState({ key: null, items: [], error: null });
   const [busyId, setBusyId] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   const writable = canWrite(adminRole);
-  const queryKey = `${status}|${refreshKey}`;
+  const queryKey = `${status}|${refreshKey}|${refreshSignal}`;
   const loading = list.key !== queryKey;
 
   useEffect(() => {
@@ -59,13 +62,22 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged }) => {
   const handle = async (item, action) => {
     if (action === 'dismiss' && !window.confirm(`Dismiss ${item.name || item.email}'s request for ${planLabel(item.requested_plan)}?`)) return;
     setBusyId(item.id);
+    setNotice(null);
     try {
       await (action === 'done' ? markUpgradeRequestDone : dismissUpgradeRequest)(token, item.id);
     } catch (err) {
-      alert(errorMessage(err, 'Failed to update the request'));
+      // 409: someone else (or a plan change) already handled it. 404: the request or its user is gone.
+      // Either way the list is reloaded below and shows what is true now.
+      if (err instanceof ApiError && err.status === 409) {
+        setNotice('That request was already handled, so the list has been refreshed.');
+      } else if (err instanceof ApiError && err.status === 404) {
+        setNotice('That request no longer exists, so the list has been refreshed.');
+      } else {
+        alert(errorMessage(err, 'Failed to update the request'));
+      }
     } finally {
       setBusyId(null);
-      refresh(); // also after a 409: the list shows what is true now
+      refresh();
       if (onChanged) onChanged();
     }
   };
@@ -80,6 +92,13 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged }) => {
           Users asking for Plus or Pro. Set their plan from the user panel, then it is marked done by itself{writable ? '' : ' (read-only)'}.
         </p>
       </div>
+
+      {notice && (
+        <div role="status" className="mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm flex items-start justify-between gap-3">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss note" className="text-amber-300/70 hover:text-amber-300"><X size={14} /></button>
+        </div>
+      )}
 
       <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 p-4 md:p-6 rounded-2xl border border-white/5 mb-6 flex gap-4">
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"
@@ -122,6 +141,7 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged }) => {
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <PlanBadge plan={item.current_plan} />
+                        {item.is_trial && <span className="text-xs text-slate-400">(trial)</span>}
                         <span className="text-slate-500">→</span>
                         <PlanBadge plan={item.requested_plan} />
                       </div>
