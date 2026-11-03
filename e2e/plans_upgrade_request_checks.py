@@ -17,8 +17,8 @@ MYANMAR = re.compile("[က-႟]")
 BEFORE_REQUESTS = "e1b6d3a8f245"  # the revision the upgrade_requests migration revises
 REQUEST_KEYS = {"plan", "note", "status", "created_at"}
 PLAN_REQUEST_KEYS = {"plan", "note", "created_at"}
-ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "requested_plan", "note", "created_at", "status",
-                  "handled_at"}
+ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "requested_plan", "note", "created_at",
+                  "status", "handled_at"}
 
 
 def parse(value):
@@ -166,6 +166,18 @@ async def run(t):
         check(ask(h, "plus", "x" * 500).status_code == 200, "upgrade_request_create: a note of 500 characters is accepted")
         check(ask(h, "plus", "  " + "x" * 500 + "  ").status_code == 200,
               "upgrade_request_create: the 500-character limit counts the stripped note")
+        # The limit is 500 Unicode code points (what the app counts too). A Burmese note has far fewer grapheme
+        # clusters than code points: 62 x 8 = 496 and 62.5 x 8 = 500 are fine, 70 x 8 = 560 is not.
+        burmese = "ကျွန်ုပ်"
+        check(len(burmese) == 8 and ask(h, "plus", burmese * 62 + burmese[:4]).status_code == 200
+              and len(rows(uid)[0][2]) == 500,
+              "upgrade_request_create: a Burmese note of exactly 500 code points is accepted and stored")
+        r = ask(h, "plus", burmese * 70)
+        check(r.status_code == 422 and rows(uid)[0][2] == burmese * 62 + burmese[:4],
+              "upgrade_request_create: a Burmese note of 560 code points is refused (422) and changes nothing",
+              f"{r.status_code} {r.text[:150]}")
+        check(ask(h, "plus", burmese * 62 + burmese[:5]).status_code == 422,
+              "upgrade_request_create: and 501 Burmese code points is refused")
         ask(h, "plus")  # back to no note for the checks below
 
         # ---- validation
@@ -199,6 +211,23 @@ async def run(t):
                                                         "subscription_expires_at": datetime.now(UTC) - timedelta(days=1)}})
         check(ask(exp_h, "plus").status_code == 200,
               "upgrade_request_refused: an expired Plus counts as Free, so asking for Plus is fine")
+        trial_uid, trial_h = register("trial")
+        trial_ends = datetime.now(UTC) + timedelta(days=10)
+        db.users.update_one({"_id": trial_uid}, {"$set": {"subscription_type": "plus", "subscription_expires_at": trial_ends,
+                                                         "trial_ends_at": trial_ends, "has_claimed_free_trial": True}})
+        r = ask(trial_h, "plus", "keep it")
+        check(r.status_code == 200 and r.json().get("plan") == "plus",
+              "upgrade_request_trial: a user on the Plus trial may ask for Plus (the trial is not 'already on Plus')",
+              f"{r.status_code} {r.text[:200]}")
+        row = listed(MOD, trial_uid)
+        check(row is not None and row["current_plan"] == "plus" and row["is_trial"] is True and row["requested_plan"] == "plus",
+              "upgrade_request_trial: the admin list marks the trial user (is_trial true, current plan plus)", row)
+        check(ask(trial_h, "pro").status_code == 200, "upgrade_request_trial: a trial user may ask for Pro too")
+        check(listed(MOD, plus_uid)["is_trial"] is False and listed(MOD, exp_uid)["is_trial"] is False,
+              "upgrade_request_trial: users who are not on a trial are not marked")
+        trial_auto = set_plan(trial_uid, "plus", datetime.now(UTC) + timedelta(days=30))
+        check(trial_auto and rows(trial_uid)[0][3] == "pending",
+              "upgrade_request_trial: the admin setting Plus does not answer the user's request for Pro")
 
         # ---- admin list
         row = listed(MOD, uid)
@@ -283,6 +312,8 @@ async def run(t):
         got = rows(a_uid)[0]
         check(got[3] == "done" and got[6] == admin_id and got[5] is not None and plan_request(a_h) is None,
               "auto_done: setting the requested plan marks the pending request done (handled_by the admin)", got)
+        got = [x for x in logs(made["admin"]) if x["action"] == "upgrade_request_done" and x["target_user_id"] == a_uid]
+        check(len(got) == 1, "auto_done: the automatic close is written to the admin log like a manual one", got)
 
         b_uid, b_h = pending_for("auto-pro")
         ask(b_h, "plus")
@@ -293,7 +324,9 @@ async def run(t):
         ask(d_h, "pro")
         set_plan(d_uid, "plus", datetime.now(UTC) + timedelta(days=30))
         check(rows(d_uid)[0][3] == "pending" and isinstance(plan_request(d_h), dict),
-              "auto_done: a lower plan than requested leaves the request pending")
+              "auto_done: a lower plan than requested (Pro asked, Plus set) leaves the request pending")
+        check(not [x for x in logs(made["admin"]) if x["action"] == "upgrade_request_done" and x["target_user_id"] == d_uid],
+              "auto_done: and writes no 'request done' log row")
         set_plan(d_uid, "pro", datetime.now(UTC) + timedelta(days=30))
         check(rows(d_uid)[0][3] == "done", "auto_done: and the requested plan later answers it")
 

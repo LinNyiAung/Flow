@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt
 
 from admin_utils import log_admin_action, require_admin_or_super, require_moderator_or_above
 from plans import store
-from plans.access import effective_plan
+from plans.access import effective_plan, is_trial
 from plans.catalog import FEATURES, PLANS, Limit
 from sql import upgrade_requests as requests_db
 from sql import users as users_db
@@ -136,6 +136,7 @@ def _request_row(row: dict) -> dict:
         "name": row["user_name"],
         "email": row["user_email"],
         "current_plan": plan,
+        "is_trial": plan != "free" and is_trial({"trial_ends_at": row["trial_ends_at"]}),
         "requested_plan": row["plan"],
         "note": row["note"],
         "created_at": row["created_at"].isoformat(),

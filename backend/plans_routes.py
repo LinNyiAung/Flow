@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from notification_service import translate
 from plans import quota
-from plans.access import PlanError, effective_plan, user_language
+from plans.access import PlanError, effective_plan, is_trial, user_language
 from plans.catalog import PLAN_RANK
 from sql import upgrade_requests as requests_db
 from utils import get_current_user
@@ -54,9 +54,12 @@ async def get_plan(current_user: dict = Depends(get_current_user)):
 async def request_upgrade(body: UpgradeRequestBody, current_user: dict = Depends(get_current_user)):
     """Ask the owner for Plus or Pro. A pending request is updated in place (plan, note, date) rather than added to.
 
-    400 when the user already has that plan or a higher one (Pro counts as Plus).
+    400 when the user already has that plan or a higher one (Pro counts as Plus). A free trial of Plus does not count
+    as having Plus here: a trial user may ask to keep it.
     """
     current = effective_plan(current_user)
+    if is_trial(current_user):
+        current = "free"
     if PLAN_RANK[current] >= PLAN_RANK[body.plan]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

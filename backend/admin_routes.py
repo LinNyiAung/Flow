@@ -670,9 +670,20 @@ async def update_user_subscription(
     # user really has afterwards, so setting a plan that has already ended does not count.
     new_plan = effective_plan({"subscription_type": subscription_data.subscription_type.value,
                                "subscription_expires_at": expires_at})
-    pending = await upgrade_requests_db.get_pending(user_id)
-    if pending and PLAN_RANK[new_plan] >= PLAN_RANK[pending["plan"]]:
-        await upgrade_requests_db.mark_user_done(user_id, current_admin["_id"], datetime.now(UTC))
+    # One conditional UPDATE (the plan test is in its WHERE), so a request that changed to a higher plan between a
+    # read and the write could not be closed by mistake.
+    covered = [plan for plan, rank in PLAN_RANK.items() if rank <= PLAN_RANK[new_plan]]
+    closed = await upgrade_requests_db.mark_user_done_if_covered(
+        user_id, covered, current_admin["_id"], datetime.now(UTC))
+    if closed:
+        await log_admin_action(
+            admin_id=current_admin["_id"],
+            admin_email=current_admin["email"],
+            action="upgrade_request_done",
+            target_user_id=user_id,
+            target_user_email=user["email"],
+            details=f"Upgrade request for {closed['plan']}: done (plan set to {subscription_data.subscription_type.value})",
+        )
 
     # Send a silent FCM data-only message so the app refreshes instantly.
     # Blocking firebase call runs in a threadpool so the event loop isn't blocked.

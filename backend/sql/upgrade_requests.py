@@ -1,12 +1,12 @@
 """Upgrade requests: users ask for Plus or Pro from the app, the owner handles them in the admin panel."""
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
+from sql.db import fetch_all, fetch_one, fetch_value, write_returning
 from sql.docs import row_to_doc, rows_to_docs
 from sql.tables import upgrade_requests, users
 
@@ -44,7 +44,7 @@ async def list_with_users(status: str, skip: int, limit: int) -> List[Dict[str, 
     requesting user's name, email and stored plan fields."""
     order = _ur.created_at.asc() if status == "pending" else func.coalesce(_ur.handled_at, _ur.created_at).desc()
     stmt = (select(upgrade_requests, users.c.name.label("user_name"), users.c.email.label("user_email"),
-                   users.c.subscription_type, users.c.subscription_expires_at)
+                   users.c.subscription_type, users.c.subscription_expires_at, users.c.trial_ends_at)
             .join(users, users.c.id == _ur.user_id)
             .where(_ur.status == status)
             .order_by(order, _ur.id).offset(skip).limit(limit))
@@ -62,7 +62,12 @@ async def mark(request_id: str, status: str, admin_id: str, now: datetime) -> Op
     return row_to_doc(await write_returning(stmt))
 
 
-async def mark_user_done(user_id: str, admin_id: str, now: datetime) -> int:
-    """The user's pending request (if any) -> done. Returns the row count."""
-    return await execute(update(upgrade_requests).where(_ur.user_id == user_id, _ur.status == "pending")
-                         .values(status="done", handled_at=now, handled_by=admin_id))
+async def mark_user_done_if_covered(user_id: str, covered_plans: Sequence[str], admin_id: str,
+                                    now: datetime) -> Optional[Dict[str, Any]]:
+    """The user's pending request -> done, but only when it asks for one of `covered_plans` (the plans the user's new
+    plan includes). One conditional UPDATE, so a request that changed to a higher plan in the meantime stays pending.
+    Returns the row, or None when nothing changed."""
+    stmt = (update(upgrade_requests)
+            .where(_ur.user_id == user_id, _ur.status == "pending", _ur.plan.in_(list(covered_plans)))
+            .values(status="done", handled_at=now, handled_by=admin_id).returning(*upgrade_requests.c))
+    return row_to_doc(await write_returning(stmt))
