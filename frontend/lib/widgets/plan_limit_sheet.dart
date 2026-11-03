@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/plan_limit_text.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 
 /// Shows the friendly "you've hit your plan's limit" sheet for [error]: what
@@ -64,35 +65,21 @@ class PlanLimitSheet extends StatelessWidget {
     return Icons.hourglass_bottom_rounded;
   }
 
-  /// The explanation, built from the code, the feature and the reset date in
-  /// the app's language. A code the app does not know, or a feature without a
-  /// name of its own, shows the server's message instead.
-  String _body(AppLocalizations l, String? featureName, String? resetDate) {
-    final String what;
-    if (error.isCostCap) {
-      what = l.planCostCapBody;
-    } else if (error.isLocked) {
-      if (error.feature != null && featureName == null) return error.message.trim();
-      what = featureName == null ? l.planPaidRequiredBody : l.planLimitLockedBody(featureName);
-    } else if (error.isLimitReached) {
-      if (error.feature != null && featureName == null) return error.message.trim();
-      what = featureName == null ? '' : l.planLimitReachedBody(featureName);
-    } else {
-      return error.message.trim();
-    }
-    final resets = resetDate == null || error.isLocked ? '' : l.planLimitResetsOn(resetDate);
-    return [what, resets].where((s) => s.isNotEmpty).join(' ');
-  }
-
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final feature = error.feature;
     final featureName = feature == null ? null : l.knownPlanFeatureName(feature);
-    final resetsAt = error.resetsAt;
-    final resetDate = resetsAt == null ? null : l.formatPlanDate(resetsAt);
-    final body = _body(l, featureName, resetDate);
+    // The explanation is built from the code, the feature and the reset date in
+    // the app's language (see planLimitText for when the server's message is used).
+    final body = planLimitText(
+      l,
+      code: error.code,
+      feature: feature,
+      resetsAt: error.resetsAt,
+      fallbackMessage: error.message,
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,

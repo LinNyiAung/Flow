@@ -79,13 +79,23 @@ void main() {
 
   group('next insight line', () {
     testWidgets('English: Next insight: Monday, 10 November', (tester) async {
-      await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 11, 9, 5)));
+      await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 11, 9, 5), now: DateTime(2026, 11, 3)));
       expect(find.byKey(const ValueKey('insight-next')), findsOneWidget);
       expect(find.text('Next insight: Monday, 9 November'), findsOneWidget);
     });
 
+    testWidgets('hidden once the date has passed (the app was left open over the run time)', (tester) async {
+      await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 11, 9, 5), now: DateTime(2026, 11, 9, 5, 0, 1)));
+      expect(find.byKey(const ValueKey('insight-next')), findsNothing);
+      await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 11, 9, 5), now: DateTime(2026, 11, 9, 5)));
+      expect(find.byKey(const ValueKey('insight-next')), findsNothing);
+      await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 11, 9, 5), now: DateTime(2026, 11, 9, 4, 59, 59)));
+      expect(find.byKey(const ValueKey('insight-next')), findsOneWidget);
+    });
+
     testWidgets('Myanmar: weekday and Burmese month', (tester) async {
-      await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 12, 1, 6)), locale: const Locale('my'));
+      await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 12, 1, 6), now: DateTime(2026, 11, 3)),
+          locale: const Locale('my'));
       final text = tester.widget<Text>(find.byKey(const ValueKey('insight-next'))).data!;
       expect(text, contains('အင်္ဂါနေ့၊ 1 ဒီဇင်ဘာ'));
       expect(text, isNot(contains('Next')));

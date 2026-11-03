@@ -14,6 +14,7 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/insight_errors.dart';
+import 'package:frontend/utils/plan_limit_text.dart';
 import 'package:frontend/widgets/insight_notes.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
@@ -259,6 +260,17 @@ class _InsightsScreenState extends State<InsightsScreen> {
     ColorScheme scheme,
   ) {
     final note = insightProvider.translationNote;
+    // Written in the app's language from the code and the reset date, like the
+    // limit sheet; the server's message only for a code the app doesn't know.
+    final noteText = note == null
+        ? ''
+        : planLimitText(
+            AppLocalizations.of(context),
+            code: note.code,
+            feature: 'insight_translation',
+            resetsAt: note.resetsAt,
+            fallbackMessage: note.message,
+          );
     return Card(
       color: scheme.tertiaryContainer,
       child: Padding(
@@ -291,10 +303,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
             // Myanmar was asked for but the server refused to translate it (a
             // limit): the English insight is shown and this says why. It can
             // be closed.
-            if (note != null && note.message.isNotEmpty) ...[
+            if (noteText.isNotEmpty) ...[
               const SizedBox(height: 6),
               InsightTranslationNote(
-                message: note.message,
+                message: noteText,
                 onClose: insightProvider.dismissTranslationNote,
               ),
             ],

@@ -50,16 +50,20 @@ class InsightTranslationNote extends StatelessWidget {
 
 /// "Next insight: Monday, 10 November": when the next insight of the shown
 /// type arrives. Renders nothing when the server sent no date (the type is not
-/// available to the user).
+/// available to the user), or when that date has already passed (the screen was
+/// left open over the run time): a past date would only mislead.
 class NextInsightLine extends StatelessWidget {
-  const NextInsightLine({super.key, required this.nextAt});
+  const NextInsightLine({super.key, required this.nextAt, this.now});
 
   final DateTime? nextAt;
+
+  /// The current time; only tests pass it.
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
     final at = nextAt;
-    if (at == null) return const SizedBox.shrink();
+    if (at == null || !at.isAfter(now ?? DateTime.now())) return const SizedBox.shrink();
     final l = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     return Padding(
