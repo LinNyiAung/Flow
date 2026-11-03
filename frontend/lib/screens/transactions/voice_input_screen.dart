@@ -19,6 +19,7 @@ import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/voice_image_models.dart';
 import 'voice_extraction.dart';
+import 'voice_retry_hint.dart';
 import 'package:intl/intl.dart';
 
 class VoiceInputScreen extends StatefulWidget {
@@ -383,14 +384,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       // "no extra entry" promise is made only while the voice
                       // token is valid.
                       if (_extraction != null && !_isProcessing && _extractedData == null) ...[
-                        if (_extraction!.retryIsFree()) ...[
-                          SizedBox(height: 8),
-                          Text(
-                            localizations.voiceRetryHint,
-                            key: const ValueKey('voice-retry-hint'),
-                            style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
-                          ),
-                        ],
+                        VoiceRetryHint(extraction: _extraction!),
                         SizedBox(height: 8),
                         FilledButton.icon(
                           key: const ValueKey('voice-extraction-retry'),
