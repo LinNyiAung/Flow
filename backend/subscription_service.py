@@ -17,8 +17,7 @@ from plans.catalog import PAID_PLANS
 from sql import users as users_db
 from firebase_service import send_fcm_data_message
 from notification_service import create_notification, translate
-from plans.access import user_language
-from tz_utils import get_app_timezone
+from plans.access import format_date, user_language
 from utils import ensure_utc_datetime
 
 logger = logging.getLogger(__name__)
@@ -49,8 +48,7 @@ def effectively_free_filter(now: Optional[datetime] = None):
 
 
 def _format_end_date(expired_at: datetime, lang: str) -> str:
-    local = expired_at.astimezone(get_app_timezone())
-    return local.strftime("%Y-%m-%d") if lang == "my" else local.strftime("%b %d, %Y").replace(" 0", " ")
+    return format_date(expired_at, lang)
 
 
 def _plan_name(plan: str) -> str:

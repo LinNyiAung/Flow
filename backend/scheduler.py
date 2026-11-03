@@ -11,6 +11,7 @@ from notification_service import (
 from sql import users as users_db
 from budget_service import process_due_budget_rollovers
 from insights_service import generate_weekly_insights_for_all_users, generate_monthly_insights_for_all_users
+from insight_schedule import WEEKLY_INSIGHT_CRON, MONTHLY_INSIGHT_CRON
 from subscription_service import expire_paid_plans, send_trial_reminders
 from tz_utils import get_app_timezone
 
@@ -127,7 +128,7 @@ def start_scheduler():
     # Generate weekly insights every Monday at 5 AM
     scheduler.add_job(
         generate_weekly_insights_for_all_users,
-        trigger=CronTrigger(timezone=app_tz, day_of_week="mon", hour=5, minute=0),
+        trigger=CronTrigger(timezone=app_tz, **WEEKLY_INSIGHT_CRON),
         id="weekly_insights_generation",
         name="Generate weekly insights for all users",
         replace_existing=True
@@ -136,7 +137,7 @@ def start_scheduler():
     # Generate monthly insights on 1st of every month at 6 AM
     scheduler.add_job(
         generate_monthly_insights_for_all_users,
-        trigger=CronTrigger(timezone=app_tz, day=1, hour=6, minute=0),
+        trigger=CronTrigger(timezone=app_tz, **MONTHLY_INSIGHT_CRON),
         id="monthly_insights_generation",
         name="Generate monthly insights for all users",
         replace_existing=True

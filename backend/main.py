@@ -21,6 +21,7 @@ from notification_preferences_models import NotificationPreferences, Notificatio
 from scheduler import start_scheduler
 from pdf_generator import generate_financial_report_pdf
 from report_models import CategoryBreakdown, FinancialReport, GoalProgress, ReportPeriod, ReportRequest
+import insight_schedule
 from insight_models import InsightResponse
 from models import (
     CategoryResponse, Currency, TransactionType,
@@ -650,11 +651,26 @@ def _insight_has_content(insight: Optional[dict]) -> bool:
     return isinstance(content, str) and bool(content.strip())
 
 
+def _next_insight_at(user: dict, insight_type: str) -> Optional[datetime]:
+    """When the next insight of `insight_type` arrives for this user (UTC), or None when the type is locked for them.
+
+    Plus and Pro: the scheduler's next run (insight_schedule reads the same cron fields the scheduler uses). A Free user's
+    monthly insight is made on demand once a month, so the next one can be made at the start of next month. The scheduler
+    skips Free users, so there is no scheduled weekly insight to announce for them."""
+    if quota.is_locked(user, f"insight_{insight_type}"):
+        return None
+    if effective_plan(user) == "free":
+        return insight_schedule.next_on_demand_insight_at() if insight_type == "monthly" else None
+    return insight_schedule.next_scheduled_insight_at(insight_type)
+
+
 def _insight_response(insight: dict, translation_locked: bool = False, plan_translates: bool = True,
-                      translation_unavailable: Optional[dict] = None) -> InsightResponse:
+                      translation_unavailable: Optional[dict] = None,
+                      next_insight_at: Optional[datetime] = None) -> InsightResponse:
     """translation_locked: Myanmar was requested but the plan has no translation (reported to the app).
     translation_unavailable: Myanmar was requested, the plan has translation, but the translation was refused (cost cap,
     used-up allowance): the limit error's detail, else None. The English insight is still returned.
+    next_insight_at: see _next_insight_at.
     plan_translates False: the plan has no translation at all, so a Myanmar text stored earlier (for example while the
     user was on Plus) is not handed out."""
     if not _insight_has_content(insight):
@@ -672,6 +688,7 @@ def _insight_response(insight: dict, translation_locked: bool = False, plan_tran
         expires_at=insight.get("expires_at"),
         translation_locked=translation_locked,
         translation_unavailable=translation_unavailable,
+        next_insight_at=next_insight_at,
     )
 
 
@@ -759,7 +776,8 @@ async def get_insights(
         if effective_plan(current_user) == "free" and insight_type == "monthly":
             # Free is never translated: English only, whatever language was asked for (no translation call).
             latest_insight = await _free_monthly_insight(current_user, latest_insight)
-            return _insight_response(latest_insight, translation_locked, plan_translates=False)
+            return _insight_response(latest_insight, translation_locked, plan_translates=False,
+                                     next_insight_at=_next_insight_at(current_user, insight_type))
 
         # A stored "welcome" placeholder is replaced once the user has real data (incl.
         # transactions in the current, incomplete period). If they don't, but they have
@@ -806,7 +824,8 @@ async def get_insights(
         if language == "mm" and plan_translates:
             latest_insight, translation_unavailable = await _translate_if_possible(latest_insight, current_user)
 
-        return _insight_response(latest_insight, translation_locked, plan_translates, translation_unavailable)
+        return _insight_response(latest_insight, translation_locked, plan_translates, translation_unavailable,
+                                 _next_insight_at(current_user, insight_type))
 
     except (HTTPException, PlanError):
         raise
@@ -869,7 +888,8 @@ async def regenerate_insights(
             new_insight, translation_unavailable = await _translate_if_possible(new_insight, current_user)
 
         print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
-        return _insight_response(new_insight, translation_locked, plan_translates, translation_unavailable)
+        return _insight_response(new_insight, translation_locked, plan_translates, translation_unavailable,
+                                 _next_insight_at(current_user, insight_type))
     except (HTTPException, PlanError):
         raise
     except Exception as e:

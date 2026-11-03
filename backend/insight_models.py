@@ -16,3 +16,6 @@ class InsightResponse(BaseModel):
     # the same object as a limit error's detail {code, feature, resets_at, upgrade_available, message}, else null.
     # The English insight is returned and content_mm is null.
     translation_unavailable: Optional[Dict[str, Any]] = None
+    # When the next insight of this type arrives (UTC): the next scheduled run for Plus and Pro, the start of next month
+    # for a Free user's on-demand monthly insight. Null when the type is not available to the user.
+    next_insight_at: Optional[datetime] = None

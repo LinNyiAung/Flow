@@ -389,6 +389,22 @@ async def run(t):
         check(all(isinstance(x, access.PlanError) and MYANMAR.search(x.detail()["message"]) for x in (e, e2)),
               "limit_message_language: the locked and cost-cap messages are Myanmar too", (desc(e), desc(e2)))
 
+        # ---- limit_message_dates: Myanmar uses Burmese month names (not an ISO date); English keeps its short form
+        dec1 = datetime(2026, 11, 30, 18, 0, tzinfo=UTC)  # Yangon midnight on Dec 1 is 17:30 UTC: this is 00:30 on Dec 1
+        check(access.format_date(dec1, "my") == "1 ဒီဇင်ဘာ 2026" and access.format_date(dec1, "en") == "Dec 1, 2026",
+              "limit_message_dates: 2026-11-30 18:00 UTC is 1 ဒီဇင်ဘာ 2026 / Dec 1, 2026 in the app timezone",
+              (access.format_date(dec1, "my"), access.format_date(dec1, "en")))
+        names = [access.format_date(datetime(2026, m, 15, 6, 0, tzinfo=UTC), "my").split()[1] for m in range(1, 13)]
+        check(names == ["ဇန်နဝါရီ", "ဖေဖော်ဝါရီ", "မတ်", "ဧပြီ", "မေ", "ဇွန်", "ဇူလိုင်", "သြဂုတ်", "စက်တင်ဘာ", "အောက်တိုဘာ",
+                        "နိုဝင်ဘာ", "ဒီဇင်ဘာ"],
+              "limit_message_dates: all twelve Myanmar month names", names)
+        set_used(uid_my, "chat", 5)
+        e = await attempt(await fresh(uid_my), "chat")
+        msg = e.detail()["message"] if isinstance(e, access.PlanError) else ""
+        check(msg and not re.search(r"\d{4}-\d{2}-\d{2}", msg) and any(m in msg for m in access.MONTHS_MY)
+              and access.format_date(e.resets_at, "my") in msg,
+              "limit_message_dates: the Myanmar limit message names the month in Burmese", msg)
+
         # ---- the app-level handler renders PlanError as {"detail": {...}} with the PlanError's status
         import main as backend_main
         import plans_routes

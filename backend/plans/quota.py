@@ -190,6 +190,13 @@ async def reserve(user: Mapping[str, Any], feature: str, *, also: Sequence[str] 
     return Reservation(uid, [r[:3] for r in rows])
 
 
+def is_locked(user: Mapping[str, Any], feature: str, *, now: Optional[datetime] = None) -> bool:
+    """True when `feature` is locked on the user's effective plan (the check require_unlocked raises on)."""
+    if feature not in FEATURES:
+        raise ValueError(f"Unknown quota feature '{feature}'")
+    return store.limits(effective_plan(user, _now(now)))[feature].mode == "locked"
+
+
 def require_unlocked(user: Mapping[str, Any], feature: str, *, now: Optional[datetime] = None) -> None:
     """Raise PlanError (403 plan_feature_locked) when `feature` is locked on the user's effective plan; otherwise nothing.
 

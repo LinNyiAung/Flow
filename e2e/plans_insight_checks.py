@@ -16,7 +16,7 @@ import httpx
 BASE = "http://127.0.0.1:8765"
 PROVIDERS = ("openai", "gemini", "claude")
 RESPONSE_KEYS = {"id", "user_id", "content", "content_mm", "generated_at", "expires_at", "translation_locked",
-                 "translation_unavailable"}
+                 "translation_unavailable", "next_insight_at"}
 MYANMAR = re.compile("[က-႟]")
 
 
@@ -505,6 +505,99 @@ async def run(t):
             check(ok and plan_error(r, 403, "plan_feature_locked", "insight_monthly") and not calls,
                   "free_monthly_locked_by_owner: when the owner locks the Free monthly insight, GET is 403 (insight_monthly)",
                   f"{r.status_code} {r.text[:120]} {len(calls)}")
+        finally:
+            c.put("/api/admin/plans", headers=AD, json=t.default_body())
+            await store.load()
+
+        # ---- next_insight_at: when the next insight arrives, from the scheduler's own cron fields
+        import insight_schedule
+        from tz_utils import get_app_timezone
+        tz = get_app_timezone()
+
+        def local(*a):
+            return datetime(*a, tzinfo=tz).astimezone(UTC)
+
+        # fixed instants (2026-11-02 is a Monday), Yangon time unless the suite is run with another SCHEDULER_TIMEZONE
+        sched = insight_schedule.next_scheduled_insight_at
+        cases = [
+            ("weekly Mon 04:59 -> today 05:00", sched("weekly", local(2026, 11, 2, 4, 59)), local(2026, 11, 2, 5, 0)),
+            ("weekly Mon 05:00 sharp -> next Monday", sched("weekly", local(2026, 11, 2, 5, 0)), local(2026, 11, 9, 5, 0)),
+            ("weekly Tue -> next Monday", sched("weekly", local(2026, 11, 3, 12, 0)), local(2026, 11, 9, 5, 0)),
+            ("weekly Sun late -> Monday", sched("weekly", local(2026, 11, 8, 23, 59)), local(2026, 11, 9, 5, 0)),
+            ("monthly 1st 05:59 -> today 06:00", sched("monthly", local(2026, 11, 1, 5, 59)), local(2026, 11, 1, 6, 0)),
+            ("monthly 1st 06:00 sharp -> next month", sched("monthly", local(2026, 11, 1, 6, 0)), local(2026, 12, 1, 6, 0)),
+            ("monthly mid-month -> the 1st", sched("monthly", local(2026, 11, 20, 9, 0)), local(2026, 12, 1, 6, 0)),
+            ("monthly in December -> January 1st", sched("monthly", local(2026, 12, 15, 9, 0)), local(2027, 1, 1, 6, 0)),
+            ("on-demand mid-month -> start of next month", insight_schedule.next_on_demand_insight_at(local(2026, 11, 20, 9, 0)),
+             local(2026, 12, 1, 0, 0)),
+            ("on-demand on the 1st 00:10 -> next month", insight_schedule.next_on_demand_insight_at(local(2026, 11, 1, 0, 10)),
+             local(2026, 12, 1, 0, 0)),
+        ]
+        for label, got, want in cases:
+            check(got == want and got.tzinfo is not None and got.utcoffset() == timedelta(0),
+                  f"next_insight_at: {label}", f"{got} != {want}")
+        import scheduler as sched_mod
+        import inspect
+        src = inspect.getsource(sched_mod.start_scheduler)
+        check("**WEEKLY_INSIGHT_CRON" in src and "**MONTHLY_INSIGHT_CRON" in src and "day_of_week" not in src,
+              "next_insight_at: the scheduler builds its insight jobs from the same cron fields")
+
+        def expect_next(kind):
+            n = datetime.now(UTC).astimezone(tz)
+            if kind == "weekly":
+                d = n.date() + timedelta(days=(7 - n.weekday()) % 7)
+                at = datetime(d.year, d.month, d.day, 5, 0, tzinfo=tz)
+                if at <= n:
+                    at += timedelta(days=7)
+                    at = datetime(at.year, at.month, at.day, 5, 0, tzinfo=tz)
+            elif kind == "monthly":
+                at = datetime(n.year, n.month, 1, 6, 0, tzinfo=tz)
+                if at <= n:
+                    at = datetime(n.year + (n.month == 12), n.month % 12 + 1, 1, 6, 0, tzinfo=tz)
+            else:  # on demand
+                at = datetime(n.year + (n.month == 12), n.month % 12 + 1, 1, 0, 0, tzinfo=tz)
+            return at.astimezone(UTC)
+
+        def next_at(r):
+            raw = r.json().get("next_insight_at") if r.status_code == 200 else None
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")) if raw else None
+
+        nid, nh = register("next-plus")
+        set_plan(nid, "plus")
+        store_insight(nid, "weekly")
+        store_insight(nid, "monthly")
+        r1, r2 = get(nh, "weekly"), get(nh, "monthly")
+        check(next_at(r1) == expect_next("weekly") and next_at(r2) == expect_next("monthly"),
+              "next_insight_at: a Plus user's weekly insight says next Monday 05:00, the monthly one the 1st at 06:00 (app time)",
+              f"{r1.text[:200]} | {r2.text[:200]} | want {expect_next('weekly')} {expect_next('monthly')}")
+        pid, ph = register("next-pro")
+        set_plan(pid, "pro", datetime.now(UTC) + timedelta(days=30))
+        store_insight(pid, "weekly")
+        r1 = get(ph, "weekly")
+        check(next_at(r1) == expect_next("weekly"), "next_insight_at: a Pro user's weekly insight has it too", r1.text[:200])
+        nfid, nfh = register("next-free")
+        store_insight(nfid, "monthly")  # shown as this month's insight: no AI call
+        r = get(nfh)
+        check(next_at(r) == expect_next("on-demand"),
+              "next_insight_at: a Free user's on-demand monthly insight says the start of next month", r.text[:200])
+        r = c.post("/api/insights/regenerate", headers=nh, params={"insight_type": "monthly"})
+        check(r.status_code == 200 and next_at(r) == expect_next("monthly"),
+              "next_insight_at: the regenerate response carries it too", r.text[:200])
+        try:
+            ok = put_plans(lambda body: body["plans"]["free"]["limits"].update(insight_monthly={"mode": "locked", "quota": None, "period": None}))
+            await store.load()
+            import main as backend_main
+            from plans import quota
+            user = db.users.find_one({"_id": nfid})
+            check(ok and quota.is_locked(user, "insight_monthly") and quota.is_locked(user, "insight_weekly"),
+                  "next_insight_at: quota.is_locked sees the owner's lock on Free monthly (and Free weekly)")
+            check(backend_main._next_insight_at(user, "monthly") is None and backend_main._next_insight_at(user, "weekly") is None,
+                  "next_insight_at: _next_insight_at is None for a locked monthly (owner lock) and weekly (Free)")
+            # the insight already stored this month is still shown (reading costs nothing), but it announces no next one
+            r = get(nfh)
+            check(r.status_code == 200 and set(r.json()) == RESPONSE_KEYS and r.json()["next_insight_at"] is None,
+                  "next_insight_at: a stored insight of a type the owner has since locked is shown with next_insight_at null",
+                  f"{r.status_code} {r.text[:200]}")
         finally:
             c.put("/api/admin/plans", headers=AD, json=t.default_body())
             await store.load()

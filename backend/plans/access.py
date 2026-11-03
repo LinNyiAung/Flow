@@ -53,10 +53,17 @@ def user_language(user: Mapping[str, Any]) -> str:
     return lang if lang in LANGUAGES else "en"
 
 
-def _format_date(when: datetime, lang: str) -> str:
-    """The local (app timezone) date a period resets on, as the user reads it."""
+# Myanmar month names, January first (the same spelling as the app's own month names).
+MONTHS_MY = ("ဇန်နဝါရီ", "ဖေဖော်ဝါရီ", "မတ်", "ဧပြီ", "မေ", "ဇွန်", "ဇူလိုင်", "သြဂုတ်", "စက်တင်ဘာ", "အောက်တိုဘာ",
+             "နိုဝင်ဘာ", "ဒီဇင်ဘာ")
+
+
+def format_date(when: datetime, lang: str) -> str:
+    """The local (app timezone) date, as the user reads it: "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
     local = when.astimezone(get_app_timezone())
-    return local.strftime("%Y-%m-%d") if lang == "my" else local.strftime("%b %d, %Y").replace(" 0", " ")
+    if lang == "my":
+        return f"{local.day} {MONTHS_MY[local.month - 1]} {local.year}"
+    return local.strftime("%b %d, %Y").replace(" 0", " ")
 
 
 class PlanError(Exception):
@@ -83,7 +90,7 @@ class PlanError(Exception):
 
         lang = self.lang
         name = translate(f"plan_feature_{self.feature}", lang) if self.feature else ""
-        date = _format_date(self.resets_at, lang) if self.resets_at is not None else ""
+        date = format_date(self.resets_at, lang) if self.resets_at is not None else ""
         if self.code == LOCKED:
             # feature None: a route that needs any paid plan and is not one of the quota features
             text = (translate("plan_feature_locked_msg", lang, feature=name) if self.feature
