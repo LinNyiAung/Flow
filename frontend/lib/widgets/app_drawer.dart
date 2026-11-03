@@ -24,7 +24,7 @@ class _DrawerNavItem {
   final bool isActive;
 
   /// Per-item badge copy (mockup: "3 NEW" / "TRY FREE" / "FREE MONTH" — not
-  /// a generic "PREMIUM" pill). Null means no badge.
+  /// a generic plan pill). Null means no badge.
   final String? badgeText;
 }
 

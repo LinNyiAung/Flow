@@ -29,14 +29,21 @@ class _FakeChat {
   }
 }
 
-Insight _insight({String? mm, bool locked = false}) => Insight(
+Insight _insight({String? mm, bool locked = false, TranslationUnavailable? unavailable}) => Insight(
       id: 'i1',
       userId: 'u1',
       content: 'English text',
       contentMm: mm,
       generatedAt: DateTime.utc(2026, 11, 2),
       translationLocked: locked,
+      translationUnavailable: unavailable,
     );
+
+const _capNote = TranslationUnavailable(
+  code: 'plan_cost_cap',
+  message: 'You have reached this month\'s AI limit.',
+  upgradeAvailable: true,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -280,6 +287,96 @@ void main() {
         'generated_at': '2026-11-02T00:00:00Z',
       });
       expect(plain.translationLocked, isFalse);
+      expect(plain.translationUnavailable, isNull);
+    });
+
+    test('translation_unavailable is read from the response (an object, or null)', () {
+      final refused = Insight.fromJson({
+        'id': 'i',
+        'user_id': 'u',
+        'content': 'English',
+        'content_mm': null,
+        'generated_at': '2026-11-02T00:00:00Z',
+        'expires_at': null,
+        'translation_locked': false,
+        'translation_unavailable': {
+          'code': 'plan_cost_cap',
+          'feature': 'insight_translation',
+          'resets_at': '2026-12-01T00:00:00Z',
+          'upgrade_available': true,
+          'message': 'The monthly AI limit is reached.',
+        },
+      });
+      expect(refused.translationLocked, isFalse);
+      expect(refused.translationUnavailable?.code, 'plan_cost_cap');
+      expect(refused.translationUnavailable?.message, 'The monthly AI limit is reached.');
+      expect(refused.translationUnavailable?.upgradeAvailable, isTrue);
+      expect(refused.translationUnavailable?.resetsAt?.toUtc(), DateTime.utc(2026, 12, 1));
+
+      final none = Insight.fromJson({
+        'id': 'i',
+        'user_id': 'u',
+        'content': 'English',
+        'generated_at': '2026-11-02T00:00:00Z',
+        'translation_unavailable': null,
+      });
+      expect(none.translationUnavailable, isNull);
+    });
+
+    test('a refused translation shows the English insight with a note, and keeps the remembered language', () async {
+      SharedPreferences.setMockInitialValues({InsightProvider.languagePrefsKey: 'mm'});
+      final asked = <String>[];
+      final p = InsightProvider(fetcher: ({required language, required insightType}) async {
+        asked.add(language);
+        return _insight(unavailable: language == 'mm' ? _capNote : null);
+      });
+      await p.loadPreferredLanguage();
+
+      // Myanmar is the remembered choice, so it is asked for; the server refuses the translation but sends English.
+      await p.fetchInsights(language: p.wantedLanguage(translationAvailable: true, appLanguage: 'en'));
+
+      expect(asked, ['mm']);
+      expect(p.error, isNull);
+      expect(p.errorPlanLimit, isNull);
+      expect(p.insight, isNotNull);
+      expect(p.getContentForLanguage(), 'English text');
+      expect(p.currentLanguage, 'en');
+      expect(p.translationNote?.code, 'plan_cost_cap');
+      expect(p.translationNote?.message, contains('AI limit'));
+      expect(p.insight!.translationLocked, isFalse);
+
+      // The remembered choice is untouched: the next load asks for Myanmar again.
+      await _settle();
+      expect((await SharedPreferences.getInstance()).getString(InsightProvider.languagePrefsKey), 'mm');
+      expect(p.wantedLanguage(translationAvailable: true, appLanguage: 'en'), 'mm');
+
+      // Tapping မြန်မာ asks again (a retry), still no error and no limit sheet.
+      expect(await p.showLanguage('mm'), isFalse);
+      expect(asked, ['mm', 'mm']);
+      expect(p.actionError, isNull);
+      expect(p.actionPlanLimit, isNull);
+      expect(p.translationNote, isNotNull);
+
+      // Choosing English on purpose drops the note and does not change the answer.
+      expect(await p.showLanguage('en'), isTrue);
+      expect(p.translationNote, isNull);
+      expect(p.currentLanguage, 'en');
+    });
+
+    test('a refused translation does not stick once Myanmar is available again', () async {
+      var refuse = true;
+      final p = InsightProvider(
+          fetcher: ({required language, required insightType}) async => language == 'mm'
+              ? (refuse ? _insight(unavailable: _capNote) : _insight(mm: 'မြန်မာ'))
+              : _insight());
+      await p.fetchInsights(language: 'mm');
+      expect(p.translationNote, isNotNull);
+
+      refuse = false;
+      expect(await p.showLanguage('mm'), isTrue);
+      expect(p.translationNote, isNull);
+      expect(p.currentLanguage, 'mm');
+      expect(p.getContentForLanguage(), 'မြန်မာ');
     });
   });
 

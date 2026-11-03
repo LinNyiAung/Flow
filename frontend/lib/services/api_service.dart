@@ -1528,23 +1528,6 @@ class ApiService {
     }
   }
 
-  // NEW: Method to translate existing insights
-  static Future<void> translateInsightsToMyanmar({
-    String insightType = 'weekly',
-  }) async {
-    final url =
-        '$baseUrl/api/insights/translate-myanmar?insight_type=$insightType';
-
-    final response = await _client.post(
-      Uri.parse(url),
-      headers: await _getHeaders(),
-    );
-
-    if (response.statusCode != 200) {
-      throw apiError(response, 'Failed to translate insights');
-    }
-  }
-
   static Future<void> refreshAiData() async {
     final response = await _client.post(
       Uri.parse('$baseUrl/api/chat/refresh-data'),

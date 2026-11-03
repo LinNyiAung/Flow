@@ -18,6 +18,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/voice_image_models.dart';
+import 'voice_extraction.dart';
 import 'package:intl/intl.dart';
 
 class VoiceInputScreen extends StatefulWidget {
@@ -32,6 +33,10 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   bool _isProcessing = false;
   bool _isSaving = false;
   String? _transcribedText;
+
+  /// The transcript and voice token of the recording whose extraction has not
+  /// succeeded yet; set only while a retry is possible.
+  VoiceExtraction? _extraction;
   MultipleExtractedTransactions? _extractedData;
   List<bool> _selected = [];
   String? _error;
@@ -101,6 +106,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
           _isRecording = true;
           _error = null;
           _transcribedText = null;
+          _extraction = null;
           _extractedData = null;
           _selected = [];
         });
@@ -170,23 +176,17 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
         return;
       }
 
+      // Kept (with the voice token) so a failed extraction can be retried
+      // without recording again.
+      final extraction = VoiceExtraction(transcription);
       setState(() {
-        _transcribedText = transcription.transcription;
+        _transcribedText = extraction.transcript;
+        _extraction = extraction;
       });
 
       // Step 2: Extract multiple transaction data. The voice token goes back
       // with the exact transcript, so the whole voice entry is one use.
-      final extractedData = await ApiService.extractMultipleTransactionsFromText(
-        transcription.transcription,
-        voiceToken: transcription.voiceToken,
-      );
-      if (!mounted) return;
-
-      setState(() {
-        _extractedData = extractedData;
-        _selected = List<bool>.filled(extractedData.transactions.length, true);
-        _isProcessing = false;
-      });
+      await _runExtraction(extraction);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -198,6 +198,45 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
       });
       await handlePlanLimitError(context, e);
     }
+  }
+
+  /// Step 2 of a voice entry: reads the transcript into transactions. A failure
+  /// that is not a plan refusal keeps [_extraction] so "Try again" can repeat
+  /// it with the same transcript and voice token (no new recording, no second
+  /// entry used).
+  Future<void> _runExtraction(VoiceExtraction extraction) async {
+    try {
+      final extractedData = await extraction.extract();
+      if (!mounted || !identical(_extraction, extraction)) return;
+
+      setState(() {
+        _extractedData = extractedData;
+        _selected = List<bool>.filled(extractedData.transactions.length, true);
+        _isProcessing = false;
+        _extraction = null;
+      });
+    } catch (e) {
+      if (!mounted || !identical(_extraction, extraction)) return;
+      final retryable = VoiceExtraction.canRetryAfter(e);
+      setState(() {
+        // A plan limit is explained by the sheet below, not by the error box.
+        _error = retryable ? e.toString().replaceAll('Exception: ', '') : null;
+        _isProcessing = false;
+        if (!retryable) _extraction = null;
+      });
+      await handlePlanLimitError(context, e);
+    }
+  }
+
+  /// "Try again" after a failed extraction: the same transcript and voice token.
+  Future<void> _retryExtraction() async {
+    final extraction = _extraction;
+    if (extraction == null || _isProcessing) return;
+    setState(() {
+      _isProcessing = true;
+      _error = null;
+    });
+    await _runExtraction(extraction);
   }
 
   List<ExtractedTransactionData> get _selectedTransactions {
@@ -274,6 +313,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   void _resetVoice() {
     setState(() {
       _transcribedText = null;
+      _extraction = null;
       _extractedData = null;
       _selected = [];
       _error = null;
@@ -328,11 +368,32 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                   padding: const EdgeInsets.all(16),
                   margin: const EdgeInsets.only(top: 20),
                   decoration: BoxDecoration(color: scheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.error_outline_rounded, color: scheme.error),
-                      SizedBox(width: 12),
-                      Expanded(child: Text(_error!, style: TextStyle(color: scheme.onErrorContainer))),
+                      Row(
+                        children: [
+                          Icon(Icons.error_outline_rounded, color: scheme.error),
+                          SizedBox(width: 12),
+                          Expanded(child: Text(_error!, style: TextStyle(color: scheme.onErrorContainer))),
+                        ],
+                      ),
+                      // The recording was transcribed but reading it failed:
+                      // retry with the same transcript, no new recording.
+                      if (_extraction != null && !_isProcessing && _extractedData == null) ...[
+                        SizedBox(height: 8),
+                        Text(
+                          localizations.voiceRetryHint,
+                          style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
+                        ),
+                        SizedBox(height: 8),
+                        FilledButton.icon(
+                          key: const ValueKey('voice-extraction-retry'),
+                          onPressed: _retryExtraction,
+                          icon: Icon(Icons.refresh_rounded),
+                          label: Text(localizations.tryAgain),
+                        ),
+                      ],
                     ],
                   ),
                 ),

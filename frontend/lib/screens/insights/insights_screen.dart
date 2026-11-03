@@ -344,27 +344,47 @@ class _InsightsScreenState extends State<InsightsScreen> {
     String periodLabel,
     ColorScheme scheme,
   ) {
+    final note = insightProvider.translationNote;
     return Card(
       color: scheme.tertiaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.lightbulb_rounded, size: 20, color: scheme.tertiary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                periodLabel,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.tertiary,
+            Row(
+              children: [
+                Icon(Icons.lightbulb_rounded, size: 20, color: scheme.tertiary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    periodLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.tertiary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
+                const SizedBox(width: 8),
+                _languageToggle(insightProvider, scheme),
+              ],
             ),
-            const SizedBox(width: 8),
-            _languageToggle(insightProvider, scheme),
+            // Myanmar was asked for but the server refused to translate it (a
+            // limit): the English insight is shown and this says why.
+            if (note != null && note.message.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                note.message,
+                key: const ValueKey('insight-translation-note'),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onTertiaryContainer,
+                ),
+              ),
+            ],
           ],
         ),
       ),

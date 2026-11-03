@@ -1118,6 +1118,7 @@ class AppLocalizations {
       'planContactTitle': 'Ready to upgrade?',
       'planDetailsUnavailable': 'Plan details aren\'t available right now.',
       'voiceNothingHeard': 'We didn\'t catch anything. Please try again.',
+      'voiceRetryHint': 'Your recording was already read, so trying again does not use another entry.',
       'chatModeStandard': 'Standard',
       'chatModeAdvanced': 'Advanced',
       'chatAdvancedUsedUp': 'Advanced is used up until {date}. This answer came from Standard.',
@@ -2143,6 +2144,7 @@ class AppLocalizations {
       'planContactTitle': 'အဆင့်မြှင့်ရန် အဆင်သင့်ပြီလား?',
       'planDetailsUnavailable': 'အစီအစဉ် အသေးစိတ်ကို ယခု မရရှိနိုင်ပါ။',
       'voiceNothingHeard': 'ဘာမှ မကြားလိုက်ရပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
+      'voiceRetryHint': 'သင့်အသံသွင်းချက်ကို ဖတ်ပြီးပြီဖြစ်၍ ထပ်ကြိုးစားခြင်းသည် အသုံးပြုခွင့် ထပ်မံမကုန်ပါ။',
       'chatModeStandard': 'Standard',
       'chatModeAdvanced': 'Advanced',
       'chatAdvancedUsedUp': 'Advanced အသုံးပြုခွင့် {date} အထိ ကုန်သွားပါပြီ။ ဤအဖြေကို Standard မှ ပေးထားပါသည်။',
@@ -3213,6 +3215,7 @@ class AppLocalizations {
   String get planContactTitle => translate('planContactTitle');
   String get planDetailsUnavailable => translate('planDetailsUnavailable');
   String get voiceNothingHeard => translate('voiceNothingHeard');
+  String get voiceRetryHint => translate('voiceRetryHint');
   String get chatModeStandard => translate('chatModeStandard');
   String get chatModeAdvanced => translate('chatModeAdvanced');
   String chatAdvancedUsedUp(String date) => translate('chatAdvancedUsedUp').replaceAll('{date}', date);

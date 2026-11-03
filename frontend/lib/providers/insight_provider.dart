@@ -64,6 +64,26 @@ class InsightProvider with ChangeNotifier {
   PlanLimitException? get errorPlanLimit => _errorPlanLimit;
   PlanLimitException? get actionPlanLimit => _actionPlanLimit;
 
+  /// Set while Myanmar was asked for and the server refused to translate it
+  /// (a limit) but still sent the English insight: the screen shows it in
+  /// English, keeps the English / မြန်မာ toggle and a short note with
+  /// [TranslationUnavailable.message]. Not an error, and the remembered
+  /// language choice is not touched, so the next load asks for Myanmar again.
+  TranslationUnavailable? _translationNote;
+  TranslationUnavailable? get translationNote => _translationNote;
+
+  /// Shows [result], asked for in [requested]. A plan without translation, or
+  /// a refused translation, leaves English on screen.
+  void _show(Insight result, String requested) {
+    _insight = result;
+    final refused = requested == 'mm' &&
+        result.contentMm == null &&
+        !result.translationLocked &&
+        result.translationUnavailable != null;
+    _translationNote = refused ? result.translationUnavailable : null;
+    _currentLanguage = result.translationLocked || refused ? 'en' : requested;
+  }
+
   static int? _statusOf(Object e) => e is ApiException ? e.statusCode : null;
 
   static PlanLimitException? _limitOf(Object e) =>
@@ -86,6 +106,7 @@ class InsightProvider with ChangeNotifier {
     _insight = null;
     _isLoading = false;
     _clearErrors();
+    _translationNote = null;
     _currentLanguage = 'en';
     _preferredLanguage = null; // read again from the device for the next user
     _insightType = 'weekly';
@@ -97,6 +118,7 @@ class InsightProvider with ChangeNotifier {
       _generation++;
       _insightType = type;
       _insight = null; // never show the other period's insight
+      _translationNote = null;
       _clearErrors();
       notifyListeners();
     }
@@ -139,9 +161,15 @@ class InsightProvider with ChangeNotifier {
   /// the insight on screen is kept and the failure is in [actionError] /
   /// [actionPlanLimit]. Returns true when [language] is now shown.
   Future<bool> showLanguage(String language) async {
+    if (language == 'en' && _translationNote != null) {
+      // Chose English on purpose: the "Myanmar unavailable" note no longer applies.
+      _translationNote = null;
+      notifyListeners();
+    }
     if (language == _currentLanguage) return true;
     final current = _insight;
     if (language == 'en' || (current != null && current.contentMm != null)) {
+      _translationNote = null;
       _currentLanguage = language;
       notifyListeners();
       unawaited(_rememberLanguage(language));
@@ -159,9 +187,10 @@ class InsightProvider with ChangeNotifier {
     try {
       final result = await _fetcher(language: language, insightType: type);
       if (gen != _generation) return false;
-      _insight = result;
-      // A plan without translation answers in English and says so.
-      final shown = result.translationLocked || result.contentMm == null ? 'en' : language;
+      // A plan without translation answers in English and says so; so does a
+      // refused translation (the note under the toggle says why).
+      _show(result, language);
+      final shown = result.contentMm == null ? 'en' : _currentLanguage;
       _currentLanguage = shown;
       _isLoading = false;
       notifyListeners();
@@ -189,6 +218,7 @@ class InsightProvider with ChangeNotifier {
     // Start from a clean slate so a failed load can never leave a previous
     // (possibly other type's) insight on screen.
     _insight = null;
+    _translationNote = null;
     _clearErrors();
     _insightType = type;
     _isLoading = true;
@@ -197,9 +227,7 @@ class InsightProvider with ChangeNotifier {
     try {
       final result = await _fetcher(language: lang, insightType: type);
       if (gen != _generation) return;
-      _insight = result;
-      // A plan without translation answers in English and says so.
-      _currentLanguage = result.translationLocked ? 'en' : lang;
+      _show(result, lang);
     } catch (e) {
       if (gen != _generation) return;
       _insight = null;
@@ -229,8 +257,7 @@ class InsightProvider with ChangeNotifier {
         insightType: type,
       );
       if (gen != _generation) return false;
-      _insight = result;
-      _currentLanguage = result.translationLocked ? 'en' : lang;
+      _show(result, lang);
       _insightType = type;
       _isLoading = false;
       notifyListeners();
