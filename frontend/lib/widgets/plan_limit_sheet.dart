@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
-import 'package:intl/intl.dart';
 
 /// Shows the friendly "you've hit your plan's limit" sheet for [error]: what
 /// ran out (or isn't in the plan), when it resets, and an Upgrade button when
 /// a higher plan exists.
 ///
-/// What it does depends on [PlanLimitException.code] only. The server's
-/// message (already in the user's language) is shown as the explanation and
-/// is never parsed; when it is missing the sheet composes its own text.
+/// What it does depends on [PlanLimitException.code] only. The sheet writes
+/// its own text from the code, the feature and the reset date, in the app's
+/// language (the server's message follows the profile language and its date
+/// format, so it is used only for a code or feature the app does not know).
 Future<void> showPlanLimitSheet(BuildContext context, PlanLimitException error) {
   final navigator = Navigator.of(context);
   return showAppBottomSheet<void>(
@@ -64,22 +64,23 @@ class PlanLimitSheet extends StatelessWidget {
     return Icons.hourglass_bottom_rounded;
   }
 
-  /// The server's message when it sent one, otherwise a local explanation
-  /// built from the feature and the reset date.
+  /// The explanation, built from the code, the feature and the reset date in
+  /// the app's language. A code the app does not know, or a feature without a
+  /// name of its own, shows the server's message instead.
   String _body(AppLocalizations l, String? featureName, String? resetDate) {
-    final message = error.message.trim();
-    if (message.isNotEmpty) return message;
     final String what;
     if (error.isCostCap) {
       what = l.planCostCapBody;
-    } else if (featureName == null) {
-      what = '';
     } else if (error.isLocked) {
-      what = l.planLimitLockedBody(featureName);
+      if (error.feature != null && featureName == null) return error.message.trim();
+      what = featureName == null ? l.planPaidRequiredBody : l.planLimitLockedBody(featureName);
+    } else if (error.isLimitReached) {
+      if (error.feature != null && featureName == null) return error.message.trim();
+      what = featureName == null ? '' : l.planLimitReachedBody(featureName);
     } else {
-      what = l.planLimitReachedBody(featureName);
+      return error.message.trim();
     }
-    final resets = resetDate == null ? '' : l.planLimitResetsOn(resetDate);
+    final resets = resetDate == null || error.isLocked ? '' : l.planLimitResetsOn(resetDate);
     return [what, resets].where((s) => s.isNotEmpty).join(' ');
   }
 
@@ -88,10 +89,9 @@ class PlanLimitSheet extends StatelessWidget {
     final l = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final feature = error.feature;
-    final featureName = feature == null ? null : l.planFeatureName(feature);
+    final featureName = feature == null ? null : l.knownPlanFeatureName(feature);
     final resetsAt = error.resetsAt;
-    final resetDate =
-        resetsAt == null ? null : DateFormat('MMM d, yyyy').format(resetsAt);
+    final resetDate = resetsAt == null ? null : l.formatPlanDate(resetsAt);
     final body = _body(l, featureName, resetDate);
 
     return Column(

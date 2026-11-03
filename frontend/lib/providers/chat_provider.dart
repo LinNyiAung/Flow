@@ -59,11 +59,24 @@ class ChatProvider with ChangeNotifier {
   /// The screen shows the limit sheet for it once, via [takePlanLimit].
   PlanLimitException? _planLimit;
 
+  /// The question the plan refused, waiting to go back into the input field
+  /// (see [takeRejectedQuestion]).
+  String? _rejectedQuestion;
+
   /// Returns the pending plan refusal, if any, and clears it.
   PlanLimitException? takePlanLimit() {
     final limit = _planLimit;
     _planLimit = null;
     return limit;
+  }
+
+  /// Returns the text of the question the plan just refused, if any, and
+  /// clears it. The bubble is gone, so the screen puts the text back into the
+  /// input field to send later.
+  String? takeRejectedQuestion() {
+    final question = _rejectedQuestion;
+    _rejectedQuestion = null;
+    return question;
   }
 
   List<ChatMessage> get messages => _messages;
@@ -154,6 +167,7 @@ class ChatProvider with ChangeNotifier {
     _currentStreamingMessage = '';
     _streamingIndex = null;
     _planLimit = null;
+    _rejectedQuestion = null;
     _responseStyle = ResponseStyle.normal;
     _mode = ChatMode.standard; // read again from the device for the next user
     _advancedAvailable = false;
@@ -255,7 +269,8 @@ class ChatProvider with ChangeNotifier {
           if (requestId != _requestId) return;
           if (error is PlanLimitException) {
             // Refused before anything was answered: nothing was used, so the
-            // question leaves the conversation and the limit sheet explains.
+            // question leaves the conversation (its text goes back into the
+            // input field) and the limit sheet explains.
             _planLimit = error;
             _dropRejectedQuestion();
           } else {
@@ -282,7 +297,8 @@ class ChatProvider with ChangeNotifier {
   }
 
   /// Removes the question and the empty answer placeholder just added by
-  /// [sendMessage] (a plan refusal means the message was never processed).
+  /// [sendMessage] (a plan refusal means the message was never processed) and
+  /// keeps the question's text in [takeRejectedQuestion].
   void _dropRejectedQuestion() {
     final index = _streamingIndex;
     if (index == null ||
@@ -293,6 +309,7 @@ class ChatProvider with ChangeNotifier {
         _messages[index - 1].role != MessageRole.user) {
       return;
     }
+    _rejectedQuestion = _messages[index - 1].content;
     _messages.removeRange(index - 1, index + 1);
     _streamingIndex = null;
   }

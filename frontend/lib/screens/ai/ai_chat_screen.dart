@@ -62,6 +62,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       // A refusal from before this screen opened is stale: only one raised
       // while it is open gets a sheet.
       chatProvider.takePlanLimit();
+      chatProvider.takeRejectedQuestion();
       chatProvider.addListener(_showPlanLimitIfAny);
       _chatProvider = chatProvider;
     });
@@ -72,11 +73,21 @@ class _AiChatScreenState extends State<AiChatScreen>
   ChatProvider? _chatProvider;
 
   /// The plan refused a message (locked, used up, monthly AI limit): explain
-  /// it in the limit sheet.
+  /// it in the limit sheet, and put the question back into the input field
+  /// (cursor at the end) so it can be sent later.
   void _showPlanLimitIfAny() {
     if (!mounted) return;
     final limit = _chatProvider?.takePlanLimit();
-    if (limit != null) showPlanLimitSheet(context, limit);
+    final question = _chatProvider?.takeRejectedQuestion();
+    if (limit == null) return;
+    // Text typed since is never overwritten.
+    if (question != null && _messageController.text.trim().isEmpty) {
+      _messageController.value = TextEditingValue(
+        text: question,
+        selection: TextSelection.collapsed(offset: question.length),
+      );
+    }
+    showPlanLimitSheet(context, limit);
   }
 
   @override
@@ -354,7 +365,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     final resetsAt = context.watch<PlanProvider>().feature(PlanFeature.chatAdvanced)?.resetsAt;
     final text = resetsAt == null
         ? localizations.chatAdvancedUsedUpNoDate
-        : localizations.chatAdvancedUsedUp(DateFormat('MMM d, yyyy').format(resetsAt));
+        : localizations.chatAdvancedUsedUp(localizations.formatPlanDate(resetsAt));
     return Container(
       key: const Key('chat-advanced-note'),
       width: double.infinity,

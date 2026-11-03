@@ -478,7 +478,11 @@ void main() {
       expect(find.text("You've reached your limit"), findsOneWidget);
       expect(find.text('AI chat'), findsOneWidget);
       expect(find.byKey(const Key('plan-limit-body')), findsOneWidget);
-      expect(find.textContaining('resets on Nov 10, 2026'), findsOneWidget);
+      // The sheet writes its own text (the server's message is not shown).
+      expect(find.textContaining('Nov 10, 2026'), findsNothing);
+      final day = DateTime.utc(2026, 11, 9, 17, 30).toLocal().day; // 9 or 10 by the device's timezone
+      expect(find.text("You've used all of your AI chat. It resets on $day November 2026."),
+          findsOneWidget);
       expect(find.byKey(const Key('plan-limit-upgrade')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('plan-limit-upgrade')));

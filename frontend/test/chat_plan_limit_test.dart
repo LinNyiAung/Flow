@@ -72,6 +72,71 @@ void main() {
     expect(provider.messages.single.role, MessageRole.user);
   });
 
+  test('the refused question comes back for the input field, once', () async {
+    final provider = ChatProvider(
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) =>
+          Stream<String>.error(_limit()),
+    );
+    var notified = 0;
+    provider.addListener(() => notified++);
+
+    await provider.sendMessage('how much did I spend on food?');
+    await _settle();
+
+    expect(provider.messages, isEmpty);
+    expect(notified, greaterThan(0));
+    expect(provider.takeRejectedQuestion(), 'how much did I spend on food?');
+    expect(provider.takeRejectedQuestion(), isNull); // handed over once
+  });
+
+  test('the question is kept as typed, and only the refused one comes back', () async {
+    var calls = 0;
+    final provider = ChatProvider(
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) {
+        calls++;
+        return calls == 1
+            ? Stream<String>.fromIterable(['Hello'])
+            : Stream<String>.error(_limit());
+      },
+    );
+
+    await provider.sendMessage('first');
+    await _settle();
+    expect(provider.takeRejectedQuestion(), isNull); // answered: nothing to give back
+
+    await provider.sendMessage('  second, with  spaces ');
+    await _settle();
+
+    expect(provider.takeRejectedQuestion(), '  second, with  spaces ');
+    expect(provider.messages.map((m) => m.content), ['first', 'Hello']);
+  });
+
+  test('other failures keep the question in the conversation, nothing to give back', () async {
+    final provider = ChatProvider(
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) =>
+          Stream<String>.error(ApiException('The AI is busy.', statusCode: 503)),
+    );
+
+    await provider.sendMessage('hello');
+    await _settle();
+
+    expect(provider.takeRejectedQuestion(), isNull);
+    expect(provider.messages.single.content, 'hello');
+  });
+
+  test('reset forgets a refused question', () async {
+    final provider = ChatProvider(
+      streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) =>
+          Stream<String>.error(_limit()),
+    );
+    await provider.sendMessage('hello');
+    await _settle();
+
+    provider.reset();
+
+    expect(provider.takeRejectedQuestion(), isNull);
+  });
+
   test('reset forgets a pending refusal', () async {
     final provider = ChatProvider(
       streamer: ({required message, chatHistory, responseStyle, mode = ChatMode.standard, onMeta}) =>

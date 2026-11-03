@@ -387,7 +387,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         Expanded(
                           child: Text(
                             localizations.upgradeRequestedOn(
-                              DateFormat('MMM d, yyyy').format(pending!.createdAt.toLocal()),
+                              localizations.formatPlanDate(pending!.createdAt),
                             ),
                             key: Key('upgrade-requested-${plan.name}'),
                             style: TextStyle(

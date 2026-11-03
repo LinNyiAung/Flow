@@ -1095,10 +1095,11 @@ class AppLocalizations {
       'planUsageLeftMonth': '{remaining} of {limit} left this month',
       'planLimitReachedTitle': 'You\'ve reached your limit',
       'planCostCapTitle': 'Monthly AI limit reached',
-      'planLimitResetsOn': 'Resets on {date}',
+      'planLimitResetsOn': 'It resets on {date}.',
       'planLimitLockedBody': '{feature} isn\'t part of your plan.',
       'planLimitReachedBody': 'You\'ve used all of your {feature}.',
       'planCostCapBody': 'You\'ve reached this month\'s AI limit.',
+      'planPaidRequiredBody': 'This feature is only available on the Plus and Pro plans.',
       'planSheetNotNow': 'Not now',
       'planFeature_chat': 'AI chat',
       'planFeature_chat_advanced': 'Advanced chat',
@@ -1132,6 +1133,15 @@ class AppLocalizations {
       'chatAdvancedUsedUpNoDate': 'Advanced is used up for now. This answer came from Standard.',
       'insightLangEnglish': 'English',
       'insightLangMyanmar': 'မြန်မာ',
+      'insightNextOn': 'Next insight: {date}',
+      'dateWithWeekday': '{weekday}, {day} {month}',
+      'weekdayMonday': 'Monday',
+      'weekdayTuesday': 'Tuesday',
+      'weekdayWednesday': 'Wednesday',
+      'weekdayThursday': 'Thursday',
+      'weekdayFriday': 'Friday',
+      'weekdaySaturday': 'Saturday',
+      'weekdaySunday': 'Sunday',
     },
     'my': {
       // Home Screen
@@ -2128,10 +2138,11 @@ class AppLocalizations {
       'planUsageLeftMonth': 'ဤလတွင် {limit} ခုအနက် {remaining} ခု ကျန်သည်',
       'planLimitReachedTitle': 'သတ်မှတ်ချက် ပြည့်သွားပါပြီ',
       'planCostCapTitle': 'ဤလအတွက် AI အသုံးပြုခွင့် ပြည့်သွားပါပြီ',
-      'planLimitResetsOn': '{date} တွင် ပြန်လည်ရရှိမည်',
+      'planLimitResetsOn': '{date} တွင် ပြန်လည်ရရှိမည်ဖြစ်သည်။',
       'planLimitLockedBody': '{feature} သည် သင့်အစီအစဉ်တွင် မပါဝင်ပါ။',
       'planLimitReachedBody': '{feature} အတွက် အသုံးပြုခွင့် ကုန်သွားပါပြီ။',
       'planCostCapBody': 'ဤလအတွက် AI အသုံးပြုခွင့် ပြည့်သွားပါပြီ။',
+      'planPaidRequiredBody': 'ဤလုပ်ဆောင်ချက်ကို Plus နှင့် Pro အစီအစဉ်များတွင်သာ အသုံးပြုနိုင်ပါသည်။',
       'planSheetNotNow': 'နောက်မှ',
       'planFeature_chat': 'AI စကားပြောခြင်း',
       'planFeature_chat_advanced': 'Advanced စကားပြောခြင်း',
@@ -2165,6 +2176,15 @@ class AppLocalizations {
       'chatAdvancedUsedUpNoDate': 'Advanced အသုံးပြုခွင့် ယခုအတွက် ကုန်သွားပါပြီ။ ဤအဖြေကို Standard မှ ပေးထားပါသည်။',
       'insightLangEnglish': 'English',
       'insightLangMyanmar': 'မြန်မာ',
+      'insightNextOn': 'နောက်သုံးသပ်ချက်: {date}',
+      'dateWithWeekday': '{weekday}၊ {day} {month}',
+      'weekdayMonday': 'တနင်္လာနေ့',
+      'weekdayTuesday': 'အင်္ဂါနေ့',
+      'weekdayWednesday': 'ဗုဒ္ဓဟူးနေ့',
+      'weekdayThursday': 'ကြာသပတေးနေ့',
+      'weekdayFriday': 'သောကြာနေ့',
+      'weekdaySaturday': 'စနေနေ့',
+      'weekdaySunday': 'တနင်္ဂနွေနေ့',
     }
   };
 
@@ -3218,6 +3238,7 @@ class AppLocalizations {
   String planLimitLockedBody(String feature) => translate('planLimitLockedBody').replaceAll('{feature}', feature);
   String planLimitReachedBody(String feature) => translate('planLimitReachedBody').replaceAll('{feature}', feature);
   String get planCostCapBody => translate('planCostCapBody');
+  String get planPaidRequiredBody => translate('planPaidRequiredBody');
   String get planSheetNotNow => translate('planSheetNotNow');
   String get planCurrent => translate('planCurrent');
   String planTrialActive(String plan) => translate('planTrialActive').replaceAll('{plan}', plan);
@@ -3243,9 +3264,43 @@ class AppLocalizations {
   String get chatAdvancedUsedUpNoDate => translate('chatAdvancedUsedUpNoDate');
   String get insightLangEnglish => translate('insightLangEnglish');
   String get insightLangMyanmar => translate('insightLangMyanmar');
+  String insightNextOn(String date) => translate('insightNextOn').replaceAll('{date}', date);
+
+  static const List<String> _monthKeys = [
+    'monthJanuary', 'monthFebruary', 'monthMarch', 'monthApril', 'monthMay', 'monthJune',
+    'monthJuly', 'monthAugust', 'monthSeptember', 'monthOctober', 'monthNovember', 'monthDecember',
+  ];
+  static const List<String> _weekdayKeys = [
+    'weekdayMonday', 'weekdayTuesday', 'weekdayWednesday', 'weekdayThursday', 'weekdayFriday',
+    'weekdaySaturday', 'weekdaySunday',
+  ];
+
+  /// "1 December 2026" (English) or "1 ဒီဇင်ဘာ 2026" (Myanmar): the one way the app writes a plan date
+  /// (when an allowance resets, when a request was made), in the app's UI language, in the device's
+  /// local time.
+  String formatPlanDate(DateTime when) {
+    final local = when.toLocal();
+    return '${local.day} ${translate(_monthKeys[local.month - 1])} ${local.year}';
+  }
+
+  /// "Monday, 10 November" (English) or "တနင်္လာနေ့၊ 10 နိုဝင်ဘာ" (Myanmar), for a date within the
+  /// next few weeks (the year is left out).
+  String formatPlanDay(DateTime when) {
+    final local = when.toLocal();
+    return translate('dateWithWeekday')
+        .replaceAll('{weekday}', translate(_weekdayKeys[local.weekday - 1]))
+        .replaceAll('{day}', '${local.day}')
+        .replaceAll('{month}', translate(_monthKeys[local.month - 1]));
+  }
 
   /// Display name of a quota feature key (`chat`, `entry`, ...) as the server reports it.
   String planFeatureName(String feature) => translate('planFeature_$feature');
+
+  /// Like [planFeatureName], or null for a feature key the app has no name for.
+  String? knownPlanFeatureName(String feature) {
+    final name = planFeatureName(feature);
+    return name == 'planFeature_$feature' ? null : name;
+  }
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
