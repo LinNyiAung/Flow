@@ -187,7 +187,8 @@ class CustomInsightProvider with ChangeNotifier {
     } catch (_) {
       // A missed poll is not an error to show; the next one tries again.
     } finally {
-      _polling = false;
+      // An old generation's poll must not clear the new generation's flag.
+      if (gen == _generation) _polling = false;
     }
   }
 

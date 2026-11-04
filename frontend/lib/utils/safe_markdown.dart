@@ -5,21 +5,46 @@
 library;
 
 final RegExp _separatorRow =
-    RegExp(r'^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$');
+    RegExp(r'^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$');
 final RegExp _fenceLine = RegExp(r'^\s*(```|~~~)');
 final RegExp _htmlTag = RegExp(r'</?[A-Za-z][A-Za-z0-9-]*(\s[^<>\n]*)?/?>');
 
+/// A table's `|---|` row. flutter_markdown accepts one or more dashes per
+/// column (`|-|-|`), so this does too. A pipe is required, so a `---` rule is
+/// not one.
 bool _isSeparatorRow(String line) => line.contains('|') && _separatorRow.hasMatch(line);
 
+final RegExp _listItem = RegExp(r'^\s*([-*+]|\d+[.)])\s');
+
+/// True when line [i] starts an indented code block: indented 4+ spaces (or a
+/// tab) right after a blank line, and not the continuation of a list item (the
+/// last text line before the blank is neither a list item nor itself indented).
+bool _startsIndentedCode(List<String> lines, int i) {
+  final line = lines[i];
+  if (!(line.startsWith('    ') || line.startsWith('\t')) || line.trim().isEmpty) return false;
+  if (i == 0 || lines[i - 1].trim().isNotEmpty) return false;
+  var j = i - 1;
+  while (j >= 0 && lines[j].trim().isEmpty) {
+    j--;
+  }
+  if (j < 0) return false;
+  final before = lines[j];
+  if (_listItem.hasMatch(before) || before.startsWith(' ') || before.startsWith('\t')) {
+    return false;
+  }
+  return true;
+}
+
 /// True when [md] has a table (a pipe row followed by its `|---|` separator
-/// row), a code fence, an HTML tag or an image. The caller then shows
-/// [markdownToPlainText] instead of rendering Markdown.
+/// row), a code fence, an indented code block, an HTML tag or an image. The
+/// caller then shows [markdownToPlainText] instead of rendering Markdown.
 bool hasDisallowedMarkdown(String md) {
   if (md.contains('![')) return true;
   if (_htmlTag.hasMatch(md)) return true;
   final lines = md.split('\n');
   for (var i = 0; i < lines.length; i++) {
     if (_fenceLine.hasMatch(lines[i])) return true;
+    if (_startsIndentedCode(lines, i)) return true;
     if (i > 0 && lines[i - 1].contains('|') && _isSeparatorRow(lines[i])) return true;
   }
   return false;

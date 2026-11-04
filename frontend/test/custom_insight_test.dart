@@ -234,7 +234,8 @@ void main() {
           DateTime(2026, 11, 11));
       // DateTime(2026, 2, 32) rolls over to 4 March: a shorter, still valid range.
       final r = quickRange(CustomQuickRange.last3Months, DateTime(2026, 5, 31));
-      expect(r.start.isBefore(r.end), isTrue);
+      expect(r.start, DateTime(2026, 3, 4));
+      expect(r.end, DateTime(2026, 5, 31));
     });
 
     test('range_problem_bounds', () {
@@ -247,6 +248,16 @@ void main() {
       expect(customRangeProblem(t, DateTime(2026, 10, 1), t), CustomRangeProblem.endBeforeStart);
       expect(customInsightMinDays, 7);
       expect(customInstructionMaxLength, 300);
+    });
+
+    test('range_problem_leap_day: one_year_after(Feb 29) is Mar 1, like the server', () {
+      final today = DateTime(2025, 6, 1);
+      final start = DateTime(2024, 2, 29);
+      expect(customRangeProblem(start, DateTime(2025, 2, 28), today), isNull);
+      expect(customRangeProblem(start, DateTime(2025, 3, 1), today), CustomRangeProblem.tooLong);
+      // An ordinary start: the same date next year is too long, the day before is fine.
+      expect(customRangeProblem(DateTime(2024, 3, 1), DateTime(2025, 2, 28), today), isNull);
+      expect(customRangeProblem(DateTime(2024, 3, 1), DateTime(2025, 3, 1), today), CustomRangeProblem.tooLong);
     });
 
     test('range ignores the time of day', () {
@@ -285,12 +296,52 @@ void main() {
       expect(text.split('\n').length, greaterThan(2));
     });
 
+    test('short separator rows still make a table (flutter_markdown takes one dash)', () {
+      for (final sep in ['|--|--|', '|-|-|', '| - | - |', '|:-|-:|', '--|--']) {
+        final md = '| a | b |\n$sep\n| 1 | 2 |';
+        expect(hasDisallowedMarkdown(md), isTrue, reason: sep);
+        expect(markdownToPlainText('Intro\n$md'), 'Intro\na · b\n1 · 2', reason: sep);
+      }
+      // Not tables: a rule, a pipe in prose, a lone separator-looking line, bullets.
+      expect(hasDisallowedMarkdown('Title\n---\nText'), isFalse);
+      expect(hasDisallowedMarkdown('a | b\n- c'), isFalse);
+      expect(hasDisallowedMarkdown('Total\n|-|'), isFalse);
+      expect(hasDisallowedMarkdown('- one\n- two'), isFalse);
+    });
+
+    test('indented code block is disallowed, a list continuation is not', () {
+      expect(hasDisallowedMarkdown('Intro\n\n    final x = 1;\n'), isTrue);
+      expect(hasDisallowedMarkdown('Intro\n\n\tcode'), isTrue);
+      // Nested bullets and an indented paragraph of a list item are not code.
+      expect(hasDisallowedMarkdown('- one\n    - nested\n- two'), isFalse);
+      expect(hasDisallowedMarkdown('- one\n\n    more about one\n- two'), isFalse);
+      expect(hasDisallowedMarkdown('1. one\n\n    more about one'), isFalse);
+      // Indent without a blank line before it is a lazy continuation.
+      expect(hasDisallowedMarkdown('Intro\n    wrapped line'), isFalse);
+      // The outline the AI is asked for.
+      expect(
+        hasDisallowedMarkdown(
+            '## Summary\nText.\n\n## What I found\n- **Food** up 10%\n  - detail\n\n## What to do next\n- Save'),
+        isFalse,
+      );
+    });
+
     test('table rows become plain cells', () {
       final text = markdownToPlainText('| Cat | Amount |\n|:---|---:|\n| Food | 10 |');
       expect(text, isNot(contains('---')));
       expect(text, contains('Cat'));
       expect(text, contains('Food'));
       expect(text, contains('10'));
+      expect(text, 'Cat · Amount\nFood · 10');
+    });
+  });
+
+  group('timeouts', () {
+    test('custom insight calls, translate included, get the 90 s timeout', () {
+      Duration t(String path) => ApiService.timeoutFor(Uri.parse('https://x.test$path'));
+      expect(t('/api/custom-insights'), const Duration(seconds: 90));
+      expect(t('/api/custom-insights/x/translate'), const Duration(seconds: 90));
+      expect(t('/api/custom-insights/x'), const Duration(seconds: 90));
     });
   });
 
