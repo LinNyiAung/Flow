@@ -18,6 +18,8 @@ import 'package:frontend/screens/budgets/budgets_screen.dart';
 import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
+import 'package:frontend/models/notification.dart';
+import 'package:frontend/screens/insights/custom_insight_report_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
@@ -127,6 +129,27 @@ class _MyAppState extends State<MyApp> {
     ApiService.onPlanUsageChanged = _planProvider.refresh;
     _authProvider.addListener(_onAuthChanged);
     _planProvider.addListener(_onPlanChanged);
+    // A tapped custom insight push opens its report once the navigator is built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) FCMService().setOpenFromPushHandler(_openFromPush);
+    });
+  }
+
+  /// A custom insight push was tapped: the report (its id is [goalId]) for a
+  /// finished one, the Custom tab otherwise. False while the app cannot show
+  /// it yet (no navigator, nobody signed in); the tap is then kept and tried
+  /// again after sign-in.
+  bool _openFromPush(String type, String? goalId) {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null || !_authProvider.isAuthenticated) return false;
+    if (type == NotificationType.custom_insight_ready.name && goalId != null && goalId.isNotEmpty) {
+      navigator.push(MaterialPageRoute<void>(
+        builder: (_) => CustomInsightReportScreen(reportId: goalId),
+      ));
+    } else {
+      navigator.pushNamed('/insights', arguments: InsightsScreen.customTabArgument);
+    }
+    return true;
   }
 
   /// Pro users (with Advanced left in their plan) get the Standard / Advanced
@@ -141,6 +164,7 @@ class _MyAppState extends State<MyApp> {
 
   void _onAuthChanged() {
     _syncAdvancedChat();
+    if (_authProvider.isAuthenticated) FCMService().retryPendingOpen();
     final userId = _authProvider.user?.id;
     if (userId == _planUserId) return;
     _planUserId = userId;
@@ -197,6 +221,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     _lifecycleListener?.dispose();
+    FCMService().setOpenFromPushHandler(null);
     ApiService.onSessionExpired = null;
     ApiService.onPlanUsageChanged = null;
     _authProvider.removeListener(_onAuthChanged);

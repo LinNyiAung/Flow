@@ -162,6 +162,15 @@ class FCMService {
   }
 
   void _onNotificationTapped(NotificationResponse response) {
+    // A custom insight's notification carries its type and report id.
+    final payload = response.payload;
+    if (payload != null && payload.startsWith(_customInsightPayloadPrefix)) {
+      final parts = payload.split('|');
+      _handleNotificationNavigation({
+        'type': parts[0].substring(_customInsightPayloadPrefix.length),
+        'goal_id': parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null,
+      });
+    }
     print('📨 Local notification tapped: ${response.payload}');
   }
 
@@ -175,6 +184,40 @@ class FCMService {
     if (notificationRefreshesPlan(notificationType as String?)) {
       NotificationEventBus().notifySubscriptionUpdated();
     }
+
+    // A custom insight's push was tapped (app in the background, closed, or
+    // the local notification): open the report (its id is goal_id) or the
+    // Custom tab. Kept until the app can navigate (it may still be starting).
+    if (notificationType == _customInsightReady || notificationType == _customInsightFailed) {
+      _pendingOpen = (type: notificationType!, goalId: goalId is String ? goalId : null);
+      retryPendingOpen();
+    }
+  }
+
+  static const String _customInsightReady = 'custom_insight_ready';
+  static const String _customInsightFailed = 'custom_insight_failed';
+
+  /// Prefix of the local notification payload of a custom insight push:
+  /// `custom_insight_ready|<report id>`.
+  static const String _customInsightPayloadPrefix = 'custom_insight_';
+
+  /// Opens the screen for a tapped custom insight push: set by the app root,
+  /// returns false when it cannot yet (no navigator, nobody signed in).
+  bool Function(String type, String? goalId)? _openFromPush;
+  ({String type, String? goalId})? _pendingOpen;
+
+  void setOpenFromPushHandler(bool Function(String type, String? goalId)? handler) {
+    _openFromPush = handler;
+    retryPendingOpen();
+  }
+
+  /// Tries the tapped push that could not be opened yet (after sign-in or once
+  /// the app has built its navigator).
+  void retryPendingOpen() {
+    final pending = _pendingOpen;
+    final open = _openFromPush;
+    if (pending == null || open == null) return;
+    if (open(pending.type, pending.goalId)) _pendingOpen = null;
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
@@ -217,7 +260,9 @@ class FCMService {
       notification.title,
       notification.body,
       notificationDetails,
-      payload: message.data['notification_id'],
+      payload: notificationType == _customInsightReady || notificationType == _customInsightFailed
+          ? '$notificationType|${message.data['goal_id'] ?? ''}'
+          : message.data['notification_id'],
     );
   }
 
@@ -249,6 +294,8 @@ class FCMService {
       case 'trial_ends_today':
       case 'plan_activated':
       case 'upgrade_request_declined':
+      case 'custom_insight_ready':
+      case 'custom_insight_failed':
         return Color(0xFFFF9800);
       default:
         return Color(0xFF667eea);

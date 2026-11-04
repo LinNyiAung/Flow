@@ -15,6 +15,8 @@ import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/insight_errors.dart';
 import 'package:frontend/utils/plan_limit_text.dart';
+import 'package:frontend/screens/insights/custom_insights_tab.dart';
+import 'package:frontend/widgets/insight_markdown.dart';
 import 'package:frontend/widgets/insight_notes.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
@@ -23,11 +25,17 @@ import '../../providers/insight_provider.dart';
 import '../../widgets/app_drawer.dart';
 
 class InsightsScreen extends StatefulWidget {
+  /// Route argument of `/insights` that opens the Custom tab (a failed custom
+  /// insight's notification opens it there).
+  static const String customTabArgument = 'custom';
+
   @override
   _InsightsScreenState createState() => _InsightsScreenState();
 }
 
 class _InsightsScreenState extends State<InsightsScreen> {
+  /// The `insightType` of the Custom tab; weekly / monthly insights are the others.
+  static const String _customType = 'custom';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
@@ -39,6 +47,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
       // The remembered English / မြန်မာ choice, before the first request.
       await insightProvider.loadPreferredLanguage();
       if (!mounted) return;
+      if (ModalRoute.of(context)?.settings.arguments == InsightsScreen.customTabArgument) {
+        insightProvider.setInsightType(_customType);
+      }
       // Weekly insights are not in every plan (Free): open on the monthly
       // insight there instead of a locked page.
       if (insightProvider.insightType == 'weekly' &&
@@ -54,6 +65,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
   /// plan. Until the plan has loaded, weekly counts as locked for a user
   /// without a paid plan and monthly as open.
   bool _isTypeLocked(InsightProvider insightProvider) {
+    // The Custom tab has its own locked card.
+    if (insightProvider.insightType == _customType) return false;
     final isWeekly = insightProvider.insightType == 'weekly';
     final isPaid = Provider.of<AuthProvider>(context, listen: false).isPaid;
     return Provider.of<PlanProvider>(context, listen: false).isLocked(
@@ -134,7 +147,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
       context,
       listen: false,
     );
-    // A locked type has nothing to fetch (the server would answer 403).
+    // The Custom tab has nothing to fetch here (it loads its own list), and a
+    // locked type has nothing to fetch (the server would answer 403).
+    if (insightProvider.insightType == _customType) return;
     if (_isTypeLocked(insightProvider)) return;
     await insightProvider.fetchInsights(language: _wantedLanguage(insightProvider));
   }
@@ -187,12 +202,23 @@ class _InsightsScreenState extends State<InsightsScreen> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _fetchInsights,
-        child: typeLocked
-            ? _buildLockedBody(insightProvider)
-            : _buildInsightBody(insightProvider),
-      ),
+      body: insightProvider.insightType == _customType
+          // The tab is its own scrolling list with its own pull-to-refresh.
+          ? Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: _periodToggle(insightProvider),
+                ),
+                const Expanded(child: CustomInsightsTab()),
+              ],
+            )
+          : RefreshIndicator(
+              onRefresh: _fetchInsights,
+              child: typeLocked
+                  ? _buildLockedBody(insightProvider)
+                  : _buildInsightBody(insightProvider),
+            ),
     );
   }
 
@@ -443,7 +469,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         children: [
           MarkdownBody(
             data: body,
-            styleSheet: _reportMarkdownStyle(scheme.onSurface, scheme.onSurfaceVariant),
+            styleSheet: insightMarkdownStyle(scheme.onSurface, scheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -478,21 +504,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
       if (body.isNotEmpty) sections.add((title, body));
     }
     return sections.isEmpty ? [('Full report', content)] : sections;
-  }
-
-  MarkdownStyleSheet _reportMarkdownStyle(Color headingColor, Color bodyColor) {
-    return MarkdownStyleSheet(
-      blockSpacing: 14,
-      h1: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: headingColor),
-      h2: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: headingColor),
-      h3: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: headingColor),
-      p: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: bodyColor, height: 1.55),
-      strong: TextStyle(fontWeight: FontWeight.w800, color: headingColor),
-      listBullet: TextStyle(fontSize: 14, color: bodyColor),
-      horizontalRuleDecoration: BoxDecoration(
-        border: Border(top: BorderSide(color: bodyColor.withValues(alpha: 0.15))),
-      ),
-    );
   }
 
   // In the header, next to the period label, rather than below the full
@@ -594,6 +605,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
       final selected = insightProvider.insightType == type;
       return Expanded(
         child: GestureDetector(
+          key: ValueKey('insight-type-$type'),
           onTap: selected
               ? null
               : () async {
@@ -632,6 +644,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
           seg('weekly', localizations.weekly),
           const SizedBox(width: 4),
           seg('monthly', localizations.monthly),
+          const SizedBox(width: 4),
+          seg(_customType, localizations.insightTabCustom),
         ],
       ),
     );

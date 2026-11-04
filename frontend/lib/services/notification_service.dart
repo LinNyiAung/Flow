@@ -176,6 +176,8 @@ Color _getNotificationColor(NotificationType type) {
     case NotificationType.trial_ends_today:
     case NotificationType.plan_activated:
     case NotificationType.upgrade_request_declined:
+    case NotificationType.custom_insight_ready:
+    case NotificationType.custom_insight_failed:
       return Color(0xFFFF9800);
   }
 }

@@ -1148,6 +1148,45 @@ class AppLocalizations {
       'chatAdvancedUsedUpNoDate': 'Advanced is used up for now. This answer came from Standard.',
       'insightLangEnglish': 'English',
       'insightLangMyanmar': 'မြန်မာ',
+      'insightTabCustom': 'Custom',
+      'customInsightNew': 'New custom insight',
+      'customInsightLockedTitle': 'Custom insights come with Pro',
+      'customInsightLockedBody': 'Pick any dates, ask a question about them, and get a saved report about your own money.',
+      'customInsightUpgrade': 'Upgrade to Pro',
+      'customRangeLast30Days': 'Last 30 days',
+      'customRangeLast3Months': 'Last 3 months',
+      'customRangeThisYear': 'This year so far',
+      'customRangePick': 'Choose dates',
+      'customInstructionLabel': 'What would you like to know? (optional)',
+      'customInstructionHint': 'For example: where can I cut spending?',
+      'customPresetWhereToSave': 'Where can I save?',
+      'customPresetComparePrevious': 'Compare with the previous period',
+      'customPresetBiggestChanges': 'Biggest changes',
+      'customPresetBudgetsGoals': 'Check my budgets and goals',
+      'customInsightCreate': 'Create insight',
+      'customInsightCreating': 'Creating your insight. We\'ll let you know when it\'s ready.',
+      'customInsightReused': 'You already have this insight, so here is the saved one.',
+      'customRangeTooShort': 'Choose at least 7 days.',
+      'customRangeTooLong': 'Choose at most 12 months.',
+      'customRangeInFuture': 'The dates can\'t be in the future.',
+      'customRangeEndBeforeStart': 'The end date is before the start date.',
+      'customStatusPending': 'Being created…',
+      'customStatusFailed': 'Couldn\'t be created. It wasn\'t counted.',
+      'customStatusRefused': 'That isn\'t something I can answer from your finances',
+      'customErrorPending': 'Your previous custom insight is still being created.',
+      'customErrorAttempts': 'Too many custom insights could not be created today. Please try again tomorrow.',
+      'customErrorNoData': 'There are no transactions in these dates.',
+      'customInsightFullInsight': 'Full insight',
+      'customReportIncome': 'Income',
+      'customReportSpending': 'Spending',
+      'customReportNet': 'Net',
+      'customReportVsPrevious': 'vs the previous period',
+      'customReportNoPrevious': 'Nothing to compare with',
+      'customReportTopSpending': 'Top spending',
+      'customReportDeleted': 'This custom insight was deleted.',
+      'customInsightDelete': 'Delete',
+      'customInsightDeleteConfirm': 'Delete this custom insight?',
+      'customInsightEmptyList': 'No custom insights yet.',
       'insightNextOn': 'Next insight: {date}',
       'dateWithWeekday': '{weekday}, {day} {month}',
       'weekdayMonday': 'Monday',
@@ -2206,6 +2245,45 @@ class AppLocalizations {
       'chatAdvancedUsedUpNoDate': 'Advanced အသုံးပြုခွင့် ယခုအတွက် ကုန်သွားပါပြီ။ ဤအဖြေကို Standard မှ ပေးထားပါသည်။',
       'insightLangEnglish': 'English',
       'insightLangMyanmar': 'မြန်မာ',
+      'insightTabCustom': 'စိတ်ကြိုက်',
+      'customInsightNew': 'စိတ်ကြိုက် သုံးသပ်ချက် အသစ်',
+      'customInsightLockedTitle': 'စိတ်ကြိုက် သုံးသပ်ချက်များသည် Pro တွင် ပါဝင်ပါသည်',
+      'customInsightLockedBody': 'နှစ်သက်ရာ ရက်စွဲများကို ရွေးပြီး မေးခွန်းမေးကာ သင့်ငွေကြေးအကြောင်း သိမ်းဆည်းထားသော အစီရင်ခံစာ ရယူပါ။',
+      'customInsightUpgrade': 'Pro သို့ အဆင့်မြှင့်ရန်',
+      'customRangeLast30Days': 'လွန်ခဲ့သော ရက် 30',
+      'customRangeLast3Months': 'လွန်ခဲ့သော 3 လ',
+      'customRangeThisYear': 'ဤနှစ် ယခုအထိ',
+      'customRangePick': 'ရက်စွဲ ရွေးရန်',
+      'customInstructionLabel': 'သင် ဘာသိချင်ပါသလဲ? (မဖြည့်လည်း ရပါသည်)',
+      'customInstructionHint': 'ဥပမာ - ဘယ်နေရာမှာ ကုန်ကျစရိတ် လျှော့နိုင်မလဲ?',
+      'customPresetWhereToSave': 'ဘယ်မှာ စုဆောင်းနိုင်မလဲ?',
+      'customPresetComparePrevious': 'ယခင်ကာလနှင့် နှိုင်းယှဉ်ရန်',
+      'customPresetBiggestChanges': 'အကြီးဆုံး ပြောင်းလဲမှုများ',
+      'customPresetBudgetsGoals': 'ကျွန်ုပ်၏ ဘတ်ဂျက်နှင့် ပန်းတိုင်များ စစ်ဆေးရန်',
+      'customInsightCreate': 'သုံးသပ်ချက် ဖန်တီးရန်',
+      'customInsightCreating': 'သင့်သုံးသပ်ချက်ကို ဖန်တီးနေပါသည်။ အဆင်သင့်ဖြစ်သည်နှင့် အသိပေးပါမည်။',
+      'customInsightReused': 'ဤသုံးသပ်ချက်ကို သင် ရှိပြီးသားဖြစ်သဖြင့် သိမ်းထားသည့်အတိုင်း ပြသပေးပါသည်။',
+      'customRangeTooShort': 'အနည်းဆုံး ရက် 7 ရက် ရွေးပါ။',
+      'customRangeTooLong': 'အများဆုံး 12 လ ရွေးပါ။',
+      'customRangeInFuture': 'ရက်စွဲများသည် အနာဂတ်ဖြစ်၍ မရပါ။',
+      'customRangeEndBeforeStart': 'ပြီးဆုံးရက်သည် စတင်ရက်ထက် စောနေပါသည်။',
+      'customStatusPending': 'ဖန်တီးနေသည်…',
+      'customStatusFailed': 'ဖန်တီး၍ မရခဲ့ပါ။ အသုံးပြုမှုထဲတွင် မရေတွက်ပါ။',
+      'customStatusRefused': 'ဤအချက်ကို သင့်ငွေကြေးအချက်အလက်များမှ ဖြေကြားပေး၍ မရပါ',
+      'customErrorPending': 'သင့်ယခင် စိတ်ကြိုက် သုံးသပ်ချက်ကို ဖန်တီးနေဆဲ ဖြစ်ပါသည်။',
+      'customErrorAttempts': 'ဖန်တီး၍ မရသော စိတ်ကြိုက် သုံးသပ်ချက် များလွန်းနေပါသည်။ မနက်ဖြန် ထပ်ကြိုးစားပါ။',
+      'customErrorNoData': 'ဤရက်စွဲများအတွင်း ငွေသွင်းငွေထုတ် မရှိပါ။',
+      'customInsightFullInsight': 'အပြည့်အစုံ သုံးသပ်ချက်',
+      'customReportIncome': 'ဝင်ငွေ',
+      'customReportSpending': 'ကုန်ကျစရိတ်',
+      'customReportNet': 'အသားတင်',
+      'customReportVsPrevious': 'ယခင်ကာလနှင့် နှိုင်းယှဉ်လျှင်',
+      'customReportNoPrevious': 'နှိုင်းယှဉ်စရာ မရှိပါ',
+      'customReportTopSpending': 'အများဆုံး သုံးစွဲမှုများ',
+      'customReportDeleted': 'ဤစိတ်ကြိုက် သုံးသပ်ချက်ကို ဖျက်လိုက်ပါပြီ။',
+      'customInsightDelete': 'ဖျက်ရန်',
+      'customInsightDeleteConfirm': 'ဤစိတ်ကြိုက် သုံးသပ်ချက်ကို ဖျက်မလား?',
+      'customInsightEmptyList': 'စိတ်ကြိုက် သုံးသပ်ချက် မရှိသေးပါ။',
       'insightNextOn': 'နောက်သုံးသပ်ချက်: {date}',
       'dateWithWeekday': '{weekday}၊ {day} {month}',
       'weekdayMonday': 'တနင်္လာနေ့',
@@ -3311,6 +3389,47 @@ class AppLocalizations {
   String get insightLangEnglish => translate('insightLangEnglish');
   String get insightLangMyanmar => translate('insightLangMyanmar');
   String insightNextOn(String date) => translate('insightNextOn').replaceAll('{date}', date);
+
+  // Custom insights (Pro)
+  String get insightTabCustom => translate('insightTabCustom');
+  String get customInsightNew => translate('customInsightNew');
+  String get customInsightLockedTitle => translate('customInsightLockedTitle');
+  String get customInsightLockedBody => translate('customInsightLockedBody');
+  String get customInsightUpgrade => translate('customInsightUpgrade');
+  String get customRangeLast30Days => translate('customRangeLast30Days');
+  String get customRangeLast3Months => translate('customRangeLast3Months');
+  String get customRangeThisYear => translate('customRangeThisYear');
+  String get customRangePick => translate('customRangePick');
+  String get customInstructionLabel => translate('customInstructionLabel');
+  String get customInstructionHint => translate('customInstructionHint');
+  String get customPresetWhereToSave => translate('customPresetWhereToSave');
+  String get customPresetComparePrevious => translate('customPresetComparePrevious');
+  String get customPresetBiggestChanges => translate('customPresetBiggestChanges');
+  String get customPresetBudgetsGoals => translate('customPresetBudgetsGoals');
+  String get customInsightCreate => translate('customInsightCreate');
+  String get customInsightCreating => translate('customInsightCreating');
+  String get customInsightReused => translate('customInsightReused');
+  String get customRangeTooShort => translate('customRangeTooShort');
+  String get customRangeTooLong => translate('customRangeTooLong');
+  String get customRangeInFuture => translate('customRangeInFuture');
+  String get customRangeEndBeforeStart => translate('customRangeEndBeforeStart');
+  String get customStatusPending => translate('customStatusPending');
+  String get customStatusFailed => translate('customStatusFailed');
+  String get customStatusRefused => translate('customStatusRefused');
+  String get customErrorPending => translate('customErrorPending');
+  String get customErrorAttempts => translate('customErrorAttempts');
+  String get customErrorNoData => translate('customErrorNoData');
+  String get customInsightFullInsight => translate('customInsightFullInsight');
+  String get customReportIncome => translate('customReportIncome');
+  String get customReportSpending => translate('customReportSpending');
+  String get customReportNet => translate('customReportNet');
+  String get customReportVsPrevious => translate('customReportVsPrevious');
+  String get customReportNoPrevious => translate('customReportNoPrevious');
+  String get customReportTopSpending => translate('customReportTopSpending');
+  String get customReportDeleted => translate('customReportDeleted');
+  String get customInsightDelete => translate('customInsightDelete');
+  String get customInsightDeleteConfirm => translate('customInsightDeleteConfirm');
+  String get customInsightEmptyList => translate('customInsightEmptyList');
 
   static const List<String> _monthKeys = [
     'monthJanuary', 'monthFebruary', 'monthMarch', 'monthApril', 'monthMay', 'monthJune',

@@ -32,6 +32,12 @@ enum NotificationType {
   // An admin closed the user's upgrade request without changing the plan.
   // ignore: constant_identifier_names
   upgrade_request_declined,
+  // A custom insight finished; `goal_id` is the report's id.
+  // ignore: constant_identifier_names
+  custom_insight_ready,
+  // A custom insight could not be made (or was refused).
+  // ignore: constant_identifier_names
+  custom_insight_failed,
 }
 
 extension PlanNotificationType on NotificationType {

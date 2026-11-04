@@ -1,6 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/screens/budgets/budget_detail_screen.dart';
+import 'package:frontend/screens/insights/custom_insight_report_screen.dart';
+import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -81,6 +83,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.plan_activated:
       case NotificationType.upgrade_request_declined:
         return Icons.workspace_premium_rounded;
+      case NotificationType.custom_insight_ready:
+      case NotificationType.custom_insight_failed:
+        return Icons.auto_awesome_rounded;
     }
   }
 
@@ -137,12 +142,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.plan_activated:
       case NotificationType.upgrade_request_declined:
         return scheme.tertiary;
+      case NotificationType.custom_insight_ready:
+        return scheme.primary;
+      case NotificationType.custom_insight_failed:
+        return scheme.onSurfaceVariant;
     }
   }
 
   Future<void> _handleNotificationTap(AppNotification notification) async {
     final notificationProvider =
         Provider.of<NotificationProvider>(context, listen: false);
+
+    final navigator = Navigator.of(context);
 
     // Mark as read
     if (!notification.isRead) {
@@ -188,6 +199,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         notification.type == NotificationType.monthly_insights_generated) {
       // Navigate to insights screen
       Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
+    } else if (notification.type == NotificationType.custom_insight_ready) {
+      // The report is in goal_id. Without one, the Custom tab lists them.
+      final reportId = notification.goalId;
+      if (reportId != null && reportId.isNotEmpty) {
+        navigator.push(
+          MaterialPageRoute(builder: (_) => CustomInsightReportScreen(reportId: reportId)),
+        ).then((_) => _refreshNotifications());
+      } else {
+        navigator.pushNamed('/insights', arguments: InsightsScreen.customTabArgument)
+            .then((_) => _refreshNotifications());
+      }
+    } else if (notification.type == NotificationType.custom_insight_failed) {
+      // Nothing to open: the Custom tab shows the failed or refused report.
+      navigator.pushNamed('/insights', arguments: InsightsScreen.customTabArgument)
+          .then((_) => _refreshNotifications());
     } else if (notification.type.isPlanNotice) {
       // The plan ended, the trial is about to, an admin activated a plan or
       // closed a request: open the Upgrade screen so the user can renew,
