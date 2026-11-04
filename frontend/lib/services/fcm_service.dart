@@ -4,6 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:frontend/models/notification.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:frontend/utils/custom_insight_push.dart';
 
 import 'package:frontend/services/notification_event_bus.dart';
 
@@ -163,13 +164,9 @@ class FCMService {
 
   void _onNotificationTapped(NotificationResponse response) {
     // A custom insight's notification carries its type and report id.
-    final payload = response.payload;
-    if (payload != null && payload.startsWith(_customInsightPayloadPrefix)) {
-      final parts = payload.split('|');
-      _handleNotificationNavigation({
-        'type': parts[0].substring(_customInsightPayloadPrefix.length),
-        'goal_id': parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null,
-      });
+    final custom = parseCustomInsightPayload(response.payload);
+    if (custom != null) {
+      _handleNotificationNavigation({'type': custom.type, 'goal_id': custom.goalId});
     }
     print('📨 Local notification tapped: ${response.payload}');
   }
@@ -188,18 +185,11 @@ class FCMService {
     // A custom insight's push was tapped (app in the background, closed, or
     // the local notification): open the report (its id is goal_id) or the
     // Custom tab. Kept until the app can navigate (it may still be starting).
-    if (notificationType == _customInsightReady || notificationType == _customInsightFailed) {
+    if (isCustomInsightPushType(notificationType)) {
       _pendingOpen = (type: notificationType!, goalId: goalId is String ? goalId : null);
       retryPendingOpen();
     }
   }
-
-  static const String _customInsightReady = 'custom_insight_ready';
-  static const String _customInsightFailed = 'custom_insight_failed';
-
-  /// Prefix of the local notification payload of a custom insight push:
-  /// `custom_insight_ready|<report id>`.
-  static const String _customInsightPayloadPrefix = 'custom_insight_';
 
   /// Opens the screen for a tapped custom insight push: set by the app root,
   /// returns false when it cannot yet (no navigator, nobody signed in).
@@ -260,9 +250,8 @@ class FCMService {
       notification.title,
       notification.body,
       notificationDetails,
-      payload: notificationType == _customInsightReady || notificationType == _customInsightFailed
-          ? '$notificationType|${message.data['goal_id'] ?? ''}'
-          : message.data['notification_id'],
+      payload: customInsightPayload(notificationType, message.data['goal_id']) ??
+          message.data['notification_id'],
     );
   }
 

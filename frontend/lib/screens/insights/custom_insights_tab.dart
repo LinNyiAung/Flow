@@ -8,6 +8,7 @@ import 'package:frontend/providers/custom_insight_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/insights/custom_insight_form.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/custom_insight_text.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 
 /// The Custom tab of the Insights screen: the user's saved custom reports and,
@@ -37,24 +38,7 @@ class _CustomInsightsTabState extends State<CustomInsightsTab> {
     final provider = context.read<CustomInsightProvider>();
     final messenger = ScaffoldMessenger.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        content: Text(l.customInsightDeleteConfirm),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(l.dialogCancel),
-          ),
-          TextButton(
-            key: const Key('custom-insight-delete-confirm'),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(l.customInsightDelete),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await confirmDeleteCustomInsight(context)) return;
     final gone = await provider.delete(report.id);
     if (gone || !mounted) return;
     messenger.showSnackBar(SnackBar(

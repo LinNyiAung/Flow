@@ -6,71 +6,12 @@ import 'package:frontend/models/custom_insight.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/providers/custom_insight_provider.dart';
 import 'package:frontend/screens/insights/custom_insight_report_screen.dart';
-import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_ranges.dart';
+import 'package:frontend/utils/custom_insight_text.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
-
-// ── Text shared by the custom insight screens ───────────────────────────
-
-/// The label of a [CustomInsightPreset] key.
-String customPresetLabel(AppLocalizations l, String key) {
-  switch (key) {
-    case CustomInsightPreset.whereToSave:
-      return l.customPresetWhereToSave;
-    case CustomInsightPreset.comparePrevious:
-      return l.customPresetComparePrevious;
-    case CustomInsightPreset.biggestChanges:
-      return l.customPresetBiggestChanges;
-    case CustomInsightPreset.budgetsGoals:
-      return l.customPresetBudgetsGoals;
-    default:
-      return key;
-  }
-}
-
-/// What the report was asked: the preset's label, the user's own question, or
-/// "Full insight" when neither was given.
-String customInsightTitle(AppLocalizations l, CustomInsight report) {
-  final preset = report.preset;
-  if (preset != null) return customPresetLabel(l, preset);
-  final text = report.instruction?.trim() ?? '';
-  return text.isEmpty ? l.customInsightFullInsight : text;
-}
-
-/// "1 October 2026 – 31 October 2026".
-String customRangeText(AppLocalizations l, DateTime start, DateTime end) =>
-    '${l.formatPlanDate(start)} – ${l.formatPlanDate(end)}';
-
-String customRangeProblemText(AppLocalizations l, CustomRangeProblem problem) {
-  switch (problem) {
-    case CustomRangeProblem.endBeforeStart:
-      return l.customRangeEndBeforeStart;
-    case CustomRangeProblem.tooShort:
-      return l.customRangeTooShort;
-    case CustomRangeProblem.tooLong:
-      return l.customRangeTooLong;
-    case CustomRangeProblem.inFuture:
-      return l.customRangeInFuture;
-  }
-}
-
-/// The text for a failed custom insight call: the app's own sentence for the
-/// codes it knows, otherwise the server's [fallback] message.
-String customErrorText(AppLocalizations l, String? code, String fallback) {
-  switch (code) {
-    case CustomInsightRequestException.pending:
-      return l.customErrorPending;
-    case CustomInsightRequestException.attempts:
-      return l.customErrorAttempts;
-    case CustomInsightRequestException.noData:
-      return l.customErrorNoData;
-    default:
-      return fallback.trim().isEmpty ? l.genericErrorOccurred : fallback;
-  }
-}
 
 /// Opens a report.
 Future<void> openCustomInsightReport(BuildContext context, String reportId) {
@@ -84,7 +25,9 @@ Future<void> openCustomInsightReport(BuildContext context, String reportId) {
 /// Today's date (date-only) in the app timezone the server checks ranges in:
 /// Asia/Yangon, UTC+06:30 with no daylight saving. The device's own date can
 /// be a day behind or ahead of it, and the server refuses a range that ends
-/// after its today.
+/// after its today. This must match the server's SCHEDULER_TIMEZONE default
+/// (Asia/Yangon, UTC+06:30): if the server is configured for another zone,
+/// change it here too.
 DateTime customInsightToday([DateTime? nowUtc]) {
   final yangon = (nowUtc ?? DateTime.now().toUtc()).add(const Duration(hours: 6, minutes: 30));
   return DateTime(yangon.year, yangon.month, yangon.day);

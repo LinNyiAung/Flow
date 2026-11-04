@@ -7,8 +7,8 @@ import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/custom_insight_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
-import 'package:frontend/screens/insights/custom_insight_form.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/custom_insight_text.dart';
 import 'package:frontend/utils/safe_markdown.dart';
 import 'package:frontend/widgets/custom_insight_figures.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
@@ -40,6 +40,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
 
   /// A delete is under way: the cached report disappears on purpose.
   bool _deleting = false;
+  CustomInsight? _lastReport;
 
   @override
   void initState() {
@@ -110,31 +111,16 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        content: Text(l.customInsightDeleteConfirm),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(l.dialogCancel),
-          ),
-          TextButton(
-            key: const Key('custom-insight-delete-confirm'),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(l.customInsightDelete),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await confirmDeleteCustomInsight(context)) return;
     _deleting = true;
     final gone = await provider.delete(report.id);
-    _deleting = false;
     if (gone) {
+      // Stays true: the route is leaving, and the report that is going away
+      // must not be fetched again or replaced by a spinner meanwhile.
       if (navigator.mounted) navigator.pop();
       return;
     }
+    _deleting = false;
     messenger.showSnackBar(SnackBar(
       content: Text(customErrorText(l, provider.lastErrorCode, provider.lastError ?? '')),
       backgroundColor: scheme.error,
@@ -147,7 +133,10 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
     context.watch<AuthProvider>();
     context.watch<PlanProvider>();
     final l = AppLocalizations.of(context);
-    final report = provider.detail(widget.reportId);
+    // While it is being deleted the report is still shown (not a spinner) until
+    // the route has left.
+    final report = provider.detail(widget.reportId) ?? (_deleting ? _lastReport : null);
+    _lastReport = report;
 
     // A report that was still being written had its cached copy dropped when
     // the list saw it finish: fetch the finished one.

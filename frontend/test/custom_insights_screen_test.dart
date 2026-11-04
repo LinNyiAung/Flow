@@ -18,6 +18,7 @@ import 'package:frontend/screens/insights/custom_insights_tab.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/custom_insight_push.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -35,7 +36,7 @@ class _Auth extends AuthProvider {
   bool get isPaid => paid;
 }
 
-PlanStatus _plan({String custom = 'counted', String translation = 'locked'}) {
+PlanStatus _plan({String custom = 'counted', String translation = 'locked', String weekly = 'locked'}) {
   FeatureAllowance allowance(String mode) => switch (mode) {
         'locked' => const FeatureAllowance(mode: 'locked'),
         'counted' => const FeatureAllowance(
@@ -47,7 +48,7 @@ PlanStatus _plan({String custom = 'counted', String translation = 'locked'}) {
     features: {
       PlanFeature.insightCustom: allowance(custom),
       PlanFeature.insightTranslation: allowance(translation),
-      PlanFeature.insightWeekly: const FeatureAllowance(mode: 'locked'),
+      PlanFeature.insightWeekly: allowance(weekly),
       PlanFeature.insightMonthly: const FeatureAllowance(mode: 'included'),
     },
   );
@@ -108,6 +109,7 @@ class FakeCustomInsightClient implements CustomInsightClient {
   CustomInsightCreateResult? createResult;
   CustomInsightRequest? lastRequest;
   int createCalls = 0;
+  int getCalls = 0;
   CustomInsight? translateResult;
   Object? translateError;
   int translateCalls = 0;
@@ -121,6 +123,7 @@ class FakeCustomInsightClient implements CustomInsightClient {
 
   @override
   Future<CustomInsight> get(String id) async {
+    getCalls++;
     if (getError != null) throw getError!;
     return detail!;
   }
@@ -426,6 +429,48 @@ void main() {
       expect(find.byKey(const Key('custom-report-body')), findsOneWidget);
     });
 
+    for (final c in [
+      (CustomInsightRequestException.pending, 'Your previous custom insight is still being created.'),
+      (CustomInsightRequestException.noData, 'There are no transactions in these dates.'),
+    ]) {
+      testWidgets('create error ${c.$1} shows its own message in the form', (tester) async {
+        final failing = _ThrowingCreate(CustomInsightRequestException(
+          code: c.$1,
+          statusCode: 409,
+          message: 'server words',
+        ));
+        await _pump(tester, const Scaffold(body: CustomInsightsTab()), fake: failing);
+        await tester.tap(find.byKey(const Key('custom-insight-new')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('custom-insight-create')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(c.$2), findsOneWidget);
+        expect(find.text('server words'), findsNothing);
+        expect(find.byKey(const Key('custom-insight-create')), findsOneWidget);
+      });
+    }
+
+    testWidgets('create with a plan limit opens the limit sheet over the form', (tester) async {
+      final failing = _ThrowingCreate(PlanLimitException(
+        code: PlanLimitException.codeLimitReached,
+        statusCode: 429,
+        feature: PlanFeature.insightCustom,
+        message: 'used up',
+        upgradeAvailable: true,
+      ));
+      await _pump(tester, const Scaffold(body: CustomInsightsTab()), fake: failing);
+      await tester.tap(find.byKey(const Key('custom-insight-new')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('custom-insight-create')));
+      await tester.pumpAndSettle();
+
+      expect(find.text("You've reached your limit"), findsOneWidget);
+      // No inline error for a plan limit; the form is still there under the sheet.
+      expect(find.byKey(const Key('custom-insight-error')), findsNothing);
+      expect(find.byKey(const Key('custom-insight-create')), findsOneWidget);
+    });
+
     testWidgets('a create error shows the string for its code in the form', (tester) async {
       final fake = FakeCustomInsightClient();
       final failing = _ThrowingCreate(CustomInsightRequestException(
@@ -691,6 +736,44 @@ void main() {
       expect(find.byKey(const Key('custom-report-body')), findsNothing);
       expect(find.byKey(const Key('open-report')), findsOneWidget);
     });
+
+    testWidgets('while it leaves after a delete: no spinner, no deleted card, no second fetch', (tester) async {
+      final fake = FakeCustomInsightClient()
+        ..reports = [_report(_json(figures: false))]
+        ..detail = _report(_json());
+      await _pump(
+        tester,
+        Builder(
+          builder: (context) => Scaffold(
+            body: ElevatedButton(
+              key: const Key('open-report'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CustomInsightReportScreen(reportId: 'r1')),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+        fake: fake,
+      );
+      await tester.tap(find.byKey(const Key('open-report')));
+      await tester.pumpAndSettle();
+      expect(fake.getCalls, 1);
+
+      await tester.tap(find.byKey(const Key('custom-report-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('custom-insight-delete-confirm')));
+      // The delete finishes and the route starts to leave: look at each frame.
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.text('This custom insight was deleted.'), findsNothing);
+      }
+      await tester.pumpAndSettle();
+      expect(fake.deleted, ['r1']);
+      expect(fake.getCalls, 1);
+    });
   });
 
   group('Insights screen', () {
@@ -733,6 +816,19 @@ void main() {
       expect(types, isNot(contains('custom')));
     });
 
+    for (final weekly in ['locked', 'included']) {
+      testWidgets('without the custom argument a remembered Custom type falls back (weekly insight $weekly)', (tester) async {
+        final types = <String>[];
+        final insights = recordingInsights(types)..setInsightType('custom');
+        await _pump(tester, InsightsScreen(), fake: FakeCustomInsightClient(), insights: insights, plan: _plan(weekly: weekly));
+
+        expect(find.byType(CustomInsightsTab), findsNothing);
+        // The usual rule: Free has no weekly insight, so monthly.
+        final expected = weekly == 'locked' ? 'monthly' : 'weekly';
+        expect(types, [expected]);
+        expect(insights.insightType, expected);
+      });
+    }
     testWidgets('the /insights route opens on the Custom tab for the custom argument', (tester) async {
       final types = <String>[];
       final fake = FakeCustomInsightClient();
@@ -754,6 +850,34 @@ void main() {
   });
 
   group('Notifications', () {
+    test('push payload: ready with id round-trips with the full type', () {
+      final payload = customInsightPayload('custom_insight_ready', 'report-1');
+      expect(payload, 'custom_insight_ready|report-1');
+      final parsed = parseCustomInsightPayload(payload)!;
+      expect(parsed.type, 'custom_insight_ready');
+      expect(parsed.goalId, 'report-1');
+    });
+
+    test('push payload: failed, and a missing id', () {
+      expect(parseCustomInsightPayload(customInsightPayload('custom_insight_failed', 'x'))!.type, 'custom_insight_failed');
+      final none = parseCustomInsightPayload(customInsightPayload('custom_insight_ready', null));
+      expect(customInsightPayload('custom_insight_ready', null), 'custom_insight_ready|');
+      expect(none!.type, 'custom_insight_ready');
+      expect(none.goalId, isNull);
+      // No separator at all still reads.
+      expect(parseCustomInsightPayload('custom_insight_failed')!.goalId, isNull);
+    });
+
+    test('push payload: other pushes are not custom insight payloads', () {
+      expect(customInsightPayload('goal_progress', 'g1'), isNull);
+      expect(customInsightPayload(null, 'g1'), isNull);
+      expect(parseCustomInsightPayload('3f2a9c0e-notification-id'), isNull);
+      expect(parseCustomInsightPayload('ready|abc'), isNull);
+      expect(parseCustomInsightPayload(null), isNull);
+      expect(isCustomInsightPushType('custom_insight_ready'), isTrue);
+      expect(isCustomInsightPushType('weekly_insights_generated'), isFalse);
+    });
+
     test('notification_types_parse: custom_insight_ready / custom_insight_failed', () {
       AppNotification parse(String type) => AppNotification.fromJson({
             'id': 'n1',

@@ -47,8 +47,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
       // The remembered English / မြန်မာ choice, before the first request.
       await insightProvider.loadPreferredLanguage();
       if (!mounted) return;
+      // The Custom tab is opened only by its notification (the route argument);
+      // any other visit starts on weekly (monthly on Free, below), also when the
+      // last visit ended on Custom.
       if (ModalRoute.of(context)?.settings.arguments == InsightsScreen.customTabArgument) {
         insightProvider.setInsightType(_customType);
+      } else if (insightProvider.insightType == _customType) {
+        insightProvider.setInsightType('weekly');
       }
       // Weekly insights are not in every plan (Free): open on the monthly
       // insight there instead of a locked page.
