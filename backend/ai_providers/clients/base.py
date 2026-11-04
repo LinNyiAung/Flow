@@ -33,7 +33,7 @@ DEFAULT_TIMEOUT = 60
 LONG_TIMEOUT = 300
 # Background jobs whose non-streamed answers are long: they get LONG_TIMEOUT. Every other feature (chat, transaction
 # text/image/voice, budgets) gets DEFAULT_TIMEOUT.
-LONG_TIMEOUT_FEATURES = frozenset({"insight_weekly", "insight_monthly", "insight_translation"})
+LONG_TIMEOUT_FEATURES = frozenset({"insight_weekly", "insight_monthly", "insight_translation", "insight_custom"})
 
 
 def request_timeout(feature: str | None) -> int:

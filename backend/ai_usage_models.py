@@ -9,6 +9,7 @@ class AIFeatureType(str, Enum):
     MONTHLY_INSIGHT = "monthly_insight"
     CHAT = "chat"
     TRANSLATION = "translation"
+    CUSTOM_INSIGHT = "custom_insight"
     BUDGET_SUGGESTION = "budget_suggestion"
     BUDGET_AUTO_CREATE = "budget_auto_create"
     TRANSACTION_TEXT_EXTRACTION = "transaction_text_extraction"  # NEW

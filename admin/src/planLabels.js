@@ -9,7 +9,7 @@ export const PLAN_LABELS = { free: 'Free', plus: 'Plus', pro: 'Pro' };
 
 export const FEATURES = [
   'chat', 'chat_advanced', 'insight_monthly', 'insight_weekly', 'insight_translation',
-  'entry', 'budget_suggestion', 'reports',
+  'insight_custom', 'entry', 'budget_suggestion', 'reports',
 ];
 
 export const FEATURE_LABELS = {
@@ -18,6 +18,7 @@ export const FEATURE_LABELS = {
   insight_monthly: 'Monthly insight',
   insight_weekly: 'Weekly insight',
   insight_translation: 'Insight translation',
+  insight_custom: 'Custom insight',
   entry: 'AI entries',
   budget_suggestion: 'Budget suggestions',
   reports: 'Reports',

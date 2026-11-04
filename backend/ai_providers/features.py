@@ -38,6 +38,8 @@ FEATURES: dict[str, FeatureSpec] = {s.key: s for s in (
     _spec("insight_weekly", "Weekly insight", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.WEEKLY_INSIGHT),
     _spec("insight_monthly", "Monthly insight", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.MONTHLY_INSIGHT),
     _spec("insight_translation", "Insight translation", _ALL, "gemini", "gemini-2.5-pro", AIFeatureType.TRANSLATION),
+    # Pro's custom insight: a report the user asks for over a date range and an instruction. Claude by default.
+    _spec("insight_custom", "Custom insight", _ALL, "claude", "claude-sonnet-5-5", AIFeatureType.CUSTOM_INSIGHT),
     _spec("budget_suggestion", "Budget suggestion", _ALL, "openai", "gpt-4o-mini", AIFeatureType.BUDGET_SUGGESTION),
     _spec("budget_auto_create", "Budget auto-create", _ALL, "openai", "gpt-4o-mini", AIFeatureType.BUDGET_AUTO_CREATE),
     _spec("transaction_text", "Transaction from text", _ALL, "openai", "gpt-4o-mini",
@@ -85,6 +87,7 @@ CLAUDE_EFFORT: dict[str, str] = {
     "insight_weekly": "medium",
     "insight_monthly": "medium",
     "insight_translation": "medium",
+    "insight_custom": "medium",
 }
 
 

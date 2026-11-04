@@ -343,9 +343,13 @@ def _resolution_checks():
     # catalogue
     check(features.PROVIDERS == ("openai", "gemini", "claude"), "catalogue: provider ids")
     check(set(features.FEATURES) == {
-        "chat", "chat_advanced", "insight_weekly", "insight_monthly", "insight_translation", "budget_suggestion",
-        "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio"},
+        "chat", "chat_advanced", "insight_weekly", "insight_monthly", "insight_translation", "insight_custom",
+        "budget_suggestion", "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio"},
         "catalogue: feature keys", sorted(features.FEATURES))
+    cust = features.FEATURES["insight_custom"]
+    check(cust.label == "Custom insight" and cust.allowed == features.PROVIDERS
+          and cust.default == T("claude", "claude-sonnet-5-5"),
+          "catalogue: insight_custom is 'Custom insight', all providers, built-in claude-sonnet-5-5", cust)
     adv = features.FEATURES["chat_advanced"]
     check(adv.label == "Advanced chat" and adv.allowed == features.PROVIDERS
           and adv.default == T("claude", "claude-sonnet-5-5"),
@@ -372,6 +376,7 @@ def _resolution_checks():
     check(usage == {
         "chat": AIFeatureType.CHAT, "chat_advanced": AIFeatureType.CHAT, "insight_weekly": AIFeatureType.WEEKLY_INSIGHT,
         "insight_monthly": AIFeatureType.MONTHLY_INSIGHT, "insight_translation": AIFeatureType.TRANSLATION,
+        "insight_custom": AIFeatureType.CUSTOM_INSIGHT,
         "budget_suggestion": AIFeatureType.BUDGET_SUGGESTION, "budget_auto_create": AIFeatureType.BUDGET_AUTO_CREATE,
         "transaction_text": AIFeatureType.TRANSACTION_TEXT_EXTRACTION,
         "transaction_image": AIFeatureType.TRANSACTION_IMAGE_EXTRACTION,
@@ -379,7 +384,7 @@ def _resolution_checks():
     check(features.CLAUDE_EFFORT == {
         "chat": "low", "chat_advanced": "low", "transaction_text": "low", "transaction_image": "low", "budget_suggestion": "low",
         "budget_auto_create": "low", "insight_weekly": "medium", "insight_monthly": "medium",
-        "insight_translation": "medium"}, "catalogue: claude effort", features.CLAUDE_EFFORT)
+        "insight_translation": "medium", "insight_custom": "medium"}, "catalogue: claude effort", features.CLAUDE_EFFORT)
     dm = lambda f, p, env=None: features.default_model(f, p, {} if env is None else env)  # noqa: E731
     check(dm("transaction_image", "openai") == "gpt-4o"
           and dm("transaction_audio", "openai") == "whisper-1"
@@ -1277,9 +1282,10 @@ async def client_checks():
     from ai_providers.features import FEATURES
     from ai_providers.types import Target
     got = {f: client_base.request_timeout(f) for f in FEATURES}
-    check(got == {f: (300 if f in ("insight_weekly", "insight_monthly", "insight_translation") else 60) for f in FEATURES}
+    check(got == {f: (300 if f in ("insight_weekly", "insight_monthly", "insight_translation", "insight_custom") else 60) for f in FEATURES}
           and client_base.request_timeout(None) == 60,
           "request_timeout_by_feature: 300 s for the insight jobs, 60 s for every other feature", got)
+    check(client_base.request_timeout("insight_custom") == 300, "timeout_custom_insight_long")
 
     def gemini_timeout():
         cfg = stubenv.LAST_KWARGS["gemini"]["config"]
@@ -2113,7 +2119,7 @@ async def refresh_race_checks():
 
 
 ADMIN_FEATURES = ("chat", "chat_advanced", "insight_weekly", "insight_monthly", "insight_translation",
-                  "budget_suggestion", "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio")
+                  "insight_custom", "budget_suggestion", "budget_auto_create", "transaction_text", "transaction_image", "transaction_audio")
 ADMIN_PROVIDERS = ("openai", "gemini", "claude")
 ADMIN_PW = "t7-admin-pass-1"
 
@@ -2183,7 +2189,7 @@ async def admin_api_checks():
         feats = {f["key"]: f for f in body.get("features", [])}
         provs = {p["id"]: p for p in body.get("providers", [])}
         chat = feats.get("chat", {})
-        check(r.status_code == 200 and set(feats) == set(ADMIN_FEATURES) and len(body["features"]) == 10
+        check(r.status_code == 200 and set(feats) == set(ADMIN_FEATURES) and len(body["features"]) == 11
               and [f["key"] for f in body["features"]][:2] == ["chat", "chat_advanced"]
               and chat["effective"]["source"] == "default" and provs.get("claude", {}).get("configured") is True,
               "settings_get_moderator_ok", f"{r.status_code} {r.text[:300]}")
@@ -3834,7 +3840,7 @@ async def usage_stats_checks():
 
     c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
     db = __import__("pgcompat").get_db()
-    made = make_admins(c, db, "t12", ("admin",))
+    made = make_admins(c, db, "t12", ("admin", "moderator"))
     email, pw = f"t12-usage-{uuid.uuid4().hex[:6]}@example.com", "T12UsagePass123"
     uid = None
     AD = {}
@@ -3901,6 +3907,11 @@ async def usage_stats_checks():
         got = sorted((x["provider"], x["fallback_from"]) for x in recs)
         check(len(recs) == 2 and ("openai", "claude") in got and ("claude", None) in got,
               "usage_records_include_fallback_from: the backup's record names fallback_from claude", got)
+        # --- the usage filter knows the custom insight type (422 before the enum value existed)
+        MODR = admin_login(c, made["moderator"])
+        r = c.get(f"/api/admin/ai-usage/user/{uid}", headers=MODR, params={"feature_type": "custom_insight"})
+        check(r.status_code == 200 and r.json() == [], "usage_filter_custom_insight: a moderator can filter by custom_insight",
+              f"{r.status_code} {r.text[:200]}")
         u = mine() or {}
         # (the fake's openai cost rounds to 0.0 at 4 places, so check the key is listed, not its size)
         check("openai" in u.get("cost_by_provider", {}) and u.get("cost_by_provider", {}).get("claude", 0) > 0,

@@ -493,6 +493,7 @@ const AIUsageStats = ({ token }) => {
                 <option value="weekly_insight">Weekly Insights</option>
                 <option value="monthly_insight">Monthly Insights</option>
                 <option value="translation">Translation</option>
+                <option value="custom_insight">Custom Insights</option>
                 <option value="budget_suggestion">Budget Suggestion</option>
                 <option value="budget_auto_create">Budget Auto Create</option>
                 <option value="transaction_text_extraction">Text Extraction</option>
