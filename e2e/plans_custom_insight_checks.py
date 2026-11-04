@@ -269,8 +269,9 @@ async def storage_checks(t, h):
           "a late finish gets None", swept)
 
     # ---- set_translation
-    check(await ci.set_translation(r2, "## အနှစ်ချုပ်\nx") is None and (await ci.get(r2))["content_mm"] == "## အနှစ်ချုပ်\nx",
-          "storage_set_translation: content_mm is stored")
+    check(await ci.set_translation(r2, "## အနှစ်ချုပ်\nx") is True and (await ci.get(r2))["content_mm"] == "## အနှစ်ချုပ်\nx"
+          and await ci.set_translation(r2, "second") is False and (await ci.get(r2))["content_mm"] == "## အနှစ်ချုပ်\nx",
+          "storage_set_translation: content_mm is stored once (True), a second write is refused (False), the first stays")
     await ci.set_translation(failed_id, "x")   # hidden failed row
     await ci.set_translation(refused_id, "x")  # hidden refused row
     live_failed = await make(uc, "failed", now - timedelta(hours=1))  # a visible failed row
@@ -1045,20 +1046,24 @@ async def route_checks(t, h):
 
         u, uh, _ = mk("api-conc")
         gate = threading.Barrier(2)
-        out = []
+        out, accepted = [], []
         clients = [httpx.Client(base_url=BASE, timeout=120) for _ in range(2)]
 
         def go(cl):
             gate.wait()
-            out.append(cl.post(CREATE, headers=uh, json=body(days=11)).status_code)
+            resp = cl.post(CREATE, headers=uh, json=body(days=11))
+            out.append(resp.status_code)
+            if resp.status_code == 202:
+                accepted.append(resp.json()["report"]["status"])
         threads = [threading.Thread(target=go, args=(cl,)) for cl in clients]
         [x.start() for x in threads]
         [x.join() for x in threads]
         [cl.close() for cl in clients]
         rows = c.get(CREATE, headers=uh).json()["reports"]
         wait(uh, rows[0]["id"])
-        check(sorted(out) == [202, 409] and h.used(u) == 1 and len(rows) == 1,
-              "create_concurrent_one_pending: two taps, one report, one use", (out, h.used(u), len(rows)))
+        # [200, 202] is the other legitimate outcome: the first job finished before the second request looked for a match.
+        check(sorted(out) in ([202, 409], [200, 202]) and accepted == ["pending"] and h.used(u) == 1 and len(rows) == 1,
+              "create_concurrent_one_pending: two taps, one report, one use; the 202 body is pending", (out, accepted, h.used(u), len(rows)))
 
         # ---- range and instruction rules
         u, uh, _ = mk("api-range")
@@ -1152,6 +1157,51 @@ async def route_checks(t, h):
               and code(r5b) == (429, "custom_insight_attempts"),
               "attempts_survive_delete: a deleted failed report is hidden but still counts", (dl.text, r5b.text[:200]))
         check(post(uh, instruction="four failed so far").status_code == 200, "attempts_do_not_block_reuse: a ready match is still served")
+        listed = c.get(CREATE, headers=uh).json()["reports"]
+        check(failed[0] not in [x["id"] for x in listed] and failed[1] in [x["id"] for x in listed]
+              and next(x for x in listed if x["id"] == failed[1])["status"] == "failed",
+              "list_hides_deleted_failed: the hidden failed report is gone from the list, the others stay", [x["id"] for x in listed])
+        sums = await ci.list_summaries(u)
+        check(len(sums) == len(listed) and all(set(s) == {"_id", "start_date", "end_date", "preset", "instruction", "status",
+                                                          "created_at", "completed_at", "has_myanmar"} for s in sums),
+              "list_summaries_skip_text: no content, content_mm or figures are loaded", sums[:1])
+
+        # ---- a ready match is still served when the plan, the limit or a pending report would refuse a new one
+        u, uh, _ = mk("api-served")
+        first = create_ready(uh, instruction="served")
+        h.set_used(u, 10)
+        r = post(uh, instruction="served")
+        check(r.status_code == 200 and r.json()["reused"] is True and r.json()["report"]["id"] == first and h.used(u) == 10,
+              "reuse_at_monthly_limit: a user at the limit still gets the ready report", r.text[:200])
+        h.set_used(u, 1)
+        await pending_row(u, today - timedelta(days=100), today - timedelta(days=90))
+        r = post(uh, instruction="served")
+        check(r.status_code == 200 and r.json()["report"]["id"] == first, "reuse_with_pending_report: a pending one elsewhere does not block it",
+              r.text[:200])
+        check(code(post(uh, instruction="something new")) == (409, "custom_insight_pending"),
+              "reuse_with_pending_report_new_request_still_409")
+
+        # ---- a downgraded user
+        u, uh, _ = mk("api-down")
+        first = create_ready(uh, instruction="before the downgrade")
+        h.set_plan(u, "free")
+        r = post(uh, instruction="before the downgrade")
+        check(plan_error(r, 403, "plan_feature_locked", "insight_custom"),
+              "downgraded_same_range_is_locked_not_reused: the lock is checked before the reuse", r.text[:200])
+        dl = c.delete(f"{CREATE}/{first}", headers=uh)
+        check(dl.status_code == 200 and dl.json() == {"deleted": True} and detail(uh, first).status_code == 404,
+              "downgraded_user_can_delete: deleting is open to every plan")
+
+        # the presets the route accepts are the service's
+        from custom_insight_routes import CustomInsightCreate
+        from pydantic import ValidationError
+        try:
+            CustomInsightCreate(start_date=today, end_date=today, preset="nope")
+            rejected = False
+        except ValidationError:
+            rejected = True
+        check(rejected and all(CustomInsightCreate(start_date=today, end_date=today, preset=k).preset == k for k in cis.PRESETS),
+              "presets_come_from_the_service: every cis.PRESETS key is accepted, others are not")
 
         # ---- an off-topic instruction is refused over HTTP and not counted
         u, uh, _ = mk("api-off")
@@ -1220,6 +1270,27 @@ async def route_checks(t, h):
               and c.post(f"{CREATE}/{g_rid}/translate", headers=gh).status_code == 200
               and h.used(g_u, feature="insight_translation") == 1,
               "translate_counted_once_when_it_works: one use, the stored text costs nothing more")
+
+        # two translations of the same report at once: one text is stored, one use is counted
+        k_u, kh, _ = mk("api-trrace")
+        k_rid = create_ready(kh, instruction="translated twice at once")
+        gate = threading.Barrier(2)
+        res = []
+        clients = [httpx.Client(base_url=BASE, timeout=120) for _ in range(2)]
+
+        def go_translate(cl):
+            gate.wait()
+            resp = cl.post(f"{CREATE}/{k_rid}/translate", headers=kh)
+            res.append((resp.status_code, resp.json().get("content_mm")))
+        threads = [threading.Thread(target=go_translate, args=(cl,)) for cl in clients]
+        [x.start() for x in threads]
+        [x.join() for x in threads]
+        [cl.close() for cl in clients]
+        stored = detail(kh, k_rid).json()["content_mm"]
+        check([s for s, _ in res] == [200, 200] and {m for _, m in res} == {stored} and stored
+              and h.used(k_u, feature="insight_translation") == 1,
+              "translate_concurrent_one_text_one_use: both answers are the stored text and only one use is kept",
+              (res, h.used(k_u, feature="insight_translation")))
         put_plans(lambda b: None)
 
         # ---- delete

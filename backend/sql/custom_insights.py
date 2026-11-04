@@ -55,6 +55,16 @@ async def list_for_user(user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     return [row_to_doc(r) for r in await fetch_all(stmt)]
 
 
+async def list_summaries(user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    """list_for_user without the text and figures (they can be large): only the summary columns, plus `has_myanmar`
+    (whether content_mm is stored)."""
+    stmt = (select(_c.id, _c.start_date, _c.end_date, _c.preset, _c.instruction, _c.status, _c.created_at,
+                   _c.completed_at, (_c.content_mm.is_not(None) & (_c.content_mm != "")).label("has_myanmar"))
+            .where(_c.user_id == user_id, _c.deleted_at.is_(None))
+            .order_by(_c.created_at.desc(), _c.id.desc()).limit(limit))
+    return [row_to_doc(r) for r in await fetch_all(stmt)]
+
+
 async def has_pending(user_id: str) -> bool:
     return bool(await fetch_value(select(func.count()).select_from(custom_insights)
                                   .where(_c.user_id == user_id, _c.status == "pending")))
@@ -99,10 +109,13 @@ async def fail_stuck(before: datetime, now: datetime) -> List[Dict[str, Any]]:
     return [row_to_doc(r) for r in rows]
 
 
-async def set_translation(report_id: str, content_mm: str) -> None:
-    """Store the Myanmar text of a ready, not-deleted report (a failed or hidden row is left alone)."""
-    await execute(update(custom_insights).where(_c.id == report_id, _c.status == "ready", _c.deleted_at.is_(None))
-                  .values(content_mm=content_mm))
+async def set_translation(report_id: str, content_mm: str) -> bool:
+    """Store the Myanmar text of a ready, not-deleted report that has none yet. True when this call wrote it; False when
+    the report already had a translation (the first one stays), is not ready or is hidden."""
+    stmt = (update(custom_insights)
+            .where(_c.id == report_id, _c.status == "ready", _c.deleted_at.is_(None), _c.content_mm.is_(None))
+            .values(content_mm=content_mm))
+    return await execute(stmt) == 1
 
 
 async def delete_for_user(report_id: str, user_id: str, now: datetime) -> str:

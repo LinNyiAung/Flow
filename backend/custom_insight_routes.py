@@ -38,7 +38,7 @@ class CustomInsightCreate(BaseModel):
 
     start_date: date
     end_date: date
-    preset: Optional[Literal["where_to_save", "compare_previous", "biggest_changes", "budgets_goals"]] = None
+    preset: Optional[Literal[tuple(cis.PRESETS)]] = None  # the service's own preset keys
     instruction: Optional[str] = None
 
 
@@ -72,7 +72,7 @@ def _summary(row: Dict[str, Any]) -> Dict[str, Any]:
         "status": row["status"],
         "created_at": _iso(row["created_at"]),
         "completed_at": _iso(row.get("completed_at")),
-        "has_myanmar": bool(row.get("content_mm")),
+        "has_myanmar": bool(row["has_myanmar"]) if "has_myanmar" in row else bool(row.get("content_mm")),
     }
 
 
@@ -125,27 +125,31 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
 
     reservation = await quota.reserve(current_user, cis.FEATURE)  # PlanError: limit reached, cost cap
     report_id = str(uuid.uuid4())
+    row = {"_id": report_id, "user_id": uid, "start_date": data.start_date, "end_date": data.end_date,
+           "preset": data.preset, "instruction": instruction, "instruction_key": key,
+           "counter_keys": [[f, p, d.isoformat()] for f, p, d in reservation.keys], "figures": figures,
+           "created_at": utc_now()}
     try:
-        inserted = await ci.insert_pending({
-            "_id": report_id, "user_id": uid, "start_date": data.start_date, "end_date": data.end_date,
-            "preset": data.preset, "instruction": instruction, "instruction_key": key,
-            "counter_keys": [[f, p, d.isoformat()] for f, p, d in reservation.keys], "figures": figures})
+        inserted = await ci.insert_pending(row)
     except BaseException:
         await quota.give_back(reservation)
         raise
     if not inserted:  # a second request got in first: one pending report per user
         await quota.give_back(reservation)
         raise _error(current_user, status.HTTP_409_CONFLICT, "custom_insight_pending")
+    # The 202 body is the row just inserted (always pending), so nothing can fail between the insert and the start: once
+    # the row exists it owns the reservation (its counter_keys), and the job or the sweeper gives it back.
     reservation.commit()
     cis.start_report(report_id)
     response.status_code = status.HTTP_202_ACCEPTED
-    return {"report": _detail(await ci.get(report_id, uid)), "reused": False}
+    return {"report": _detail({**row, "status": "pending", "completed_at": None, "content": None, "content_mm": None}),
+            "reused": False}
 
 
 @router.get("")
 async def list_custom_insights(current_user: dict = Depends(get_current_user)):
     """The user's reports, newest first (at most 100), without their text. Open to every plan."""
-    rows = await ci.list_for_user(current_user["_id"], limit=100)
+    rows = await ci.list_summaries(current_user["_id"], limit=100)
     return {"reports": [_summary(r) for r in rows]}
 
 
@@ -174,7 +178,7 @@ async def translate_custom_insight(report_id: str, current_user: dict = Depends(
     reservation = await quota.reserve(current_user, "insight_translation")
     try:
         content_mm = await translate_insight_to_myanmar(row["content"], user_id=uid, is_placeholder=False)
-        await ci.set_translation(report_id, content_mm)
+        wrote = await ci.set_translation(report_id, content_mm)
         row = await ci.get(report_id, uid)
     except InsightAIError as e:
         await quota.give_back(reservation)
@@ -193,7 +197,10 @@ async def translate_custom_insight(report_id: str, current_user: dict = Depends(
     if row is None or not row.get("content_mm"):  # deleted while it was being translated
         await quota.give_back(reservation)
         raise _not_found()
-    reservation.commit()
+    if wrote:
+        reservation.commit()
+    else:  # a simultaneous request stored its translation first: that text stands, and this one costs nothing
+        await quota.give_back(reservation)
     return _detail(row)
 
 
