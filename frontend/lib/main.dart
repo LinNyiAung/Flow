@@ -10,6 +10,7 @@ import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/feedback_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/models/plan_status.dart';
+import 'package:frontend/providers/custom_insight_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
@@ -96,6 +97,7 @@ class _MyAppState extends State<MyApp> {
   final ChatProvider _chatProvider = ChatProvider();
   final GoalProvider _goalProvider = GoalProvider();
   final InsightProvider _insightProvider = InsightProvider();
+  final CustomInsightProvider _customInsightProvider = CustomInsightProvider();
   final BudgetProvider _budgetProvider = BudgetProvider();
   final NotificationProvider _notificationProvider = NotificationProvider();
   final FeedbackProvider _feedbackProvider = FeedbackProvider();
@@ -165,6 +167,7 @@ class _MyAppState extends State<MyApp> {
     _chatProvider.reset();
     _goalProvider.reset();
     _insightProvider.reset();
+    _customInsightProvider.reset();
     _budgetProvider.reset();
     _notificationProvider.reset();
     _feedbackProvider.reset();
@@ -211,6 +214,7 @@ class _MyAppState extends State<MyApp> {
         ChangeNotifierProvider.value(value: _chatProvider),
         ChangeNotifierProvider.value(value: _goalProvider),
         ChangeNotifierProvider.value(value: _insightProvider),
+        ChangeNotifierProvider.value(value: _customInsightProvider),
         ChangeNotifierProvider.value(value: _budgetProvider),
         ChangeNotifierProvider.value(value: _notificationProvider),
         ChangeNotifierProvider.value(value: _feedbackProvider),

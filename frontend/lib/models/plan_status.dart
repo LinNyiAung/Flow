@@ -11,6 +11,7 @@ class PlanFeature {
   static const String insightMonthly = 'insight_monthly';
   static const String insightWeekly = 'insight_weekly';
   static const String insightTranslation = 'insight_translation';
+  static const String insightCustom = 'insight_custom';
   static const String entry = 'entry';
   static const String budgetSuggestion = 'budget_suggestion';
   static const String reports = 'reports';
@@ -22,6 +23,7 @@ class PlanFeature {
     insightMonthly,
     insightWeekly,
     insightTranslation,
+    insightCustom,
     entry,
     budgetSuggestion,
     reports,

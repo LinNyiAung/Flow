@@ -7,6 +7,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/models/app_version.dart';
 import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
+import 'package:frontend/models/custom_insight.dart';
 import 'package:frontend/models/feedback.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
@@ -162,6 +163,54 @@ class PlanLimitException extends ApiException {
   }
 }
 
+/// A custom insight request the server refused for a reason of its own (not a
+/// plan check, which is a [PlanLimitException]): body
+/// `{"detail": {"code": "custom_insight_*", "message", "resets_at"}}`.
+/// Decide what to do from [code], never from [message]; [message] is already
+/// in the user's language, so it may be shown.
+class CustomInsightRequestException extends ApiException {
+  static const String invalidRange = 'custom_insight_invalid_range';
+  static const String invalidInstruction = 'custom_insight_invalid_instruction';
+  static const String noData = 'custom_insight_no_data';
+  static const String pending = 'custom_insight_pending';
+  static const String attempts = 'custom_insight_attempts';
+  static const String notReady = 'custom_insight_not_ready';
+
+  final String code;
+
+  /// When the daily attempts are back (only for [attempts]); else null.
+  final DateTime? resetsAt;
+
+  CustomInsightRequestException({
+    required this.code,
+    required int statusCode,
+    String message = '',
+    this.resetsAt,
+  }) : super(message, statusCode: statusCode);
+
+  /// Null for any body that is not a `custom_insight_*` error (a plan error,
+  /// a plain 404, FastAPI's list-shaped 422, a non-JSON page).
+  static CustomInsightRequestException? tryParse(int statusCode, String body) {
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final detail = decoded['detail'];
+    if (detail is! Map) return null;
+    final code = detail['code'];
+    if (code is! String || !code.startsWith('custom_insight_')) return null;
+    return CustomInsightRequestException(
+      code: code,
+      statusCode: statusCode,
+      message: detail['message'] is String ? detail['message'] as String : '',
+      resetsAt: parseInstantOrNull(detail['resets_at']),
+    );
+  }
+}
+
 /// HTTP client used for every API call: applies per-endpoint timeouts and
 /// reports invalidated sessions (401 / unverified 403) to [ApiService].
 class _ApiClient extends http.BaseClient {
@@ -192,6 +241,8 @@ class _ApiClient extends http.BaseClient {
     '/api/transactions/batch-create',
     '/api/budgets/ai-suggest',
     '/api/reports',
+    // Translating a custom insight runs the AI inside the request.
+    '/api/custom-insights',
   ];
 
   static Duration timeoutFor(Uri url) {
@@ -1558,6 +1609,95 @@ class ApiService {
 
     if (response.statusCode != 200) {
       throw apiError(response, 'Failed to delete insights');
+    }
+  }
+
+  // ==================== CUSTOM INSIGHTS ====================
+
+  /// A [CustomInsightRequestException] for a custom code, a
+  /// [PlanLimitException] for a plan error, otherwise [apiError].
+  static ApiException _customInsightError(http.Response response, String fallback) =>
+      CustomInsightRequestException.tryParse(response.statusCode, response.body) ??
+      apiError(response, fallback);
+
+  /// Starts a custom insight (202, a pending report) or returns the earlier
+  /// ready report for the same range and question (200, `reused`).
+  static Future<CustomInsightCreateResult> createCustomInsight(
+    CustomInsightRequest request,
+  ) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/custom-insights'),
+      headers: await _getHeaders(),
+      body: jsonEncode(request.toJson()),
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 202) {
+      _notifyPlanUsage();
+      return CustomInsightCreateResult.fromJson(
+        Map<String, dynamic>.from(jsonDecode(response.body) as Map),
+      );
+    }
+    throw _customInsightError(response, 'Failed to create the custom insight');
+  }
+
+  /// The user's custom insights, newest first (rows without text or figures).
+  static Future<List<CustomInsight>> getCustomInsights() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/custom-insights'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map;
+      final rows = body['reports'];
+      return [
+        if (rows is List)
+          for (final row in rows)
+            if (row is Map) CustomInsight.fromJson(Map<String, dynamic>.from(row)),
+      ];
+    }
+    throw _customInsightError(response, 'Failed to get custom insights');
+  }
+
+  static Future<CustomInsight> getCustomInsight(String id) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/custom-insights/${Uri.encodeComponent(id)}'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return CustomInsight.fromJson(
+        Map<String, dynamic>.from(jsonDecode(response.body) as Map),
+      );
+    }
+    throw _customInsightError(response, 'Failed to get the custom insight');
+  }
+
+  /// Adds the Myanmar text to a ready report (the server returns the stored
+  /// text when there already is one, and then uses nothing up).
+  static Future<CustomInsight> translateCustomInsight(String id) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/custom-insights/${Uri.encodeComponent(id)}/translate'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      _notifyPlanUsage();
+      return CustomInsight.fromJson(
+        Map<String, dynamic>.from(jsonDecode(response.body) as Map),
+      );
+    }
+    throw _customInsightError(response, 'Failed to translate the custom insight');
+  }
+
+  static Future<void> deleteCustomInsight(String id) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/api/custom-insights/${Uri.encodeComponent(id)}'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      throw _customInsightError(response, 'Failed to delete the custom insight');
     }
   }
 

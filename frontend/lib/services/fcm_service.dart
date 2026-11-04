@@ -145,6 +145,13 @@ class FCMService {
       NotificationEventBus().notifySubscriptionUpdated();
     }
 
+    // A custom insight finished (or could not be made): reload the list and the
+    // open report. The local notification below is still shown.
+    final type = message.data['type'];
+    if (type == 'custom_insight_ready' || type == 'custom_insight_failed') {
+      NotificationEventBus().notifyCustomInsightUpdated();
+    }
+
     _showLocalNotification(message);
     NotificationEventBus().notifyReceived();
   }
