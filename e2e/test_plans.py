@@ -146,10 +146,10 @@ def catalog_checks():
     check(catalog.PLANS == ("free", "plus", "pro"), "catalog: PLANS", catalog.PLANS)
     check(catalog.PAID_PLANS == ("plus", "pro"), "catalog: PAID_PLANS", catalog.PAID_PLANS)
     check(catalog.FEATURES == ("chat", "chat_advanced", "insight_monthly", "insight_weekly", "insight_translation",
-                               "entry", "budget_suggestion", "reports"), "catalog: FEATURES", catalog.FEATURES)
+                               "insight_custom", "entry", "budget_suggestion", "reports"), "catalog: FEATURES", catalog.FEATURES)
     check(set(catalog.DEFAULT_LIMITS) == set(catalog.PLANS)
           and all(set(v) == set(catalog.FEATURES) for v in catalog.DEFAULT_LIMITS.values()),
-          "catalog: DEFAULT_LIMITS has all 24 (plan, feature) pairs")
+          "catalog: DEFAULT_LIMITS has all 27 (plan, feature) pairs")
     check(set(catalog.DEFAULT_COST_CAPS) == set(catalog.PLANS), "catalog: DEFAULT_COST_CAPS has every plan")
     lim = catalog.Limit("counted", 5, "week")
     try:
@@ -161,13 +161,14 @@ def catalog_checks():
     L = catalog.Limit
     spec = {
         "free": {"chat": L("counted", 5, "week"), "chat_advanced": L("locked"), "insight_monthly": L("counted", 1, "month"),
-                 "insight_weekly": L("locked"), "insight_translation": L("locked"), "entry": L("counted", 10, "month"),
-                 "budget_suggestion": L("counted", 1, "month"), "reports": L("locked")},
+                 "insight_weekly": L("locked"), "insight_translation": L("locked"), "insight_custom": L("locked"),
+                 "entry": L("counted", 10, "month"), "budget_suggestion": L("counted", 1, "month"), "reports": L("locked")},
         "plus": {"chat": L("counted", 100, "month"), "chat_advanced": L("locked"), "insight_monthly": L("included"),
-                 "insight_weekly": L("included"), "insight_translation": L("included"), "entry": L("counted", 150, "month"),
-                 "budget_suggestion": L("counted", 5, "month"), "reports": L("included")},
+                 "insight_weekly": L("included"), "insight_translation": L("included"), "insight_custom": L("locked"),
+                 "entry": L("counted", 150, "month"), "budget_suggestion": L("counted", 5, "month"), "reports": L("included")},
         "pro": {"chat": L("counted", 400, "month"), "chat_advanced": L("counted", 100, "month"), "insight_monthly": L("included"),
-                "insight_weekly": L("included"), "insight_translation": L("included"), "entry": L("counted", 500, "month"),
+                "insight_weekly": L("included"), "insight_translation": L("included"),
+                "insight_custom": L("counted", 10, "month"), "entry": L("counted", 500, "month"),
                 "budget_suggestion": L("counted", 20, "month"), "reports": L("included")},
     }
     check(catalog.DEFAULT_LIMITS == spec, "catalog: DEFAULT_LIMITS match the agreed defaults")
@@ -188,7 +189,7 @@ def defaults_seeded(conn, label):
         return
     want ={(p, f): (lim.mode, lim.quota, lim.period) for p, feats in catalog.DEFAULT_LIMITS.items() for f, lim in feats.items()}
     got = seeded_limits(conn)
-    check(len(got) == 24 and got == want, f"defaults_seeded{label}: plan_limits rows equal DEFAULT_LIMITS (24 pairs)",
+    check(len(got) == 27 and got == want, f"defaults_seeded{label}: plan_limits rows equal DEFAULT_LIMITS (27 pairs)",
           f"{len(got)} rows; differ: {sorted(set(got.items()) ^ set(want.items()))[:4]}")
     caps = {r[0]: float(r[1]) for r in conn.execute("SELECT plan, cost_cap_usd FROM plan_settings")}
     check(caps == {"free": 0.10, "plus": 1.00, "pro": 3.00}, f"defaults_seeded{label}: plan_settings caps are 0.10, 1.00, 3.00", caps)
@@ -452,7 +453,7 @@ async def store_checks():
               and store.upgrade_contact() == {"en": "Message us", "my": "ဆက်သွယ်ပါ"},
               "store_save: the cache changes at once")
         check(got_limits[("free", "chat")] == ("counted", 20, "month") and got_caps["plus"] == 1.5
-              and got_contact == {"upgrade_contact_en": "Message us", "upgrade_contact_my": "ဆက်သွယ်ပါ"} and len(got_limits) == 24,
+              and got_contact == {"upgrade_contact_en": "Message us", "upgrade_contact_my": "ဆက်သွယ်ပါ"} and len(got_limits) == 27,
               "store_save: the database holds the new rows, caps and the app_settings keys upgrade_contact_en / upgrade_contact_my",
               (got_limits[("free", "chat")], got_caps, got_contact))
         # a locked mode clears the quota and period
@@ -712,6 +713,7 @@ async def plans_checks():
     """Task 2 and 3 checks under ONE event loop: the backend's async DB engine binds to the first loop it is used on."""
     from sql.db import dispose_engine
     import plans_chat_checks
+    import plans_custom_insight_checks
     import plans_entry_checks
     import plans_insight_checks
     import plans_quota_checks
@@ -727,6 +729,7 @@ async def plans_checks():
         await plans_entry_checks.run(sys.modules[__name__])  # task 6: entry, budget and report gates; voice counts once
         await plans_insight_checks.run(sys.modules[__name__])  # task 7: insights by plan; language chosen per request
         await plans_upgrade_request_checks.run(sys.modules[__name__])  # plan polish: upgrade requests; admin list shows the effective plan
+        await plans_custom_insight_checks.run(sys.modules[__name__])  # custom insights: quota feature, table and data layer
     finally:
         await dispose_engine()
 
@@ -737,6 +740,8 @@ def main():
     with connect() as conn:
         defaults_seeded(conn, "")
     migration_checks()
+    import plans_custom_insight_checks
+    plans_custom_insight_checks.migration_checks(sys.modules[__name__])
     behaviour_checks()
     asyncio.run(plans_checks())
     failed = results.count(False)

@@ -242,6 +242,44 @@ insights = Table(
 Index("ix_insights_latest", insights.c.user_id, insights.c.ai_provider, insights.c.insight_type,
       insights.c.generated_at.desc())
 
+# Custom insights (Pro): an AI report on a date range the user picks, optionally with a preset question or free-text
+# instruction. A row is created `pending` and moves once to ready / failed / refused. At most one pending row per user.
+# counter_keys: the quota counter rows the report reserved, as [feature, period, "YYYY-MM-DD"] lists (given back on failure).
+# A deleted failed / refused row is kept hidden (deleted_at set, its text cleared) so it still counts as an attempt.
+custom_insights = Table(
+    "custom_insights", metadata,
+    Column("id", Text, primary_key=True),
+    _user_fk(),
+    Column("start_date", Date, nullable=False),
+    Column("end_date", Date, nullable=False),
+    Column("preset", Text),
+    Column("instruction", Text),
+    Column("instruction_key", Text, nullable=False, server_default=""),  # normalised instruction/preset, for reuse matching
+    Column("status", Text, nullable=False, server_default="pending"),
+    Column("content", Text),
+    Column("content_mm", Text),
+    Column("figures", JSONB),  # snapshot of the figures the report was written from
+    Column("ai_provider", Text),
+    Column("ai_model", Text),
+    Column("input_tokens", Integer),
+    Column("output_tokens", Integer),
+    Column("counter_keys", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    Column("completed_at", TS),
+    Column("deleted_at", TS),
+    CheckConstraint("status IN ('pending','ready','failed','refused')", name="status"),
+    CheckConstraint("end_date >= start_date", name="date_range"),
+    CheckConstraint("preset IS NULL OR preset IN ('where_to_save','compare_previous','biggest_changes','budgets_goals')",
+                    name="preset"),
+    CheckConstraint("instruction IS NULL OR char_length(instruction) <= 300", name="instruction_length"),
+    CheckConstraint("preset IS NULL OR instruction IS NULL", name="preset_or_instruction"),
+    CheckConstraint("status <> 'ready' OR (content IS NOT NULL AND btrim(content) <> '')", name="ready_has_content"),
+    CheckConstraint("deleted_at IS NULL OR status IN ('failed','refused')", name="deleted_only_failed_refused"),
+)
+Index("ix_custom_insights_user_created", custom_insights.c.user_id, custom_insights.c.created_at.desc())
+Index("uq_custom_insights_pending_user", custom_insights.c.user_id, unique=True,
+      postgresql_where=custom_insights.c.status == "pending")
+
 chat_sessions = Table(
     "chat_sessions", metadata,
     Column("id", Text, primary_key=True),

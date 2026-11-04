@@ -12,7 +12,7 @@ PAID_PLANS = ("plus", "pro")
 PLAN_RANK = {"free": 0, "plus": 1, "pro": 2}  # a higher plan includes everything a lower one has
 
 # One entry per metered (or gated) thing a user can do with AI or a paid report.
-FEATURES = ("chat", "chat_advanced", "insight_monthly", "insight_weekly", "insight_translation",
+FEATURES = ("chat", "chat_advanced", "insight_monthly", "insight_weekly", "insight_translation", "insight_custom",
             "entry", "budget_suggestion", "reports")
 
 # Limit modes: locked = not available, included = available without a count, counted = quota per period.
@@ -37,6 +37,7 @@ DEFAULT_LIMITS: Dict[str, Dict[str, Limit]] = {
         "insight_monthly": Limit("counted", 1, "month"),
         "insight_weekly": _LOCKED,
         "insight_translation": _LOCKED,
+        "insight_custom": _LOCKED,
         "entry": Limit("counted", 10, "month"),
         "budget_suggestion": Limit("counted", 1, "month"),
         "reports": _LOCKED,
@@ -47,6 +48,7 @@ DEFAULT_LIMITS: Dict[str, Dict[str, Limit]] = {
         "insight_monthly": _INCLUDED,
         "insight_weekly": _INCLUDED,
         "insight_translation": _INCLUDED,
+        "insight_custom": _LOCKED,
         "entry": Limit("counted", 150, "month"),
         "budget_suggestion": Limit("counted", 5, "month"),
         "reports": _INCLUDED,
@@ -57,6 +59,7 @@ DEFAULT_LIMITS: Dict[str, Dict[str, Limit]] = {
         "insight_monthly": _INCLUDED,
         "insight_weekly": _INCLUDED,
         "insight_translation": _INCLUDED,
+        "insight_custom": Limit("counted", 10, "month"),
         "entry": Limit("counted", 500, "month"),
         "budget_suggestion": Limit("counted", 20, "month"),
         "reports": _INCLUDED,

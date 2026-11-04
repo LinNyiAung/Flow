@@ -133,6 +133,13 @@ async def has_transactions_between(user_id: str, start: datetime, end: datetime)
     return bool(await fetch_value(select(exists().where(t.c.user_id == user_id, t.c.date >= start, t.c.date <= end))))
 
 
+async def changed_since(user_id: str, start: datetime, end: datetime, since: datetime) -> bool:
+    """True when a transaction dated within [start, end] was created or edited after `since`."""
+    return bool(await fetch_value(select(exists().where(
+        t.c.user_id == user_id, t.c.date >= start, t.c.date <= end,
+        (t.c.created_at > since) | (t.c.updated_at > since)))))
+
+
 async def currencies(user_id: str) -> List[str]:
     rows = await fetch_all(select(distinct(t.c.currency).label("c")).where(t.c.user_id == user_id).order_by("c"))
     return [r["c"] for r in rows]
