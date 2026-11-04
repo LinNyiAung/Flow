@@ -46,7 +46,8 @@ async def list_goals(user_id: Optional[str] = None, *, status: Optional[str] = N
 
 
 async def changed_since(user_id: str, since: datetime) -> bool:
-    """True when one of the user's goals was created or edited after `since` (a deleted goal leaves no trace)."""
+    """True when one of the user's goals was created or edited after `since` (a deleted goal leaves no trace). Only the
+    user's own actions move updated_at (editing the goal, adding to or taking from it); no job updates goals."""
     return bool(await fetch_value(select(exists().where(
         g.c.user_id == user_id, (g.c.created_at > since) | (g.c.updated_at > since)))))
 

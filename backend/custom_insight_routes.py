@@ -63,6 +63,7 @@ _MESSAGE_KEYS = {  # error code -> NOTIFICATION_TRANSLATIONS key
 
 
 PAGE_SIZE = 30
+GOALS_BUDGETS_PRESET = "budgets_goals"  # its reuse also checks goals and budgets
 # C0 control characters other than tab, newline and carriage return, and DEL (Postgres text cannot even store NUL).
 _BAD_INSTRUCTION_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -144,14 +145,16 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     match = await ci.find_ready_match(uid, data.start_date, data.end_date, key)
     if match is not None:
         # Reusable only when nothing in the range was created or edited since, and the figures (which also see a deleted
-        # transaction, or one moved out of the range) are the ones the report was written from. The report also quotes
-        # the goals and the budgets overlapping the range, so one of those created or edited since makes it stale too
-        # (a deleted goal or budget leaves no trace and is not seen).
+        # transaction, or one moved out of the range) are the ones the report was written from. The "Check my budgets and
+        # goals" report is about the goals and budgets themselves, so for it a goal created or edited since, or a budget
+        # overlapping the range created since, makes it stale too. Budget edits are not seen (budgets.updated_at also
+        # moves on every spend recompute), nor are deleted goals or budgets.
         start_utc, end_utc = day_bounds_utc(data.start_date, data.end_date)
         since = match["created_at"]
-        changed = (await transactions_db.changed_since(uid, start_utc, end_utc, since)
-                   or await goals_db.changed_since(uid, since)
-                   or await budgets_db.changed_since(uid, start_utc, end_utc, since))
+        changed = await transactions_db.changed_since(uid, start_utc, end_utc, since)
+        if not changed and data.preset == GOALS_BUDGETS_PRESET:
+            changed = (await goals_db.changed_since(uid, since)
+                       or await budgets_db.created_since(uid, start_utc, end_utc, since))
         if not changed and match.get("figures") == figures:
             return {"report": _detail(match), "reused": True}  # 200: nothing reserved, nothing started
 

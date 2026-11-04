@@ -1211,43 +1211,88 @@ async def route_checks(t, h):
               (e.status_code, r.status_code, d2.get("figures") == d1["figures"]))
         check(post(uh, instruction="x").json()["reused"] is True, "reuse_again_after_regeneration: the new report is reused")
 
-        # The report quotes the goals and the budgets overlapping the range: one created or edited since makes it stale.
-        u, uh, _ = mk("api-gb")
-        create_ready(uh, preset="budgets_goals")
-        gb = []
+        # "Check my budgets and goals" is about the goals and budgets themselves: a goal created or edited since, or a
+        # budget overlapping the range created since, makes it stale. A budget spend recompute (which moves
+        # budgets.updated_at, e.g. on every chat) does not; other reports look at transactions only.
+        import budget_service
+        from custom_insight_routes import GOALS_BUDGETS_PRESET
 
-        def again(label):
-            r = post(uh, preset="budgets_goals")
-            if r.status_code == 202:
-                wait(uh, r.json()["report"]["id"])
-            gb.append((label, r.status_code))
-
-        def budget_row(start_day, end_day):
+        def budget_row(uid, start_day, end_day):
+            bid = str(uuid.uuid4())
             with t.connect() as conn:
                 conn.execute("INSERT INTO budgets (id, user_id, name, period, start_date, end_date, total_budget, status) "
                              "VALUES (%s, %s, 'Food', 'monthly', %s, %s, 100, 'active')",
-                             (str(uuid.uuid4()), u, datetime.combine(start_day, datetime.min.time(), tzinfo=UTC),
+                             (bid, uid, datetime.combine(start_day, datetime.min.time(), tzinfo=UTC),
                               datetime.combine(end_day, datetime.min.time(), tzinfo=UTC)))
+            return bid
+
+        def goal_row(uid):
+            gid = str(uuid.uuid4())
+            with t.connect() as conn:
+                conn.execute("INSERT INTO goals (id, user_id, name, goal_type, target_amount) VALUES (%s, %s, 'Trip', "
+                             "'savings', 500)", (gid, uid))
+            return gid
+
+        def edit_goal(gid):
+            with t.connect() as conn:  # what PUT /api/goals/{id} and a contribution write
+                conn.execute("UPDATE goals SET current_amount = 50, updated_at = now() WHERE id = %s", (gid,))
+
+        def budget_stamp(bid):
+            with t.connect() as conn:
+                return conn.execute("SELECT updated_at FROM budgets WHERE id = %s", (bid,)).fetchone()[0]
+
+        async def recompute(uid, bid):
+            """The real spend recompute (what the chatbot and transaction edits run); True when it moved updated_at."""
+            before_stamp = budget_stamp(bid)
+            await budget_service.update_budget_spent_amounts(uid, bid)
+            return budget_stamp(bid) > before_stamp
+
+        def runner(hd, **kw):
+            seen = []
+
+            def again(label):
+                r = post(hd, **kw)
+                if r.status_code == 202:
+                    wait(hd, r.json()["report"]["id"])
+                seen.append((label, r.status_code))
+            return seen, again
+
+        u, uh, _ = mk("api-gb")
+        create_ready(uh, preset=GOALS_BUDGETS_PRESET)
+        gb, again = runner(uh, preset=GOALS_BUDGETS_PRESET)
         again("unchanged")
-        goal_id = str(uuid.uuid4())
-        with t.connect() as conn:
-            conn.execute("INSERT INTO goals (id, user_id, name, goal_type, target_amount) VALUES (%s, %s, 'Trip', "
-                         "'savings', 500)", (goal_id, u))
+        gid = goal_row(u)
         again("goal created")
         again("after the new report")
-        with t.connect() as conn:
-            conn.execute("UPDATE goals SET current_amount = 50, updated_at = now() WHERE id = %s", (goal_id,))
+        edit_goal(gid)
         again("goal edited")
-        budget_row(today - timedelta(days=200), today - timedelta(days=170))
+        budget_row(u, today - timedelta(days=200), today - timedelta(days=170))
         again("budget outside the range created")
-        budget_row(today - timedelta(days=10), today + timedelta(days=20))
+        bid = budget_row(u, today - timedelta(days=10), today + timedelta(days=20))
         again("budget in the range created")
         again("after the new report")
-        check(gb == [("unchanged", 200), ("goal created", 202), ("after the new report", 200), ("goal edited", 202),
-                     ("budget outside the range created", 200), ("budget in the range created", 202),
-                     ("after the new report", 200)],
-              "reuse_after_goal_or_budget_change_regenerates: a goal created or edited, or a budget overlapping the range "
-              "created, since the report makes a new one; a budget outside the range does not", gb)
+        moved = await recompute(u, bid)
+        again("budget spend recomputed")
+        check(GOALS_BUDGETS_PRESET in cis.PRESETS and moved
+              and gb == [("unchanged", 200), ("goal created", 202), ("after the new report", 200), ("goal edited", 202),
+                         ("budget outside the range created", 200), ("budget in the range created", 202),
+                         ("after the new report", 200), ("budget spend recomputed", 200)],
+              "reuse_budgets_goals_preset: a goal created or edited, or a budget overlapping the range created, makes a new "
+              "report; a budget outside the range, or a spend recompute alone (it moves updated_at), does not", (moved, gb))
+
+        u, uh, _ = mk("api-gb-other")
+        create_ready(uh, instruction="x")
+        other_seen, again = runner(uh, instruction="x")
+        bid = budget_row(u, today - timedelta(days=10), today + timedelta(days=20))
+        again("budget in the range created")
+        edit_goal(goal_row(u))
+        again("goal created and edited")
+        moved = await recompute(u, bid)
+        again("budget spend recomputed")
+        check(moved and other_seen == [("budget in the range created", 200), ("goal created and edited", 200),
+                                       ("budget spend recomputed", 200)],
+              "reuse_other_reports_ignore_goals_budgets: a report that is not the budgets-and-goals preset is reused "
+              "after goal and budget changes and a budget recompute (transactions and figures only)", (moved, other_seen))
 
         # ---- one pending at a time
         u, uh, _ = mk("api-pend")
