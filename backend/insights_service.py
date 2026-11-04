@@ -542,9 +542,14 @@ def currency_label(code: str) -> tuple[str, str]:
             "USD" if code == "usd" else ("MMK" if code == "mmk" else "THB"))
 
 
-def goals_budgets_context(goals, budgets) -> str:
+def _weekly_money(sym: str, amount: float) -> str:
+    return f"{sym}{amount:,.2f}"
+
+
+def goals_budgets_context(goals, budgets, money=_weekly_money) -> str:
     """The goals and budgets block of an insight context (weekly and custom): per currency, at most 5 active goals
-    with their progress, then each budget with its total and at most 5 category allocations. "" when both are empty."""
+    with their progress, then each budget with its total and at most 5 category allocations. "" when both are empty.
+    money(symbol, amount) formats each amount (the weekly format by default)."""
     context = ""
     if goals:
         context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
@@ -559,7 +564,7 @@ def goals_budgets_context(goals, budgets) -> str:
             context += f"{name} Goals:\n"
             for goal in active_goals[:5]:
                 progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-                context += f"  - {goal['name']}: {sym}{goal['current_amount']:,.2f} / {sym}{goal['target_amount']:,.2f} ({progress:.1f}%)\n"
+                context += f"  - {goal['name']}: {money(sym, goal['current_amount'])} / {money(sym, goal['target_amount'])} ({progress:.1f}%)\n"
             context += "\n"
 
     if budgets:
@@ -576,12 +581,12 @@ def goals_budgets_context(goals, budgets) -> str:
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
                 context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
-                context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
+                context += f"     Total: {money(sym, budget['total_spent'])} / {money(sym, budget['total_budget'])} ({utilization:.1f}%)\n"
 
                 # Show category breakdowns
                 for cat_budget in budget.get('category_budgets', [])[:5]:
                     cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
+                    context += f"       - {cat_budget['main_category']}: {money(sym, cat_budget['spent_amount'])} / {money(sym, cat_budget['allocated_amount'])} ({cat_util:.1f}%)\n"
                 context += "\n"
     return context
 
