@@ -70,6 +70,14 @@ async def budgets_overlapping(user_id: str, start: datetime, end: datetime,
     return await _list(stmt.order_by(b.c.created_at.desc(), b.c.id))
 
 
+async def changed_since(user_id: str, start: datetime, end: datetime, since: datetime) -> bool:
+    """True when a budget whose window overlaps [start, end] was created or updated after `since` (a recompute of its
+    spend counts as an update; a deleted budget leaves no trace)."""
+    return bool(await fetch_value(select(exists().where(
+        b.c.user_id == user_id, b.c.start_date <= end, b.c.end_date >= start,
+        (b.c.created_at > since) | (b.c.updated_at > since)))))
+
+
 async def has_budget_containing(user_id: str, moment: datetime) -> bool:
     return bool(await fetch_value(select(exists().where(
         b.c.user_id == user_id, b.c.start_date <= moment, b.c.end_date >= moment))))

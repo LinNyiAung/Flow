@@ -1,7 +1,7 @@
 """Custom insights (Pro): the HTTP API under /api/custom-insights.
 
 POST ""                    create a report (or answer with a reusable one), 202 / 200
-GET  ""                    the user's reports (summaries), any plan
+GET  ""                    the user's reports (summaries), any plan; 30 a page, ?before=<next_before> for the next
 GET  "/{id}"               one report with its content and figures
 POST "/{id}/translate"     the Myanmar text of a ready report
 DELETE "/{id}"             delete a ready report; failed / refused ones are hidden but still count as attempts
@@ -10,12 +10,16 @@ The writing itself runs in the background (custom_insights_service.start_report)
 cost cap) is a PlanError, rendered by the app-wide handler; the other refusals are {"detail": {"code", "message",
 "resets_at"}} with the message in the user's language.
 """
+import asyncio
+import base64
+import binascii
 import logging
+import re
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 import custom_insights_service as cis
@@ -23,7 +27,9 @@ from insights_service import InsightAIError, is_rate_limit_error, translate_insi
 from notification_service import translate as translate_text
 from plans import quota
 from plans.access import user_language
+from sql import budgets as budgets_db
 from sql import custom_insights as ci
+from sql import goals as goals_db
 from sql import transactions as transactions_db
 from tz_utils import app_today, as_utc, day_bounds_utc, utc_now
 from utils import get_current_user
@@ -56,10 +62,35 @@ _MESSAGE_KEYS = {  # error code -> NOTIFICATION_TRANSLATIONS key
 }
 
 
-def _error(user: dict, http_status: int, code: str, resets_at: Optional[datetime] = None) -> HTTPException:
-    """{"detail": {"code", "message" (the user's language), "resets_at"}}."""
-    message = translate_text(_MESSAGE_KEYS[code], user_language(user))
+PAGE_SIZE = 30
+# C0 control characters other than tab, newline and carriage return, and DEL (Postgres text cannot even store NUL).
+_BAD_INSTRUCTION_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _error(user: dict, http_status: int, code: str, resets_at: Optional[datetime] = None,
+           message_key: Optional[str] = None) -> HTTPException:
+    """{"detail": {"code", "message" (the user's language), "resets_at"}}. message_key: another text for the code."""
+    message = translate_text(message_key or _MESSAGE_KEYS[code], user_language(user))
     return HTTPException(status_code=http_status, detail={"code": code, "message": message, "resets_at": _iso(resets_at)})
+
+
+def _cursor(row: Dict[str, Any]) -> str:
+    """The opaque `next_before` of a page ending at `row`: its created_at and id, base64url."""
+    raw = f"{as_utc(row['created_at']).isoformat()}|{row['_id']}".encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _parse_cursor(value: str) -> Tuple[datetime, str]:
+    """(created_at, id) from a `next_before`; ValueError for anything else."""
+    try:
+        raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+    except (binascii.Error, UnicodeDecodeError) as e:
+        raise ValueError("not a cursor") from e
+    stamp, sep, report_id = raw.partition("|")
+    created_at = datetime.fromisoformat(stamp)  # ValueError for a bad stamp
+    if not sep or not report_id or created_at.tzinfo is None:
+        raise ValueError("not a cursor")
+    return created_at, report_id
 
 
 def _summary(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -95,6 +126,9 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     instruction = (data.instruction or "").strip() or None
     if instruction and (data.preset or len(instruction) > cis.MAX_INSTRUCTION_LENGTH):  # a preset OR an instruction
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_instruction")
+    if instruction and _BAD_INSTRUCTION_CHARS.search(instruction):
+        raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_instruction",
+                     message_key="custom_insight_instruction_chars_msg")
     try:
         cis.validate_range(data.start_date, data.end_date, app_today())
     except cis.RangeError:
@@ -110,9 +144,14 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     match = await ci.find_ready_match(uid, data.start_date, data.end_date, key)
     if match is not None:
         # Reusable only when nothing in the range was created or edited since, and the figures (which also see a deleted
-        # transaction, or one moved out of the range) are the ones the report was written from.
+        # transaction, or one moved out of the range) are the ones the report was written from. The report also quotes
+        # the goals and the budgets overlapping the range, so one of those created or edited since makes it stale too
+        # (a deleted goal or budget leaves no trace and is not seen).
         start_utc, end_utc = day_bounds_utc(data.start_date, data.end_date)
-        changed = await transactions_db.changed_since(uid, start_utc, end_utc, match["created_at"])
+        since = match["created_at"]
+        changed = (await transactions_db.changed_since(uid, start_utc, end_utc, since)
+                   or await goals_db.changed_since(uid, since)
+                   or await budgets_db.changed_since(uid, start_utc, end_utc, since))
         if not changed and match.get("figures") == figures:
             return {"report": _detail(match), "reused": True}  # 200: nothing reserved, nothing started
 
@@ -132,7 +171,16 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     try:
         inserted = await ci.insert_pending(row)
     except BaseException:
-        await quota.give_back(reservation)
+        # The insert may have committed before the error reached us (a cancellation after Postgres committed but before
+        # execute returned). The row then owns the reservation through its counter_keys and the sweeper gives it back,
+        # so giving it back here too would give it back twice. Give back only when the row is surely not there; if the
+        # lookup fails as well, leave it: if the row exists the sweeper gives the use back, if not it stays counted.
+        try:
+            exists = await asyncio.shield(ci.get(report_id, include_deleted=True)) is not None
+        except BaseException:  # noqa: BLE001 - unknown, see above
+            exists = True
+        if not exists:
+            await quota.give_back(reservation)
         raise
     if not inserted:  # a second request got in first: one pending report per user
         await quota.give_back(reservation)
@@ -147,10 +195,20 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
 
 
 @router.get("")
-async def list_custom_insights(current_user: dict = Depends(get_current_user)):
-    """The user's reports, newest first (at most 100), without their text. Open to every plan."""
-    rows = await ci.list_summaries(current_user["_id"], limit=100)
-    return {"reports": [_summary(r) for r in rows]}
+async def list_custom_insights(before: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
+    """The user's reports, newest first, PAGE_SIZE at a time, without their text. Open to every plan.
+
+    `next_before` is null on the last page; otherwise pass it back as `before` for the next (older) page."""
+    cursor = None
+    if before:
+        try:
+            cursor = _parse_cursor(before)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid 'before' cursor")
+    rows = await ci.list_summaries(current_user["_id"], limit=PAGE_SIZE + 1, before=cursor)
+    more = len(rows) > PAGE_SIZE
+    rows = rows[:PAGE_SIZE]
+    return {"reports": [_summary(r) for r in rows], "next_before": _cursor(rows[-1]) if more else None}
 
 
 @router.get("/{report_id}")

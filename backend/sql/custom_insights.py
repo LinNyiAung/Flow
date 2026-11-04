@@ -8,9 +8,9 @@ Every function returns documents in the shape of sql.docs.row_to_doc: `_id` for 
 `figures` a dict (or None), `counter_keys` a list of [feature, period, "YYYY-MM-DD"] lists.
 """
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import delete, func, null, select, text, update
+from sqlalchemy import delete, func, null, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, write_returning
@@ -48,20 +48,18 @@ async def get(report_id: str, user_id: Optional[str] = None, include_deleted: bo
     return row_to_doc(await fetch_one(stmt))
 
 
-async def list_for_user(user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-    """The user's reports (any status), newest first, hidden ones left out."""
-    stmt = (select(custom_insights).where(_c.user_id == user_id, _c.deleted_at.is_(None))
-            .order_by(_c.created_at.desc(), _c.id.desc()).limit(limit))
-    return [row_to_doc(r) for r in await fetch_all(stmt)]
-
-
-async def list_summaries(user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-    """list_for_user without the text and figures (they can be large): only the summary columns, plus `has_myanmar`
-    (whether content_mm is stored)."""
+async def list_summaries(user_id: str, limit: int = 30,
+                         before: Optional[Tuple[datetime, str]] = None) -> List[Dict[str, Any]]:
+    """The user's reports (any status), newest first (created_at, then id), hidden ones left out; at most `limit`.
+    Only the summary columns (not the text and figures, which can be large), plus `has_myanmar` (whether content_mm is
+    stored). `before` = (created_at, id) of the last row of the previous page: only rows after it in that order (keyset
+    paging on ix_custom_insights_user_created, stable when several rows share a created_at)."""
     stmt = (select(_c.id, _c.start_date, _c.end_date, _c.preset, _c.instruction, _c.status, _c.created_at,
                    _c.completed_at, (_c.content_mm.is_not(None) & (_c.content_mm != "")).label("has_myanmar"))
-            .where(_c.user_id == user_id, _c.deleted_at.is_(None))
-            .order_by(_c.created_at.desc(), _c.id.desc()).limit(limit))
+            .where(_c.user_id == user_id, _c.deleted_at.is_(None)))
+    if before is not None:
+        stmt = stmt.where(tuple_(_c.created_at, _c.id) < tuple_(before[0], before[1]))
+    stmt = stmt.order_by(_c.created_at.desc(), _c.id.desc()).limit(limit)
     return [row_to_doc(r) for r in await fetch_all(stmt)]
 
 

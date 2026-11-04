@@ -58,7 +58,7 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_custom_insights_user_id_users'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_custom_insights'))
     )
-    op.create_index(op.f('ix_custom_insights_user_id'), 'custom_insights', ['user_id'], unique=False)
+    # No separate user_id index: ix_custom_insights_user_created leads with user_id.
     op.create_index('ix_custom_insights_user_created', 'custom_insights', ['user_id', sa.text('created_at DESC')], unique=False)
     op.create_index('uq_custom_insights_pending_user', 'custom_insights', ['user_id'], unique=True,
                     postgresql_where=sa.text("status = 'pending'"))

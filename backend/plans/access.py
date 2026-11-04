@@ -90,21 +90,23 @@ class PlanError(Exception):
         super().__init__(f"{code}: {feature}")
 
     def message(self) -> str:
-        from notification_service import translate  # imported late: it pulls in the notification stack
+        # Imported here, not at the top: notification_service imports this module (format_day), so a top-level import
+        # would be a cycle (plans.access -> notification_service -> plans.access).
+        from notification_service import translate
 
         lang = self.lang
         name = translate(f"plan_feature_{self.feature}", lang) if self.feature else ""
-        date = format_date(self.resets_at, lang) if self.resets_at is not None else ""
+        resets_on = format_date(self.resets_at, lang) if self.resets_at is not None else ""
         if self.code == LOCKED:
             # feature None: a route that needs any paid plan and is not one of the quota features
             text = (translate("plan_feature_locked_msg", lang, feature=name) if self.feature
                     else translate("plan_paid_required_msg", lang))
             hint = "plan_upgrade_to_unlock"
         elif self.code == LIMIT_REACHED:
-            text = translate("plan_limit_reached_msg", lang, feature=name, date=date)
+            text = translate("plan_limit_reached_msg", lang, feature=name, date=resets_on)
             hint = "plan_upgrade_for_more"
         else:
-            text = translate("plan_cost_cap_msg", lang, date=date)
+            text = translate("plan_cost_cap_msg", lang, date=resets_on)
             hint = "plan_upgrade_for_more"
         return f"{text} {translate(hint, lang)}" if self.upgrade_available else text
 

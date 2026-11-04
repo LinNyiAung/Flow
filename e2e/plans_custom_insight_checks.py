@@ -52,9 +52,11 @@ def migration_checks(t):
                 "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'custom_insights'")}
             pending = indexes.get("uq_custom_insights_pending_user", "")
             check("UNIQUE" in pending and "status = 'pending'" in pending
-                  and "ix_custom_insights_user_created" in indexes and "created_at DESC" in indexes["ix_custom_insights_user_created"]
-                  and "ix_custom_insights_user_id" in indexes,
-                  "custom_migration_indexes: unique one-pending-per-user (partial), newest-first per user, user_id", indexes)
+                  and "ix_custom_insights_user_created" in indexes
+                  and "(user_id, created_at DESC)" in indexes["ix_custom_insights_user_created"]
+                  and "ix_custom_insights_user_id" not in indexes and len(indexes) == 3,
+                  "custom_migration_indexes: the primary key, unique one-pending-per-user (partial) and newest-first per "
+                  "user (leading with user_id, so no separate user_id index)", indexes)
         finally:
             ok, out = t.alembic("upgrade", "head")  # whatever happened above, leave the database at head
             conn.execute("DELETE FROM users WHERE id = %s", (uid,))
@@ -189,15 +191,30 @@ async def storage_checks(t, h):
           "storage_pending_slot_frees: after finish the user can start a new report")
     await ci.finish(await _pending_id(ua), status="refused", now=now)
 
-    # ---- list_for_user: newest first, not deleted, limited
+    # ---- list_summaries: newest first, not deleted, limited, paged by (created_at, id)
+    check(not hasattr(ci, "list_for_user"), "storage_list_for_user_removed: only list_summaries lists reports")
     ul, _ = h.register("list")
     r1 = await make(ul, "ready", now - timedelta(hours=3))
     r2 = await make(ul, "ready", now - timedelta(hours=1))
     r3 = await make(ul, "failed", now - timedelta(hours=2))
-    check(ids(await ci.list_for_user(ul)) == [r2, r3, r1] and ids(await ci.list_for_user(ul, limit=2)) == [r2, r3],
-          "storage_list_newest_first: newest first, limit applies")
-    check(await ci.delete_for_user(r3, ul, now) == "hidden" and ids(await ci.list_for_user(ul)) == [r2, r1]
-          and ids(await ci.list_for_user(ub)) == [b["_id"]],
+    first_two = await ci.list_summaries(ul, limit=2)
+    check(ids(await ci.list_summaries(ul)) == [r2, r3, r1] and ids(first_two) == [r2, r3]
+          and ids(await ci.list_summaries(ul, before=(first_two[-1]["created_at"], first_two[-1]["_id"]))) == [r1]
+          and await ci.list_summaries(ul, before=(now - timedelta(hours=3), r1)) == [],
+          "storage_list_newest_first: newest first, limit applies, `before` continues after the given row")
+    tie_at = now - timedelta(hours=4)
+    tied = sorted([await make(ul, "ready", tie_at) for _ in range(5)], reverse=True)  # same created_at: id descending
+    walked, cursor = [], None
+    while True:
+        page = await ci.list_summaries(ul, limit=2, before=cursor)
+        if not page:
+            break
+        walked += ids(page)
+        cursor = (page[-1]["created_at"], page[-1]["_id"])
+    check(walked == [r2, r3, r1] + tied, "storage_list_before_ties: pages of 2 walk every row once, in order, "
+          "through rows that share a created_at", walked)
+    check(await ci.delete_for_user(r3, ul, now) == "hidden" and ids(await ci.list_summaries(ul)) == [r2, r1] + tied
+          and ids(await ci.list_summaries(ub)) == [b["_id"]],
           "storage_list_hides_deleted: a hidden row is not listed, other users' rows never are")
 
     # ---- find_ready_match: the newest ready row with exactly these values
@@ -229,7 +246,7 @@ async def storage_checks(t, h):
     await ci.insert_pending(doc(ud, _id=pending_id))
     check(await ci.delete_for_user(ready_id, ud, now) == "deleted" and await ci.get(ready_id, include_deleted=True) is None,
           "storage_delete_ready_removes_row")
-    check(await ci.delete_for_user(failed_id, ud, now) == "hidden" and failed_id not in ids(await ci.list_for_user(ud))
+    check(await ci.delete_for_user(failed_id, ud, now) == "hidden" and failed_id not in ids(await ci.list_summaries(ud))
           and await ci.count_attempts_since(ud, day_start) == 2, "storage_delete_failed_hides_but_counts")
     check(await ci.get(failed_id) is None and (await ci.get(failed_id, user_id=ud)) is None, "storage_get_skips_hidden: get() hides a hidden row")
     with t.connect() as conn:
@@ -393,7 +410,8 @@ async def notification_checks(t, h):
     xid = str(uuid.uuid4())
     await ns.notify_custom_insight_failed(en_uid, xid, start, end, refused=True)
     r = next((n for n in notes(en_uid, "custom_insight_failed") if n["goal_id"] == xid), {})
-    check(r and r["title"] == f["title"] and r["message"] != f["message"] and "answer from your finances" in r["message"]
+    # .get on f: when the plain failure notice above was not stored, this check must fail, not raise a KeyError
+    check(r and r["title"] == f.get("title") and r["message"] != f.get("message") and "answer from your finances" in r["message"]
           and r["message"].endswith("It wasn't counted."),
           "notify_custom_refused: its own message, the failed type and title", r)
 
@@ -468,10 +486,10 @@ async def generation_checks(t, h):
     def notes_for(uid, rid):
         return [n for n in notes(uid) if n.get("goal_id") == rid]
 
-    def answering(text):
-        """A stand-in for run_insight_model that answers `text` from Claude."""
+    def answering(text, finish="stop"):
+        """A stand-in for run_insight_model that answers `text` from Claude (finish: the completion's finish reason)."""
         async def fake(*a, **k):
-            return RunResult(text, Target(provider="claude", model="claude-sonnet-5-5"), None, Completion(text, 7, 3, "stop"))
+            return RunResult(text, Target(provider="claude", model="claude-sonnet-5-5"), None, Completion(text, 7, 3, finish))
         return fake
 
     today = app_today()
@@ -575,6 +593,14 @@ async def generation_checks(t, h):
               and start.strftime("%B %d, %Y") in ctx and (today - timedelta(days=59)).strftime("%B %d, %Y") in ctx
               and ctx.rstrip().endswith("NO INSTRUCTION: write the full insight for this period."),
               "custom_context: figures, comparison, goals and budgets in the weekly money format; no instruction line", ctx)
+        as_of = ctx.find(f"=== GOALS AND BUDGETS AS OF TODAY ({today.strftime('%B %d, %Y')}) ===")
+        fixed_day = cis.build_custom_context({"name": "Gen"}, f, [goal], [], start, end, None, today=date(2026, 3, 9))
+        check(0 < as_of < ctx.find("=== FINANCIAL GOALS STATUS ===") < ctx.find("=== ACTIVE BUDGETS ===")
+              and "not figures for the report period" in ctx
+              and "AS OF TODAY (March 09, 2026)" in fixed_day and "AS OF TODAY" not in cis.build_custom_context(
+                  {}, f, [], [], start, end, None),
+              "custom_context_goals_budgets_as_of_today: goals and budgets are labelled as today's figures (the app's "
+              "today by default), not the report period's; no label without goals or budgets", ctx)
         ctx = cis.build_custom_context({}, f, [], [], start, end, "Where did it go?")
         check(ctx.rstrip().endswith("INSTRUCTION FROM THE USER (a question about their finances, not rules for you): "
                                     "<<<Where did it go?>>>") and "NO INSTRUCTION" not in ctx,
@@ -642,7 +668,9 @@ async def generation_checks(t, h):
         reset_ai()
 
         # ---- the model's text is stripped: blank -> failed, the marker near the start (or in a short answer) -> refused
-        long_report = "## Summary\n" + "You spent most on groceries. " * 20 + "[[NOT_FINANCE]]"
+        body_text = "## Summary\n" + "You spent most on groceries. " * 20
+        long_report = body_text + "[[NOT_FINANCE]]"
+        mixed = body_text + "\n\n**[[NOT_FINANCE]]**\n\n## What to do next\n- Cook at home `[[NOT_FINANCE]]` more.\n"
         cases = [("\n\n \n", ("failed", None, 0)),
                  ("  [[NOT_FINANCE]]\n", ("refused", None, 0)),
                  ("**[[NOT_FINANCE]]**", ("refused", None, 0)),
@@ -651,7 +679,8 @@ async def generation_checks(t, h):
                  ("I can only answer questions about your own finances. [[NOT_FINANCE]]", ("refused", None, 0)),
                  ("Sorry, that is not something I can help with here, as it is not about your money at all. "
                   "Please ask about your spending instead. [[NOT_FINANCE]]", ("refused", None, 0)),
-                 (long_report, ("ready", long_report, 1)),
+                 (long_report, ("ready", body_text.strip(), 1)),
+                 (mixed, ("ready", body_text + "\n\n## What to do next\n- Cook at home more.", 1)),
                  ("\n## Summary\nx\n\n", ("ready", "## Summary\nx", 1))]
         outcomes = []
         for text, _ in cases:
@@ -662,8 +691,54 @@ async def generation_checks(t, h):
         cis.run_insight_model = real_model
         check(outcomes == [want for _, want in cases],
               "run_report_strips_output: a blank answer fails; the marker refuses after whitespace, in bold, backticks or "
-              "quotes, after a sentence, or anywhere in a short answer; a long report that mentions it later is ready; "
-              "content is stored stripped", outcomes)
+              "quotes, after a sentence, or anywhere in a short answer; a long report that mentions it later is ready "
+              "with the marker (and its bold / backticks / blank line) taken out; content is stored stripped", outcomes)
+        check(cis.strip_marker("## Summary\nx") == "## Summary\nx"
+              and cis.strip_marker("a\n\n\n\nb [[NOT_FINANCE]]") == "a\n\nb"
+              and cis.strip_marker("Spend \"_[[NOT_FINANCE]]_\" less.\n\n\n[[NOT_FINANCE]]\n- tip") == "Spend less.\n\n- tip",
+              "strip_marker: text without the marker is unchanged; the marker goes with its wrapping, words stay apart, "
+              "no extra blank line is left")
+
+        # ---- cut off at the output limit: failed (given back) unless the last section is there
+        cut_cases = [(answering("## Summary\nx\n\n## What I found\n- y", "length"), "failed", 0),
+                     (answering("## Summary\nx\n\n## What to do next\n- Cook at home", "length"), "ready", 1),
+                     (answering("## Summary\nx\n\n## What I found\n- y", "stop"), "ready", 1)]
+        cut = []
+        for model, _, _ in cut_cases:
+            cis.run_insight_model = model
+            h.set_used(uid, 0)
+            r_ = await cis.run_report(await pending(preset="biggest_changes"))
+            cut.append((r_["status"], h.used(uid), [n["type"] for n in notes_for(uid, r_["_id"])]))
+        cis.run_insight_model = real_model
+        stubenv.set_fake_ai(claude="length_once")  # the real fake provider, cut off half way
+        h.set_used(uid, 0)
+        r_ = await cis.run_report(await pending(preset="biggest_changes"))
+        cut.append((r_["status"], h.used(uid), [n["type"] for n in notes_for(uid, r_["_id"])]))
+        reset_ai()
+        check(cut == [("failed", 0, ["custom_insight_failed"]), ("ready", 1, ["custom_insight_ready"]),
+                      ("ready", 1, ["custom_insight_ready"]), ("failed", 0, ["custom_insight_failed"])],
+              "run_report_cut_off_fails: finish 'length' without '## What to do next' -> failed, given back, the failed "
+              "notice; with the heading, or a normal finish, it is ready", cut)
+
+        # ---- the model call times out before the sweeper would: failed, given back, notified
+        real_timeout = cis.MODEL_TIMEOUT
+
+        async def slow_model(*a, **k):
+            await asyncio.sleep(30)
+            return await real_model(*a, **k)
+        cis.MODEL_TIMEOUT, cis.run_insight_model = timedelta(seconds=0.5), slow_model
+        try:
+            h.set_used(uid, 0)
+            t0 = asyncio.get_running_loop().time()
+            r_ = await cis.run_report(await pending(preset="biggest_changes"))
+            took = asyncio.get_running_loop().time() - t0
+        finally:
+            cis.MODEL_TIMEOUT, cis.run_insight_model = real_timeout, real_model
+        check(r_["status"] == "failed" and r_["content"] is None and h.used(uid) == 0 and took < 10
+              and [n["type"] for n in notes_for(uid, r_["_id"])] == ["custom_insight_failed"]
+              and real_timeout == cis.STUCK_AFTER - timedelta(minutes=2),
+              "run_report_model_timeout: a model slower than MODEL_TIMEOUT (STUCK_AFTER - 2 minutes) -> failed, given "
+              "back, one failed notice", (r_["status"], h.used(uid), took))
 
         # ---- the shielded finish runs in a task that is held like the job itself
         inner, real_finish = [], cis._finish
@@ -806,6 +881,113 @@ async def generation_checks(t, h):
               and len(broken) == 1 and sorted(notified) == [0, 1],
               "sweeper_row_failure_isolated: one row's failing notice does not stop the next row's give-back and notice",
               (swept, statuses, h.used(uid), h.used(uid2), broken, notified))
+
+        # one row's give-back failing (malformed counter keys) does not undo the other rows' status or give-back
+        h.set_used(uid, 0)
+        good = await pending(preset="where_to_save")
+        bad = await pending(preset="where_to_save", owner=uid2)
+        with t.connect() as conn:
+            conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = ANY(%s)", ([good, bad],))
+            conn.execute("""UPDATE custom_insights SET counter_keys = '[["insight_custom", "month", "not-a-day"]]' WHERE id = %s""", (bad,))
+        h.set_used(uid2, 1)
+        swept = await cis.fail_stuck_reports()
+        statuses = [(await ci.get(r))["status"] for r in (good, bad)]
+        check(swept == 2 and statuses == ["failed", "failed"] and h.used(uid) == 0 and h.used(uid2) == 1
+              and [len(notes_for(uid, good)), len(notes_for(uid2, bad))] == [1, 1],
+              "sweeper_give_back_failure_isolated: a row whose give-back fails is still failed and notified; the other "
+              "row is given back", (swept, statuses, h.used(uid), h.used(uid2)))
+
+        # ---- the status change and the give-back commit together: a stop in between leaves the row pending
+        from sql import plans as plans_db
+        real_decrement = plans_db.decrement_counters
+
+        async def stopped(*a, **k):
+            raise asyncio.CancelledError()  # what a loop shutdown delivers while the give-back is being written
+
+        h.set_used(uid, 0)
+        rid7 = await pending(instruction="Write me a poem about cats")
+        plans_db.decrement_counters, cis.run_insight_model = stopped, answering("[[NOT_FINANCE]]")
+        try:
+            await cis.run_report(rid7)
+            stop = "returned"
+        except asyncio.CancelledError:
+            stop = "cancelled"
+        finally:
+            plans_db.decrement_counters, cis.run_insight_model = real_decrement, real_model
+        check(stop == "cancelled" and (await ci.get(rid7))["status"] == "pending" and h.used(uid) == 1
+              and not notes_for(uid, rid7),
+              "finish_and_give_back_atomic: stopped while giving back, the refused status is rolled back too: the row "
+              "is still pending, still counted, not notified", (stop, (await ci.get(rid7))["status"], h.used(uid)))
+        await cis.fail_stuck_reports()  # nothing else stuck, so the counts below are exact
+        with t.connect() as conn:
+            conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = %s", (rid7,))
+        plans_db.decrement_counters = stopped
+        try:
+            await cis.fail_stuck_reports()
+            stop = "returned"
+        except asyncio.CancelledError:
+            stop = "cancelled"
+        finally:
+            plans_db.decrement_counters = real_decrement
+        check(stop == "cancelled" and (await ci.get(rid7))["status"] == "pending" and h.used(uid) == 1
+              and not notes_for(uid, rid7),
+              "sweeper_fail_and_give_back_atomic: stopped while giving back, the sweep is rolled back: still pending, "
+              "still counted, not notified", (stop, (await ci.get(rid7))["status"], h.used(uid)))
+        swept = await cis.fail_stuck_reports()
+        check(swept == 1 and (await ci.get(rid7))["status"] == "failed" and h.used(uid) == 0
+              and [n["type"] for n in notes_for(uid, rid7)] == ["custom_insight_failed"],
+              "sweeper_after_stop_gives_back_once: the next sweep fails it, gives the use back and notifies once",
+              (swept, h.used(uid), notes_for(uid, rid7)))
+
+        # ---- the create route: an error after the insert committed gives nothing back (the row owns the use)
+        import custom_insight_routes as routes
+        from fastapi import Response
+        u5, u5h = h.register("gen-create")
+        check(h.set_plan(u5, "pro") and h.add_tx(u5h, "outflow", 30, today - timedelta(days=2)),
+              "generation_setup: a Pro user with a transaction for the create route")
+        real_insert, real_get = ci.insert_pending, ci.get
+
+        async def insert_then_stop(doc):
+            await real_insert(doc)
+            raise asyncio.CancelledError()
+
+        async def stop_before_insert(doc):
+            raise asyncio.CancelledError()
+
+        async def get_fails(*a, **k):
+            raise RuntimeError("database down")
+
+        async def create(insert, get=real_get):
+            ci.insert_pending, ci.get = insert, get
+            try:
+                await routes.create_custom_insight(routes.CustomInsightCreate(start_date=start, end_date=end), Response(),
+                                                   current_user=await users_db.get_user(u5))
+                return "returned"
+            except asyncio.CancelledError:
+                return "cancelled"
+            finally:
+                ci.insert_pending, ci.get = real_insert, real_get
+
+        await cis.fail_stuck_reports()
+        h.set_used(u5, 0)
+        out = [await create(insert_then_stop)]
+        pend5 = await _pending_id(u5)
+        out.append((pend5 is not None, h.used(u5)))
+        with t.connect() as conn:
+            conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = %s", (pend5,))
+        await cis.fail_stuck_reports()
+        out.append(h.used(u5))
+        h.set_used(u5, 0)
+        out += [await create(stop_before_insert), (await _pending_id(u5) is not None, h.used(u5))]
+        h.set_used(u5, 0)
+        out += [await create(insert_then_stop, get_fails), h.used(u5)]
+        check(out == ["cancelled", (True, 1), 0, "cancelled", (False, 0), "cancelled", 1],
+              "create_insert_error_gives_back_once: an error after the insert committed leaves the use with the row "
+              "(the sweeper gives it back once); before the insert it is given back at once; when the row cannot be "
+              "looked up it is not given back", out)
+        left = await _pending_id(u5)
+        if left:  # the last case's row: no job runs for it
+            await ci.finish(left, status="failed", now=datetime.now(UTC))
 
         # ---- the scheduler runs the sweeper every 5 minutes
         sched = scheduler.start_scheduler()
@@ -967,7 +1149,7 @@ async def route_checks(t, h):
         check(len(reports) == 1 and set(reports[0]) == SUMMARY_KEYS and reports[0]["id"] == rid and reports[0]["status"] == "ready",
               "list_shape: the summary keys only, no content", lst.text[:300])
         fr, fh = h.register("api-freelist")
-        check(c.get(CREATE, headers=fh).json() == {"reports": []} and c.get(CREATE).status_code in (401, 403),
+        check(c.get(CREATE, headers=fh).json() == {"reports": [], "next_before": None} and c.get(CREATE).status_code in (401, 403),
               "list_any_plan_needs_login: Free may list (nothing yet), no token is refused")
 
         # ---- the reuse rule
@@ -1028,6 +1210,44 @@ async def route_checks(t, h):
               "reuse_after_description_edit_regenerates: totals equal, so only the edit time forces a new report",
               (e.status_code, r.status_code, d2.get("figures") == d1["figures"]))
         check(post(uh, instruction="x").json()["reused"] is True, "reuse_again_after_regeneration: the new report is reused")
+
+        # The report quotes the goals and the budgets overlapping the range: one created or edited since makes it stale.
+        u, uh, _ = mk("api-gb")
+        create_ready(uh, preset="budgets_goals")
+        gb = []
+
+        def again(label):
+            r = post(uh, preset="budgets_goals")
+            if r.status_code == 202:
+                wait(uh, r.json()["report"]["id"])
+            gb.append((label, r.status_code))
+
+        def budget_row(start_day, end_day):
+            with t.connect() as conn:
+                conn.execute("INSERT INTO budgets (id, user_id, name, period, start_date, end_date, total_budget, status) "
+                             "VALUES (%s, %s, 'Food', 'monthly', %s, %s, 100, 'active')",
+                             (str(uuid.uuid4()), u, datetime.combine(start_day, datetime.min.time(), tzinfo=UTC),
+                              datetime.combine(end_day, datetime.min.time(), tzinfo=UTC)))
+        again("unchanged")
+        goal_id = str(uuid.uuid4())
+        with t.connect() as conn:
+            conn.execute("INSERT INTO goals (id, user_id, name, goal_type, target_amount) VALUES (%s, %s, 'Trip', "
+                         "'savings', 500)", (goal_id, u))
+        again("goal created")
+        again("after the new report")
+        with t.connect() as conn:
+            conn.execute("UPDATE goals SET current_amount = 50, updated_at = now() WHERE id = %s", (goal_id,))
+        again("goal edited")
+        budget_row(today - timedelta(days=200), today - timedelta(days=170))
+        again("budget outside the range created")
+        budget_row(today - timedelta(days=10), today + timedelta(days=20))
+        again("budget in the range created")
+        again("after the new report")
+        check(gb == [("unchanged", 200), ("goal created", 202), ("after the new report", 200), ("goal edited", 202),
+                     ("budget outside the range created", 200), ("budget in the range created", 202),
+                     ("after the new report", 200)],
+              "reuse_after_goal_or_budget_change_regenerates: a goal created or edited, or a budget overlapping the range "
+              "created, since the report makes a new one; a budget outside the range does not", gb)
 
         # ---- one pending at a time
         u, uh, _ = mk("api-pend")
@@ -1090,6 +1310,16 @@ async def route_checks(t, h):
         r = post(uh, instruction="က" * 300, days=8)
         check(r.status_code == 202, "instruction_300_chars_incl_myanmar", r.text[:200])
         wait(uh, r.json()["report"]["id"])
+        ctl = [post(uh, instruction=f"where{ch}did it go?", days=12) for ch in ("\x00", "\x07", "\x1b", "\x7f")]
+        check(all(code(x) == (422, "custom_insight_invalid_instruction") for x in ctl) and h.used(u) == 1
+              and ctl[0].json()["detail"]["message"]
+              == "Your instruction contains characters that can't be used. Please remove them and try again.",
+              "instruction_control_characters_refused: NUL, BEL, ESC and DEL -> 422 custom_insight_invalid_instruction "
+              "with its own message, nothing counted", [x.text[:160] for x in ctl])
+        r = post(uh, instruction="  line one\r\nline two\tend  ", days=13)
+        check(r.status_code == 202 and r.json()["report"]["instruction"] == "line one\r\nline two\tend",
+              "instruction_newline_tab_allowed: CR, LF and tab are kept (only trimmed at the ends)", r.text[:200])
+        wait(uh, r.json()["report"]["id"])
         r = post(uh, instruction="   ", days=9)
         check(r.status_code == 202 and r.json()["report"]["instruction"] is None and r.json()["report"]["preset"] is None,
               "instruction_blank_is_none", r.text[:200])
@@ -1127,7 +1357,7 @@ async def route_checks(t, h):
         h.set_used(u, 10)
         r = post(uh)
         check(plan_error(r, 429, "plan_limit_reached", "insight_custom") and h.used(u) == 10
-              and c.get(CREATE, headers=uh).json() == {"reports": []}, "limit_reached_10", r.text[:300])
+              and c.get(CREATE, headers=uh).json() == {"reports": [], "next_before": None}, "limit_reached_10", r.text[:300])
         u, uh, _ = mk("api-cap")
         add_cost(u, 3.5)
         r = post(uh)
@@ -1213,6 +1443,51 @@ async def route_checks(t, h):
               "off_topic_refused_over_http: refused, nothing counted", d)
         check([n["type"] for n in h.db.notifications.find({"user_id": u, "goal_id": d.get("id")})] == ["custom_insight_failed"],
               "off_topic_notified_once")
+
+        # ---- the list pages: 30 a page, newest first, `next_before` until the last page
+        pg_u, pgh = h.register("api-page")
+        pg_other, pg_oh = h.register("api-page-other")
+        top = datetime.now(UTC).replace(microsecond=0) - timedelta(days=1)
+        tie_at = top - timedelta(hours=2)
+
+        async def listed_row(uid, at, status="ready"):
+            rid = str(uuid.uuid4())
+            assert await ci.insert_pending({"_id": rid, "user_id": uid, "start_date": today - timedelta(days=6),
+                                            "end_date": today, "instruction_key": "", "created_at": at})
+            await ci.finish(rid, status=status, now=at, content="## Summary\nx" if status == "ready" else None)
+            return rid
+
+        mine = [(top - timedelta(minutes=i), await listed_row(pg_u, top - timedelta(minutes=i))) for i in range(20)]
+        mine += [(tie_at, await listed_row(pg_u, tie_at)) for _ in range(20)]  # the page boundary falls among these
+        hidden = await listed_row(pg_u, top - timedelta(minutes=5, seconds=30), status="failed")
+        theirs = [await listed_row(pg_other, top - timedelta(minutes=3 * i)) for i in range(5)]
+        await ci.delete_for_user(hidden, pg_u, datetime.now(UTC))
+        expected = [rid for _, rid in sorted(mine, reverse=True)]  # created_at, then id, descending
+        p1 = c.get(CREATE, headers=pgh)
+        nb = p1.json().get("next_before") if p1.status_code == 200 else None
+        p2 = c.get(CREATE, headers=pgh, params={"before": nb}) if nb else None
+        got1 = [x["id"] for x in p1.json().get("reports", [])] if p1.status_code == 200 else []
+        got2 = [x["id"] for x in p2.json().get("reports", [])] if p2 is not None and p2.status_code == 200 else []
+        check(p1.status_code == 200 and got1 == expected[:30] and isinstance(nb, str) and nb
+              and p2 is not None and p2.status_code == 200 and got2 == expected[30:] and p2.json()["next_before"] is None,
+              "list_pages_of_30: two pages in created_at/id order, the cursor stable among equal created_at, no "
+              "next_before on the last page", (len(got1), len(got2), nb))
+        check(len(set(got1 + got2)) == 40 and hidden not in got1 + got2 and not set(theirs) & set(got1 + got2),
+              "list_pages_complete_and_own: every visible report once, the hidden one never, another user's never")
+        cross = c.get(CREATE, headers=pg_oh, params={"before": nb}) if nb else None
+        check(cross is not None and cross.status_code == 200
+              and {x["id"] for x in cross.json()["reports"]} <= set(theirs) and cross.json()["next_before"] is None,
+              "list_cursor_of_another_user: a cursor only positions; the list is still only the caller's own reports",
+              cross.text[:200] if cross is not None else None)
+        exact_u, exact_h = h.register("api-page-exact")
+        for i in range(30):
+            await listed_row(exact_u, top - timedelta(minutes=i))
+        ex = c.get(CREATE, headers=exact_h).json()
+        check(len(ex["reports"]) == 30 and ex["next_before"] is None,
+              "list_exactly_one_page: 30 reports are one page with no next_before", (len(ex["reports"]), ex["next_before"]))
+        bad = [c.get(CREATE, headers=pgh, params={"before": v}).status_code for v in ("nonsense!", "bm90LWEtY3Vyc29y", "")]
+        check(bad[:2] == [422, 422] and bad[2] == 200, "list_bad_cursor_422: a cursor the server did not make is 422 "
+              "(an empty one is the first page)", bad)
 
         # ---- open
         other, oh, _ = mk("api-other")

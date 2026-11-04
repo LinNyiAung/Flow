@@ -249,7 +249,8 @@ Index("ix_insights_latest", insights.c.user_id, insights.c.ai_provider, insights
 custom_insights = Table(
     "custom_insights", metadata,
     Column("id", Text, primary_key=True),
-    _user_fk(),
+    # Not _user_fk(): no single-column user_id index, ix_custom_insights_user_created below leads with user_id.
+    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
     Column("start_date", Date, nullable=False),
     Column("end_date", Date, nullable=False),
     Column("preset", Text),

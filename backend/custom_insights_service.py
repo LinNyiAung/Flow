@@ -5,14 +5,17 @@ figures (compute_figures), inserts a `pending` row holding the reservation's cou
 reservation and calls start_report. run_report then writes the report in the background on the `insight_custom` AI
 feature and moves the row out of `pending` exactly once:
 
-  ready     the model answered: content, provider, model and tokens are stored; the use stays counted;
+  ready     the model answered: content (without any stray OFF_TOPIC_MARKER), provider, model and tokens are stored;
+            the use stays counted;
   refused   the model answered with OFF_TOPIC_MARKER (the instruction is not about the user's finances);
-  failed    every provider failed, the answer was blank, or anything else went wrong.
+  failed    every provider failed, the model took longer than MODEL_TIMEOUT, the answer was blank or cut off at the
+            output limit before its last section, or anything else went wrong.
 
 Whoever moves the row out of `pending` (run_report, or fail_stuck_reports for a job that never finished, e.g. after a
 restart) owns the follow-up: on refused / failed the use is given back and the "not created" notice is sent, on ready
 the "ready" notice. sql.custom_insights.finish / fail_stuck only touch pending rows, so a late job after the sweeper
-(or the other way round) finds nothing to do and gives nothing back twice.
+(or the other way round) finds nothing to do and gives nothing back twice. The give-back is written in the same
+database transaction as the status change, so a shutdown can lose only the notice, never the give-back.
 """
 import asyncio
 import logging
@@ -27,8 +30,10 @@ from plans import quota
 from sql import budgets as budgets_db
 from sql import custom_insights as ci
 from sql import goals as goals_db
+from sql import plans as plans_db
 from sql import users as users_db
-from tz_utils import as_utc, day_bounds_utc, get_app_timezone, utc_now
+from sql.db import transaction
+from tz_utils import app_today, as_utc, day_bounds_utc, get_app_timezone, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +49,18 @@ MIN_DAYS = 7
 MAX_INSTRUCTION_LENGTH = 300
 MAX_FAILED_ATTEMPTS_PER_DAY = 5
 STUCK_AFTER = timedelta(minutes=20)
+# The model call gives up before the sweeper would, so the job always ends its own row (and an answer is never paid
+# for and then thrown away because the sweeper failed the report first).
+MODEL_TIMEOUT = STUCK_AFTER - timedelta(minutes=2)
+LAST_HEADING = re.compile(r"^#{1,6}[ \t]*What to do next\b", re.IGNORECASE | re.MULTILINE)
 
 
 OFF_TOPIC_WINDOW = 80        # the marker counts when it appears within the answer's first 80 characters ...
 OFF_TOPIC_SHORT_ANSWER = 300  # ... or anywhere in an answer this short (a refusal sentence, then the marker)
 _MARKER_WRAPPING = " \t\r\n*`\"'_"  # Markdown / quotes a model may wrap the marker in
+# The marker with its Markdown / quote wrapping and the spaces around it ("**[[NOT_FINANCE]]**", "`[[NOT_FINANCE]]`").
+_MARKER_RUN = re.compile(r"[ \t]*[*`\"'_]*" + re.escape(OFF_TOPIC_MARKER) + r"[*`\"'_]*[ \t]*")
+_EXTRA_BLANK_LINES = re.compile(r"\n(?:[ \t]*\n){2,}")
 
 
 def is_off_topic(text: str) -> bool:
@@ -57,6 +69,21 @@ def is_off_topic(text: str) -> bool:
     core = (text or "").strip(_MARKER_WRAPPING)
     return OFF_TOPIC_MARKER in core[:OFF_TOPIC_WINDOW] or (
         len(core) <= OFF_TOPIC_SHORT_ANSWER and OFF_TOPIC_MARKER in core)
+
+
+def strip_marker(text: str) -> str:
+    """A ready answer without any OFF_TOPIC_MARKER left in it (a mixed instruction can put one late in a full report):
+    each marker goes with its wrapping; one space stays between two words it separated; a line it leaves empty does
+    not add a blank line. Text without the marker is returned as it is."""
+    if OFF_TOPIC_MARKER not in text:
+        return text
+
+    def _cut(m: re.Match) -> str:
+        s = m.string
+        before = s[m.start() - 1] if m.start() > 0 else "\n"
+        after = s[m.end()] if m.end() < len(s) else "\n"
+        return " " if before not in "\r\n" and after not in "\r\n" else ""
+    return _EXTRA_BLANK_LINES.sub("\n\n", _MARKER_RUN.sub(_cut, text)).strip()
 
 
 # ---------------------------------------------------------------- range and instruction
@@ -193,9 +220,11 @@ def _latest_budgets(budgets: list) -> list:
 
 
 def build_custom_context(user: dict, figures: dict, goals: list, budgets: list, start: date, end: date,
-                         instruction: str | None) -> str:
+                         instruction: str | None, today: date | None = None) -> str:
     """The user message for the model: the period, the computed figures per currency (with the previous-period
-    comparison), the goals and the most recent budgets, then the instruction (or the note that there is none)."""
+    comparison), the goals and the most recent budgets (labelled as today's figures, `today` defaulting to the app's
+    today: a goal shows its progress now and a budget its whole period, not the report period), then the instruction
+    (or the note that there is none)."""
     prev_start, prev_end = previous_period(start, end)
     days = (end - start).days + 1
     context = f"""USER: {user.get('name', 'User')}
@@ -228,7 +257,14 @@ PREVIOUS PERIOD (same length, for comparison): {prev_start.strftime('%B %d, %Y')
             change = f"{pct:+.1f}%" if pct is not None else f"no {label.lower()} in the previous period"
             context += f"    {label}: {_money(sym, prev)} → {_money(sym, now)} ({change})\n"
 
-    context += goals_budgets_context(goals, _latest_budgets(budgets), money=_money)
+    goals_budgets = goals_budgets_context(goals, _latest_budgets(budgets), money=_money)
+    if goals_budgets:
+        as_of = (today or app_today()).strftime('%B %d, %Y')
+        context += (f"\n\n=== GOALS AND BUDGETS AS OF TODAY ({as_of}) ===\n"
+                    "These are today's figures, not figures for the report period: a goal shows its progress now, and "
+                    "a budget's spending covers its own whole budget period. Do not present them as belonging to the "
+                    "report period.\n")
+        context += goals_budgets
 
     instruction = _prompt_safe(instruction) if instruction else ""
     if instruction:
@@ -250,24 +286,38 @@ def _reservation(row: dict) -> quota.Reservation:
     return quota.Reservation(row["user_id"], keys)
 
 
-async def _give_back_and_notify(row: dict) -> None:
-    """Follow-up for a row this process just moved out of pending: give the use back on refused / failed, notify."""
+async def _give_back(row: dict) -> None:
+    """Inside the transaction that moved `row` out of pending: give its use back if it ended refused / failed.
+
+    The decrement is a savepoint of that transaction (plans_db.decrement_counters), so a failing one (malformed counter
+    keys, a bad counter row) is rolled back and logged alone and the status change still commits. A cancellation is
+    not caught: it rolls back the whole transaction and the row stays pending for the sweeper."""
     if row["status"] == "ready":
-        await notify_custom_insight_ready(row["user_id"], row["_id"], row["start_date"], row["end_date"])
         return
     try:
-        await quota.give_back(_reservation(row))
-    except Exception:  # noqa: BLE001 - give_back logs its own failures; this guards malformed counter keys
+        await plans_db.decrement_counters(row["user_id"], _reservation(row).keys)
+    except Exception:  # noqa: BLE001
         logger.exception("Could not give back the use of custom insight %s", row["_id"])
-    await notify_custom_insight_failed(row["user_id"], row["_id"], row["start_date"], row["end_date"],
-                                       refused=row["status"] == "refused")
+
+
+async def _notify(row: dict) -> None:
+    """After the commit: the "ready" or "not created" notice (the notification functions log their own failures)."""
+    if row["status"] == "ready":
+        await notify_custom_insight_ready(row["user_id"], row["_id"], row["start_date"], row["end_date"])
+    else:
+        await notify_custom_insight_failed(row["user_id"], row["_id"], row["start_date"], row["end_date"],
+                                           refused=row["status"] == "refused")
 
 
 async def _finish(report_id: str, status: str, **fields) -> dict | None:
-    """finish() the report and, only if this call moved it out of pending, do the follow-up. Returns the final row."""
+    """finish() the report and, only if this call moved it out of pending, give the use back (in the same transaction)
+    and send the notice (after it commits). Returns the final row."""
     try:
-        done = await ci.finish(report_id, status=status, now=utc_now(), **fields)
-    except Exception:  # noqa: BLE001 - the row stays pending; the sweeper fails it later
+        async with transaction():
+            done = await ci.finish(report_id, status=status, now=utc_now(), **fields)
+            if done is not None:
+                await _give_back(done)
+    except Exception:  # noqa: BLE001 - nothing committed: the row stays pending; the sweeper fails it later
         logger.exception("Could not store custom insight %s as %s", report_id, status)
         done = None
     if done is None:  # somebody else (the sweeper) finished it first, or the write failed: nothing to do here
@@ -276,13 +326,14 @@ async def _finish(report_id: str, status: str, **fields) -> dict | None:
         except Exception:  # noqa: BLE001
             logger.exception("Could not read custom insight %s", report_id)
             return None
-    await _give_back_and_notify(done)
+    await _notify(done)
     return done
 
 
 async def run_report(report_id: str) -> dict | None:
     """Write the report for a pending row and return the final row (None if it does not exist). Never raises, except
-    CancelledError while waiting for the model: the row then stays pending and the sweeper fails it later.
+    CancelledError (while waiting for the model, or a shutdown before finish() and its give-back committed): the row
+    then stays pending and the sweeper fails it later.
 
     The plan is not checked again: a report already pending when the plan changes still finishes."""
     status, fields = "failed", {}
@@ -295,26 +346,36 @@ async def run_report(report_id: str) -> dict | None:
         goals = await goals_db.list_goals(uid)
         budgets = await budgets_db.budgets_overlapping(uid, *day_bounds_utc(start, end))
         context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))
-        result = await run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, uid, "Custom Insight", background=True)
+        result = await asyncio.wait_for(
+            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, uid, "Custom Insight", background=True),
+            timeout=MODEL_TIMEOUT.total_seconds())
         text = (result.completion.text or "").strip()
         if is_off_topic(text):
             status = "refused"
         elif not text:
             logger.error("Custom insight %s: %s returned a blank answer", report_id, result.target.provider)
+        elif result.completion.finish == "length" and not LAST_HEADING.search(text):
+            logger.error("Custom insight %s: %s cut the answer off at the output limit before its last section",
+                         report_id, result.target.provider)
         else:
-            status = "ready"
-            fields = {"content": text, "ai_provider": result.target.provider, "ai_model": result.target.model,
-                      "input_tokens": result.completion.input_tokens, "output_tokens": result.completion.output_tokens}
+            text = strip_marker(text)
+            if text:  # never empty here (a short answer with the marker is refused), but a ready row needs content
+                status = "ready"
+                fields = {"content": text, "ai_provider": result.target.provider, "ai_model": result.target.model,
+                          "input_tokens": result.completion.input_tokens,
+                          "output_tokens": result.completion.output_tokens}
     except asyncio.CancelledError:
         raise
     except InsightAIError as e:  # every provider failed: expected, already detailed by the runner
         logger.error("Custom insight %s failed: %s", report_id, e)
+    except TimeoutError:  # asyncio.wait_for above (asyncio.TimeoutError is TimeoutError)
+        logger.error("Custom insight %s failed: the model took longer than %s", report_id, MODEL_TIMEOUT)
     except Exception:  # noqa: BLE001 - every failure ends the report as failed; a bug here needs its traceback
         logger.exception("Custom insight %s failed unexpectedly", report_id)
-    # Shielded: once the answer is in, a cancellation must not stop between finish() and its give-back / notice.
-    # The inner task is held in _running_reports (the loop keeps only weak references). Known gap: a loop shutdown
-    # after finish() committed but before the give-back still loses that give-back (the row is no longer pending, so
-    # the sweeper will not redo it); the full fix is decrementing the counters in finish()'s own DB transaction.
+    # Shielded: once the answer is in, a cancellation must not stop between finish() and its notice. The inner task is
+    # held in _running_reports (the loop keeps only weak references). finish() and the give-back commit together, so
+    # a loop shutdown can at worst lose the notice: before the commit the row is still pending (the sweeper fails it
+    # and gives the use back), after it the use is already given back.
     inner = asyncio.ensure_future(_finish(report_id, status, **fields))
     _hold(inner)
     return await asyncio.shield(inner)
@@ -337,16 +398,21 @@ async def fail_stuck_reports(now: datetime | None = None) -> int:
     restart) become failed; each one's use is given back and the "not created" notice sent. Returns how many."""
     now = now or utc_now()
     try:
-        rows = await ci.fail_stuck(now - STUCK_AFTER, now)
-    except Exception:  # noqa: BLE001 - try again on the next run
+        # The rows' status change and their give-backs commit together (each give-back a savepoint of its own, so one
+        # row's failing give-back does not undo the others); only the notices are sent after the commit.
+        async with transaction():
+            rows = await ci.fail_stuck(now - STUCK_AFTER, now)
+            for row in rows:
+                await _give_back(row)
+    except Exception:  # noqa: BLE001 - nothing committed; try again on the next run
         logger.exception("Custom insight sweeper: could not fail stuck reports")
         return 0
     for row in rows:
         logger.warning("Custom insight %s was still pending after %s: marked failed", row["_id"], STUCK_AFTER)
-        try:  # one row's failure must not skip the give-back and notice of the rows after it
-            await _give_back_and_notify(row)
+        try:  # one row's failing notice must not skip the notices of the rows after it
+            await _notify(row)
         except Exception:  # noqa: BLE001
-            logger.exception("Custom insight sweeper: follow-up for %s failed", row["_id"])
+            logger.exception("Custom insight sweeper: the notice for %s failed", row["_id"])
     return len(rows)
 
 

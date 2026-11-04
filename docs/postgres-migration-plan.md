@@ -339,9 +339,21 @@ locked with an Upgrade button. No new environment variables.
 - The app works out "today" for the range picker in the server's default `SCHEDULER_TIMEZONE`
   (Asia/Yangon, UTC+06:30). Changing `SCHEDULER_TIMEZONE` needs an app change (the app would
   have to be sent the server's date); do not change it without one.
-- Known gap: if the server is shut down at exactly the wrong moment while a report is being
-  created, a failed report can stay counted against the user's allowance. **Reset usage** on the
-  user's detail panel fixes it.
+- A report's status change and the give-back of a failed or refused report are written in one
+  database transaction, so a server shut down while a report is being finished cannot leave a
+  failed report counted against the allowance. At worst the user misses the ready / not-created
+  notification; the report itself is correct in the app's list.
+- The model call for a report gives up after 18 minutes (2 minutes before the sweeper), and the
+  report fails and is given back like any other AI failure.
+- **Deploy order:** deploy the backend (with this migration) before releasing the app build that
+  has the Custom tab. On an older backend a Pro user on the new app sees "New custom insight" and
+  gets errors, because the endpoints do not exist yet.
+- **Rolling back the backend** while the new app is in users' hands has the same effect: Pro
+  users see the Custom tab but every request fails. Roll the app back too (or pull the release),
+  or accept that until the backend is deployed again.
+- **Reset usage** on the user's detail panel is not a targeted fix for custom insights: it clears
+  this week's and this month's counters for **every** feature (chat, scans, insights, custom
+  insights, ...) and restarts the cost-cap window for that user.
 - All new Myanmar wording (app and notifications) was written without a native speaker and needs
   checking before release.
 
@@ -349,7 +361,8 @@ After the deploy, check by hand (needs the real keys and the app):
 
 - On a Pro test account, create a report (for example Last 30 days with "Where can I save?"),
   wait for the ready notification, tap it to open the report, and check the usage line drops by
-  one and the count shows on the user's detail panel.
+  one and the call shows on **AI Usage & Costs** with the feature filter set to **Custom
+  Insights** (the `custom_insight` type).
 - Translate that report to Myanmar and check the Myanmar text is stored and shown again without
   another translation.
 - On a Free or Plus test account, check the Custom tab is locked and Upgrade opens the Upgrade

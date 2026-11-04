@@ -45,6 +45,12 @@ async def list_goals(user_id: Optional[str] = None, *, status: Optional[str] = N
     return rows_to_docs(await fetch_all(stmt.order_by(g.c.created_at.desc(), g.c.id)))
 
 
+async def changed_since(user_id: str, since: datetime) -> bool:
+    """True when one of the user's goals was created or edited after `since` (a deleted goal leaves no trace)."""
+    return bool(await fetch_value(select(exists().where(
+        g.c.user_id == user_id, (g.c.created_at > since) | (g.c.updated_at > since)))))
+
+
 async def update_goal(goal_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Apply fields; returns the updated goal (or None if it no longer exists)."""
     return row_to_doc(await write_returning(update(g).where(g.c.id == goal_id).values(**_values(fields)).returning(*g.c)))
