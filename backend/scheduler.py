@@ -11,6 +11,7 @@ from notification_service import (
 from sql import users as users_db
 from budget_service import process_due_budget_rollovers
 from insights_service import generate_weekly_insights_for_all_users, generate_monthly_insights_for_all_users
+from custom_insights_service import fail_stuck_reports
 from insight_schedule import WEEKLY_INSIGHT_CRON, MONTHLY_INSIGHT_CRON
 from subscription_service import expire_paid_plans, send_trial_reminders
 from tz_utils import get_app_timezone
@@ -142,7 +143,19 @@ def start_scheduler():
         name="Generate monthly insights for all users",
         replace_existing=True
     )
-    
+
+    # Fail custom insights still pending 20 minutes after they were created (a job lost to a restart), every
+    # 5 minutes: the use is given back and the user told it was not created.
+    scheduler.add_job(
+        fail_stuck_reports,
+        trigger=CronTrigger(timezone=app_tz, minute="*/5"),
+        id="custom_insight_sweeper",
+        name="Fail stuck custom insights",
+        replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,
+    )
+
     scheduler.start()
     logger.info(f"✅ Async Notification scheduler started (timezone: {app_tz})")
     

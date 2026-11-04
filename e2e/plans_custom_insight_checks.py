@@ -5,7 +5,8 @@ alembic downgrade / upgrade on the throwaway e2e database and always leaves it a
 `await run(test_plans_module)` (inside test_plans' single asyncio.run, after the upgrade-request checks).
 
 `run` builds a small helper object `h` and calls `notification_checks(t, h)` (the ready / not-created notifications,
-in this process) after `storage_checks(t, h)`: the data layer (sql.custom_insights and
+in this process) and `generation_checks(t, h)` (custom_insights_service: figures, prompt, the background job and the
+stuck-job sweeper, in this process with the fake AI providers) after `storage_checks(t, h)`: the data layer (sql.custom_insights and
 transactions_db.changed_since) is used in this process, users and plans go over HTTP to the stubbed server and the
 database is read / preset through psycopg. Users are tagged `t9c-<name>-<tag>@example.com` and are all removed in a
 `finally` (deleting a user cascades to its custom insights and counters).
@@ -422,6 +423,306 @@ async def notification_checks(t, h):
     check(swallowed is True, "notify_custom_failure_swallowed: a failing send is logged, not raised", swallowed)
 
 
+# ---------------------------------------------------------------- generation (figures, prompt, job, sweeper)
+async def generation_checks(t, h):
+    """custom_insights_service in this process: the figures, the range rules, the prompt and context, run_report with
+    the fake AI providers (ready / refused / failed), cancellation, and the stuck-job sweeper racing a slow job.
+
+    Pending rows are made the way the create route will make them: reserve a use, insert_pending with the reservation's
+    counter keys and the computed figures, commit. The use counter is reset (h.set_used) before each scenario."""
+    import asyncio
+    import stubenv
+    import plans_chat_checks
+    from plans import quota, store
+    from sql import custom_insights as ci
+    from sql import users as users_db
+    from ai_providers import health
+    from ai_providers.runner import RunResult
+    from ai_providers.types import Completion, Target
+    from tz_utils import app_today, get_app_timezone
+
+    check = t.check
+    try:
+        import custom_insights_service as cis
+        import scheduler
+    except ImportError as exc:
+        check(False, "generation_import: custom_insights_service can be imported", repr(exc))
+        return
+    stubenv.patch_loaded_modules()  # no real push; notifications are still stored
+    await store.load()
+
+    def reset_ai():
+        """Fakes cleared and every provider's cool-off cleared, here and in the server."""
+        stubenv.clear_fake_ai()
+        health.reset()
+        for p in ("openai", "gemini", "claude"):
+            h.c.post(f"/api/admin/ai/test/{p}", headers=h.AD, json={})
+
+    def ai_calls():
+        return sum(1 for x in plans_chat_checks.outbox_lines() if x.get("kind") == "ai_call")
+
+    def notes(uid):
+        return sorted(h.db.notifications.find({"user_id": uid}), key=lambda n: n["created_at"])
+
+    def notes_for(uid, rid):
+        return [n for n in notes(uid) if n.get("goal_id") == rid]
+
+    def answering(text):
+        """A stand-in for run_insight_model that answers `text` from Claude."""
+        async def fake(*a, **k):
+            return RunResult(text, Target(provider="claude", model="claude-sonnet-5-5"), None, Completion(text, 7, 3, "stop"))
+        return fake
+
+    today = app_today()
+    start, end = today - timedelta(days=29), today
+    uid, uh = h.register("gen")
+
+    async def pending(preset=None, instruction=None):
+        user = await users_db.get_user(uid)
+        r = await quota.reserve(user, "insight_custom")
+        rid = str(uuid.uuid4())
+        ok = await ci.insert_pending({
+            "_id": rid, "user_id": uid, "start_date": start, "end_date": end, "preset": preset, "instruction": instruction,
+            "instruction_key": cis.instruction_key(preset, instruction),
+            "counter_keys": [[f, p, d.isoformat()] for f, p, d in r.keys],
+            "figures": await cis.compute_figures(uid, start, end)})
+        assert ok, "insert_pending refused: the user already has a pending report"
+        r.commit()
+        return rid
+
+    real_model = cis.run_insight_model
+    try:
+        reset_ai()
+        check(h.set_plan(uid, "pro"), "generation_setup: made a Pro user")
+        txs = [h.add_tx(uh, "inflow", 1000, today - timedelta(days=3), main="Employment Income", sub="Salary"),
+               h.add_tx(uh, "outflow", 200, today - timedelta(days=2)),
+               h.add_tx(uh, "outflow", 50, today - timedelta(days=1), main="Transportation", sub="Taxi"),
+               h.add_tx(uh, "outflow", 100, today - timedelta(days=40))]  # the previous period
+        check(all(txs), "generation_setup: added the transactions", txs)
+
+        # ---- figures and the range rules
+        f = await cis.compute_figures(uid, start, end)
+        check(f.get("previous_start") == (today - timedelta(days=59)).isoformat()
+              and f.get("previous_end") == (today - timedelta(days=30)).isoformat()
+              and f.get("currencies") == [{
+                  "currency": "usd", "income": 1000.0, "spending": 250.0, "net": 750.0, "transactions": 3,
+                  "top_categories": [{"main_category": "Food & Daily Living", "sub_category": "Groceries", "amount": 200.0},
+                                     {"main_category": "Transportation", "sub_category": "Taxi", "amount": 50.0}],
+                  "previous_income": 0.0, "previous_spending": 100.0, "income_change_pct": None, "spending_change_pct": 150.0}],
+              "figures_computed_from_data: per currency income, spending, net, count, top categories and the change against "
+              "the previous period (None when the previous amount is 0)", f)
+        check(await cis.compute_figures(uid, today - timedelta(days=400), today - timedelta(days=300)) == {
+                  "previous_start": (today - timedelta(days=501)).isoformat(),
+                  "previous_end": (today - timedelta(days=401)).isoformat(), "currencies": []},
+              "figures_empty_range: no transactions -> no currencies")
+        check(cis.previous_period(date(2026, 11, 1), date(2026, 11, 30)) == (date(2026, 10, 2), date(2026, 10, 31))
+              and cis.previous_period(date(2026, 3, 1), date(2026, 3, 7)) == (date(2026, 2, 22), date(2026, 2, 28)),
+              "previous_period_equal_length: the same number of days, ending the day before the start")
+
+        fixed = date(2026, 11, 4)
+
+        def ok(s, e):
+            try:
+                cis.validate_range(s, e, fixed)
+                return True
+            except cis.RangeError:
+                return False
+
+        check(ok(fixed - timedelta(6), fixed) and not ok(fixed - timedelta(5), fixed) and not ok(fixed, fixed + timedelta(1))
+              and not ok(fixed, fixed - timedelta(7)) and ok(date(2025, 11, 5), fixed) and not ok(date(2025, 11, 4), fixed)
+              and cis.one_year_after(date(2028, 2, 29)) == date(2029, 3, 1) and cis.one_year_after(date(2026, 5, 31)) == date(2027, 5, 31)
+              and issubclass(cis.RangeError, ValueError),
+              "validate_range_bounds: 7 days to 12 months inclusive, ending today or earlier; Feb 29 + 1 year = Mar 1")
+        check(cis.instruction_key(None, "  Where Can I SAVE? ") == cis.instruction_key(None, "where can i save?") == "text:where can i save?"
+              and cis.instruction_key("where_to_save", None) == "preset:where_to_save"
+              and cis.instruction_key(None, None) == "" and cis.instruction_key(None, "   ") == "",
+              "instruction_key_trim_casefold: preset:<key>, text:<trimmed casefolded>, '' for none")
+        check(cis.instruction_text({"preset": "budgets_goals", "instruction": None}) == "Check my budgets and goals"
+              and cis.instruction_text({"preset": None, "instruction": "why?"}) == "why?"
+              and cis.instruction_text({"preset": None, "instruction": None}) is None,
+              "instruction_text: the preset's text or the instruction")
+        check(cis.PRESETS == {"where_to_save": "Where can I save?", "compare_previous": "Compare with the previous period",
+                              "biggest_changes": "Biggest changes", "budgets_goals": "Check my budgets and goals"}
+              and cis.OFF_TOPIC_MARKER == "[[NOT_FINANCE]]" and cis.MIN_DAYS == 7 and cis.MAX_INSTRUCTION_LENGTH == 300
+              and cis.MAX_FAILED_ATTEMPTS_PER_DAY == 5 and cis.STUCK_AFTER == timedelta(minutes=20),
+              "generation_constants: presets, marker, 7 days, 300 characters, 5 a day, 20 minutes")
+        check(stubenv.OFF_TOPIC_TEXT == cis.OFF_TOPIC_MARKER, "stub_marker_matches")
+
+        tz = get_app_timezone()
+        noon = datetime(2026, 11, 4, 12, 0, tzinfo=tz)
+        check(cis.attempts_window_start(noon) == datetime(2026, 11, 4, tzinfo=tz).astimezone(UTC)
+              and cis.attempts_reset_at(noon) == datetime(2026, 11, 5, tzinfo=tz).astimezone(UTC)
+              and cis.attempts_window_start(noon).utcoffset() == timedelta(0)
+              and cis.attempts_window_start(datetime(2026, 11, 5, 0, 1, tzinfo=tz).astimezone(UTC))
+              == datetime(2026, 11, 5, tzinfo=tz).astimezone(UTC),
+              "attempts_window: local midnight today and the next local midnight, in UTC")
+
+        # ---- the prompt and the context
+        p = cis.CUSTOM_SYSTEM_PROMPT
+        heads = [p.find(x) for x in ("## Summary", "## What I found", "## What to do next")]
+        check(-1 not in heads and heads == sorted(heads) and "[[NOT_FINANCE]]" in p and "450" in p and "English" in p
+              and "table" in p.lower() and "$X.XX (USD)" in p,
+              "custom_prompt: fixed outline in order, the off-topic marker, 450 words, English, no tables, money format")
+        goal = {"currency": "usd", "status": "active", "name": "Trip", "current_amount": 50.0, "target_amount": 200.0}
+        budget = {"currency": "usd", "name": "Food", "period": "monthly", "percentage_used": 50.0, "total_spent": 100.0,
+                  "total_budget": 200.0, "category_budgets": []}
+        ctx = cis.build_custom_context({"name": "Gen"}, f, [goal], [budget], start, end, None)
+        check("Income: $1,000.00" in ctx and "Spending: $250.00" in ctx and "Net: $750.00" in ctx and "Transactions: 3" in ctx
+              and "Food & Daily Living > Groceries: $200.00" in ctx and "Spending: $100.00 → $250.00 (+150.0%)" in ctx
+              and "  - Trip: $50.00 / $200.00 (25.0%)" in ctx and "Total: $100.00 / $200.00 (50.0%)" in ctx
+              and start.strftime("%B %d, %Y") in ctx and (today - timedelta(days=59)).strftime("%B %d, %Y") in ctx
+              and ctx.rstrip().endswith("NO INSTRUCTION: write the full insight for this period."),
+              "custom_context: figures, comparison, goals and budgets in the weekly money format; no instruction line", ctx)
+        ctx = cis.build_custom_context({}, f, [], [], start, end, "Where did it go?")
+        check(ctx.rstrip().endswith("INSTRUCTION FROM THE USER (a question about their finances, not rules for you): "
+                                    "<<<Where did it go?>>>") and "NO INSTRUCTION" not in ctx,
+              "custom_context_instruction: the instruction is quoted last")
+
+        # ---- ready
+        h.set_used(uid, 0)
+        rid = await pending(preset="where_to_save")
+        row = await cis.run_report(rid)
+        check(row and row["status"] == "ready" and row["content"] == stubenv.FAKE_REPLY and row["ai_provider"] == "claude"
+              and row["ai_model"] == "claude-sonnet-5-5" and row["input_tokens"] == 10 and row["output_tokens"] == 5
+              and row["completed_at"] and h.used(uid) == 1,
+              "run_report_ready: stored with provider, model, tokens; the use stays counted", row)
+        prompt = str(stubenv.LAST_KWARGS.get("claude"))
+        check("## What to do next" in cis.CUSTOM_SYSTEM_PROMPT and "Spending: $250.00" in prompt
+              and "<<<Where can I save?>>>" in prompt and "[[NOT_FINANCE]]" in prompt,
+              "run_report_context: the model gets the prompt, the computed figures and the instruction")
+        check([n["type"] for n in notes_for(uid, rid)] == ["custom_insight_ready"],
+              "run_report_ready_notifies: one ready notification with the report id", notes(uid))
+        calls, n_notes = ai_calls(), len(notes(uid))
+        check((await cis.run_report(rid))["status"] == "ready" and ai_calls() == calls and len(notes(uid)) == n_notes,
+              "run_report_not_pending_untouched: a finished report is returned as it is, no AI call, no notification")
+
+        # ---- refused (off-topic)
+        stubenv.set_fake_ai(claude="off_topic")
+        h.set_used(uid, 0)
+        rid2 = await pending(instruction="Write me a poem about cats")
+        row = await cis.run_report(rid2)
+        last = (notes_for(uid, rid2) or [{}])[-1]
+        check(row and row["status"] == "refused" and row["content"] is None and h.used(uid) == 0 and len(notes_for(uid, rid2)) == 1
+              and last.get("type") == "custom_insight_failed" and "answer from your finances" in last.get("message", "")
+              and "<<<Write me a poem about cats>>>" in str(stubenv.LAST_KWARGS.get("claude")),
+              "run_report_refused_not_counted: the marker -> refused, the use is given back, the refusal notice", (row, last))
+
+        # ---- failed (every provider fails)
+        stubenv.set_fake_ai(openai="server", gemini="server", claude="server")
+        h.set_used(uid, 0)
+        rid3 = await pending(instruction="Where did my money go?")
+        row = await cis.run_report(rid3)
+        last = (notes_for(uid, rid3) or [{}])[-1]
+        check(row and row["status"] == "failed" and row["content"] is None and h.used(uid) == 0 and len(notes_for(uid, rid3)) == 1
+              and last.get("type") == "custom_insight_failed" and "answer from your finances" not in last.get("message", "x answer from your finances"),
+              "run_report_failed_not_counted: every provider failing -> failed, the use is given back, the failed notice", (row, last))
+        reset_ai()
+
+        # ---- the model's text is stripped: blank -> failed, marker after whitespace -> refused
+        outcomes = []
+        for text in ("\n\n \n", "  [[NOT_FINANCE]]\n", "\n## Summary\nx\n\n"):
+            cis.run_insight_model = answering(text)
+            h.set_used(uid, 0)
+            r_ = await cis.run_report(await pending(preset="biggest_changes"))
+            outcomes.append((r_["status"], r_["content"], h.used(uid)))
+        cis.run_insight_model = real_model
+        check(outcomes == [("failed", None, 0), ("refused", None, 0), ("ready", "## Summary\nx", 1)],
+              "run_report_strips_output: a blank answer fails, the marker after whitespace refuses, content is stored stripped",
+              outcomes)
+
+        # ---- the plan is not checked again
+        h.set_used(uid, 0)
+        rid4 = await pending(preset="compare_previous")
+        changed = h.set_plan(uid, "free")
+        task = cis.start_report(rid4)
+        held = task in cis._running_reports
+        row = await task
+        await asyncio.sleep(0)
+        check(changed and held and isinstance(task, asyncio.Task) and row["status"] == "ready" and h.used(uid) == 1
+              and task not in cis._running_reports,
+              "run_report_finishes_after_plan_change: a pending report still finishes on Free (start_report holds the task until done)")
+        check(h.set_plan(uid, "pro"), "generation_setup: back on Pro")
+
+        # ---- cancelled: left pending for the sweeper
+        await cis.fail_stuck_reports()  # stuck rows left by earlier runs, so the counts below are exact
+        h.set_used(uid, 0)
+        rid5 = await pending(preset="budgets_goals")
+        entered = asyncio.Event()
+
+        async def hang(*a, **k):
+            entered.set()
+            await asyncio.sleep(3600)
+        cis.run_insight_model = hang
+        task = cis.start_report(rid5)
+        await asyncio.wait_for(entered.wait(), 30)
+        task.cancel()
+        try:
+            await task
+            cancelled = False
+        except asyncio.CancelledError:
+            cancelled = True
+        cis.run_insight_model = real_model
+        check(cancelled and (await ci.get(rid5))["status"] == "pending" and h.used(uid) == 1 and not notes_for(uid, rid5),
+              "run_report_cancelled_left_pending: cancellation is re-raised, the row stays pending, nothing given back")
+
+        # ---- the sweeper fails it; a late run_report changes nothing
+        with t.connect() as conn:
+            conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = %s", (rid5,))
+        swept = await cis.fail_stuck_reports()
+        got = await ci.get(rid5)
+        check(swept == 1 and h.used(uid) == 0 and got["status"] == "failed"
+              and [n["type"] for n in notes_for(uid, rid5)] == ["custom_insight_failed"],
+              "sweeper_fails_and_gives_back: a report pending 25 minutes -> failed, use given back, one failed notice",
+              (swept, got and got["status"], h.used(uid)))
+        calls, n_notes = ai_calls(), len(notes(uid))
+        late = await cis.run_report(rid5)
+        check(late["status"] == "failed" and h.used(uid) == 0 and ai_calls() == calls and len(notes(uid)) == n_notes,
+              "sweeper_then_late_finish_no_double_give_back: no AI call, no second give-back, no second notice")
+
+        # ---- the race: the job is waiting for the model when the sweeper fails the report
+        h.set_used(uid, 0)
+        rid6 = await pending(preset="where_to_save")
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def slow(*a, **k):
+            entered.set()
+            await release.wait()
+            return await answering(stubenv.FAKE_REPLY)()
+        cis.run_insight_model = slow
+        task = cis.start_report(rid6)
+        await asyncio.wait_for(entered.wait(), 30)
+        with t.connect() as conn:
+            conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = %s", (rid6,))
+        swept = await cis.fail_stuck_reports()
+        release.set()
+        late = await asyncio.wait_for(task, 30)
+        cis.run_insight_model = real_model
+        check(swept == 1 and late["status"] == "failed" and late["content"] is None and h.used(uid) == 0
+              and [n["type"] for n in notes_for(uid, rid6)] == ["custom_insight_failed"],
+              "sweeper_race_late_answer_dropped: the answer arriving after the sweep is dropped; given back and notified once",
+              (swept, late, h.used(uid), notes_for(uid, rid6)))
+        check(await cis.fail_stuck_reports() == 0, "sweeper_idempotent")
+
+        # ---- the scheduler runs the sweeper every 5 minutes
+        sched = scheduler.start_scheduler()
+        try:
+            job = sched.get_job("custom_insight_sweeper")
+        finally:
+            sched.shutdown(wait=False)
+        fires = []
+        if job is not None:
+            at = datetime(2026, 11, 4, 10, 2, tzinfo=tz)
+            first = job.trigger.get_next_fire_time(None, at)
+            fires = [first, job.trigger.get_next_fire_time(first, first + timedelta(seconds=1))]
+        check(job is not None and job.func is cis.fail_stuck_reports and job.coalesce is True and job.misfire_grace_time == 300
+              and fires == [datetime(2026, 11, 4, 10, 5, tzinfo=tz), datetime(2026, 11, 4, 10, 10, tzinfo=tz)],
+              "sweeper_scheduled_every_5_minutes: fail_stuck_reports at every 5th minute (app timezone), coalesced, 300 s grace",
+              (job, fires))
+    finally:
+        cis.run_insight_model = real_model
+        reset_ai()
+
+
 # ---------------------------------------------------------------- runner
 async def run(t):
     """t: the test_plans module (check, connect, make_admins, admin_login, ...)."""
@@ -469,6 +770,7 @@ async def run(t):
     try:
         await storage_checks(t, h)
         await notification_checks(t, h)
+        await generation_checks(t, h)
     finally:
         db.users.delete_many({"email": {"$regex": f"^t9c-.*-{tag}@"}})  # cascades to custom insights and counters
         db.admins.delete_many({"email": {"$in": list(made.values())}})

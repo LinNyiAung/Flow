@@ -99,7 +99,9 @@ _RAISING_KINDS = ("billing", "auth", "rate_limit", "server", "timeout", "model_n
 # "length", Gemini MAX_TOKENS, Claude stop_reason "max_tokens"), on the first matching call only. slow: a normal
 # streamed answer that waits SLOW_STREAM_DELAY seconds before each part (so a client can disconnect mid-stream).
 # no_transactions: a valid JSON answer to the multi-transaction prompt that finds nothing (an empty "transactions").
-_ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once", "slow", "no_transactions")
+# off_topic: the custom insight's off-topic marker (OFF_TOPIC_TEXT) as the whole answer, on every provider.
+_ANSWER_KINDS = ("refusal", "empty", "bad_json", "fail_mid_stream", "length_once", "slow", "no_transactions", "off_topic")
+OFF_TOPIC_TEXT = "[[NOT_FINANCE]]"  # custom_insights_service.OFF_TOPIC_MARKER
 SLOW_STREAM_DELAY = 1.0
 _ONCE_KINDS = ("length_once",)  # consumed by the first matching call, even without "times"
 FAKE_KINDS = _RAISING_KINDS + _ANSWER_KINDS  # later tasks add kinds here
@@ -156,7 +158,8 @@ def set_fake_ai(**kinds):
     (raise); refusal (claude), empty, bad_json (odd successful
     answer); fail_mid_stream (streaming calls only); length_once (a reply cut off at the output limit, on the
     first matching call only); slow (streaming calls wait SLOW_STREAM_DELAY seconds before each part);
-    no_transactions (JSON-mode answers carry an empty "transactions" list). Model-scoped keys need dict unpacking:
+    no_transactions (JSON-mode answers carry an empty "transactions" list); off_topic (the answer is OFF_TOPIC_TEXT,
+    the custom insight's off-topic marker). Model-scoped keys need dict unpacking:
     set_fake_ai(**{"claude@claude-typo": "model_not_found"}); a count limits a failure:
     set_fake_ai(claude={"kind": "rate_limit", "times": 2}). Typos raise ValueError.
     """
@@ -290,6 +293,8 @@ def _answer_text(kind, prompt, wants_json):
         return ""
     if kind == "bad_json":
         return "not json"
+    if kind == "off_topic":
+        return OFF_TOPIC_TEXT
     if kind == "no_transactions" and wants_json:
         return json.dumps({"transactions": [], "total_count": 0, "overall_confidence": 0.5,
                            "analysis": "No transactions found in the text"})

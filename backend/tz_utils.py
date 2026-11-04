@@ -117,12 +117,15 @@ def is_budget_ending_soon(days_until_end: int, window: int = BUDGET_ENDING_SOON_
     return 0 <= days_until_end <= window
 
 
-def _day_bounds_utc(start: date, end: date):
+def day_bounds_utc(start: date, end: date) -> tuple[datetime, datetime]:
     """UTC-labelled [start 00:00:00, end 23:59:59.999999] for calendar dates (matches how dates are stored)."""
     return (
         datetime.combine(start, time.min, tzinfo=timezone.utc),
         datetime.combine(end, time.max, tzinfo=timezone.utc),
     )
+
+
+_day_bounds_utc = day_bounds_utc  # alias: the name the period helpers below use
 
 
 def previous_week_range(now: Optional[datetime] = None):

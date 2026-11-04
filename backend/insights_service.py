@@ -194,6 +194,7 @@ async def _todays_placeholder(user_id: str, insight_type: str):
 INSIGHT_MAX_TOKENS = {
     "insight_weekly": {"openai": 2500, "gemini": 8192, "claude": 12000},
     "insight_monthly": {"openai": 3000, "gemini": 8192, "claude": 12000},
+    "insight_custom": {"openai": 2000, "gemini": 8192, "claude": 12000},
 }
 INSIGHT_TEMPERATURE = 0.7  # sent to OpenAI and Gemini as before; the Claude client never sends it
 
@@ -206,9 +207,9 @@ def _feature_prompt_call(feature: str, system: str, user: str, max_tokens: dict,
     return call
 
 
-async def _call_insight_model(feature: str, system_prompt: str, context: str, user_id: str, label: str,
-                              background: bool = False):
-    """Run the insight feature on its provider chain. Returns (content, provider, in, out, total).
+async def run_insight_model(feature: str, system_prompt: str, context: str, user_id: str, label: str,
+                            background: bool = False) -> _runner.RunResult:
+    """Run the insight feature on its provider chain; the RunResult carries the completion and the answering target.
 
     The runner tracks usage. Raises InsightAIError when every provider failed (or the request itself failed).
     """
@@ -234,6 +235,14 @@ async def _call_insight_model(feature: str, system_prompt: str, context: str, us
         f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
         + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
     )
+    return result
+
+
+async def _call_insight_model(feature: str, system_prompt: str, context: str, user_id: str, label: str,
+                              background: bool = False):
+    """run_insight_model as (content, provider, in, out, total), for the weekly and monthly insights."""
+    result = await run_insight_model(feature, system_prompt, context, user_id, label, background=background)
+    c, t = result.completion, result.target
     return c.text, t.provider, c.input_tokens, c.output_tokens, c.input_tokens + c.output_tokens
 
 
@@ -527,6 +536,56 @@ CRITICAL RULES:
 Remember: This report is generated on Monday morning, reviewing the complete week (Monday-Sunday) that just ended, and providing actionable recommendations for the week ahead."""
 
 
+def currency_label(code: str) -> tuple[str, str]:
+    """(symbol, name) the insight contexts print money with: $ / USD, K / MMK, otherwise ฿ / THB."""
+    return ("$" if code == "usd" else ("K" if code == "mmk" else "฿"),
+            "USD" if code == "usd" else ("MMK" if code == "mmk" else "THB"))
+
+
+def goals_budgets_context(goals, budgets) -> str:
+    """The goals and budgets block of an insight context (weekly and custom): per currency, at most 5 active goals
+    with their progress, then each budget with its total and at most 5 category allocations. "" when both are empty."""
+    context = ""
+    if goals:
+        context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
+        goals_by_currency = {}
+        for g in goals:
+            goals_by_currency.setdefault(g.get("currency", "usd"), []).append(g)
+
+        for curr, curr_goals in goals_by_currency.items():
+            sym, name = currency_label(curr)
+            active_goals = [g for g in curr_goals if g["status"] == "active"]
+
+            context += f"{name} Goals:\n"
+            for goal in active_goals[:5]:
+                progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
+                context += f"  - {goal['name']}: {sym}{goal['current_amount']:,.2f} / {sym}{goal['target_amount']:,.2f} ({progress:.1f}%)\n"
+            context += "\n"
+
+    if budgets:
+        context += "\n=== ACTIVE BUDGETS ===\n\n"
+        budgets_by_currency = {}
+        for b in budgets:
+            budgets_by_currency.setdefault(b.get("currency", "usd"), []).append(b)
+
+        for curr, curr_budgets in budgets_by_currency.items():
+            sym, name = currency_label(curr)
+
+            context += f"{name} Budgets:\n"
+            for budget in curr_budgets:
+                utilization = budget.get("percentage_used", 0)
+                status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
+                context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
+                context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
+
+                # Show category breakdowns
+                for cat_budget in budget.get('category_budgets', [])[:5]:
+                    cat_util = cat_budget.get('percentage_used', 0)
+                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
+                context += "\n"
+    return context
+
+
 def _build_weekly_context(
     user, 
     current_week_data,  # Now accepts aggregation result
@@ -634,53 +693,7 @@ Total Transactions: {total_tx}
             context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change:+.1f}%)\n"
             context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change:+.1f}%)\n\n"
 
-    # --- GOALS & BUDGETS Logic remains exactly the same as before ---
-
-    # Goals progress
-    if goals:
-        context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
-        goals_by_currency = {}
-        for g in goals:
-            curr = g.get("currency", "usd")
-            if curr not in goals_by_currency: goals_by_currency[curr] = []
-            goals_by_currency[curr].append(g)
-
-        for curr, curr_goals in goals_by_currency.items():
-            sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
-            name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
-            active_goals = [g for g in curr_goals if g["status"] == "active"]
-
-            context += f"{name} Goals:\n"
-            for goal in active_goals[:5]:
-                progress = (goal["current_amount"] / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
-                context += f"  - {goal['name']}: {sym}{goal['current_amount']:,.2f} / {sym}{goal['target_amount']:,.2f} ({progress:.1f}%)\n"
-            context += "\n"
-
-    # Budgets progress
-    if budgets:
-        context += "\n=== ACTIVE BUDGETS ===\n\n"
-        budgets_by_currency = {}
-        for b in budgets:
-            curr = b.get("currency", "usd")
-            if curr not in budgets_by_currency: budgets_by_currency[curr] = []
-            budgets_by_currency[curr].append(b)
-
-        for curr, curr_budgets in budgets_by_currency.items():
-            sym = "$" if curr == "usd" else ("K" if curr == "mmk" else "฿")
-            name = "USD" if curr == "usd" else ("MMK" if curr == "mmk" else "THB")
-
-            context += f"{name} Budgets:\n"
-            for budget in curr_budgets:
-                utilization = budget.get("percentage_used", 0)
-                status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
-                context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
-                context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
-
-                # Show category breakdowns
-                for cat_budget in budget.get('category_budgets', [])[:5]:
-                    cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
-                context += "\n"
+    context += goals_budgets_context(goals, budgets)
 
     # Previous insight summary
     if previous_insight:
