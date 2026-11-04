@@ -50,6 +50,7 @@ from transaction_routes import router as transaction_router
 from goal_routes import router as goal_router
 from auth_routes import router as auth_router
 from budget_routes import router as budget_router
+from custom_insight_routes import router as custom_insight_router
 from report_routes import router as report_router
 from admin_routes import router as admin_router
 from feedback_routes import router as feedback_router
@@ -79,6 +80,7 @@ app.include_router(transaction_router)
 app.include_router(auth_router)
 app.include_router(goal_router)
 app.include_router(budget_router)
+app.include_router(custom_insight_router)
 app.include_router(report_router)
 app.include_router(admin_router)
 app.include_router(feedback_router)

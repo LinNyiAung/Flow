@@ -723,6 +723,420 @@ async def generation_checks(t, h):
         reset_ai()
 
 
+# ---------------------------------------------------------------- HTTP API
+SUMMARY_KEYS = {"id", "start_date", "end_date", "preset", "instruction", "status", "created_at", "completed_at", "has_myanmar"}
+DETAIL_KEYS = SUMMARY_KEYS | {"content", "content_mm", "figures"}
+CREATE = "/api/custom-insights"
+
+
+async def route_checks(t, h):
+    """The /api/custom-insights routes over HTTP (the stub server and its fake AI): create with gating, the reuse rule
+    and the daily attempt limit, list, open, translate and delete."""
+    import threading
+    import time
+    import stubenv
+    import plans_chat_checks
+    import plans_insight_checks
+    from plans import periods
+    from ai_providers import health
+    from sql import custom_insights as ci
+    from tz_utils import app_today
+
+    import custom_insights_service as cis
+
+    check = t.check
+    c = h.c
+    today = app_today()
+    plan_error = plans_insight_checks.plan_error
+
+    def ai_calls():
+        return sum(1 for x in plans_chat_checks.outbox_lines() if x.get("kind") == "ai_call")
+
+    def reset_ai():
+        stubenv.clear_fake_ai()
+        health.reset()
+        for p in ("openai", "gemini", "claude"):
+            c.post(f"/api/admin/ai/test/{p}", headers=h.AD, json={})
+
+    def put_plans(mutate):
+        body = t.default_body()
+        mutate(body)
+        return c.put("/api/admin/plans", headers=h.AD, json=body).status_code == 200
+
+    def counter_rows(uid, feature):
+        with t.connect() as conn:
+            return conn.execute("SELECT count(*) FROM usage_counters WHERE user_id = %s AND feature = %s",
+                                (uid, feature)).fetchone()[0]
+
+    def add_cost(uid, usd):
+        with t.connect() as conn:
+            conn.execute("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, estimated_cost_usd, created_at) "
+                         "VALUES (%s, %s, 'chat', 'openai', 'gpt-test', %s, %s)", (str(uuid.uuid4()), uid, usd, datetime.now(UTC)))
+
+    def code(r):
+        d = r.json().get("detail") if r.headers.get("content-type", "").startswith("application/json") else None
+        return (r.status_code, d.get("code") if isinstance(d, dict) else None)
+
+    def body(days=30, start=None, end=None, **extra):
+        end = end or today
+        start = start or end - timedelta(days=days - 1)
+        return {"start_date": start.isoformat(), "end_date": end.isoformat(), **extra}
+
+    def post(hd, **kw):
+        extra = {k: kw.pop(k) for k in ("preset", "instruction") if k in kw}
+        return c.post(CREATE, headers=hd, json=body(**kw, **extra))
+
+    def detail(hd, rid):
+        return c.get(f"{CREATE}/{rid}", headers=hd)
+
+    def wait(hd, rid, timeout=60):
+        """Poll the report until it is not pending any more; its detail."""
+        end_at = time.time() + timeout
+        while time.time() < end_at:
+            r = detail(hd, rid)
+            if r.status_code == 200 and r.json()["status"] != "pending":
+                return r.json()
+            time.sleep(0.5)
+        return detail(hd, rid).json()
+
+    def settle(hd):
+        """Wait for the user's newest report (if any) to leave pending."""
+        reports = c.get(CREATE, headers=hd).json().get("reports") or []
+        return wait(hd, reports[0]["id"]) if reports else None
+
+    def create_ready(hd, **kw):
+        r = post(hd, **kw)
+        assert r.status_code == 202, (r.status_code, r.text)
+        rid = r.json()["report"]["id"]
+        assert wait(hd, rid)["status"] == "ready", detail(hd, rid).text
+        return rid
+
+    def mk(name, lang="en", plan="pro", tx=True):
+        """A user with two transactions inside the default range (income 100 five days ago, spending 20 two days ago)."""
+        uid, hd = h.register(name, lang)
+        assert h.set_plan(uid, plan) if plan != "free" else True
+        ids = []
+        if tx:
+            ids = [h.add_tx(hd, "inflow", 100, today - timedelta(days=5), main="Employment Income", sub="Salary"),
+                   h.add_tx(hd, "outflow", 20, today - timedelta(days=2))]
+            assert all(ids), ids
+        return uid, hd, ids
+
+    async def pending_row(uid, start, end):
+        rid = str(uuid.uuid4())
+        assert await ci.insert_pending({"_id": rid, "user_id": uid, "start_date": start, "end_date": end, "instruction_key": ""})
+        return rid
+
+    async def attempt_row(uid, status="failed"):
+        rid = await pending_row(uid, today - timedelta(days=6), today)
+        await ci.finish(rid, status=status, now=datetime.now(UTC))
+        return rid
+
+    def year_ago(d):
+        try:
+            return d.replace(year=d.year - 1)
+        except ValueError:  # Feb 29: the day before
+            return d.replace(year=d.year - 1, day=28)
+
+    try:
+        reset_ai()
+
+        # ---- create, pending, ready, detail and list
+        pro, ph, ptx = mk("api-pro")
+        before = ai_calls()
+        r = post(ph, instruction="where can I save?")
+        j = r.json() if r.status_code == 202 else {}
+        rid = (j.get("report") or {}).get("id")
+        check(r.status_code == 202 and j.get("reused") is False and j["report"]["status"] == "pending" and h.used(pro) == 1
+              and j["report"]["instruction"] == "where can I save?" and j["report"]["completed_at"] is None
+              and j["report"]["start_date"] == (today - timedelta(days=29)).isoformat() and j["report"]["end_date"] == today.isoformat(),
+              "create_pending_counts_one: 202, a pending report, one use counted", (r.status_code, r.text[:300]))
+        d = wait(ph, rid)
+        fig = (d.get("figures") or {}).get("currencies") or [{}]
+        check(d.get("status") == "ready" and set(d) == DETAIL_KEYS and d["content"] and d["content_mm"] is None
+              and d["has_myanmar"] is False and d["completed_at"] and d["created_at"].endswith("+00:00")
+              and fig[0].get("income") == 100.0 and fig[0].get("spending") == 20.0 and h.used(pro) == 1
+              and ai_calls() - before == 1,
+              "create_becomes_ready: detail shape, the stored figures, one AI call, still one use", d)
+        lst = c.get(CREATE, headers=ph)
+        reports = lst.json().get("reports", []) if lst.status_code == 200 else []
+        check(len(reports) == 1 and set(reports[0]) == SUMMARY_KEYS and reports[0]["id"] == rid and reports[0]["status"] == "ready",
+              "list_shape: the summary keys only, no content", lst.text[:300])
+        fr, fh = h.register("api-freelist")
+        check(c.get(CREATE, headers=fh).json() == {"reports": []} and c.get(CREATE).status_code in (401, 403),
+              "list_any_plan_needs_login: Free may list (nothing yet), no token is refused")
+
+        # ---- the reuse rule
+        before = ai_calls()
+        r2 = post(ph, instruction="  WHERE can I save?  ")
+        check(r2.status_code == 200 and r2.json()["reused"] is True and r2.json()["report"]["id"] == rid
+              and set(r2.json()["report"]) == DETAIL_KEYS and r2.json()["report"]["content"]
+              and h.used(pro) == 1 and ai_calls() == before,
+              "reuse_same_range_instruction_ignores_case_and_spaces: 200, the same report, no AI call, no use", (r2.status_code, r2.text[:200]))
+        r3 = post(ph, instruction="Where else?")
+        check(r3.status_code == 202 and r3.json()["report"]["id"] != rid, "reuse_other_instruction_creates: another instruction is a new report")
+        wait(ph, r3.json()["report"]["id"])
+        l2 = c.get(CREATE, headers=ph).json()["reports"]
+        check(len(l2) == 2 and l2[0]["id"] == r3.json()["report"]["id"] and l2[1]["id"] == rid,
+              "list_newest_first", [x["id"] for x in l2])
+
+        u, uh, utx = mk("api-new")
+        rid_new = create_ready(uh, instruction="x")
+        h.add_tx(uh, "outflow", 5, today - timedelta(days=1))
+        r = post(uh, instruction="x")
+        check(r.status_code == 202 and r.json()["reused"] is False and r.json()["report"]["id"] != rid_new,
+              "reuse_after_new_transaction_regenerates", (r.status_code, r.text[:200]))
+        wait(uh, r.json()["report"]["id"])
+
+        u, uh, utx = mk("api-edit")
+        create_ready(uh, instruction="x")
+        e = c.put(f"/api/transactions/{utx[1]}", headers=uh, json={"amount": 25})
+        r = post(uh, instruction="x")
+        check(e.status_code == 200 and r.status_code == 202 and r.json()["reused"] is False,
+              "reuse_after_edit_regenerates", (e.status_code, r.status_code))
+        wait(uh, r.json()["report"]["id"])
+
+        u, uh, utx = mk("api-del")
+        create_ready(uh, instruction="x")
+        e = c.delete(f"/api/transactions/{utx[1]}", headers=uh)
+        r = post(uh, instruction="x")
+        check(e.status_code == 200 and r.status_code == 202 and r.json()["reused"] is False,
+              "reuse_after_delete_regenerates: a deleted transaction leaves no updated_at; the figures differ", (e.status_code, r.status_code))
+        wait(uh, r.json()["report"]["id"])
+
+        u, uh, utx = mk("api-move")
+        create_ready(uh, instruction="x")
+        e = c.put(f"/api/transactions/{utx[1]}", headers=uh,
+                  json={"date": datetime.combine(today - timedelta(days=200), datetime.min.time(), tzinfo=UTC).isoformat()})
+        r = post(uh, instruction="x")
+        check(e.status_code == 200 and r.status_code == 202 and r.json()["reused"] is False,
+              "reuse_after_date_moved_out_regenerates", (e.status_code, r.status_code))
+        wait(uh, r.json()["report"]["id"])
+
+        # Only a description is edited: income, spending and counts stay equal, so only changed_since can tell.
+        u, uh, utx = mk("api-desc")
+        first = create_ready(uh, instruction="x")
+        d1 = detail(uh, first).json()
+        e = c.put(f"/api/transactions/{utx[1]}", headers=uh, json={"description": "edited text only"})
+        r = post(uh, instruction="x")
+        d2 = wait(uh, r.json()["report"]["id"]) if r.status_code == 202 else {}
+        check(e.status_code == 200 and r.status_code == 202 and r.json()["reused"] is False and d2.get("figures") == d1["figures"],
+              "reuse_after_description_edit_regenerates: totals equal, so only the edit time forces a new report",
+              (e.status_code, r.status_code, d2.get("figures") == d1["figures"]))
+        check(post(uh, instruction="x").json()["reused"] is True, "reuse_again_after_regeneration: the new report is reused")
+
+        # ---- one pending at a time
+        u, uh, _ = mk("api-pend")
+        pend = await pending_row(u, today - timedelta(days=40), today - timedelta(days=20))
+        r = post(uh, days=9)
+        d = r.json().get("detail") or {}
+        check(code(r) == (409, "custom_insight_pending") and d.get("resets_at") is None and h.used(u) == 0
+              and d.get("message") == "Your previous custom insight is still being created. Please wait until it's ready.",
+              "create_while_pending_refused: 409, nothing reserved, the English message", r.text[:300])
+        check(code(c.post(f"{CREATE}/{pend}/translate", headers=uh)) == (409, "custom_insight_not_ready"),
+              "translate_not_ready")
+        check(code(c.delete(f"{CREATE}/{pend}", headers=uh)) == (409, "custom_insight_not_ready")
+              and detail(uh, pend).json()["status"] == "pending", "delete_pending_refused")
+        check(detail(uh, pend).json()["content"] is None and detail(uh, pend).json()["figures"] is None,
+              "detail_pending_has_no_content")
+
+        u, uh, _ = mk("api-conc")
+        gate = threading.Barrier(2)
+        out = []
+        clients = [httpx.Client(base_url=BASE, timeout=120) for _ in range(2)]
+
+        def go(cl):
+            gate.wait()
+            out.append(cl.post(CREATE, headers=uh, json=body(days=11)).status_code)
+        threads = [threading.Thread(target=go, args=(cl,)) for cl in clients]
+        [x.start() for x in threads]
+        [x.join() for x in threads]
+        [cl.close() for cl in clients]
+        rows = c.get(CREATE, headers=uh).json()["reports"]
+        wait(uh, rows[0]["id"])
+        check(sorted(out) == [202, 409] and h.used(u) == 1 and len(rows) == 1,
+              "create_concurrent_one_pending: two taps, one report, one use", (out, h.used(u), len(rows)))
+
+        # ---- range and instruction rules
+        u, uh, _ = mk("api-range")
+        r6 = post(uh, days=6)
+        check(code(r6) == (422, "custom_insight_invalid_range") and h.used(u) == 0
+              and r6.json()["detail"]["message"] == "Choose from 7 days to 12 months, ending today or earlier."
+              and post(uh, days=7).status_code == 202, "range_min_7_days")
+        settle(uh)
+        ya = year_ago(today)
+        check(code(post(uh, start=ya, end=today)) == (422, "custom_insight_invalid_range")
+              and post(uh, start=ya + timedelta(days=1), end=today).status_code == 202, "range_max_12_months")
+        settle(uh)
+        check(code(post(uh, end=today + timedelta(days=1))) == (422, "custom_insight_invalid_range")
+              and code(post(uh, start=today, end=today - timedelta(days=9))) == (422, "custom_insight_invalid_range"),
+              "range_not_in_future_or_reversed")
+
+        u, uh, _ = mk("api-instr")
+        bad = post(uh, preset="where_to_save", instruction="x")
+        check(code(bad) == (422, "custom_insight_invalid_instruction")
+              and bad.json()["detail"]["message"] == "Use one ready-made instruction or your own, of at most 300 characters."
+              and code(post(uh, instruction="က" * 301)) == (422, "custom_insight_invalid_instruction")
+              and code(post(uh, instruction="a" * 301)) == (422, "custom_insight_invalid_instruction") and h.used(u) == 0,
+              "instruction_too_long_or_both_refused")
+        r = post(uh, instruction="က" * 300, days=8)
+        check(r.status_code == 202, "instruction_300_chars_incl_myanmar", r.text[:200])
+        wait(uh, r.json()["report"]["id"])
+        r = post(uh, instruction="   ", days=9)
+        check(r.status_code == 202 and r.json()["report"]["instruction"] is None and r.json()["report"]["preset"] is None,
+              "instruction_blank_is_none", r.text[:200])
+        wait(uh, r.json()["report"]["id"])
+        r = post(uh, preset="biggest_changes", days=10)
+        check(r.status_code == 202 and r.json()["report"]["preset"] == "biggest_changes" and r.json()["report"]["instruction"] is None,
+              "preset_accepted", r.text[:200])
+        wait(uh, r.json()["report"]["id"])
+        un = post(uh, preset="not_a_preset")
+        ex = c.post(CREATE, headers=uh, json={**body(), "surprise": 1})
+        check(un.status_code == 422 and isinstance(un.json()["detail"], list) and ex.status_code == 422
+              and isinstance(ex.json()["detail"], list) and c.post(CREATE, headers=uh, json={"start_date": "x"}).status_code == 422,
+              "unknown_preset_extra_field_bad_date_are_pydantic_422")
+
+        # ---- no data, plan gating, limits, cost cap
+        e_u, eh, _ = mk("api-empty", tx=False)
+        r = post(eh)
+        check(code(r) == (422, "custom_insight_no_data") and h.used(e_u) == 0
+              and r.json()["detail"]["message"] == "There are no transactions in these dates, so there is nothing to report on.",
+              "no_data_not_counted", r.text[:300])
+        pl_u, plh, _ = mk("api-plus", plan="plus")
+        fr_u, frh, _ = mk("api-free", plan="free")
+        check(plan_error(post(plh), 403, "plan_feature_locked", "insight_custom")
+              and plan_error(post(frh), 403, "plan_feature_locked", "insight_custom")
+              and plan_error(post(plh, days=3), 403, "plan_feature_locked", "insight_custom") is False  # a bad range answers first
+              and h.used(pl_u) == 0, "free_plus_locked")
+        check(put_plans(lambda b: b["plans"]["plus"]["limits"].update({"insight_custom": {"mode": "counted", "quota": 3, "period": "month"}})),
+              "gating_setup: Plus gets 3 a month")
+        r = post(plh)
+        check(r.status_code == 202 and h.used(pl_u) == 1, "gating_follows_plan_limits", r.text[:200])
+        wait(plh, r.json()["report"]["id"])
+        put_plans(lambda b: None)
+
+        u, uh, _ = mk("api-limit")
+        h.set_used(u, 10)
+        r = post(uh)
+        check(plan_error(r, 429, "plan_limit_reached", "insight_custom") and h.used(u) == 10
+              and c.get(CREATE, headers=uh).json() == {"reports": []}, "limit_reached_10", r.text[:300])
+        u, uh, _ = mk("api-cap")
+        add_cost(u, 3.5)
+        r = post(uh)
+        check(plan_error(r, 429, "plan_cost_cap", "insight_custom") and h.used(u) == 0, "cost_cap_applies", r.text[:300])
+
+        u, uh, _ = mk("api-mylang", lang="my")
+        r = post(uh, days=3)
+        check(code(r) == (422, "custom_insight_invalid_range") and MYANMAR.search(r.json()["detail"]["message"]),
+              "error_message_in_user_language", r.text[:300])
+
+        # ---- the 5-a-day limit on failed / refused reports
+        u, uh, _ = mk("api-att")
+        failed = [await attempt_row(u, "failed") for _ in range(3)] + [await attempt_row(u, "refused")]
+        r4 = post(uh, instruction="four failed so far")
+        check(r4.status_code == 202, "attempts_4_failed_today_still_allowed", r4.text[:200])
+        wait(uh, r4.json()["report"]["id"])
+        failed.append(await attempt_row(u, "failed"))
+        r5 = post(uh, instruction="the fifth failed")
+        d = r5.json().get("detail") or {}
+        now = datetime.now(UTC)
+        check(code(r5) == (429, "custom_insight_attempts") and d.get("resets_at") == cis.attempts_reset_at(now).isoformat()
+              and d.get("message") == "Today's limit of 5 custom insights that couldn't be created has been reached. Please try again tomorrow."
+              and h.used(u) == 1, "attempts_limit_5_per_day", r5.text[:300])
+        dl = c.delete(f"{CREATE}/{failed[0]}", headers=uh)
+        r5b = post(uh, instruction="the fifth failed")
+        check(dl.status_code == 200 and dl.json() == {"deleted": True} and detail(uh, failed[0]).status_code == 404
+              and code(r5b) == (429, "custom_insight_attempts"),
+              "attempts_survive_delete: a deleted failed report is hidden but still counts", (dl.text, r5b.text[:200]))
+        check(post(uh, instruction="four failed so far").status_code == 200, "attempts_do_not_block_reuse: a ready match is still served")
+
+        # ---- an off-topic instruction is refused over HTTP and not counted
+        u, uh, _ = mk("api-off")
+        stubenv.set_fake_ai(claude="off_topic")
+        r = post(uh, instruction="write my history essay")
+        d = wait(uh, r.json()["report"]["id"]) if r.status_code == 202 else {}
+        reset_ai()
+        check(r.status_code == 202 and d.get("status") == "refused" and d.get("content") is None and h.used(u) == 0,
+              "off_topic_refused_over_http: refused, nothing counted", d)
+        check([n["type"] for n in h.db.notifications.find({"user_id": u, "goal_id": d.get("id")})] == ["custom_insight_failed"],
+              "off_topic_notified_once")
+
+        # ---- open
+        other, oh, _ = mk("api-other")
+        check(detail(oh, rid).status_code == 404 and detail(ph, "no-such-id").status_code == 404
+              and c.get(f"{CREATE}/{rid}").status_code in (401, 403), "other_user_404: someone else's report, a missing id")
+
+        # ---- translation
+        t_u, th, _ = mk("api-tr")
+        t_rid = create_ready(th, instruction="to translate")
+        before = ai_calls()
+        tr = c.post(f"{CREATE}/{t_rid}/translate", headers=th)
+        first_calls = ai_calls() - before
+        mm = tr.json().get("content_mm") if tr.status_code == 200 else None
+        tr2 = c.post(f"{CREATE}/{t_rid}/translate", headers=th)
+        check(tr.status_code == 200 and set(tr.json()) == DETAIL_KEYS and mm and tr.json()["has_myanmar"] is True
+              and first_calls == 1 and tr2.status_code == 200 and tr2.json()["content_mm"] == mm and ai_calls() - before == 1
+              and counter_rows(t_u, "insight_translation") == 0 and detail(th, t_rid).json()["content_mm"] == mm,
+              "translate_pro_once: stored once, the second call makes no AI call, Pro's included translation leaves no counter",
+              (tr.status_code, first_calls, ai_calls() - before, counter_rows(t_u, "insight_translation")))
+        check(h.set_plan(t_u, "free") and detail(th, t_rid).json()["content_mm"] == mm and c.get(CREATE, headers=th).status_code == 200
+              and c.get(CREATE, headers=th).json()["reports"][0]["has_myanmar"] is True
+              and c.post(f"{CREATE}/{t_rid}/translate", headers=th).json()["content_mm"] == mm,
+              "after_downgrade_list_open_and_stored_myanmar_shown: the stored translation is shown on Free, and served again")
+        f_u, fh2, _ = mk("api-trfree")
+        f_rid = create_ready(fh2, instruction="not yet translated")
+        h.set_plan(f_u, "free")
+        before = ai_calls()
+        r = c.post(f"{CREATE}/{f_rid}/translate", headers=fh2)
+        check(plan_error(r, 403, "plan_feature_locked", "insight_translation") and ai_calls() == before
+              and detail(fh2, f_rid).json()["content_mm"] is None,
+              "translate_locked_follows_plan: Free cannot translate an unstored report", r.text[:300])
+        check(code(c.post(f"{CREATE}/{rid}/translate", headers=oh)) == (404, None)
+              and c.post(f"{CREATE}/no-such-id/translate", headers=oh).status_code == 404, "translate_other_user_404")
+
+        # a failing translation gives the use back (Pro's translation made a counted limit)
+        check(put_plans(lambda b: b["plans"]["pro"]["limits"].update({"insight_translation": {"mode": "counted", "quota": 5, "period": "month"}})),
+              "translate_failure_setup")
+        g_u, gh, _ = mk("api-trfail")
+        g_rid = create_ready(gh, instruction="to translate and fail")
+        stubenv.set_fake_ai(openai="rate_limit", gemini="rate_limit", claude="rate_limit")
+        r429 = c.post(f"{CREATE}/{g_rid}/translate", headers=gh)
+        used_after_429 = h.used(g_u, feature="insight_translation")
+        reset_ai()
+        stubenv.set_fake_ai(openai="server", gemini="server", claude="server")
+        r503 = c.post(f"{CREATE}/{g_rid}/translate", headers=gh)
+        used_after_503 = h.used(g_u, feature="insight_translation")
+        reset_ai()
+        check(r429.status_code == 429 and isinstance(r429.json()["detail"], str) and used_after_429 == 0
+              and r503.status_code == 503 and isinstance(r503.json()["detail"], str) and used_after_503 == 0
+              and detail(gh, g_rid).json()["content_mm"] is None,
+              "translate_failure_gives_back: 429 for a rate limit, 503 otherwise, no use kept, nothing stored",
+              (r429.status_code, r429.text[:200], used_after_429, r503.status_code, r503.text[:200], used_after_503))
+        r = c.post(f"{CREATE}/{g_rid}/translate", headers=gh)
+        check(r.status_code == 200 and r.json()["content_mm"] and h.used(g_u, feature="insight_translation") == 1
+              and c.post(f"{CREATE}/{g_rid}/translate", headers=gh).status_code == 200
+              and h.used(g_u, feature="insight_translation") == 1,
+              "translate_counted_once_when_it_works: one use, the stored text costs nothing more")
+        put_plans(lambda b: None)
+
+        # ---- delete
+        d_u, dh, _ = mk("api-delete")
+        d_rid = create_ready(dh, instruction="to delete")
+        d_other = create_ready(dh, instruction="to keep")
+        r = c.delete(f"{CREATE}/{d_rid}", headers=dh)
+        listed = [x["id"] for x in c.get(CREATE, headers=dh).json()["reports"]]
+        check(r.status_code == 200 and r.json() == {"deleted": True} and detail(dh, d_rid).status_code == 404
+              and listed == [d_other] and h.used(d_u) == 2
+              and c.delete(f"{CREATE}/{d_rid}", headers=dh).status_code == 404,
+              "delete_ready: gone from open and list, the use stays counted, a second delete is 404", (r.text, listed))
+        check(c.delete(f"{CREATE}/{d_other}", headers=oh).status_code == 404 and detail(dh, d_other).status_code == 200
+              and c.delete(f"{CREATE}/{d_other}").status_code in (401, 403),
+              "delete_other_user_404: someone else's report is untouched")
+    finally:
+        reset_ai()
+        put_plans(lambda b: None)
+
+
 # ---------------------------------------------------------------- runner
 async def run(t):
     """t: the test_plans module (check, connect, make_admins, admin_login, ...)."""
@@ -771,6 +1185,7 @@ async def run(t):
         await storage_checks(t, h)
         await notification_checks(t, h)
         await generation_checks(t, h)
+        await route_checks(t, h)
     finally:
         db.users.delete_many({"email": {"$regex": f"^t9c-.*-{tag}@"}})  # cascades to custom insights and counters
         db.admins.delete_many({"email": {"$in": list(made.values())}})
