@@ -237,18 +237,24 @@ void insightFlows() {
 
       // Looked up once: while a report is open the Insights screen is offstage and find skips it.
       final custom = Provider.of<CustomInsightProvider>(T.element(find.byType(InsightsScreen)), listen: false);
-      CustomInsightProvider customProvider() => custom;
       final fakeAnswer = find.textContaining('Fake answer', findRichText: true);
 
       step('create: Last 30 days + "where to save"');
+      // Counted before Create (not assumed 0), so a report left by an earlier run does not break the counts below;
+      // once the tab's list has loaded.
+      final loaded = DateTime.now().add(const Duration(seconds: 30));
+      while (DateTime.now().isBefore(loaded) && custom.isLoading) {
+        await T.pump(const Duration(milliseconds: 200));
+      }
+      final countBefore = custom.reports.length;
       await createLast30DaysWhereToSave();
       final end = DateTime.now().add(const Duration(seconds: 90));
       while (DateTime.now().isBefore(end) &&
-          !(customProvider().reports.isNotEmpty && customProvider().reports.first.status == CustomInsightStatus.ready)) {
+          !(custom.reports.length > countBefore && custom.reports.first.status == CustomInsightStatus.ready)) {
         await T.pump(const Duration(milliseconds: 200));
       }
-      final reports = customProvider().reports;
-      check(reports.length == 1 && reports.first.status == CustomInsightStatus.ready,
+      final reports = custom.reports;
+      check(reports.length == countBefore + 1 && reports.first.status == CustomInsightStatus.ready,
           'Custom insights (Pro): the report did not become ready within 90 s (${reports.map((r) => r.status.name).join(',')}; ${visibleTexts().take(15).join(' | ')})');
       if (reports.isEmpty) return;
       final id = reports.first.id;
@@ -274,8 +280,8 @@ void insightFlows() {
       await expectSoon(find.text(L.customInsightReused), 'Custom insights (Pro): the same request did not say the saved insight is shown');
       await expectSoon(find.byType(CustomInsightReportScreen), 'Custom insights (Pro): the same request did not open the saved report');
       await settle(800);
-      check(customProvider().reports.length == 1,
-          'Custom insights (Pro): the same request made a second report (${customProvider().reports.length})');
+      check(custom.reports.length == countBefore + 1,
+          'Custom insights (Pro): the same request made a second report (${custom.reports.length}, ${countBefore + 1} expected)');
       await back();
       await waitFor(find.byType(InsightsScreen));
       await settle(1500);

@@ -8,7 +8,8 @@ import 'package:frontend/services/notification_event_bus.dart';
 /// What [CustomInsightProvider] needs from the server; the real one is
 /// [ApiCustomInsightClient], tests supply their own.
 abstract class CustomInsightClient {
-  Future<List<CustomInsight>> list();
+  /// The first page, or the page after [before] (a [CustomInsightPage.nextBefore]).
+  Future<CustomInsightPage> list({String? before});
   Future<CustomInsight> get(String id);
   Future<CustomInsightCreateResult> create(CustomInsightRequest request);
   Future<CustomInsight> translate(String id);
@@ -19,7 +20,7 @@ class ApiCustomInsightClient implements CustomInsightClient {
   const ApiCustomInsightClient();
 
   @override
-  Future<List<CustomInsight>> list() => ApiService.getCustomInsights();
+  Future<CustomInsightPage> list({String? before}) => ApiService.getCustomInsights(before: before);
 
   @override
   Future<CustomInsight> get(String id) => ApiService.getCustomInsight(id);
@@ -37,6 +38,10 @@ class ApiCustomInsightClient implements CustomInsightClient {
 
 /// The user's custom insights: the list, the opened reports, create / translate
 /// / delete, and polling while a report is still being written.
+///
+/// The server sends the list a page at a time. [load] (and every poll or push)
+/// reads the first page again and keeps the older pages already loaded with
+/// [loadMore]; [hasMore] says whether another page is waiting.
 ///
 /// A failed call returns null / false and leaves the reason in [lastErrorCode],
 /// [lastError] and [lastPlanLimit] (all cleared by the next call).
@@ -62,6 +67,12 @@ class CustomInsightProvider with ChangeNotifier {
   final Map<String, CustomInsight> _details = {};
   bool _isLoading = false;
   String? _error;
+
+  /// The cursor of the next (older) page after the rows loaded so far; null
+  /// when everything is loaded.
+  String? _nextBefore;
+  bool _isLoadingMore = false;
+  String? _loadMoreError;
   String? _lastErrorCode;
   String? _lastError;
   PlanLimitException? _lastPlanLimit;
@@ -86,6 +97,13 @@ class CustomInsightProvider with ChangeNotifier {
   String? get error => _error;
 
   bool get hasPending => _reports.any((r) => r.status == CustomInsightStatus.pending);
+
+  /// True when older reports are waiting on the server ([loadMore] reads them).
+  bool get hasMore => _nextBefore != null;
+  bool get isLoadingMore => _isLoadingMore;
+
+  /// Why the last [loadMore] failed; null when it worked.
+  String? get loadMoreError => _loadMoreError;
 
   /// The code of the last failed create / open / translate / delete: a
   /// `CustomInsightRequestException` code or a plan code; null for any other failure.
@@ -130,12 +148,22 @@ class CustomInsightProvider with ChangeNotifier {
       before.status == CustomInsightStatus.pending &&
       (now.status == CustomInsightStatus.failed || now.status == CustomInsightStatus.refused);
 
-  /// Replaces the list with the server's [rows]. A report that left pending
-  /// loses its cached detail (it has no text yet); one that left it as failed
-  /// or refused had its use given back, so the plan is refreshed (returns true).
-  /// A pending report the answer does not have yet (the list was read just
-  /// before it was created) is kept.
-  bool _applyList(List<CustomInsight> rows) {
+  /// The server's order: newest first, then the larger id.
+  static int _newestFirst(CustomInsight a, CustomInsight b) {
+    final byTime = b.createdAt.compareTo(a.createdAt);
+    return byTime != 0 ? byTime : b.id.compareTo(a.id);
+  }
+
+  /// Replaces the start of the list with the server's first [page]. A report
+  /// that left pending loses its cached detail (it has no text yet); one that
+  /// left it as failed or refused had its use given back, so the plan is
+  /// refreshed (returns true). A pending report the answer does not have yet
+  /// (the list was read just before it was created) is kept. Older pages
+  /// loaded with [loadMore] are kept when the first page reaches them (it
+  /// shares a report with what was loaded); otherwise the list starts again
+  /// from this page.
+  bool _applyList(CustomInsightPage page) {
+    final rows = page.reports;
     final before = {for (final r in _reports) r.id: r};
     var givenBack = false;
     for (final row in rows) {
@@ -145,11 +173,23 @@ class CustomInsightProvider with ChangeNotifier {
       if (_isUsageGivenBack(old, row)) givenBack = true;
     }
     final serverIds = {for (final r in rows) r.id};
+    var older = <CustomInsight>[];
+    final reaches = rows.any((r) => before.containsKey(r.id));
+    if (page.nextBefore != null && reaches) {
+      final last = rows.last;
+      older = [
+        for (final r in _reports)
+          if (!r.isPending && !serverIds.contains(r.id) && _newestFirst(last, r) < 0) r,
+      ]..sort(_newestFirst);
+    }
     _reports = [
       for (final r in _reports)
         if (r.isPending && !serverIds.contains(r.id)) r,
       ...rows,
+      ...older,
     ];
+    // Kept older rows: the cursor after them still holds. Otherwise the page's.
+    if (older.isEmpty) _nextBefore = page.nextBefore;
     return givenBack;
   }
 
@@ -178,9 +218,9 @@ class CustomInsightProvider with ChangeNotifier {
     _polling = true;
     final gen = _generation;
     try {
-      final rows = await _client.list();
+      final page = await _client.list();
       if (gen != _generation) return;
-      final givenBack = _applyList(rows);
+      final givenBack = _applyList(page);
       _syncPolling();
       notifyListeners();
       if (givenBack) _onUsageChanged();
@@ -198,8 +238,9 @@ class CustomInsightProvider with ChangeNotifier {
 
   // ------------------------------------------------------------ actions
 
-  /// Loads the list (newest first). On failure the list stays as it was and
-  /// [error] says why.
+  /// Loads the first page of the list (newest first), keeping older pages
+  /// already loaded (see [_applyList]). On failure the list stays as it was
+  /// and [error] says why.
   Future<void> load() async {
     final gen = _generation;
     _active = true;
@@ -208,9 +249,9 @@ class CustomInsightProvider with ChangeNotifier {
     notifyListeners();
     var givenBack = false;
     try {
-      final rows = await _client.list();
+      final page = await _client.list();
       if (gen != _generation) return;
-      givenBack = _applyList(rows);
+      givenBack = _applyList(page);
     } catch (e) {
       if (gen != _generation) return;
       _error = _clean(e);
@@ -219,6 +260,34 @@ class CustomInsightProvider with ChangeNotifier {
     _syncPolling();
     notifyListeners();
     if (givenBack) _onUsageChanged();
+  }
+
+  /// Appends the next (older) page. Does nothing when there is none or one is
+  /// already loading. On failure the list stays as it was and [loadMoreError]
+  /// says why.
+  Future<void> loadMore() async {
+    final cursor = _nextBefore;
+    if (cursor == null || _isLoadingMore) return;
+    final gen = _generation;
+    _isLoadingMore = true;
+    _loadMoreError = null;
+    notifyListeners();
+    try {
+      final page = await _client.list(before: cursor);
+      if (gen != _generation) return;
+      // A reload that started the list again meanwhile moved the cursor: this
+      // page no longer follows the rows shown.
+      if (_nextBefore == cursor) {
+        final have = {for (final r in _reports) r.id};
+        _reports = [..._reports, ...page.reports.where((r) => !have.contains(r.id))];
+        _nextBefore = page.nextBefore;
+      }
+    } catch (e) {
+      if (gen != _generation) return;
+      _loadMoreError = _clean(e);
+    }
+    _isLoadingMore = false;
+    notifyListeners();
   }
 
   /// Asks for a report. On success the report is at the top of the list (new
@@ -325,6 +394,9 @@ class CustomInsightProvider with ChangeNotifier {
     _details.clear();
     _isLoading = false;
     _error = null;
+    _nextBefore = null;
+    _isLoadingMore = false;
+    _loadMoreError = null;
     _notFound = false;
     _clearFailure();
     notifyListeners();

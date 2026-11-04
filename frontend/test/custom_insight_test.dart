@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -84,12 +85,26 @@ class FakeClient implements CustomInsightClient {
   int listCalls = 0;
   final List<String> deleted = [];
 
+  /// Pages by cursor (null: the first page); when set they answer instead of
+  /// [listAnswers]. [listBefores] records each call's cursor.
+  final Map<String?, CustomInsightPage> pages = {};
+  final List<String?> listBefores = [];
+  Object? moreError;
+
+  /// When set, a call with a cursor waits for it.
+  Completer<void>? moreGate;
+
   @override
-  Future<List<CustomInsight>> list() async {
+  Future<CustomInsightPage> list({String? before}) async {
     listCalls++;
+    listBefores.add(before);
+    if (before != null && moreGate != null) await moreGate!.future;
     if (listError != null) throw listError!;
-    if (listAnswers.isEmpty) return [];
-    return listAnswers.length > 1 ? listAnswers.removeAt(0) : listAnswers.first;
+    if (before != null && moreError != null) throw moreError!;
+    if (pages.containsKey(before)) return pages[before]!;
+    if (listAnswers.isEmpty) return const CustomInsightPage(reports: []);
+    return CustomInsightPage(
+        reports: listAnswers.length > 1 ? listAnswers.removeAt(0) : listAnswers.first);
   }
 
   @override
@@ -604,6 +619,118 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       expect(p.reports.map((r) => r.id), ['a', 'b']);
+      p.dispose();
+    });
+
+    CustomInsight at(String id, int hoursAgo, [String status = 'ready']) => CustomInsight.fromJson({
+          ...summaryJson(id, status),
+          'created_at': DateTime.utc(2026, 11, 2, 12).subtract(Duration(hours: hoursAgo)).toIso8601String(),
+        });
+    List<String> ids(CustomInsightProvider p) => [for (final r in p.reports) r.id];
+
+    FakeClient paged() => FakeClient()
+      ..pages[null] = CustomInsightPage(reports: [at('a', 1), at('b', 2)], nextBefore: 'cur-b')
+      ..pages['cur-b'] = CustomInsightPage(reports: [at('c', 3), at('d', 4)], nextBefore: 'cur-d')
+      ..pages['cur-d'] = CustomInsightPage(reports: [at('e', 5)]);
+
+    test('page_from_json: reports and next_before (null or blank: the last page)', () {
+      final page = CustomInsightPage.fromJson({
+        'reports': [summaryJson('a', 'ready'), 'junk', summaryJson('b', 'failed')],
+        'next_before': 'abc',
+      });
+      expect(page.reports.map((r) => r.id), ['a', 'b']);
+      expect(page.nextBefore, 'abc');
+      expect(CustomInsightPage.fromJson({'reports': [], 'next_before': null}).nextBefore, isNull);
+      expect(CustomInsightPage.fromJson({'reports': [], 'next_before': ''}).nextBefore, isNull);
+      expect(CustomInsightPage.fromJson(const {}).reports, isEmpty);
+    });
+
+    test('provider_load_more: appends the next page until there is none; a failure keeps the list', () async {
+      final client = paged();
+      final p = CustomInsightProvider(client: client, onUsageChanged: () {});
+      await p.load();
+      expect(ids(p), ['a', 'b']);
+      expect(p.hasMore, isTrue);
+
+      client.moreError = ApiException('offline', statusCode: 503);
+      await p.loadMore();
+      expect(p.loadMoreError, 'offline');
+      expect(p.isLoadingMore, isFalse);
+      expect(ids(p), ['a', 'b']);
+      expect(p.hasMore, isTrue);
+
+      client.moreError = null;
+      await p.loadMore();
+      expect(p.loadMoreError, isNull);
+      expect(ids(p), ['a', 'b', 'c', 'd']);
+      await p.loadMore();
+      expect(ids(p), ['a', 'b', 'c', 'd', 'e']);
+      expect(p.hasMore, isFalse);
+
+      final calls = client.listCalls;
+      await p.loadMore(); // nothing left: no call
+      expect(client.listCalls, calls);
+      expect(client.listBefores, [null, 'cur-b', 'cur-b', 'cur-d']);
+      p.dispose();
+    });
+
+    test('provider_refresh_keeps_older_pages: a reload reads page one again and keeps the pages loaded after it',
+        () async {
+      final client = paged();
+      final p = CustomInsightProvider(client: client, onUsageChanged: () {});
+      await p.load();
+      await p.loadMore();
+      expect(ids(p), ['a', 'b', 'c', 'd']);
+
+      // A newer report arrived: page one now ends at 'a'.
+      client.pages[null] = CustomInsightPage(reports: [at('n', 0), at('a', 1)], nextBefore: 'cur-a');
+      await p.load();
+      expect(ids(p), ['n', 'a', 'b', 'c', 'd']);
+      expect(p.hasMore, isTrue);
+      await p.loadMore(); // continues after the last row shown, not after page one
+      expect(client.listBefores.last, 'cur-d');
+      expect(ids(p), ['n', 'a', 'b', 'c', 'd', 'e']);
+
+      // Deleting an older report keeps the rest.
+      expect(await p.delete('c'), isTrue);
+      expect(ids(p), ['n', 'a', 'b', 'd', 'e']);
+      p.dispose();
+    });
+
+    test('a first page that does not reach the loaded rows starts the list again', () async {
+      final client = paged();
+      final p = CustomInsightProvider(client: client, onUsageChanged: () {});
+      await p.load();
+      await p.loadMore();
+      client.pages[null] = CustomInsightPage(reports: [at('x', -2), at('y', -1)], nextBefore: 'cur-y');
+      await p.load();
+      expect(ids(p), ['x', 'y']);
+      expect(p.hasMore, isTrue);
+      await p.loadMore();
+      expect(client.listBefores.last, 'cur-y');
+      p.dispose();
+    });
+
+    test('a page that arrives after the list started again is dropped; reset forgets the pages', () async {
+      final client = paged();
+      final p = CustomInsightProvider(client: client, onUsageChanged: () {});
+      await p.load();
+      client.moreGate = Completer<void>();
+      final more = p.loadMore(); // asks for 'cur-b', answered only after the reload below
+      client.pages[null] = CustomInsightPage(reports: [at('x', -2), at('y', -1)], nextBefore: 'cur-y');
+      await p.load(); // starts the list again before the page arrives
+      client.moreGate!.complete();
+      await more;
+      expect(ids(p), ['x', 'y']);
+      expect(p.hasMore, isTrue);
+      client.moreGate = null;
+      await p.loadMore();
+      expect(client.listBefores.last, 'cur-y');
+
+      p.reset();
+      expect(p.hasMore, isFalse);
+      expect(p.isLoadingMore, isFalse);
+      expect(p.loadMoreError, isNull);
       p.dispose();
     });
 

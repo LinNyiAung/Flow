@@ -1187,6 +1187,7 @@ class AppLocalizations {
       'customInsightDelete': 'Delete',
       'customInsightDeleteConfirm': 'Delete this custom insight?',
       'customInsightEmptyList': 'No custom insights yet.',
+      'customInsightLoadMore': 'Load more',
       'insightNextOn': 'Next insight: {date}',
       'dateWithWeekday': '{weekday}, {day} {month}',
       'weekdayMonday': 'Monday',
@@ -2284,6 +2285,7 @@ class AppLocalizations {
       'customInsightDelete': 'ဖျက်ရန်',
       'customInsightDeleteConfirm': 'ဤစိတ်ကြိုက် သုံးသပ်ချက်ကို ဖျက်မလား?',
       'customInsightEmptyList': 'စိတ်ကြိုက် သုံးသပ်ချက် မရှိသေးပါ။',
+      'customInsightLoadMore': 'ထပ်မံ တင်ရန်',
       'insightNextOn': 'နောက်သုံးသပ်ချက်: {date}',
       'dateWithWeekday': '{weekday}၊ {day} {month}',
       'weekdayMonday': 'တနင်္လာနေ့',
@@ -3430,6 +3432,7 @@ class AppLocalizations {
   String get customInsightDelete => translate('customInsightDelete');
   String get customInsightDeleteConfirm => translate('customInsightDeleteConfirm');
   String get customInsightEmptyList => translate('customInsightEmptyList');
+  String get customInsightLoadMore => translate('customInsightLoadMore');
 
   static const List<String> _monthKeys = [
     'monthJanuary', 'monthFebruary', 'monthMarch', 'monthApril', 'monthMay', 'monthJune',

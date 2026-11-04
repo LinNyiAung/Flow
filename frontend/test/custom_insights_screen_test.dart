@@ -62,6 +62,7 @@ Map<String, dynamic> _json({
   String? instruction,
   String? preset,
   bool figures = true,
+  String createdAt = '2026-11-02T08:15:00+00:00',
 }) =>
     {
       'id': id,
@@ -70,7 +71,7 @@ Map<String, dynamic> _json({
       'preset': preset,
       'instruction': instruction,
       'status': status,
-      'created_at': '2026-11-02T08:15:00+00:00',
+      'created_at': createdAt,
       'completed_at': status == 'pending' ? null : '2026-11-02T08:15:20+00:00',
       'has_myanmar': contentMm != null,
       'content': content,
@@ -115,11 +116,22 @@ class FakeCustomInsightClient implements CustomInsightClient {
   int translateCalls = 0;
   final List<String> deleted = [];
 
+  /// Reports per page (0: all on one page). The fake's cursor is the last id.
+  int pageSize = 0;
+  final List<String?> listBefores = [];
+
   @override
-  Future<List<CustomInsight>> list() async => [
-        for (final r in reports)
-          if (!deleted.contains(r.id)) r
-      ];
+  Future<CustomInsightPage> list({String? before}) async {
+    listBefores.add(before);
+    final visible = [
+      for (final r in reports)
+        if (!deleted.contains(r.id)) r
+    ];
+    final start = before == null ? 0 : visible.indexWhere((r) => r.id == before) + 1;
+    final end = pageSize == 0 ? visible.length : (start + pageSize).clamp(0, visible.length);
+    final page = visible.sublist(start, end);
+    return CustomInsightPage(reports: page, nextBefore: end < visible.length ? page.last.id : null);
+  }
 
   @override
   Future<CustomInsight> get(String id) async {
@@ -354,6 +366,61 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('load_more_row: 30 shown, "Load more" appends the next page, then the row is gone', (tester) async {
+      final fake = FakeCustomInsightClient()
+        ..pageSize = 30
+        ..reports = [
+          for (var i = 0; i < 35; i++)
+            _report(_json(
+              id: 'r${100 - i}',
+              content: null,
+              figures: false,
+              createdAt: DateTime.utc(2026, 11, 2, 8).subtract(Duration(hours: i)).toIso8601String(),
+            )),
+        ];
+      await _pump(tester, const Scaffold(body: CustomInsightsTab()), fake: fake);
+
+      final loadMore = find.byKey(const Key('custom-insight-load-more'));
+      expect(_itemKeys(), findsNWidgets(30));
+      expect(loadMore, findsOneWidget);
+      expect(find.text('Load more'), findsOneWidget);
+
+      await tester.ensureVisible(loadMore);
+      await tester.pumpAndSettle();
+      await tester.tap(loadMore);
+      await tester.pumpAndSettle();
+
+      expect(fake.listBefores, [null, 'r71']);
+      expect(_itemKeys(), findsNWidgets(35));
+      expect(find.byKey(const Key('custom-insight-item-r66')), findsOneWidget);
+      expect(loadMore, findsNothing);
+    });
+
+    testWidgets('a short list has no "Load more" row', (tester) async {
+      final fake = FakeCustomInsightClient()
+        ..pageSize = 30
+        ..reports = [_report(_json(id: 'a', figures: false))];
+      await _pump(tester, const Scaffold(body: CustomInsightsTab()), fake: fake);
+      expect(_itemKeys(), findsOneWidget);
+      expect(find.byKey(const Key('custom-insight-load-more')), findsNothing);
+    });
+
+    testWidgets('pending_disables_new: while a report is being created, New is disabled and says why', (tester) async {
+      final fake = FakeCustomInsightClient()
+        ..reports = [_report(_json(id: 'p', status: 'pending', content: null, figures: false))];
+      await _pump(tester, const Scaffold(body: CustomInsightsTab()), fake: fake, settle: false);
+
+      expect(tester.widget<FilledButton>(find.byKey(const Key('custom-insight-new'))).onPressed, isNull);
+      expect(find.byKey(const Key('custom-insight-pending-hint')), findsOneWidget);
+      expect(find.text('Your previous custom insight is still being created.'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('custom-insight-new')), warnIfMissed: false);
+      await _settle(tester, false);
+      expect(find.byKey(const Key('custom-insight-create')), findsNothing);
+
+      _provider.reset(); // stops the polling timer of the pending report
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('pro_tab_usage_and_form: "8 of 10 left this month", preset chip sends where_to_save',
         (tester) async {
       final fake = FakeCustomInsightClient()
@@ -366,6 +433,7 @@ void main() {
       expect(find.text('8 of 10 left this month'), findsOneWidget);
       expect(find.text('No custom insights yet.'), findsOneWidget);
       expect(find.byKey(const Key('custom-insight-locked')), findsNothing);
+      expect(find.byKey(const Key('custom-insight-pending-hint')), findsNothing);
 
       await tester.tap(find.byKey(const Key('custom-insight-new')));
       await tester.pumpAndSettle();
@@ -388,9 +456,11 @@ void main() {
       expect(fake.lastRequest!.preset, 'where_to_save');
       expect(fake.lastRequest!.instruction, isNull);
       expect(find.text("Creating your insight. We'll let you know when it's ready."), findsOneWidget);
-      // The new report is in the list, being created.
+      // The new report is in the list, being created; New waits for it.
       expect(find.byKey(const Key('custom-insight-item-n')), findsOneWidget);
       expect(find.byKey(const Key('custom-insight-create')), findsNothing);
+      expect(find.byKey(const Key('custom-insight-pending-hint')), findsOneWidget);
+      expect(tester.widget<FilledButton>(find.byKey(const Key('custom-insight-new'))).onPressed, isNull);
 
       _provider.reset(); // stops the polling timer of the pending report
       await tester.pumpWidget(const SizedBox());
@@ -945,6 +1015,7 @@ void main() {
       (l) => l.customInsightDelete,
       (l) => l.customInsightDeleteConfirm,
       (l) => l.customInsightEmptyList,
+      (l) => l.customInsightLoadMore,
     ];
     for (final get in getters) {
       final english = get(en);

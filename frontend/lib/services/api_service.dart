@@ -1640,21 +1640,20 @@ class ApiService {
     throw _customInsightError(response, 'Failed to create the custom insight');
   }
 
-  /// The user's custom insights, newest first (rows without text or figures).
-  static Future<List<CustomInsight>> getCustomInsights() async {
+  /// One page of the user's custom insights, newest first (rows without text
+  /// or figures): the first page, or the one after [before] (a
+  /// [CustomInsightPage.nextBefore]).
+  static Future<CustomInsightPage> getCustomInsights({String? before}) async {
     final response = await _client.get(
-      Uri.parse('$baseUrl/api/custom-insights'),
+      Uri.parse('$baseUrl/api/custom-insights')
+          .replace(queryParameters: before == null ? null : {'before': before}),
       headers: await _getHeaders(),
     );
 
     if (response.statusCode == 200) {
-      final body = jsonDecode(response.body) as Map;
-      final rows = body['reports'];
-      return [
-        if (rows is List)
-          for (final row in rows)
-            if (row is Map) CustomInsight.fromJson(Map<String, dynamic>.from(row)),
-      ];
+      return CustomInsightPage.fromJson(
+        Map<String, dynamic>.from(jsonDecode(response.body) as Map),
+      );
     }
     throw _customInsightError(response, 'Failed to get custom insights');
   }

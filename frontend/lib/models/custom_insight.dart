@@ -234,6 +234,28 @@ class CustomInsight {
       );
 }
 
+/// One page of `GET /api/custom-insights`: up to 30 reports, newest first, and
+/// the cursor of the next (older) page; [nextBefore] is null on the last page.
+class CustomInsightPage {
+  final List<CustomInsight> reports;
+  final String? nextBefore;
+
+  const CustomInsightPage({required this.reports, this.nextBefore});
+
+  factory CustomInsightPage.fromJson(Map<String, dynamic> json) {
+    final rows = json['reports'];
+    final next = json['next_before'];
+    return CustomInsightPage(
+      reports: [
+        if (rows is List)
+          for (final row in rows)
+            if (row is Map) CustomInsight.fromJson(Map<String, dynamic>.from(row)),
+      ],
+      nextBefore: next is String && next.isNotEmpty ? next : null,
+    );
+  }
+}
+
 /// The body of `POST /api/custom-insights`: a range and at most one of a
 /// preset or the user's own instruction.
 class CustomInsightRequest {

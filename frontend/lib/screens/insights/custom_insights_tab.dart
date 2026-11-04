@@ -69,12 +69,24 @@ class _CustomInsightsTabState extends State<CustomInsightsTab> {
             _lockedCard(l, scheme)
           else ...[
             const PlanUsageLine(feature: PlanFeature.insightCustom, padding: EdgeInsets.only(bottom: 8)),
+            // One report at a time: while one is being written the server would
+            // refuse a new one, so the form is not offered.
             FilledButton.icon(
               key: const Key('custom-insight-new'),
-              onPressed: () => showCustomInsightForm(context),
+              onPressed: provider.hasPending ? null : () => showCustomInsightForm(context),
               icon: const Icon(Icons.auto_awesome_rounded, size: 20),
               label: Text(l.customInsightNew),
             ),
+            if (provider.hasPending)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  l.customErrorPending,
+                  key: const Key('custom-insight-pending-hint'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                ),
+              ),
           ],
           const SizedBox(height: 16),
           if (reports.isNotEmpty)
@@ -85,6 +97,10 @@ class _CustomInsightsTabState extends State<CustomInsightsTab> {
                   for (var i = 0; i < reports.length; i++) ...[
                     if (i > 0) const Divider(),
                     _reportRow(reports[i], l, scheme),
+                  ],
+                  if (provider.hasMore) ...[
+                    const Divider(),
+                    _loadMoreRow(provider, l, scheme),
                   ],
                 ],
               ),
@@ -161,6 +177,40 @@ class _CustomInsightsTabState extends State<CustomInsightsTab> {
             icon: const Icon(Icons.refresh_rounded),
             label: Text(l.tryAgain),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// The last row while older reports wait on the server: "Load more" (a
+  /// spinner while loading; the reason above it when the last try failed).
+  Widget _loadMoreRow(CustomInsightProvider provider, AppLocalizations l, ColorScheme scheme) {
+    final error = provider.loadMoreError;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        children: [
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Text(
+                error,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: scheme.error),
+              ),
+            ),
+          if (provider.isLoadingMore)
+            const Padding(
+              padding: EdgeInsets.all(10),
+              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else
+            TextButton.icon(
+              key: const Key('custom-insight-load-more'),
+              onPressed: provider.loadMore,
+              icon: const Icon(Icons.expand_more_rounded),
+              label: Text(l.customInsightLoadMore),
+            ),
         ],
       ),
     );
