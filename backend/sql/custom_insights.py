@@ -78,7 +78,10 @@ async def count_attempts_since(user_id: str, since: datetime) -> int:
 async def finish(report_id: str, *, status: str, now: datetime, content: Optional[str] = None,
                  ai_provider: Optional[str] = None, ai_model: Optional[str] = None,
                  input_tokens: Optional[int] = None, output_tokens: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """pending -> ready / failed / refused. None when the report is no longer pending (somebody else finished it)."""
+    """pending -> ready / failed / refused. None when the report is no longer pending (somebody else finished it).
+    Raises ValueError for any other status."""
+    if status not in ("ready", "failed", "refused"):
+        raise ValueError(f"finish: status must be ready, failed or refused, not {status!r}")
     stmt = (update(custom_insights).where(_c.id == report_id, _c.status == "pending")
             .values(status=status, completed_at=now, content=content, ai_provider=ai_provider, ai_model=ai_model,
                     input_tokens=input_tokens, output_tokens=output_tokens)
@@ -97,7 +100,9 @@ async def fail_stuck(before: datetime, now: datetime) -> List[Dict[str, Any]]:
 
 
 async def set_translation(report_id: str, content_mm: str) -> None:
-    await execute(update(custom_insights).where(_c.id == report_id).values(content_mm=content_mm))
+    """Store the Myanmar text of a ready, not-deleted report (a failed or hidden row is left alone)."""
+    await execute(update(custom_insights).where(_c.id == report_id, _c.status == "ready", _c.deleted_at.is_(None))
+                  .values(content_mm=content_mm))
 
 
 async def delete_for_user(report_id: str, user_id: str, now: datetime) -> str:
@@ -120,6 +125,6 @@ async def delete_for_user(report_id: str, user_id: str, now: datetime) -> str:
             await execute(update(custom_insights).where(_c.id == report_id)
                           # null(): a plain None would be stored as the JSON value null, not SQL NULL
                           .values(deleted_at=now, instruction=None, preset=None, content=None, content_mm=None,
-                                  figures=null()))
+                                  instruction_key="", figures=null()))
             return "hidden"
         return "pending"

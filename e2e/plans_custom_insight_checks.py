@@ -218,7 +218,8 @@ async def storage_checks(t, h):
     ready_id = await make(ud, "ready", now - timedelta(minutes=50), instruction="my words", instruction_key="my words")
     failed_id = await make(ud, "failed", now - timedelta(minutes=40), content="partial text", instruction="secret question",
                            instruction_key="secret question", figures=figs)
-    await ci.set_translation(failed_id, "ဘာသာပြန်")
+    with t.connect() as conn:  # set directly: set_translation only writes to ready rows
+        conn.execute("UPDATE custom_insights SET content_mm = 'ဘာသာပြန်' WHERE id = %s", (failed_id,))
     refused_id = await make(ud, "refused", now - timedelta(minutes=30), preset="where_to_save")
     pending_id = doc(ud)["_id"]
     await ci.insert_pending(doc(ud, _id=pending_id))
@@ -232,8 +233,9 @@ async def storage_checks(t, h):
     hidden = await ci.get(failed_id, include_deleted=True)
     check(hidden is not None and hidden["deleted_at"] == now and hidden["status"] == "failed" and hidden["instruction"] is None
           and hidden["preset"] is None and hidden["content"] is None and hidden["content_mm"] is None and null_figures is True
-          and hidden["instruction_key"] == "secret question",
-          "storage_delete_hidden_clears_content: instruction, preset, content, content_mm and figures are cleared, deleted_at set", hidden)
+          and hidden["instruction_key"] == "",
+          "storage_delete_hidden_clears_content: instruction, instruction_key, preset, content, content_mm and figures are "
+          "cleared, deleted_at set", hidden)
     check(await ci.delete_for_user(refused_id, ud, now) == "hidden" and await ci.count_attempts_since(ud, day_start) == 2
           and await ci.count_attempts_since(ud, now - timedelta(minutes=35)) == 1
           and await ci.count_attempts_since(ud, now) == 0, "storage_count_attempts_since: failed and refused count, deleted too, "
@@ -265,6 +267,29 @@ async def storage_checks(t, h):
     # ---- set_translation
     check(await ci.set_translation(r2, "## အနှစ်ချုပ်\nx") is None and (await ci.get(r2))["content_mm"] == "## အနှစ်ချုပ်\nx",
           "storage_set_translation: content_mm is stored")
+    await ci.set_translation(failed_id, "x")   # hidden failed row
+    await ci.set_translation(refused_id, "x")  # hidden refused row
+    live_failed = await make(uc, "failed", now - timedelta(hours=1))  # a visible failed row
+    await ci.set_translation(live_failed, "x")
+    with t.connect() as conn:
+        mm = conn.execute("SELECT id, content_mm FROM custom_insights WHERE id = ANY(%s)",
+                          ([failed_id, refused_id, live_failed],)).fetchall()
+    check(len(mm) == 3 and all(v is None for (_, v) in mm),
+          "storage_set_translation_ready_only: does nothing on a failed, refused or hidden row", mm)
+
+    # ---- finish refuses a status that is not a way out of pending
+    up_, _ = h.register("fin")
+    pid = doc(up_)
+    await ci.insert_pending(pid)
+    raised = []
+    for bad in ("pending", "done", ""):
+        try:
+            await ci.finish(pid["_id"], status=bad, now=now)
+            raised.append(False)
+        except ValueError:
+            raised.append(True)
+    check(all(raised) and (await ci.get(pid["_id"]))["status"] == "pending",
+          "storage_finish_status_guard: finish(status='pending'/'done'/'') raises ValueError and leaves the row pending", raised)
 
     # ---- changed_since (transaction created or edited after the report)
     ut, th = h.register("tx")
