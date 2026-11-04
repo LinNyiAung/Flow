@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, UTC, timedelta
+from datetime import date, datetime, UTC, timedelta
 import threading
 from typing import Dict, List, Optional
 import uuid
@@ -10,6 +10,7 @@ from sql import goals as goals_db
 from sql import notifications as notifications_db
 from sql import notification_prefs as prefs_db
 from sql import users as users_db
+from plans.access import format_day
 from tz_utils import (
     app_today, app_wall_clock_now, as_utc, days_until, goal_reminder_threshold, is_budget_ending_soon,
     GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
@@ -60,6 +61,11 @@ NOTIFICATION_TRANSLATIONS = {
         "weekly_insights_msg": "Your weekly financial insights powered by Toe Pwar AI are now available. Check them out to see your financial progress!",
         "monthly_insights_title": "Monthly Insights Ready! 📊",
         "monthly_insights_msg": "Your monthly financial insights powered by Toe Pwar AI are now available. Check them out to see your monthly financial progress!",
+        "custom_insight_ready_title": "Your custom insight is ready 📊",
+        "custom_insight_ready_msg": "Your insight for {range} is ready. Tap to read it.",
+        "custom_insight_failed_title": "Custom insight not created",
+        "custom_insight_failed_msg": "We couldn't create your insight for {range}. It wasn't counted, so you can try again.",
+        "custom_insight_refused_msg": "That isn't something I can answer from your finances, so no insight was created for {range}. It wasn't counted.",
         "subscription_expired_title": "Your {plan} Plan Has Ended",
         "subscription_expired_msg": "Your Toe Pwar {plan} plan ended on {date}, so you're back on the Free plan. Upgrade any time to get your AI allowances and {plan} features back.",
         "trial_ending_soon_title": "Your {plan} Trial Ends Soon",
@@ -126,6 +132,11 @@ NOTIFICATION_TRANSLATIONS = {
         "weekly_insights_msg": "Toe Pwar AI မှ ထုတ်ပြန်ပေးသော သင်၏ အပတ်စဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ သင်၏ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။",
         "monthly_insights_title": "လစဉ်သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ! 📊",
         "monthly_insights_msg": "Toe Pwar AI မှ ထုတ်ပြန်ပေးသော သင်၏ လစဉ် ဘဏ္ဍာရေးသုံးသပ်ချက်များ ရရှိနိုင်ပါပြီ။ တစ်လတာ တိုးတက်မှုများကို စစ်ဆေးကြည့်လိုက်ပါ။",
+        "custom_insight_ready_title": "သင်၏ စိတ်ကြိုက်သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ 📊",
+        "custom_insight_ready_msg": "{range} အတွက် သင်၏ သုံးသပ်ချက် အဆင်သင့်ဖြစ်ပါပြီ။ ဖတ်ရန် နှိပ်ပါ။",
+        "custom_insight_failed_title": "စိတ်ကြိုက်သုံးသပ်ချက် မဖန်တီးနိုင်ပါ",
+        "custom_insight_failed_msg": "{range} အတွက် သင်၏ သုံးသပ်ချက်ကို မဖန်တီးနိုင်ခဲ့ပါ။ အသုံးပြုခွင့်မှ မနှုတ်ထားသဖြင့် ထပ်မံကြိုးစားနိုင်ပါသည်။",
+        "custom_insight_refused_msg": "၎င်းမေးခွန်းကို သင်၏ ငွေကြေးအချက်အလက်များမှ ဖြေကြားပေး၍ မရသဖြင့် {range} အတွက် သုံးသပ်ချက် မဖန်တီးခဲ့ပါ။ အသုံးပြုခွင့်မှ မနှုတ်ထားပါ။",
         "subscription_expired_title": "{plan} အစီအစဉ် ကုန်ဆုံးသွားပါပြီ",
         "subscription_expired_msg": "သင်၏ Toe Pwar {plan} အစီအစဉ်သည် {date} တွင် ကုန်ဆုံးသွားပြီး Free အစီအစဉ်သို့ ပြန်ရောက်ပါပြီ။ AI အသုံးပြုခွင့်များနှင့် {plan} လုပ်ဆောင်ချက်များကို ပြန်လည်ရရှိရန် အချိန်မရွေး အဆင့်မြှင့်တင်နိုင်ပါသည်။",
         "trial_ending_soon_title": "{plan} အစမ်းသုံးကာလ မကြာမီ ကုန်ဆုံးပါမည်",
@@ -207,6 +218,8 @@ async def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
             "recurring_transaction_disabled": True,
             "weekly_insights_generated": True,
             "monthly_insights_generated": True,
+            "custom_insight_ready": True,
+            "custom_insight_failed": True,
         }
         return default_prefs
 
@@ -937,3 +950,39 @@ async def notify_weekly_insights_generated(user_id: str):
         goal_name="Weekly Insights Tailored For You" if lang == "en" else "သင့်အတွက် ပြင်ဆင်ထားသော အပတ်စဉ်ထိုးထွင်းသိမြင်မှုများ",
         currency=None
     )
+
+
+async def _notify_custom_insight(user_id: str, report_id: str, start: date, end: date,
+                                 notification_type: str, title_key: str, message_key: str) -> None:
+    """Store one custom-insight notice. goal_id carries the report id (the app opens the report from it).
+
+    Never raises: the report is already ready or failed, so a notice that cannot be stored is only logged.
+    """
+    try:
+        lang = await get_user_language(user_id)
+        date_range = f"{format_day(start, lang)} – {format_day(end, lang)}"
+        await create_notification(
+            user_id=user_id,
+            notification_type=notification_type,
+            title=translate(title_key, lang),
+            message=translate(message_key, lang, range=date_range),
+            goal_id=report_id,
+        )
+    except Exception as e:
+        print(f"❌ Could not send {notification_type} notification for report {report_id}: {e}")
+
+
+async def notify_custom_insight_ready(user_id: str, report_id: str, start: date, end: date) -> None:
+    """Tell the user their custom insight for start..end is ready (goal_id = the report id)."""
+    await _notify_custom_insight(user_id, report_id, start, end, "custom_insight_ready",
+                                 "custom_insight_ready_title", "custom_insight_ready_msg")
+
+
+async def notify_custom_insight_failed(user_id: str, report_id: str, start: date, end: date, refused: bool) -> None:
+    """Tell the user their custom insight could not be made, and that it was not counted.
+
+    refused=True: the question was off-topic (own message); same type and title as a plain failure. goal_id = the report id.
+    """
+    await _notify_custom_insight(user_id, report_id, start, end, "custom_insight_failed",
+                                 "custom_insight_failed_title",
+                                 "custom_insight_refused_msg" if refused else "custom_insight_failed_msg")

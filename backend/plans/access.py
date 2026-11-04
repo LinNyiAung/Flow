@@ -8,7 +8,7 @@ HTTP 403 (plan_feature_locked) or 429 (plan_limit_reached, plan_cost_cap) with t
 {"detail": {"code", "feature", "resets_at", "upgrade_available", "message"}}. The app decides what to do from
 `code`; `message` is for people, in the user's language.
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
 from tz_utils import as_utc, get_app_timezone
@@ -58,12 +58,16 @@ MONTHS_MY = ("ဇန်နဝါရီ", "ဖေဖော်ဝါရီ", "မ�
              "နိုဝင်ဘာ", "ဒီဇင်ဘာ")
 
 
-def format_date(when: datetime, lang: str) -> str:
-    """The local (app timezone) date, as the user reads it: "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
-    local = when.astimezone(get_app_timezone())
+def format_day(day: date, lang: str) -> str:
+    """A calendar day as the user reads it, with no timezone conversion: "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
     if lang == "my":
-        return f"{local.day} {MONTHS_MY[local.month - 1]} {local.year}"
-    return local.strftime("%b %d, %Y").replace(" 0", " ")
+        return f"{day.day} {MONTHS_MY[day.month - 1]} {day.year}"
+    return day.strftime("%b %d, %Y").replace(" 0", " ")
+
+
+def format_date(when: datetime, lang: str) -> str:
+    """The local (app timezone) date of a moment, as the user reads it: "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
+    return format_day(when.astimezone(get_app_timezone()), lang)
 
 
 class PlanError(Exception):

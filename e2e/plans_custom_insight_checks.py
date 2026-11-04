@@ -4,17 +4,20 @@ Run from test_plans: `migration_checks(test_plans_module)` (sync, right after th
 alembic downgrade / upgrade on the throwaway e2e database and always leaves it at head) and
 `await run(test_plans_module)` (inside test_plans' single asyncio.run, after the upgrade-request checks).
 
-`run` builds a small helper object `h` and calls `storage_checks(t, h)`: the data layer (sql.custom_insights and
+`run` builds a small helper object `h` and calls `notification_checks(t, h)` (the ready / not-created notifications,
+in this process) after `storage_checks(t, h)`: the data layer (sql.custom_insights and
 transactions_db.changed_since) is used in this process, users and plans go over HTTP to the stubbed server and the
 database is read / preset through psycopg. Users are tagged `t9c-<name>-<tag>@example.com` and are all removed in a
 `finally` (deleting a user cascades to its custom insights and counters).
 """
+import re
 import uuid
 from types import SimpleNamespace
 from datetime import date, datetime, timedelta, UTC
 
 import httpx
 
+MYANMAR = re.compile("[က-႟]")
 BASE = "http://127.0.0.1:8765"
 BEFORE_CUSTOM = "a7d3e5c91f20"  # the revision this feature's migration revises
 HEAD_WITH_CUSTOM = "b8f4d2c6e9a1"
@@ -353,6 +356,72 @@ async def _pending_id(uid):
     return await fetch_value(select(c.c.id).where(c.c.user_id == uid, c.c.status == "pending"))
 
 
+# ---------------------------------------------------------------- notifications
+async def notification_checks(t, h):
+    """notify_custom_insight_ready / notify_custom_insight_failed (what the generation service sends) and format_day."""
+    import stubenv
+    import notification_service as ns
+    from plans.access import format_day
+    stubenv.patch_loaded_modules()  # no real push; notifications are still stored
+
+    check = t.check
+    start, end = date(2026, 10, 6), date(2026, 11, 4)
+    en_uid, _ = h.register("noten", "en")
+    my_uid, _ = h.register("notmy", "my")
+
+    def notes(uid, kind):
+        return list(h.db.notifications.find({"user_id": uid, "type": kind}))
+
+    rid = str(uuid.uuid4())
+    await ns.notify_custom_insight_ready(en_uid, rid, start, end)
+    got = notes(en_uid, "custom_insight_ready")
+    row = got[0] if got else {}
+    check(len(got) == 1 and row["goal_id"] == rid and "Oct 6, 2026 – Nov 4, 2026" in row["message"]
+          and row["title"] == "Your custom insight is ready 📊" and row["message"].endswith("Tap to read it."),
+          "notify_custom_ready: stored with the report id and the date range", row)
+
+    fid = str(uuid.uuid4())
+    await ns.notify_custom_insight_failed(en_uid, fid, start, end, refused=False)
+    got = notes(en_uid, "custom_insight_failed")
+    f = got[0] if got else {}
+    check(len(got) == 1 and f["type"] == "custom_insight_failed" and "wasn't counted" in f["message"]
+          and f["goal_id"] == fid and f["title"] == "Custom insight not created" and "Oct 6, 2026 – Nov 4, 2026" in f["message"],
+          "notify_custom_failed: says it was not counted", f)
+
+    xid = str(uuid.uuid4())
+    await ns.notify_custom_insight_failed(en_uid, xid, start, end, refused=True)
+    r = next((n for n in notes(en_uid, "custom_insight_failed") if n["goal_id"] == xid), {})
+    check(r and r["title"] == f["title"] and r["message"] != f["message"] and "answer from your finances" in r["message"]
+          and r["message"].endswith("It wasn't counted."),
+          "notify_custom_refused: its own message, the failed type and title", r)
+
+    mid = str(uuid.uuid4())
+    await ns.notify_custom_insight_ready(my_uid, mid, start, end)
+    await ns.notify_custom_insight_failed(my_uid, str(uuid.uuid4()), start, end, refused=True)
+    mm = notes(my_uid, "custom_insight_ready")
+    mm_row = mm[0] if mm else {"title": "", "message": ""}
+    mm_fail = (notes(my_uid, "custom_insight_failed") or [{"title": "", "message": ""}])[0]
+    check(MYANMAR.search(mm_row["title"]) and MYANMAR.search(mm_row["message"]) and "6 အောက်တိုဘာ 2026 – 4 နိုဝင်ဘာ 2026" in mm_row["message"]
+          and MYANMAR.search(mm_fail["title"]) and MYANMAR.search(mm_fail["message"]) and "{" not in mm_row["message"] + mm_fail["message"],
+          "notify_custom_myanmar: a Myanmar user gets Myanmar text and a Myanmar date range", (mm_row, mm_fail))
+
+    check(format_day(date(2026, 12, 1), "en") == "Dec 1, 2026" and format_day(date(2026, 12, 1), "my") == "1 ဒီဇင်ဘာ 2026"
+          and format_day(date(2026, 1, 31), "en") == "Jan 31, 2026" and format_day(date(2026, 3, 10), "en") == "Mar 10, 2026",
+          "format_day: the calendar day as 'Dec 1, 2026' / '1 ဒီဇင်ဘာ 2026', no timezone shift")
+
+    prefs = await ns.get_user_notification_preferences(en_uid)
+    check(prefs.get("custom_insight_ready") is True and prefs.get("custom_insight_failed") is True,
+          "notify_custom_prefs: both types are on by default", prefs)
+
+    try:
+        await ns.notify_custom_insight_ready("t9c-no-such-user", str(uuid.uuid4()), start, end)
+        await ns.notify_custom_insight_failed("t9c-no-such-user", str(uuid.uuid4()), start, end, refused=False)
+        swallowed = True
+    except Exception as exc:  # noqa: BLE001
+        swallowed = repr(exc)
+    check(swallowed is True, "notify_custom_failure_swallowed: a failing send is logged, not raised", swallowed)
+
+
 # ---------------------------------------------------------------- runner
 async def run(t):
     """t: the test_plans module (check, connect, make_admins, admin_login, ...)."""
@@ -399,6 +468,7 @@ async def run(t):
     h = SimpleNamespace(c=c, db=db, AD=AD, register=register, set_plan=set_plan, used=used, set_used=set_used, add_tx=add_tx)
     try:
         await storage_checks(t, h)
+        await notification_checks(t, h)
     finally:
         db.users.delete_many({"email": {"$regex": f"^t9c-.*-{tag}@"}})  # cascades to custom insights and counters
         db.admins.delete_many({"email": {"$in": list(made.values())}})
