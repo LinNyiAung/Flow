@@ -3,10 +3,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/models/chat.dart';
+import 'package:frontend/models/custom_insight.dart';
 import 'package:frontend/providers/chat_provider.dart';
+import 'package:frontend/providers/custom_insight_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/screens/ai/ai_chat_screen.dart';
+import 'package:frontend/screens/insights/custom_insight_report_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
+import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/subscription/subscription_screen.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -209,6 +213,98 @@ void insightFlows() {
       check(await waitFor(find.textContaining('summary'), timeout: const Duration(seconds: 90), orNull: true),
           'Insights: the English choice was not remembered (the app language is Myanmar): ${visibleTexts().take(15).join(' | ')}');
       check(insightProvider().currentLanguage == 'en', 'Insights: remembered language is not English after signing in again');
+    });
+
+    e2eTest('custom_insights_pro: Pro creates a custom insight from a ready-made instruction, reads figures and text, the same request shows the saved one',
+        (t) async {
+      await login(pro);
+      await drawerGo(L.aiInsights);
+      await waitFor(find.byType(InsightsScreen));
+      step('open the Custom tab');
+      await tap(find.byKey(const ValueKey('insight-type-custom')));
+      await waitFor(find.byKey(const ValueKey('custom-insight-new')), timeout: const Duration(seconds: 30));
+      await waitFor(find.byKey(const Key('plan-usage-insight_custom')), timeout: const Duration(seconds: 30), orNull: true);
+      check(usageText('insight_custom') == L.planUsageLeftMonth(10, 10),
+          'Custom insights (Pro): the usage line should read "${L.planUsageLeftMonth(10, 10)}" before any report, was "${usageText('insight_custom')}"');
+
+      Future<void> createLast30DaysWhereToSave() async {
+        await tap(find.byKey(const ValueKey('custom-insight-new')));
+        await waitFor(find.byKey(const ValueKey('custom-range-last30Days')));
+        await tap(find.byKey(const ValueKey('custom-range-last30Days')));
+        await tap(find.byKey(const ValueKey('custom-preset-where_to_save')));
+        await tap(find.byKey(const ValueKey('custom-insight-create')), settleMs: 800);
+      }
+
+      // Looked up once: while a report is open the Insights screen is offstage and find skips it.
+      final custom = Provider.of<CustomInsightProvider>(T.element(find.byType(InsightsScreen)), listen: false);
+      CustomInsightProvider customProvider() => custom;
+      final fakeAnswer = find.textContaining('Fake answer', findRichText: true);
+
+      step('create: Last 30 days + "where to save"');
+      await createLast30DaysWhereToSave();
+      final end = DateTime.now().add(const Duration(seconds: 90));
+      while (DateTime.now().isBefore(end) &&
+          !(customProvider().reports.isNotEmpty && customProvider().reports.first.status == CustomInsightStatus.ready)) {
+        await T.pump(const Duration(milliseconds: 200));
+      }
+      final reports = customProvider().reports;
+      check(reports.length == 1 && reports.first.status == CustomInsightStatus.ready,
+          'Custom insights (Pro): the report did not become ready within 90 s (${reports.map((r) => r.status.name).join(',')}; ${visibleTexts().take(15).join(' | ')})');
+      if (reports.isEmpty) return;
+      final id = reports.first.id;
+      await settle(1500);
+      check(usageText('insight_custom') == L.planUsageLeftMonth(9, 10),
+          'Custom insights (Pro): after one report the usage line should read "${L.planUsageLeftMonth(9, 10)}", was "${usageText('insight_custom')}"');
+
+      step('open the report');
+      await tap(find.byKey(ValueKey('custom-insight-item-$id')));
+      await expectSoon(find.byType(CustomInsightReportScreen), 'Custom insights (Pro): tapping the report did not open it');
+      await waitFor(find.byKey(const ValueKey('custom-report-body')), timeout: const Duration(seconds: 20), orNull: true);
+      // The seeded Pro account (like Plus) keeps its money in kyat, so the card is MMK, not the brief's USD.
+      check(find.byKey(const ValueKey('custom-figures-mmk')).evaluate().isNotEmpty,
+          'Custom insights (Pro): the report shows no MMK figures card (${visibleTexts().take(20).join(' | ')})');
+      check(await scrollTo(fakeAnswer, maxSwipes: 6),
+          'Custom insights (Pro): the report text ("Fake answer") is not shown (${visibleTexts().take(20).join(' | ')})');
+      await back();
+      await waitFor(find.byType(InsightsScreen));
+      await settle(800);
+
+      step('the same request shows the saved report, no new use');
+      await createLast30DaysWhereToSave();
+      await expectSoon(find.text(L.customInsightReused), 'Custom insights (Pro): the same request did not say the saved insight is shown');
+      await expectSoon(find.byType(CustomInsightReportScreen), 'Custom insights (Pro): the same request did not open the saved report');
+      await settle(800);
+      check(customProvider().reports.length == 1,
+          'Custom insights (Pro): the same request made a second report (${customProvider().reports.length})');
+      await back();
+      await waitFor(find.byType(InsightsScreen));
+      await settle(1500);
+      check(usageText('insight_custom') == L.planUsageLeftMonth(9, 10),
+          'Custom insights (Pro): the same request changed the usage line to "${usageText('insight_custom')}", should stay "${L.planUsageLeftMonth(9, 10)}"');
+
+      step('the ready notification opens the report');
+      await goHome();
+      await tap(find.byIcon(Icons.notifications_rounded).first);
+      await waitFor(find.byType(NotificationsScreen));
+      await settle(2000);
+      const readyTitle = 'Your custom insight is ready';
+      check(await scrollTo(find.textContaining(readyTitle), maxSwipes: 6), 'Notifications (Pro): "$readyTitle" is not listed');
+      await tap(find.textContaining(readyTitle).first);
+      await expectSoon(find.byType(CustomInsightReportScreen), 'Tapping the custom insight notification did not open the report');
+      await waitFor(find.byKey(const ValueKey('custom-report-body')), timeout: const Duration(seconds: 20), orNull: true);
+      check(await scrollTo(fakeAnswer, maxSwipes: 6), 'Custom insights (Pro): the report opened from the notification shows no text');
+    });
+
+    e2eTest('custom_insights_locked_plus: Plus sees Custom locked and Upgrade opens the Upgrade screen', (t) async {
+      await login(plus);
+      await drawerGo(L.aiInsights);
+      await waitFor(find.byType(InsightsScreen));
+      await tap(find.byKey(const ValueKey('insight-type-custom')));
+      check(await waitFor(find.byKey(const ValueKey('custom-insight-upgrade')), timeout: const Duration(seconds: 30), orNull: true),
+          'Custom insights (Plus): the Custom tab is not locked (${visibleTexts().take(15).join(' | ')})');
+      check(find.byKey(const ValueKey('custom-insight-new')).evaluate().isEmpty, 'Custom insights (Plus): a New button is shown');
+      await tap(find.byKey(const ValueKey('custom-insight-upgrade')));
+      await expectSoon(find.byType(SubscriptionScreen), 'Custom insights (Plus): Upgrade did not open the Upgrade screen');
     });
   });
 }

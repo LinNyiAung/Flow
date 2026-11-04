@@ -316,6 +316,50 @@ Notes:
   jobs, so it is only as accurate as the **AI Usage & Costs** page (see the note above about
   fallbacks).
 
+### Custom insights
+
+Pro users can ask for an insight over a date range of their choice (7 days to 12 months, ending
+today or earlier), with an optional question or one of four ready-made instructions. The report
+is generated in the background, saved with its figures, and the user gets a
+`custom_insight_ready` notification (or `custom_insight_failed`). Free and Plus see the tab
+locked with an Upgrade button. No new environment variables.
+
+- Migration `b8f4d2c6e9a1`
+  (`backend/alembic/versions/20261104_b8f4d2c6e9a1_custom_insights.py`) is applied by the usual
+  `alembic upgrade head` in the Pre-Deploy Command. It adds the `custom_insights` table and
+  seeds the `insight_custom` plan limits: Free and Plus **locked**, Pro **10 per month**
+  (editable on the admin **Plans** page like any other limit).
+- The AI feature **Custom insight** (`insight_custom`) on the **AI Providers** page defaults to
+  Claude `claude-sonnet-5-5`, so `ANTHROPIC_API_KEY` must be set, or another provider chosen,
+  for it to work. The usage type `custom_insight` shows in **AI Usage & Costs**.
+- A sweeper runs every 5 minutes: a report still pending 20 minutes after it was created is
+  marked failed, the user is notified once and the use is given back.
+- Failed and refused attempts do not use up the allowance, but they are limited to 5 a day per
+  user. Deleting such a report does not clear its attempt.
+- The app works out "today" for the range picker in the server's default `SCHEDULER_TIMEZONE`
+  (Asia/Yangon, UTC+06:30). Changing `SCHEDULER_TIMEZONE` needs an app change (the app would
+  have to be sent the server's date); do not change it without one.
+- Known gap: if the server is shut down at exactly the wrong moment while a report is being
+  created, a failed report can stay counted against the user's allowance. **Reset usage** on the
+  user's detail panel fixes it.
+- All new Myanmar wording (app and notifications) was written without a native speaker and needs
+  checking before release.
+
+After the deploy, check by hand (needs the real keys and the app):
+
+- On a Pro test account, create a report (for example Last 30 days with "Where can I save?"),
+  wait for the ready notification, tap it to open the report, and check the usage line drops by
+  one and the count shows on the user's detail panel.
+- Translate that report to Myanmar and check the Myanmar text is stored and shown again without
+  another translation.
+- On a Free or Plus test account, check the Custom tab is locked and Upgrade opens the Upgrade
+  screen.
+- Delete the report on the Pro account and check it leaves the list.
+
+Rolling back: `alembic downgrade a7d3e5c91f20` drops the `custom_insights` table and the
+`insight_custom` limits. `ai_usage` rows of type `custom_insight` stay, and older code cannot
+read them on the per-user usage detail (the same caveat as the `claude` rows above).
+
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
 
