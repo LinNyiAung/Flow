@@ -35,10 +35,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     });
   }
 
-  /// Asks for [plan]: a dialog for an optional note and an optional Viber
-  /// number, then the request, then a "we'll contact you" thanks. A refused
-  /// request (e.g. the user already has that plan) shows the server's message
-  /// in a snackbar.
+  /// Asks for [plan]: a dialog for monthly or yearly (when the plan has a
+  /// price), an optional note and an optional Viber number, then the request,
+  /// then a "we'll contact you" thanks. A refused request (e.g. the user
+  /// already has that plan) shows the server's message in a snackbar.
   Future<void> _requestUpgrade(Plan plan, String title) async {
     final planProvider = Provider.of<PlanProvider>(context, listen: false);
     final accountEmail = Provider.of<AuthProvider>(context, listen: false).user?.email;
@@ -53,6 +53,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         accountEmail: accountEmail,
         initialViber: planProvider.upgradeRequest?.viberNumber,
         ownerContact: planProvider.status?.ownerContact ?? OwnerContact.none,
+        price: planProvider.status?.priceOf(plan) ?? PlanPrice.none,
       ),
     );
     if (input == null) return; // cancelled
@@ -62,16 +63,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         plan,
         note: input.note,
         viberNumber: input.viberNumber,
+        billing: input.billing,
       );
       messenger.showSnackBar(SnackBar(content: Text(localizations.upgradeRequestThanks)));
     } catch (e) {
-      // 422 is the server's validation: either the Viber number or the note,
-      // which the dialog checks first too. The message names the field
-      // ("viber_number: …"); say which in the app's language.
+      // 422 is the server's validation: the Viber number or the note, which
+      // the dialog checks first too, or the price the user picked, which the
+      // owner changed since the screen loaded. The message names the field
+      // ("viber_number: …", "billing: …"); say which in the app's language.
       final message = e is ApiException && e.statusCode == 422
           ? (e.message.contains('viber_number')
               ? localizations.upgradeRequestViberInvalid
-              : localizations.upgradeRequestNoteTooLong)
+              : e.message.contains('billing')
+                  ? localizations.upgradeRequestPriceChanged
+                  : localizations.upgradeRequestNoteTooLong)
           : e is ApiException && e.message.trim().isNotEmpty
               ? e.message
               : localizations.upgradeRequestFailed;
@@ -380,11 +385,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     return PlanComparisonTable(
       catalog: status.catalog,
       currentPlan: currentPlan,
+      prices: status.prices,
     );
   }
 
   // ── "Upgrade to Plus" / "Upgrade to Pro" (or "Buy Plus" on the trial) ──────
-  // One card per plan above the user's own. After a request, that plan's card
+  // One card per plan above the user's own, with the plan's price above the
+  // button once the owner has set one. After a request, that plan's card
   // says when it was requested; asking for the other plan moves it there.
   Widget _buildUpgradeRequests(
     BuildContext context,
@@ -432,25 +439,56 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         ),
                       ],
                     )
-                  : SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.tonal(
-                        key: Key('request-${plan.name}'),
-                        onPressed: planProvider.isRequestingUpgrade
-                            ? null
-                            : () => _requestUpgrade(
-                                  plan,
-                                  upgradeButtonLabel(localizations, plan,
-                                      current: currentPlan, isTrial: isTrial),
-                                ),
-                        child: Text(upgradeButtonLabel(localizations, plan,
-                            current: currentPlan, isTrial: isTrial)),
-                      ),
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ..._priceLines(context, plan, planProvider.status!.priceOf(plan), localizations),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.tonal(
+                            key: Key('request-${plan.name}'),
+                            onPressed: planProvider.isRequestingUpgrade
+                                ? null
+                                : () => _requestUpgrade(
+                                      plan,
+                                      upgradeButtonLabel(localizations, plan,
+                                          current: currentPlan, isTrial: isTrial),
+                                    ),
+                            child: Text(upgradeButtonLabel(localizations, plan,
+                                current: currentPlan, isTrial: isTrial)),
+                          ),
+                        ),
+                      ],
                     ),
             ),
           ),
       ],
     );
+  }
+
+  /// "K15,000 / month" and, with a yearly price, "or K150,000 / year · save
+  /// 17%", for above the upgrade button; nothing when [price] has no monthly price.
+  List<Widget> _priceLines(BuildContext context, Plan plan, PlanPrice price, AppLocalizations l) {
+    final monthly = price.monthlyMmk;
+    if (monthly == null) return const [];
+    final scheme = Theme.of(context).colorScheme;
+    final yearly = upgradeYearlyText(l, price);
+    return [
+      Text(
+        l.planPriceMonthly(formatPlanPrice(monthly)),
+        key: Key('upgrade-price-${plan.name}'),
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: scheme.onSurface),
+      ),
+      if (yearly != null) ...[
+        const SizedBox(height: 2),
+        Text(
+          yearly,
+          key: Key('upgrade-price-yearly-${plan.name}'),
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+        ),
+      ],
+      const SizedBox(height: 10),
+    ];
   }
 
   // ── Upgrade contact info box ───────────────────────────────────────────────
@@ -516,6 +554,24 @@ String upgradeButtonLabel(AppLocalizations l, Plan plan,
   return isTrial && plan == current ? l.upgradeBuyButton(name) : l.upgradeRequestButton(name);
 }
 
+/// A price in kyat as the app shows it: "K15,000" (no decimals; Western
+/// digits in Myanmar too, like the amounts elsewhere in the app).
+String formatPlanPrice(int mmk) => 'K${NumberFormat('#,##0', 'en').format(mmk)}';
+
+/// " · save 17%" when the yearly price saves something, else "".
+String _saveSuffix(AppLocalizations l, PlanPrice price) {
+  final save = price.savePercent;
+  return save != null && save > 0 ? ' · ${l.planPriceSave(save)}' : '';
+}
+
+/// "or K150,000 / year · save 17%" under the monthly price; null without a
+/// yearly price.
+String? upgradeYearlyText(AppLocalizations l, PlanPrice price) {
+  final yearly = price.yearlyMmk;
+  if (!price.hasYearly || yearly == null) return null;
+  return '${l.planPriceYearlyOr(formatPlanPrice(yearly))}${_saveSuffix(l, price)}';
+}
+
 /// The paid plans a user on [current] can ask for: the ones above it (Pro
 /// counts as Plus, so a Pro user has none). A free trial of Plus does not count
 /// as having Plus, so a trial user may ask to keep it (the server agrees).
@@ -534,23 +590,28 @@ const int upgradeRequestNoteMaxLength = 500;
 int noteLength(String text) => text.runes.length;
 
 /// What the upgrade request dialog sends: the trimmed [note] and the
-/// normalised [viberNumber] (`+` and digits), each empty when not given.
+/// normalised [viberNumber] (`+` and digits), each empty when not given, and
+/// the [billing] period picked ([PlanBilling]; null when the plan has no price).
 class UpgradeRequestInput {
-  const UpgradeRequestInput({required this.note, required this.viberNumber});
+  const UpgradeRequestInput({required this.note, required this.viberNumber, this.billing});
 
   final String note;
   final String viberNumber;
+  final String? billing;
 }
 
-/// Asks for an optional note and an optional Viber number, says how the owner
-/// will get back to the user, and closes with an [UpgradeRequestInput]. Closes
-/// with null when cancelled; the caller sends the request. Send is off while
-/// the note is over [upgradeRequestNoteMaxLength] code points or the Viber
-/// number is not a number (see [normalizeViberNumber]).
+/// Asks monthly or yearly (when the plan has a price), an optional note and
+/// an optional Viber number, says how the owner will get back to the user,
+/// and closes with an [UpgradeRequestInput]. Closes with null when cancelled;
+/// the caller sends the request. Send is off while the note is over
+/// [upgradeRequestNoteMaxLength] code points or the Viber number is not a
+/// number (see [normalizeViberNumber]).
 ///
 /// [accountEmail] is where the owner emails the user when they leave the
 /// number empty. [initialViber] prefills the field (the number of the user's
-/// pending request). [ownerContact] shows "Contact us directly" under the fields.
+/// pending request). [ownerContact] shows "Contact us directly" under the
+/// fields. [price] is the plan's price: with a monthly price the user picks
+/// Monthly (the default) or, when there is one, Yearly.
 class UpgradeRequestDialog extends StatefulWidget {
   const UpgradeRequestDialog({
     super.key,
@@ -559,6 +620,7 @@ class UpgradeRequestDialog extends StatefulWidget {
     this.accountEmail,
     this.initialViber,
     this.ownerContact = OwnerContact.none,
+    this.price = PlanPrice.none,
   });
 
   final Plan plan;
@@ -569,6 +631,7 @@ class UpgradeRequestDialog extends StatefulWidget {
   final String? accountEmail;
   final String? initialViber;
   final OwnerContact ownerContact;
+  final PlanPrice price;
 
   @override
   State<UpgradeRequestDialog> createState() => _UpgradeRequestDialogState();
@@ -578,6 +641,47 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
   final TextEditingController _note = TextEditingController();
   late final TextEditingController _viber =
       TextEditingController(text: widget.initialViber ?? '');
+
+  /// The period picked; null when the plan has no price (nothing to pick).
+  late String? _billing = widget.price.hasMonthly ? PlanBilling.month : null;
+
+  /// One choice of the billing period: a row with a radio mark and its text.
+  Widget _billingOption(String value, String label, ColorScheme scheme) {
+    final selected = _billing == value;
+    return Semantics(
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      button: true,
+      child: InkWell(
+        key: Key('upgrade-billing-$value'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() => _billing = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: selected ? scheme.primary : scheme.outlineVariant, width: selected ? 2 : 1),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+                size: 20,
+                color: selected ? scheme.primary : scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -596,6 +700,8 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
     final viber = normalizeViberNumber(_viber.text);
     final viberInvalid = viber == null;
     final email = widget.accountEmail;
+    final monthly = widget.price.monthlyMmk;
+    final yearly = widget.price.hasYearly ? widget.price.yearlyMmk : null;
     return AlertDialog(
       title: Text(widget.title ?? l.upgradeRequestButton(planName)),
       content: SingleChildScrollView(
@@ -607,6 +713,23 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
               l.upgradeRequestIntro(planName),
               style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant, height: 1.4),
             ),
+            if (monthly != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                l.upgradeBillingLabel,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface),
+              ),
+              const SizedBox(height: 8),
+              _billingOption(PlanBilling.month, l.upgradeBillingMonthly(formatPlanPrice(monthly)), scheme),
+              if (yearly != null) ...[
+                const SizedBox(height: 8),
+                _billingOption(
+                  PlanBilling.year,
+                  '${l.upgradeBillingYearly(formatPlanPrice(yearly))}${_saveSuffix(l, widget.price)}',
+                  scheme,
+                ),
+              ],
+            ],
             const SizedBox(height: 16),
             TextField(
               key: const Key('upgrade-request-viber'),
@@ -666,7 +789,7 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
               ? null
               : () => Navigator.pop(
                     context,
-                    UpgradeRequestInput(note: _note.text.trim(), viberNumber: viber),
+                    UpgradeRequestInput(note: _note.text.trim(), viberNumber: viber, billing: _billing),
                   ),
           child: Text(l.upgradeRequestSend),
         ),
@@ -678,16 +801,20 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
 /// The Free / Plus / Pro comparison: one row per feature, one column per plan
 /// (a number and its period, a tick for "included", a dash for "not
 /// included"), with the user's current plan's column highlighted. Everything
-/// comes from [catalog], the limits the server reports.
+/// comes from [catalog], the limits the server reports. Once the owner has set
+/// a monthly price for Plus or Pro, a Price row comes first (the monthly
+/// price, "Free" for Free, a dash for a paid plan without one).
 class PlanComparisonTable extends StatelessWidget {
   const PlanComparisonTable({
     super.key,
     required this.catalog,
     required this.currentPlan,
+    this.prices = const {},
   });
 
   final Map<Plan, Map<String, CatalogLimit>> catalog;
   final Plan currentPlan;
+  final Map<Plan, PlanPrice> prices;
 
   static const List<Plan> _plans = [Plan.free, Plan.plus, Plan.pro];
 
@@ -708,6 +835,21 @@ class PlanComparisonTable extends StatelessWidget {
         child: child,
       );
     }
+
+    Widget rowLabel(String text) => cell(
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
+          ),
+          null,
+          alignment: Alignment.centerLeft,
+        );
+
+    final showPrices = _plans.any((p) => p != Plan.free && (prices[p]?.hasMonthly ?? false));
 
     final rows = <TableRow>[
       TableRow(
@@ -745,21 +887,17 @@ class PlanComparisonTable extends StatelessWidget {
             ),
         ],
       ),
+      if (showPrices)
+        TableRow(
+          children: [
+            rowLabel(l.planPriceRow),
+            for (final plan in _plans) cell(_priceCell(l, scheme, plan), plan),
+          ],
+        ),
       for (final feature in features)
         TableRow(
           children: [
-            cell(
-              Text(
-                l.planFeatureName(feature),
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onSurface,
-                ),
-              ),
-              null,
-              alignment: Alignment.centerLeft,
-            ),
+            rowLabel(l.planFeatureName(feature)),
             for (final plan in _plans)
               cell(_limitCell(context, l, scheme, catalog[plan]?[feature]), plan),
           ],
@@ -794,18 +932,51 @@ class PlanComparisonTable extends StatelessWidget {
     );
   }
 
+  /// The monthly price ("K15,000" over "per month"), shrunk to fit a narrow
+  /// column; "Free" for Free; the dash for a paid plan without a price.
+  Widget _priceCell(AppLocalizations l, ColorScheme scheme, Plan plan) {
+    final valueStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: scheme.onSurface);
+    if (plan == Plan.free) {
+      return FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(l.planPriceFree, key: const Key('plan-price-free'), maxLines: 1, style: valueStyle),
+      );
+    }
+    final monthly = prices[plan]?.monthlyMmk;
+    if (monthly == null) return _dash(l, scheme);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            formatPlanPrice(monthly),
+            key: Key('plan-price-${plan.name}'),
+            maxLines: 1,
+            style: valueStyle,
+          ),
+        ),
+        Text(
+          l.planPerMonth,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+
+  Widget _dash(AppLocalizations l, ColorScheme scheme) => Semantics(
+        label: l.planNotIncluded,
+        child: Icon(Icons.remove_rounded, size: 20, color: scheme.outline),
+      );
+
   Widget _limitCell(
     BuildContext context,
     AppLocalizations l,
     ColorScheme scheme,
     CatalogLimit? limit,
   ) {
-    if (limit == null || limit.isLocked) {
-      return Semantics(
-        label: l.planNotIncluded,
-        child: Icon(Icons.remove_rounded, size: 20, color: scheme.outline),
-      );
-    }
+    if (limit == null || limit.isLocked) return _dash(l, scheme);
     if (limit.isIncluded || limit.quota == null) {
       return Semantics(
         label: l.planIncluded,

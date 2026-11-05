@@ -139,7 +139,7 @@ void main() {
       final sent = <(Plan, String?, String?)>[];
       final provider = PlanProvider(
         loader: () async => _status(),
-        requester: (plan, note, viber) async {
+        requester: (plan, note, viber, billing) async {
           sent.add((plan, note, viber));
           return UpgradeRequest(
             plan: plan,
@@ -389,7 +389,7 @@ void main() {
       PlanStatus status, {
       Locale locale = const Locale('en'),
       String? signedInAs = 'me@example.com',
-      Future<UpgradeRequest> Function(Plan plan, String? note, String? viber)? requester,
+      Future<UpgradeRequest> Function(Plan plan, String? note, String? viber, String? billing)? requester,
     }) async {
       await tester.pumpWidget(_app(
         SubscriptionScreen(),
@@ -430,7 +430,7 @@ void main() {
       await openScreen(
         tester,
         _status(),
-        requester: (plan, note, viber) async {
+        requester: (plan, note, viber, billing) async {
           sent.add((plan, note, viber));
           return UpgradeRequest(plan: plan, note: note, viberNumber: viber, createdAt: DateTime(2026, 11, 3, 12));
         },
@@ -456,7 +456,7 @@ void main() {
       await openScreen(
         tester,
         _status(),
-        requester: (plan, note, viber) async =>
+        requester: (plan, note, viber, billing) async =>
             UpgradeRequest(plan: plan, note: note, viberNumber: viber, createdAt: DateTime(2026, 11, 3, 12)),
       );
 
@@ -484,7 +484,7 @@ void main() {
         _status(
           upgradeRequest: UpgradeRequest(plan: Plan.plus, viberNumber: '+959123456789', createdAt: DateTime(2026, 11, 3, 12)),
         ),
-        requester: (plan, note, viber) async {
+        requester: (plan, note, viber, billing) async {
           sent.add((plan, note, viber));
           return UpgradeRequest(plan: plan, note: note, viberNumber: viber, createdAt: DateTime(2026, 11, 4, 12));
         },
@@ -532,7 +532,7 @@ void main() {
           tester,
           _status(),
           locale: locale,
-          requester: (plan, note, viber) async =>
+          requester: (plan, note, viber, billing) async =>
               throw ApiException('viber_number: Enter a Viber number with its country code, like +959123456789', statusCode: 422),
         );
         await tester.ensureVisible(find.byKey(const Key('request-plus')));

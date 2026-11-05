@@ -40,11 +40,11 @@ class PlanProvider with ChangeNotifier {
 
   /// Where an upgrade request is sent; [ApiService.requestUpgrade] unless a
   /// test supplies its own.
-  final Future<UpgradeRequest> Function(Plan plan, String? note, String? viberNumber) _requester;
+  final Future<UpgradeRequest> Function(Plan plan, String? note, String? viberNumber, String? billing) _requester;
 
   PlanProvider({
     Future<PlanStatus> Function()? loader,
-    Future<UpgradeRequest> Function(Plan plan, String? note, String? viberNumber)? requester,
+    Future<UpgradeRequest> Function(Plan plan, String? note, String? viberNumber, String? billing)? requester,
   })  : _loader = loader ?? ApiService.getPlanStatus,
         _requester = requester ?? _sendUpgradeRequest {
     // An admin changed the plan: the new limits apply at once.
@@ -113,26 +113,28 @@ class PlanProvider with ChangeNotifier {
     }
   }
 
-  /// Asks the owner for [plan] (Plus or Pro) with an optional [note] and an
+  /// Asks the owner for [plan] (Plus or Pro) with an optional [note], an
   /// optional [viberNumber] (as the server stores it: `+` and digits; without
-  /// one the owner emails the user). The new request replaces a pending one
+  /// one the owner emails the user) and, when the plan has a price, the
+  /// [billing] period the user picked ([PlanBilling]). The new request replaces a pending one
   /// for the other plan; it shows in [status] at once. Throws what the server answered (e.g. the user already has that
   /// plan) and then leaves the status as it was.
-  Future<UpgradeRequest> requestUpgrade(Plan plan, {String? note, String? viberNumber}) {
+  Future<UpgradeRequest> requestUpgrade(Plan plan, {String? note, String? viberNumber, String? billing}) {
     final running = _upgradeRequestInFlight;
     if (running != null) return running;
     final generation = _generation;
-    final future = _sendAndStore(plan, note, viberNumber, generation);
+    final future = _sendAndStore(plan, note, viberNumber, billing, generation);
     _upgradeRequestInFlight = future;
     notifyListeners();
     return future;
   }
 
-  Future<UpgradeRequest> _sendAndStore(Plan plan, String? note, String? viberNumber, int generation) async {
+  Future<UpgradeRequest> _sendAndStore(
+      Plan plan, String? note, String? viberNumber, String? billing, int generation) async {
     // Let requestUpgrade record this future before anything below can finish.
     await null;
     try {
-      final request = await _requester(plan, note, viberNumber);
+      final request = await _requester(plan, note, viberNumber, billing);
       if (generation == _generation && _status != null) {
         _status = _status!.withUpgradeRequest(request);
       }
@@ -152,5 +154,5 @@ class PlanProvider with ChangeNotifier {
   }
 }
 
-Future<UpgradeRequest> _sendUpgradeRequest(Plan plan, String? note, String? viberNumber) =>
-    ApiService.requestUpgrade(plan: plan, note: note, viberNumber: viberNumber);
+Future<UpgradeRequest> _sendUpgradeRequest(Plan plan, String? note, String? viberNumber, String? billing) =>
+    ApiService.requestUpgrade(plan: plan, note: note, viberNumber: viberNumber, billing: billing);

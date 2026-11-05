@@ -110,6 +110,51 @@ class CatalogLimit {
   }
 }
 
+/// One plan's price in kyat, from the `prices` of `GET /api/plan`, set by the
+/// owner in the admin panel. Either is null when not set: then the app shows
+/// no price. Free never has one; a yearly price comes only with a monthly one.
+class PlanPrice {
+  final int? monthlyMmk;
+  final int? yearlyMmk;
+
+  const PlanPrice({this.monthlyMmk, this.yearlyMmk});
+
+  static const PlanPrice none = PlanPrice();
+
+  bool get hasMonthly => monthlyMmk != null;
+  bool get hasYearly => monthlyMmk != null && yearlyMmk != null;
+
+  /// How much the yearly price saves against 12 monthly payments, in whole
+  /// percent (`round((1 - yearly / (12 * monthly)) * 100)`); null without
+  /// both prices. Shown only when it is above 0.
+  int? get savePercent {
+    final monthly = monthlyMmk, yearly = yearlyMmk;
+    if (monthly == null || yearly == null) return null;
+    return ((1 - yearly / (12 * monthly)) * 100).round();
+  }
+
+  /// Missing or unreadable values are "not set", so an older server (no
+  /// `prices`) shows no price.
+  factory PlanPrice.fromJson(dynamic json) {
+    if (json is! Map) return none;
+    int? positive(dynamic value) {
+      final n = _asInt(value);
+      return n != null && n > 0 ? n : null;
+    }
+
+    final monthly = positive(json['monthly_mmk']);
+    return PlanPrice(monthlyMmk: monthly, yearlyMmk: monthly == null ? null : positive(json['yearly_mmk']));
+  }
+}
+
+/// The price a user picked on an upgrade request (`billing`).
+class PlanBilling {
+  PlanBilling._();
+
+  static const String month = 'month';
+  static const String year = 'year';
+}
+
 /// The user's pending request to be moved to Plus or Pro (`upgrade_request` of
 /// `GET /api/plan`, and the answer of `POST /api/plan/upgrade-request`).
 /// Upgrades are manual: the owner sees the request in the admin panel.
@@ -120,12 +165,17 @@ class UpgradeRequest {
   /// The Viber number the user gave (`+` and digits) for the owner to contact
   /// them on; null when they gave none (the owner emails them instead).
   final String? viberNumber;
+
+  /// [PlanBilling.month] or [PlanBilling.year], the price the user picked;
+  /// null when the plan had no price.
+  final String? billing;
   final DateTime createdAt;
 
   const UpgradeRequest({
     required this.plan,
     this.note,
     this.viberNumber,
+    this.billing,
     required this.createdAt,
   });
 
@@ -137,10 +187,12 @@ class UpgradeRequest {
     if (plan == Plan.free || createdAt == null) return null;
     final note = json['note'];
     final viber = json['viber_number'];
+    final billing = json['billing'];
     return UpgradeRequest(
       plan: plan,
       note: note is String && note.trim().isNotEmpty ? note : null,
       viberNumber: viber is String && viber.trim().isNotEmpty ? viber.trim() : null,
+      billing: billing == PlanBilling.month || billing == PlanBilling.year ? billing as String : null,
       createdAt: createdAt,
     );
   }
@@ -148,8 +200,8 @@ class UpgradeRequest {
 
 /// `GET /api/plan`: the user's plan, trial state, each feature's allowance
 /// this period, every plan's limits (for the Upgrade screen, so no number is
-/// hard-coded in the app), the upgrade contact message per language and the
-/// pending upgrade request, if any.
+/// hard-coded in the app), every plan's price, the upgrade contact message per
+/// language and the pending upgrade request, if any.
 class PlanStatus {
   final Plan plan;
   final DateTime? expiresAt;
@@ -157,6 +209,9 @@ class PlanStatus {
   final DateTime? trialEndsAt;
   final Map<String, FeatureAllowance> features;
   final Map<Plan, Map<String, CatalogLimit>> catalog;
+
+  /// The price of each plan the server listed; see [priceOf].
+  final Map<Plan, PlanPrice> prices;
 
   /// Language code ('en' | 'my') -> message.
   final Map<String, String> upgradeContact;
@@ -174,6 +229,7 @@ class PlanStatus {
     this.trialEndsAt,
     this.features = const {},
     this.catalog = const {},
+    this.prices = const {},
     this.upgradeContact = const {},
     this.ownerContact = OwnerContact.none,
     this.upgradeRequest,
@@ -187,6 +243,7 @@ class PlanStatus {
         trialEndsAt: trialEndsAt,
         features: features,
         catalog: catalog,
+        prices: prices,
         upgradeContact: upgradeContact,
         ownerContact: ownerContact,
         upgradeRequest: request,
@@ -196,6 +253,9 @@ class PlanStatus {
   bool get isPro => plan == Plan.pro;
 
   FeatureAllowance? feature(String key) => features[key];
+
+  /// [plan]'s price; [PlanPrice.none] when it has none.
+  PlanPrice priceOf(Plan plan) => prices[plan] ?? PlanPrice.none;
 
   /// The upgrade contact message in [languageCode], falling back to English.
   /// Empty when the owner has not set one.
@@ -237,6 +297,15 @@ class PlanStatus {
       });
     }
 
+    final prices = <Plan, PlanPrice>{};
+    final rawPrices = json['prices'];
+    if (rawPrices is Map) {
+      rawPrices.forEach((planName, price) {
+        final plan = Plan.values.where((p) => p.name == planName).firstOrNull;
+        if (plan != null) prices[plan] = PlanPrice.fromJson(price);
+      });
+    }
+
     final contact = <String, String>{};
     final rawContact = json['upgrade_contact'];
     if (rawContact is Map) {
@@ -252,6 +321,7 @@ class PlanStatus {
       trialEndsAt: parseInstantOrNull(json['trial_ends_at']),
       features: features,
       catalog: catalog,
+      prices: prices,
       upgradeContact: contact,
       ownerContact: OwnerContact.fromJson(json['owner_contact']),
       upgradeRequest: UpgradeRequest.tryParse(json['upgrade_request']),

@@ -1138,6 +1138,15 @@ class AppLocalizations {
       'upgradeRequestThanks': 'Thanks! We\'ll contact you soon.',
       'upgradeRequestedViber': 'Requested on {date}. We\'ll contact you on Viber at {number}.',
       'upgradeRequestedEmail': 'Requested on {date}. We\'ll contact you by email at {email}.',
+      'planPriceRow': 'Price',
+      'planPriceFree': 'Free',
+      'planPriceMonthly': '{price} / month',
+      'planPriceYearlyOr': 'or {price} / year',
+      'planPriceSave': 'save {percent}%',
+      'upgradeBillingLabel': 'How would you like to pay?',
+      'upgradeBillingMonthly': 'Monthly · {price}',
+      'upgradeBillingYearly': 'Yearly · {price}',
+      'upgradeRequestPriceChanged': 'The price has changed. Please check it and try again.',
       'ownerContactTitle': 'Contact us directly',
       'ownerContactEmail': 'Email',
       'ownerContactViber': 'Viber',
@@ -2239,6 +2248,15 @@ class AppLocalizations {
       'upgradeRequestThanks': 'ကျေးဇူးတင်ပါသည်။ မကြာမီ ဆက်သွယ်ပါမည်။',
       'upgradeRequestedViber': '{date} တွင် တောင်းဆိုထားပါသည်။ Viber {number} သို့ ဆက်သွယ်ပါမည်။',
       'upgradeRequestedEmail': '{date} တွင် တောင်းဆိုထားပါသည်။ အီးမေးလ် {email} သို့ ဆက်သွယ်ပါမည်။',
+      'planPriceRow': 'စျေးနှုန်း',
+      'planPriceFree': 'အခမဲ့',
+      'planPriceMonthly': '{price} / တစ်လ',
+      'planPriceYearlyOr': 'သို့မဟုတ် {price} / တစ်နှစ်',
+      'planPriceSave': '{percent}% သက်သာ',
+      'upgradeBillingLabel': 'မည်သို့ ပေးချေလိုပါသလဲ?',
+      'upgradeBillingMonthly': 'လစဉ် · {price}',
+      'upgradeBillingYearly': 'နှစ်စဉ် · {price}',
+      'upgradeRequestPriceChanged': 'စျေးနှုန်း ပြောင်းလဲသွားပါသည်။ ပြန်စစ်ဆေးပြီး ထပ်ကြိုးစားပါ။',
       'ownerContactTitle': 'ကျွန်ုပ်တို့ကို တိုက်ရိုက်ဆက်သွယ်ပါ',
       'ownerContactEmail': 'အီးမေးလ်',
       'ownerContactViber': 'Viber',
@@ -3389,6 +3407,15 @@ class AppLocalizations {
       translate('upgradeRequestedViber').replaceAll('{date}', date).replaceAll('{number}', number);
   String upgradeRequestedEmail(String date, String email) =>
       translate('upgradeRequestedEmail').replaceAll('{date}', date).replaceAll('{email}', email);
+  String get planPriceRow => translate('planPriceRow');
+  String get planPriceFree => translate('planPriceFree');
+  String planPriceMonthly(String price) => translate('planPriceMonthly').replaceAll('{price}', price);
+  String planPriceYearlyOr(String price) => translate('planPriceYearlyOr').replaceAll('{price}', price);
+  String planPriceSave(int percent) => translate('planPriceSave').replaceAll('{percent}', '$percent');
+  String get upgradeBillingLabel => translate('upgradeBillingLabel');
+  String upgradeBillingMonthly(String price) => translate('upgradeBillingMonthly').replaceAll('{price}', price);
+  String upgradeBillingYearly(String price) => translate('upgradeBillingYearly').replaceAll('{price}', price);
+  String get upgradeRequestPriceChanged => translate('upgradeRequestPriceChanged');
   String ownerContactEmailFailed(String email) => translate('ownerContactEmailFailed').replaceAll('{email}', email);
   String ownerContactViberFailed(String number) => translate('ownerContactViberFailed').replaceAll('{number}', number);
   String get voiceNothingHeard => translate('voiceNothingHeard');

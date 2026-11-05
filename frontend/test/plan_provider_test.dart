@@ -230,7 +230,7 @@ void main() {
       final sent = <(Plan, String?)>[];
       final provider = PlanProvider(
         loader: () async => _status(),
-        requester: (plan, note, viber) async {
+        requester: (plan, note, viber, billing) async {
           sent.add((plan, note));
           return _request(plan, note: note);
         },
@@ -255,7 +255,7 @@ void main() {
     test('a refused request throws and leaves the status as it was', () async {
       final provider = PlanProvider(
         loader: () async => _status(upgradeRequest: _request(Plan.plus)),
-        requester: (plan, note, viber) async => throw ApiException('You\'re already on the Pro plan or a higher one.', statusCode: 400),
+        requester: (plan, note, viber, billing) async => throw ApiException('You\'re already on the Pro plan or a higher one.', statusCode: 400),
       );
       await provider.refresh();
 
@@ -274,7 +274,7 @@ void main() {
       var calls = 0;
       final provider = PlanProvider(
         loader: () async => _status(),
-        requester: (plan, note, viber) {
+        requester: (plan, note, viber, billing) {
           calls++;
           return gate.future;
         },
@@ -297,7 +297,7 @@ void main() {
       final gate = Completer<UpgradeRequest>();
       final provider = PlanProvider(
         loader: () async => _status(),
-        requester: (plan, note, viber) => gate.future,
+        requester: (plan, note, viber, billing) => gate.future,
       );
       await provider.refresh();
 
@@ -320,7 +320,7 @@ void main() {
       WidgetTester tester,
       PlanStatus status,
       Locale locale, {
-      Future<UpgradeRequest> Function(Plan plan, String? note, String? viberNumber)? requester,
+      Future<UpgradeRequest> Function(Plan plan, String? note, String? viberNumber, String? billing)? requester,
     }) async {
       await tester.pumpWidget(
         MultiProvider(
@@ -441,7 +441,7 @@ void main() {
         tester,
         _status(),
         const Locale('en'),
-        requester: (plan, note, viber) async {
+        requester: (plan, note, viber, billing) async {
           sent.add((plan, note));
           return _request(plan, note: note, at: DateTime(2026, 11, 3, 12));
         },
@@ -485,7 +485,7 @@ void main() {
         tester,
         _status(),
         const Locale('en'),
-        requester: (plan, note, viber) async {
+        requester: (plan, note, viber, billing) async {
           calls++;
           throw ApiException('You\'re already on the Plus plan or a higher one.', statusCode: 400);
         },
@@ -521,7 +521,7 @@ void main() {
         tester,
         _status(),
         const Locale('en'),
-        requester: (plan, note, viber) async {
+        requester: (plan, note, viber, billing) async {
           sent.add((plan, note));
           return _request(plan, note: note);
         },
@@ -578,7 +578,7 @@ void main() {
           tester,
           _status(),
           locale,
-          requester: (plan, note, viber) async =>
+          requester: (plan, note, viber, billing) async =>
               throw ApiException('Note must be at most 500 characters', statusCode: 422),
         );
         await tester.ensureVisible(find.byKey(const Key('request-plus')));

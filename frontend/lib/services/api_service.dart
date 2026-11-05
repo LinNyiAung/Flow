@@ -884,10 +884,14 @@ class ApiService {
   /// number to reach the user on; 422 when it is not a number) are optional. A request
   /// that is already pending is replaced. The server answers 400 (with a
   /// readable message) when the user already has that plan or a higher one.
+  /// [billing] ([PlanBilling.month] / [PlanBilling.year]) is the price the
+  /// user picked; left out when the plan has no price (422 "billing: …" when
+  /// the plan no longer has that price).
   static Future<UpgradeRequest> requestUpgrade({
     required Plan plan,
     String? note,
     String? viberNumber,
+    String? billing,
   }) async {
     final trimmed = note?.trim() ?? '';
     final viber = viberNumber?.trim() ?? '';
@@ -898,6 +902,7 @@ class ApiService {
         'plan': plan.name,
         if (trimmed.isNotEmpty) 'note': trimmed,
         if (viber.isNotEmpty) 'viber_number': viber,
+        if (billing != null) 'billing': billing,
       }),
     );
 
