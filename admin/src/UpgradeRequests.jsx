@@ -18,6 +18,9 @@ const STATUS_PILL = {
 // What to contact the user with: the Viber number they gave, otherwise the email of their account.
 const viberLink = (number) => `viber://chat?number=${encodeURIComponent(number)}`;
 
+// The price the user picked in the app; nothing when the plan had no price.
+const BILLING_LABELS = { month: 'Monthly', year: 'Yearly' };
+
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
 const PlanBadge = ({ plan }) => (
@@ -149,6 +152,9 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
                         )}
                         <span className="text-slate-500">→</span>
                         <PlanBadge plan={item.requested_plan} />
+                        {BILLING_LABELS[item.billing] && (
+                          <span className="text-xs font-semibold text-slate-300">{BILLING_LABELS[item.billing]}</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-5 text-sm">

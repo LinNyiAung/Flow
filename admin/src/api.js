@@ -160,10 +160,13 @@ export const testAIProvider = (token, provider, model = null) =>
   apiRequest(`/api/admin/ai/test/${enc(provider)}`, { token, method: 'POST', body: { model } });
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
-/** { plans: {plan: {limits: {feature: {mode, quota, period}}, cost_cap_usd}}, upgrade_contact: {en, my} } */
+/**
+ * { plans: {plan: {limits: {feature: {mode, quota, period}}, cost_cap_usd, price_monthly_mmk, price_yearly_mmk}},
+ *   upgrade_contact: {en, my}, owner_contact: {email, viber} }. A price is whole kyat, or null when not set (Free: always null).
+ */
 export const getPlans = (token) => apiRequest('/api/admin/plans', { token });
 
-/** Same shape as getPlans. Replaces every plan's limits, cost caps and the contact texts. 422 detail: a string or a list. */
+/** Same shape as getPlans. Replaces every plan's limits, cost caps, prices and the contact texts. 422 detail: a string or a list. */
 export const updatePlans = (token, body) => apiRequest('/api/admin/plans', { token, method: 'PUT', body });
 
 /** { plan, features: {feature: {mode, used, limit, period}}, month_spend_usd, cost_cap_usd, cost_cap_reached } */
@@ -176,7 +179,8 @@ export const resetUserUsage = (token, userId) =>
 // ─── Upgrade requests ─────────────────────────────────────────────────────────
 /**
  * status: 'pending' (default) | 'done' | 'dismissed'. Resolves to
- * [{ id, user_id, name, email, current_plan, requested_plan, note, created_at, status, handled_at }].
+ * [{ id, user_id, name, email, current_plan, is_trial, trial_ends_at, requested_plan, note, viber_number,
+ *    billing ('month' | 'year' | null), created_at, status, handled_at }].
  */
 export const getUpgradeRequests = (token, params = {}) =>
   apiRequest('/api/admin/upgrade-requests', { token, params });

@@ -8,6 +8,9 @@ import {
 } from './planLabels';
 
 const MAX_CONTACT_LENGTH = 500;
+const MAX_PRICE_MMK = 1000000000;
+// Free has no price; only the paid plans get price fields.
+const PAID_PLANS = PLANS.filter((p) => p !== 'free');
 
 const MODE_LABELS = { locked: 'Locked', included: 'Included', counted: 'Counted' };
 const PERIOD_LABELS = { week: 'per week', month: 'per month' };
@@ -18,7 +21,7 @@ const field = 'w-full min-w-0 px-3 py-2.5 bg-slate-900/50 border border-slate-60
 const rowGrid = 'grid-cols-1 lg:grid-cols-3 xl:grid-cols-[minmax(0,200px)_repeat(3,minmax(0,1fr))] gap-3 xl:gap-4';
 
 // ─── Draft helpers ────────────────────────────────────────────────────────────
-// Quota and cost cap are kept as text while typing and checked/converted when saving.
+// Quota, cost cap and prices are kept as text while typing and checked/converted when saving. An empty price is "not set".
 const toDraft = (data) => ({
   plans: Object.fromEntries(PLANS.map((plan) => {
     const p = data.plans[plan];
@@ -29,6 +32,8 @@ const toDraft = (data) => ({
         period: lim.period ?? 'month',
       }])),
       cost: String(p.cost_cap_usd),
+      monthly: p.price_monthly_mmk == null ? '' : String(p.price_monthly_mmk),
+      yearly: p.price_yearly_mmk == null ? '' : String(p.price_yearly_mmk),
     }];
   })),
   contact: { en: data.upgrade_contact?.en ?? '', my: data.upgrade_contact?.my ?? '' },
@@ -44,6 +49,8 @@ const toBody = (draft) => ({
           ? { mode: 'counted', quota: Number(lim.quota), period: lim.period }
           : { mode: lim.mode, quota: null, period: null }])),
       cost_cap_usd: Number(p.cost),
+      price_monthly_mmk: plan !== 'free' && p.monthly !== '' ? Number(p.monthly) : null,
+      price_yearly_mmk: plan !== 'free' && p.yearly !== '' ? Number(p.yearly) : null,
     }];
   })),
   upgrade_contact: { en: draft.contact.en, my: draft.contact.my },
@@ -60,6 +67,17 @@ const validViber = (text) => {
 
 const validCost = (text) => /^\d+(\.\d+)?$/.test(text.trim()) && Number(text) <= 999999;
 
+// Empty (not set), or a whole number of kyat from 1 to 1,000,000,000.
+const validPrice = (text) => text === '' || (/^\d+$/.test(text) && Number(text) >= 1 && Number(text) <= MAX_PRICE_MMK);
+
+/** What the app shows next to the yearly price: 12 monthly payments vs one yearly one, rounded; null without both. */
+const savePercent = (monthly, yearly) => {
+  if (!validPrice(monthly) || !validPrice(yearly) || monthly === '' || yearly === '') return null;
+  return Math.round((1 - Number(yearly) / (12 * Number(monthly))) * 100);
+};
+
+const formatMmk = (n) => `${Number(n).toLocaleString('en-US')} MMK`;
+
 /** Problems the form can see before asking the server (the server's 422 stays the source of truth). */
 const findProblems = (draft, features) => {
   const out = [];
@@ -75,6 +93,12 @@ const findProblems = (draft, features) => {
       out.push(`${planLabel(plan)} · ${featureLabel('chat_advanced')}: can only be available when Chat is not locked`);
     }
     if (!validCost(p.cost)) out.push(`${planLabel(plan)}: the cost cap must be an amount in USD from 0 to 999999`);
+    if (plan !== 'free') {
+      for (const [label, text] of [['monthly', p.monthly], ['yearly', p.yearly]]) {
+        if (!validPrice(text)) out.push(`${planLabel(plan)}: the ${label} price must be a whole number of kyat from 1 to 1,000,000,000`);
+      }
+      if (p.yearly !== '' && p.monthly === '') out.push(`${planLabel(plan)}: a yearly price needs a monthly price`);
+    }
   }
   if (!validEmail(draft.owner.email)) out.push('Your email: enter a valid email address');
   if (!validViber(draft.owner.viber)) {
@@ -186,6 +210,51 @@ const OwnerField = ({ id, label, type, placeholder, hint, maxLength, value, disa
   </div>
 );
 
+const PriceField = ({ id, label, value, disabled, onChange, children }) => (
+  <div className="min-w-0">
+    <label htmlFor={id} className="block text-sm font-semibold text-slate-300 mb-2">{label}</label>
+    <input
+      id={id}
+      type="text"
+      inputMode="numeric"
+      value={value}
+      maxLength={10}
+      placeholder="Not set"
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
+      className={field}
+    />
+    {children}
+  </div>
+);
+
+const PlanPrices = ({ plan, monthly, yearly, disabled, onChange }) => {
+  const save = savePercent(monthly, yearly);
+  return (
+    <div className="min-w-0">
+      <div className="text-sm font-bold text-slate-100 mb-3">{planLabel(plan)}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <PriceField id={`price-${plan}-monthly`} label="Monthly price (MMK)" value={monthly} disabled={disabled}
+          onChange={(t) => onChange('monthly', t)}>
+          {validPrice(monthly) && monthly !== '' && <div className="text-xs text-slate-500 mt-1.5">{formatMmk(monthly)} a month</div>}
+        </PriceField>
+        <PriceField id={`price-${plan}-yearly`} label="Yearly price (MMK, optional)" value={yearly} disabled={disabled}
+          onChange={(t) => onChange('yearly', t)}>
+          {save !== null && save > 0 && (
+            <div className="text-xs text-emerald-300 mt-1.5">{formatMmk(yearly)} a year · save {save}%</div>
+          )}
+          {save !== null && save <= 0 && (
+            <div className="text-xs text-amber-300 mt-1.5 flex items-start gap-1.5">
+              <AlertTriangle size={13} className="flex-shrink-0 mt-px" />
+              <span>No saving: 12 months at the monthly price cost {formatMmk(Number(monthly) * 12)}.</span>
+            </div>
+          )}
+        </PriceField>
+      </div>
+    </div>
+  );
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 const PlansSettings = ({ token, adminRole }) => {
   const writable = canWrite(adminRole);
@@ -237,6 +306,7 @@ const PlansSettings = ({ token, adminRole }) => {
     plans: { ...d.plans, [plan]: { ...d.plans[plan], limits: { ...d.plans[plan].limits, [feature]: lim } } },
   }));
   const setCost = (plan, cost) => setDraft((d) => ({ ...d, plans: { ...d.plans, [plan]: { ...d.plans[plan], cost } } }));
+  const setPrice = (plan, key, text) => setDraft((d) => ({ ...d, plans: { ...d.plans, [plan]: { ...d.plans[plan], [key]: text } } }));
   const setContact = (lang, text) => setDraft((d) => ({ ...d, contact: { ...d.contact, [lang]: text } }));
   const setOwner = (key, text) => setDraft((d) => ({ ...d, owner: { ...d.owner, [key]: text } }));
 
@@ -268,8 +338,8 @@ const PlansSettings = ({ token, adminRole }) => {
           </h1>
           <p className="text-slate-400 font-medium text-sm md:text-base">
             {writable
-              ? 'What each plan includes, how often each AI feature can be used, and the monthly AI cost cap'
-              : 'What each plan includes, how often each AI feature can be used, and the monthly AI cost cap (read-only)'}
+              ? 'What each plan includes, how often each AI feature can be used, the monthly AI cost cap and the prices'
+              : 'What each plan includes, how often each AI feature can be used, the monthly AI cost cap and the prices (read-only)'}
           </p>
         </div>
         <button
@@ -350,6 +420,24 @@ const PlansSettings = ({ token, adminRole }) => {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <h2 className="text-xl font-bold text-slate-100 mb-1">Prices</h2>
+            <p className="text-slate-400 text-sm mb-4">
+              What Plus and Pro cost, in kyat. The app shows a price only once it is set; leave it empty to show none.
+              A yearly price is optional: the app shows how much it saves compared with paying monthly. Free has no price.
+            </p>
+            <div className={`${card} p-5 mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6`}>
+              {PAID_PLANS.map((plan) => (
+                <PlanPrices
+                  key={plan}
+                  plan={plan}
+                  monthly={draft.plans[plan].monthly}
+                  yearly={draft.plans[plan].yearly}
+                  disabled={!writable || busy}
+                  onChange={(key, text) => setPrice(plan, key, text)}
+                />
+              ))}
             </div>
 
             <h2 className="text-xl font-bold text-slate-100 mb-1">Upgrade contact</h2>
