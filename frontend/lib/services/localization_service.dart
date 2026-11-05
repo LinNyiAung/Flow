@@ -155,8 +155,6 @@ class AppLocalizations {
       'validationAmountPositive': 'Amount must be greater than 0',
       'validationMainCategoryRequired': 'Please select a main category',
       'validationSubCategoryRequired': 'Please select a sub category',
-      'recurringTransaction': 'Recurring Transaction',
-      'recurringTransactionDes': 'Automatically create this transaction',
       'repeatFrequency': 'Repeat Frequency',
       'dayOfMonth': 'Day of Month',
       'daily': 'Daily',
@@ -1279,8 +1277,6 @@ class AppLocalizations {
       'validationAmountPositive': 'ပမာဏသည် 0 ထက်ကြီးရမည်',
       'validationMainCategoryRequired': 'အဓိက အမျိုးအစားကို ရွေးချယ်ပါ',
       'validationSubCategoryRequired': 'အမျိုးအစားခွဲကို ရွေးချယ်ပါ',
-      'recurringTransaction': 'ထပ်တလဲလဲ ငွေစာရင်းသွင်းမှု',
-      'recurringTransactionDes': 'ဤငွေစာရင်းသွင်းမှုကို အလိုအလျောက် ဖန်တီးပါ',
       'repeatFrequency': 'ထပ်တလဲလဲ ပြုလုပ်မည့် အကြိမ်ရေ',
       'dayOfMonth': 'လစဉ် ရက်စွဲ',
       'daily': 'နေ့စဉ်',
@@ -2396,8 +2392,6 @@ class AppLocalizations {
   String get validationAmountPositive => translate('validationAmountPositive');
   String get validationMainCategoryRequired => translate('validationMainCategoryRequired');
   String get validationSubCategoryRequired => translate('validationSubCategoryRequired');
-  String get recurringTransaction => translate('recurringTransaction');
-  String get recurringTransactionDes => translate('recurringTransactionDes');
   String get repeatFrequency => translate('repeatFrequency');
   String get dayOfMonth => translate('dayOfMonth');
   String get daily => translate('daily');

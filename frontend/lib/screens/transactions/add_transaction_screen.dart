@@ -469,7 +469,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               RecurrenceSettings(
                 initialRecurrence: _recurrence,
                 transactionDate: _selectedDate,
-                startEnabled: true,
                 onRecurrenceChanged: (recurrence) {
                   setState(() {
                     _recurrence = recurrence;

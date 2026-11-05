@@ -400,7 +400,6 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
               RecurrenceSettings(
                 initialRecurrence: _recurrence,
                 transactionDate: _selectedDate,
-                startEnabled: true,
                 onRecurrenceChanged: (recurrence) {
                   setState(() {
                     _recurrence = recurrence;
