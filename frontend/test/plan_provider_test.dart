@@ -447,8 +447,8 @@ void main() {
         },
       );
 
-      expect(find.text('Request Plus'), findsOneWidget);
-      expect(find.text('Request Pro'), findsOneWidget);
+      expect(find.text('Upgrade to Plus'), findsOneWidget);
+      expect(find.text('Upgrade to Pro'), findsOneWidget);
       expect(find.textContaining('Requested on'), findsNothing);
 
       await tester.ensureVisible(find.byKey(const Key('request-plus')));
@@ -463,8 +463,8 @@ void main() {
       expect(sent, [(Plan.plus, 'Please upgrade me')]);
       expect(find.byKey(const Key('upgrade-requested-plus')), findsOneWidget);
       expect(find.text('Requested on 3 November 2026. We\'ll be in touch.'), findsOneWidget);
-      expect(find.text('Request Plus'), findsNothing);
-      expect(find.text('Request Pro'), findsOneWidget);
+      expect(find.text('Upgrade to Plus'), findsNothing);
+      expect(find.text('Upgrade to Pro'), findsOneWidget);
 
       // Asking for Pro moves the "requested" card to Pro.
       await tester.ensureVisible(find.byKey(const Key('request-pro')));
@@ -476,7 +476,7 @@ void main() {
       expect(sent.last, (Plan.pro, ''));
       expect(find.byKey(const Key('upgrade-requested-pro')), findsOneWidget);
       expect(find.byKey(const Key('upgrade-requested-plus')), findsNothing);
-      expect(find.text('Request Plus'), findsOneWidget);
+      expect(find.text('Upgrade to Plus'), findsOneWidget);
     });
 
     testWidgets('cancelling the dialog sends nothing; a refused request shows a snackbar', (tester) async {
@@ -598,6 +598,22 @@ void main() {
       expect(requestablePlans(Plan.pro, isTrial: true), isEmpty);
     });
 
+    test('the button says Upgrade to a higher plan, and Buy for the plan on trial', () {
+      final en = AppLocalizations(const Locale('en'));
+      String label(Plan plan, Plan current, {bool isTrial = false}) =>
+          upgradeButtonLabel(en, plan, current: current, isTrial: isTrial);
+
+      expect(label(Plan.plus, Plan.free), 'Upgrade to Plus');
+      expect(label(Plan.pro, Plan.free), 'Upgrade to Pro');
+      expect(label(Plan.pro, Plan.plus), 'Upgrade to Pro');
+      expect(label(Plan.plus, Plan.plus, isTrial: true), 'Buy Plus');
+      expect(label(Plan.pro, Plan.plus, isTrial: true), 'Upgrade to Pro');
+
+      final my = AppLocalizations(const Locale('my'));
+      expect(upgradeButtonLabel(my, Plan.pro, current: Plan.free), contains('အဆင့်မြှင့်ရန်'));
+      expect(upgradeButtonLabel(my, Plan.plus, current: Plan.plus, isTrial: true), contains('ဝယ်ယူရန်'));
+    });
+
     testWidgets('the request texts are in Myanmar', (tester) async {
       await openScreen(
         tester,
@@ -610,7 +626,7 @@ void main() {
       expect(find.textContaining('3 နိုဝင်ဘာ 2026'), findsOneWidget); // Burmese month name
       expect(find.textContaining('Nov'), findsNothing);
       expect(find.byKey(const Key('request-pro')), findsOneWidget);
-      expect(find.text('Request Pro'), findsNothing);
+      expect(find.text('Upgrade to Pro'), findsNothing);
     });
 
     testWidgets('falls back to the generic contact text when the owner set none',

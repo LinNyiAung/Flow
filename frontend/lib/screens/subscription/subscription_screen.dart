@@ -39,7 +39,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   /// number, then the request, then a "we'll contact you" thanks. A refused
   /// request (e.g. the user already has that plan) shows the server's message
   /// in a snackbar.
-  Future<void> _requestUpgrade(Plan plan) async {
+  Future<void> _requestUpgrade(Plan plan, String title) async {
     final planProvider = Provider.of<PlanProvider>(context, listen: false);
     final accountEmail = Provider.of<AuthProvider>(context, listen: false).user?.email;
     final localizations = AppLocalizations.of(context);
@@ -49,6 +49,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       context: context,
       builder: (_) => UpgradeRequestDialog(
         plan: plan,
+        title: title,
         accountEmail: accountEmail,
         initialViber: planProvider.upgradeRequest?.viberNumber,
         ownerContact: planProvider.status?.ownerContact ?? OwnerContact.none,
@@ -382,7 +383,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  // ── "Request Plus" / "Request Pro" ─────────────────────────────────────────
+  // ── "Upgrade to Plus" / "Upgrade to Pro" (or "Buy Plus" on the trial) ──────
   // One card per plan above the user's own. After a request, that plan's card
   // says when it was requested; asking for the other plan moves it there.
   Widget _buildUpgradeRequests(
@@ -435,8 +436,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       width: double.infinity,
                       child: FilledButton.tonal(
                         key: Key('request-${plan.name}'),
-                        onPressed: planProvider.isRequestingUpgrade ? null : () => _requestUpgrade(plan),
-                        child: Text(localizations.upgradeRequestButton(localizations.planName(plan))),
+                        onPressed: planProvider.isRequestingUpgrade
+                            ? null
+                            : () => _requestUpgrade(
+                                  plan,
+                                  upgradeButtonLabel(localizations, plan,
+                                      current: currentPlan, isTrial: isTrial),
+                                ),
+                        child: Text(upgradeButtonLabel(localizations, plan,
+                            current: currentPlan, isTrial: isTrial)),
                       ),
                     ),
             ),
@@ -500,6 +508,14 @@ String upgradeRequestedText(
   return l.upgradeRequestedOn(date);
 }
 
+/// The button (and dialog title) for asking for [plan]: "Buy Plus" for the
+/// plan a trial user is trying, otherwise "Upgrade to [plan]".
+String upgradeButtonLabel(AppLocalizations l, Plan plan,
+    {required Plan current, bool isTrial = false}) {
+  final name = l.planName(plan);
+  return isTrial && plan == current ? l.upgradeBuyButton(name) : l.upgradeRequestButton(name);
+}
+
 /// The paid plans a user on [current] can ask for: the ones above it (Pro
 /// counts as Plus, so a Pro user has none). A free trial of Plus does not count
 /// as having Plus, so a trial user may ask to keep it (the server agrees).
@@ -539,12 +555,17 @@ class UpgradeRequestDialog extends StatefulWidget {
   const UpgradeRequestDialog({
     super.key,
     required this.plan,
+    this.title,
     this.accountEmail,
     this.initialViber,
     this.ownerContact = OwnerContact.none,
   });
 
   final Plan plan;
+
+  /// The button's wording ("Upgrade to Pro" / "Buy Plus"); defaults to
+  /// "Upgrade to [plan]".
+  final String? title;
   final String? accountEmail;
   final String? initialViber;
   final OwnerContact ownerContact;
@@ -576,7 +597,7 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
     final viberInvalid = viber == null;
     final email = widget.accountEmail;
     return AlertDialog(
-      title: Text(l.upgradeRequestButton(planName)),
+      title: Text(widget.title ?? l.upgradeRequestButton(planName)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
