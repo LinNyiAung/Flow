@@ -8,6 +8,10 @@ import '../providers/chat_provider.dart'; // Add this import for AI integration
 
 class TransactionProvider with ChangeNotifier {
   List<Transaction> _transactions = [];
+  // Every outflow from the last 7 days, for Home's Spending pace card (the
+  // recent list above is capped, so it can miss days in a busy week).
+  List<Transaction> _weekOutflows = [];
+  int _weekRequestId = 0;
   Balance? _balance;
   bool _isLoading = false;
   String? _error;
@@ -24,6 +28,7 @@ class TransactionProvider with ChangeNotifier {
   String? _writeError;
 
   List<Transaction> get transactions => _transactions;
+  List<Transaction> get weekOutflows => _weekOutflows;
   Balance? get balance => _balance;
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -33,6 +38,7 @@ class TransactionProvider with ChangeNotifier {
   void reset() {
     _generation++;
     _transactions = [];
+    _weekOutflows = [];
     _balance = null;
     _isLoading = false;
     _error = null;
@@ -102,7 +108,7 @@ class TransactionProvider with ChangeNotifier {
     );
 
     _transactions.insert(0, transaction);
-    await fetchBalance();
+    await Future.wait([fetchBalance(), fetchWeekSpending()]);
     
     _refreshAiData(context);
     
@@ -149,7 +155,7 @@ Future<bool> updateTransaction({
       _transactions[index] = updatedTransaction;
     }
 
-    await fetchBalance();
+    await Future.wait([fetchBalance(), fetchWeekSpending()]);
     
     _refreshAiData(context);
     
@@ -170,7 +176,7 @@ Future<bool> updateTransaction({
     try {
       await ApiService.deleteTransaction(transactionId);
       _transactions.removeWhere((t) => t.id == transactionId);
-      await fetchBalance();
+      await Future.wait([fetchBalance(), fetchWeekSpending()]);
       
       // Refresh AI data after deleting transaction
       _refreshAiData(context);
@@ -218,6 +224,28 @@ Future<bool> updateTransaction({
     _setLoading(false);
   }
 }
+
+  // Fetch every outflow from the last 7 calendar days (all currencies) for
+  // the Spending pace card. Bounds are UTC day boundaries, as the list
+  // screen's filter uses (transaction dates are wall-clock tagged as UTC).
+  Future<void> fetchWeekSpending({DateTime? today}) async {
+    final gen = _generation;
+    final requestId = ++_weekRequestId;
+    final now = today ?? DateTime.now();
+    try {
+      final result = await ApiService.getTransactions(
+        type: TransactionType.outflow,
+        startDate: DateTime.utc(now.year, now.month, now.day - 6),
+        endDate: DateTime.utc(now.year, now.month, now.day, 23, 59, 59),
+        limit: 10000,
+      );
+      if (gen != _generation || requestId != _weekRequestId) return;
+      _weekOutflows = result;
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error fetching week spending: $e");
+    }
+  }
 
   // Fetch a single transaction by ID
   Future<Transaction?> getTransaction(String transactionId) async {

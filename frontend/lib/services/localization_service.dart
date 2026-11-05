@@ -939,6 +939,8 @@ class AppLocalizations {
 
       // Localization sweep — home/ai/insights/reports/charts/notifications/subscription batch
       'spendingPace': 'Spending pace',
+      'nothingSpent': 'Nothing spent',
+      'seeTransactions': 'See transactions',
       'insight': 'Insight',
       'eachCurrencyOwnBalanceNote': 'Each keeps its own balance — nothing is converted behind your back.',
       'errorLoadCurrencyBalances': 'Failed to load currency balances:',
@@ -2037,6 +2039,8 @@ class AppLocalizations {
 
       // Localization sweep — home/ai/insights/reports/charts/notifications/subscription batch
       'spendingPace': 'အသုံးစရိတ် အရှိန်',
+      'nothingSpent': 'အသုံးစရိတ် မရှိပါ',
+      'seeTransactions': 'ငွေစာရင်းများ ကြည့်ရန်',
       'insight': 'သုံးသပ်ချက်',
       'eachCurrencyOwnBalanceNote': 'တစ်ခုစီက သီးခြားလက်ကျန်ရှိပြီး၊ သင်မသိဘဲ ငွေကြေးပြောင်းလဲမှု မရှိပါ။',
       'errorLoadCurrencyBalances': 'ငွေကြေးလက်ကျန်များ ဖော်ပြရန် မအောင်မြင်ပါ:',
@@ -3185,6 +3189,8 @@ class AppLocalizations {
 
   // Localization sweep — home/ai/insights/reports/charts/notifications/subscription batch
   String get spendingPace => translate('spendingPace');
+  String get nothingSpent => translate('nothingSpent');
+  String get seeTransactions => translate('seeTransactions');
   String get insight => translate('insight');
   String get eachCurrencyOwnBalanceNote => translate('eachCurrencyOwnBalanceNote');
   String get errorLoadCurrencyBalances => translate('errorLoadCurrencyBalances');

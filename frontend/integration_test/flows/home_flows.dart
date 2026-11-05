@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/screens/home/home_screen.dart';
 import 'package:frontend/screens/settings/currency_settings_screen.dart';
+import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 
 import '../support/accounts.dart';
 import '../support/harness.dart';
@@ -49,6 +50,29 @@ void homeFlows() {
 
       step('spending pace + recent');
       check(hasText(L.spendingPace), 'Home: Spending pace card missing');
+
+      step('spending pace: pick a day, open its transactions');
+      check(hasTextContaining('${L.todayLabel} · '), 'Home: Spending pace does not start on today');
+      var opened = false;
+      for (var i = 6; i >= 0 && !opened; i--) {
+        final bar = find.byKey(ValueKey('spending-pace-bar-$i'));
+        if (bar.evaluate().isEmpty) break;
+        await T.tapAt(T.getCenter(bar));
+        await settle(300);
+        if (!hasText(L.seeTransactions)) continue;
+        await tap(find.text(L.seeTransactions));
+        opened = await waitFor(find.byType(TransactionsListScreen),
+            timeout: const Duration(seconds: 8), orNull: true);
+        check(opened, 'Spending pace: "See transactions" did not open the transactions list');
+        await settle(2000);
+        check(!hasText(L.emptyStateTitle), "Spending pace: the day's transactions list is empty");
+        await back();
+        await waitFor(find.byType(HomeScreen));
+        await settle(1500);
+        check(hasTextContaining('${L.todayLabel} · '), 'Spending pace: did not reset to today after coming back');
+      }
+      check(opened, 'Spending pace: no day in the last week has spending for the rich Plus account');
+
       await scrollTo(find.text(L.recentTransactions));
       check(hasText(L.recentTransactions), 'Home: Recent header missing');
       check(!hasText(L.noTransactions), 'Home: Recent list empty for the rich Plus account');

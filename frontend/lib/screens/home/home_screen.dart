@@ -23,6 +23,7 @@ import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/progress_meter.dart';
+import 'package:frontend/widgets/spending_pace_card.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:frontend/widgets/stat_tile.dart';
 import 'package:intl/intl.dart';
@@ -117,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Spending pace chart below has real last-7-days data to bucket —
       // the recent-transactions list still only ever renders the first 3.
       transactionProvider.fetchTransactions(limit: 30),
+      transactionProvider.fetchWeekSpending(),
       transactionProvider.fetchBalance(
         currency: defaultCurrency,
       ), // Pass default currency
@@ -135,20 +137,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Function to navigate to the TransactionsListScreen
-  Future<void> _navigateToTransactionsList() async {
+  Future<void> _navigateToTransactionsList() =>
+      _openTransactionsList(const TransactionsListScreen());
+
+  // From the Spending pace card: that day's spending in that currency.
+  Future<void> _openDayTransactions(DateTime day, Currency currency) =>
+      _openTransactionsList(TransactionsListScreen(
+        initialType: TransactionType.outflow,
+        initialStartDate: day,
+        initialEndDate: day,
+        initialCurrency: currency,
+      ));
+
+  Future<void> _openTransactionsList(TransactionsListScreen screen) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => TransactionsListScreen()),
+      MaterialPageRoute(builder: (_) => screen),
     );
     if (!mounted) return;
     // The list screen keeps its filtered results local, but edits / deletes
-    // made there can change Home's recent set and balance — reload them.
+    // made there can change Home's recent set, pace chart and balance —
+    // reload them.
     final transactionProvider =
         Provider.of<TransactionProvider>(context, listen: false);
     final currency =
         Provider.of<AuthProvider>(context, listen: false).defaultCurrency;
     await Future.wait([
       transactionProvider.fetchTransactions(limit: 30),
+      transactionProvider.fetchWeekSpending(),
       transactionProvider.fetchBalance(currency: currency),
     ]);
   }
@@ -279,15 +295,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
               SliverToBoxAdapter(child: SizedBox(height: responsive.sp16)),
 
-              // Spending pace: last-7-days outflow, bucketed by day from the
-              // real fetched transactions (see mockup lines 97-116).
+              // Spending pace: last-7-days outflow per day, one currency at a
+              // time; tap or drag to pick a day (see mockup lines 97-116).
               SliverToBoxAdapter(
                 child: Padding(
                   padding: responsive.padding(horizontal: 16),
-                  child: _buildSpendingPace(
-                    context,
-                    transactionProvider,
-                    responsive,
+                  child: SpendingPaceCard(
+                    outflows: transactionProvider.weekOutflows,
+                    defaultCurrency: authProvider.defaultCurrency,
+                    onSeeTransactions: _openDayTransactions,
                   ),
                 ),
               ),
@@ -556,99 +572,6 @@ class _HomeScreenState extends State<HomeScreen> {
           iconColor: scheme.error,
         ),
       ],
-    );
-  }
-
-  // "Spending pace": last-7-days outflow bucketed by calendar day from the
-  // real fetched transactions, rendered as a 7-bar chart (mockup lines
-  // 97-116). No monthly comparison badge is shown — that would need a full
-  // prior month of transactions and `_refreshData` only fetches a recent
-  // page, so a "% under last month" figure would not be reliable.
-  Widget _buildSpendingPace(
-    BuildContext context,
-    TransactionProvider transactionProvider,
-    ResponsiveHelper responsive,
-  ) {
-    final localizations = AppLocalizations.of(context);
-    final scheme = Theme.of(context).colorScheme;
-    final now = DateTime.now();
-    final days = List.generate(7, (i) => DateTime(now.year, now.month, now.day)
-        .subtract(Duration(days: 6 - i)));
-
-    final totals = List<double>.filled(7, 0);
-    for (final t in transactionProvider.transactions) {
-      if (t.type != TransactionType.outflow) continue;
-      final d = DateTime(t.date.year, t.date.month, t.date.day);
-      final index = days.indexWhere((day) => day == d);
-      if (index != -1) totals[index] += t.amount;
-    }
-    final maxTotal = totals.fold<double>(0, (max, v) => v > max ? v : max);
-
-    return Card(
-      child: Padding(
-        padding: responsive.padding(left: 18, right: 18, top: 18, bottom: 16),
-        child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            localizations.spendingPace,
-            style: TextStyle(
-              fontSize: responsive.fs16,
-              fontWeight: FontWeight.w700,
-              color: scheme.onSurface,
-            ),
-          ),
-          SizedBox(height: responsive.sp16),
-          SizedBox(
-            height: 78,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: List.generate(7, (i) {
-                final isToday = i == 6;
-                final ratio = maxTotal > 0 ? (totals[i] / maxTotal) : 0.0;
-                final barHeight = totals[i] > 0 ? (10 + ratio * 68) : 4.0;
-                return Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: responsive.spacing(mobile: 2.5),
-                    ),
-                    child: Container(
-                      height: barHeight,
-                      decoration: BoxDecoration(
-                        color: isToday
-                            ? scheme.primary
-                            : scheme.secondaryContainer,
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(4),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            ),
-          ),
-          SizedBox(height: responsive.sp8),
-          Row(
-            children: days
-                .map(
-                  (d) => Expanded(
-                    child: Text(
-                      DateFormat('E').format(d).substring(0, 1),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: responsive.fs11,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
-          ),
-        ],
-        ),
-      ),
     );
   }
 

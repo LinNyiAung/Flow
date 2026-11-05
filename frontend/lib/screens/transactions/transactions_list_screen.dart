@@ -19,6 +19,21 @@ import '../transactions/edit_transaction_screen.dart';
 import '../transactions/add_transaction_screen.dart'; // Make sure to import this
 
 class TransactionsListScreen extends StatefulWidget {
+  const TransactionsListScreen({
+    super.key,
+    this.initialType,
+    this.initialStartDate,
+    this.initialEndDate,
+    this.initialCurrency,
+  });
+
+  /// Filters to start with (e.g. one day's spending from Home's Spending
+  /// pace card); the user can change or clear them as usual.
+  final TransactionType? initialType;
+  final DateTime? initialStartDate;
+  final DateTime? initialEndDate;
+  final Currency? initialCurrency;
+
   @override
   _TransactionsListScreenState createState() => _TransactionsListScreenState();
 }
@@ -53,6 +68,10 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedFilterType = widget.initialType;
+    _selectedStartDate = widget.initialStartDate;
+    _selectedEndDate = widget.initialEndDate;
+    _selectedCurrency = widget.initialCurrency;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchTransactionsWithFilter();
     });
