@@ -1,5 +1,5 @@
-"""Plan limits, per-plan cost caps and the upgrade contact texts (plan_limits, plan_settings, app_settings), and the
-per-user usage counters the quota engine reserves on (usage_counters)."""
+"""Plan limits, per-plan cost caps and prices, and the upgrade contact texts (plan_limits, plan_settings,
+app_settings), and the per-user usage counters the quota engine reserves on (usage_counters)."""
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -28,11 +28,15 @@ async def read_all() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[s
 
 
 async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, float], contact: Mapping[str, str],
-                    owner_contact: Optional[Mapping[str, str]] = None) -> None:
-    """Upsert every limit row, cost cap and contact text (and the owner's email / Viber number) in one transaction.
+                    owner_contact: Optional[Mapping[str, str]] = None,
+                    prices: Optional[Mapping[str, Mapping[str, Optional[int]]]] = None) -> None:
+    """Upsert every limit row, cost cap and contact text (and the owner's email / Viber number, and the plan prices)
+    in one transaction.
 
     limit_rows: dicts with plan, feature, mode, quota, period. caps: plan -> USD. contact: {"en": ..., "my": ...}.
     owner_contact: {"email": ..., "viber": ...} ("" clears one), or None to leave both as they are.
+    prices: plan -> {"monthly_mmk", "yearly_mmk"} (None clears one) for the plans in `caps`, or None to leave every
+    price as it is.
     """
     async with transaction():
         if limit_rows:
@@ -41,9 +45,12 @@ async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, floa
                 index_elements=[plan_limits.c.plan, plan_limits.c.feature],
                 set_={c: stmt.excluded[c] for c in ("mode", "quota", "period")}))
         for plan, cap in caps.items():
-            stmt = pg_insert(plan_settings).values(plan=plan, cost_cap_usd=cap)
+            values = {"cost_cap_usd": cap}
+            if prices is not None:
+                values.update(price_monthly_mmk=prices[plan]["monthly_mmk"], price_yearly_mmk=prices[plan]["yearly_mmk"])
+            stmt = pg_insert(plan_settings).values(plan=plan, **values)
             await execute(stmt.on_conflict_do_update(index_elements=[plan_settings.c.plan],
-                                                     set_={"cost_cap_usd": stmt.excluded.cost_cap_usd}))
+                                                     set_={c: stmt.excluded[c] for c in values}))
         texts = {key: contact[lang] for lang, key in CONTACT_KEYS.items()}
         if owner_contact is not None:
             texts.update({key: owner_contact[name] for name, key in OWNER_CONTACT_KEYS.items()})

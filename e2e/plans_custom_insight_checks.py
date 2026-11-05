@@ -21,7 +21,6 @@ import httpx
 MYANMAR = re.compile("[က-႟]")
 BASE = "http://127.0.0.1:8765"
 BEFORE_CUSTOM = "a7d3e5c91f20"  # the revision this feature's migration revises
-HEAD_WITH_CUSTOM = "b8f4d2c6e9a1"
 
 
 # ---------------------------------------------------------------- migration
@@ -29,6 +28,7 @@ def migration_checks(t):
     check = t.check
     uid = "t9c-mig"
     with t.connect() as conn:
+        at_head = t.current_revision(conn)  # later migrations (plan prices, ...) revise this feature's
         try:
             conn.execute(*t.new_user(uid))
             counter = ("INSERT INTO usage_counters (user_id, feature, period, period_start, used) "
@@ -60,7 +60,7 @@ def migration_checks(t):
         finally:
             ok, out = t.alembic("upgrade", "head")  # whatever happened above, leave the database at head
             conn.execute("DELETE FROM users WHERE id = %s", (uid,))
-            check(ok and t.current_revision(conn) == HEAD_WITH_CUSTOM, "custom_migration: the database is left at head", out)
+            check(ok and t.current_revision(conn) == at_head, "custom_migration: the database is left at head", out)
 
 
 # ---------------------------------------------------------------- the table's own rules (CHECKs, defaults)

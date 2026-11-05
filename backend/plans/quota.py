@@ -241,7 +241,8 @@ async def use(user: Mapping[str, Any], feature: str, *, also: Sequence[str] = ()
 # ---- what the app reads, and the admin reset ----
 
 async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
-    """The body of GET /api/plan: the user's plan, dates, each feature's allowance this period, and the catalogue.
+    """The body of GET /api/plan: the user's plan, dates, each feature's allowance this period, the catalogue and the
+    plan prices.
 
     `used` is this period's counter of the plan's own period type; locked and included features have null counts.
     """
@@ -269,6 +270,8 @@ async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dic
         "features": features,
         "catalog": {p: {f: {"mode": lim.mode, "quota": lim.quota, "period": lim.period}
                         for f, lim in store.limits(p).items()} for p in PLANS},
+        # Every plan's price in kyat ({"monthly_mmk", "yearly_mmk"}, null: not set); the app shows only what is set.
+        "prices": {p: store.prices(p) for p in PLANS},
         "upgrade_contact": store.upgrade_contact(),
         "owner_contact": store.owner_contact(),
     }

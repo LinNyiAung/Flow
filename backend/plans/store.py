@@ -1,15 +1,16 @@
 """The plan limits the app enforces: per plan and feature (locked / included / counted), a monthly AI cost cap per
-plan, and the upgrade contact texts and the owner's own email and Viber number. The owner edits them in the admin panel; they live in the database
+plan, each paid plan's price in kyat (monthly, and an optional yearly price), and the upgrade contact texts and the
+owner's own email and Viber number. The owner edits them in the admin panel; they live in the database
 (sql.plans) and are served from an in-memory cache that is loaded at startup and refreshed every minute, so
 a change is visible in this process at once and in the others within a minute.
 
-Until a load succeeds (e.g. the database was down at boot) the catalogue defaults apply.
+Until a load succeeds (e.g. the database was down at boot) the catalogue defaults apply (and no plan has a price).
 """
 import asyncio
 import logging
 import math
 from collections.abc import Mapping
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sql import plans as plans_db
 
@@ -21,9 +22,12 @@ logger = logging.getLogger(__name__)
 MAX_CONTACT_LENGTH = 500
 MAX_QUOTA = 2_147_483_647   # plan_limits.quota is a 32-bit integer
 MAX_COST_CAP = 999_999.0    # plan_settings.cost_cap_usd is NUMERIC(12, 6)
+MAX_PRICE_MMK = 1_000_000_000  # plan_settings.price_*_mmk are 32-bit integers; far above any real price
+PRICE_KEYS = ("monthly_mmk", "yearly_mmk")
 
 _limits: Dict[str, Dict[str, Limit]] = {p: dict(f) for p, f in DEFAULT_LIMITS.items()}
 _caps: Dict[str, float] = dict(DEFAULT_COST_CAPS)
+_prices: Dict[str, Dict[str, Optional[int]]] = {p: {k: None for k in PRICE_KEYS} for p in PLANS}
 _contact: Dict[str, str] = {"en": "", "my": ""}
 _owner: Dict[str, str] = {"email": "", "viber": ""}
 
@@ -38,6 +42,11 @@ def limits(plan: str) -> Dict[str, Limit]:
 def cost_cap(plan: str) -> float:
     """The plan's monthly AI spend cap in USD."""
     return _caps[plan]
+
+
+def prices(plan: str) -> Dict[str, Optional[int]]:
+    """{"monthly_mmk": int | None, "yearly_mmk": int | None}: the plan's price in kyat (None: not set; Free has none)."""
+    return dict(_prices[plan])
 
 
 def upgrade_contact() -> Dict[str, str]:
@@ -110,9 +119,49 @@ def _owner_contact(value: Any, errors: List[str]) -> Dict[str, str]:
     return out
 
 
-def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None):
+def _price_problems(plan: str, monthly: Any, yearly: Any) -> List[str]:
+    """What is wrong with one plan's {monthly, yearly} price in kyat (None: not set); [] when it is fine."""
+    errors: List[str] = []
+    for label, value in (("monthly", monthly), ("yearly", yearly)):
+        if value is not None and (not _is_int(value) or value < 1 or value > MAX_PRICE_MMK):
+            errors.append(f"{plan}: the {label} price must be a whole number of kyat from 1 to {MAX_PRICE_MMK:,}")
+    if plan == "free" and (monthly is not None or yearly is not None):
+        errors.append("free: Free has no price")
+    elif yearly is not None and monthly is None:
+        errors.append(f"{plan}: a yearly price needs a monthly price")
+    return errors
+
+
+def _prices_of(value: Any, errors: List[str]) -> Dict[str, Dict[str, Optional[int]]]:
+    """{plan: {"monthly_mmk", "yearly_mmk"}} for every plan from a mapping plan -> {monthly_mmk, yearly_mmk};
+    problems are appended to `errors`."""
+    if not isinstance(value, Mapping):
+        errors.append("prices must be an object keyed by plan")
+        return {}
+    for plan in value:
+        if plan not in PLANS:
+            errors.append(f"Unknown plan '{plan}' in the prices")
+    out: Dict[str, Dict[str, Optional[int]]] = {}
+    for plan in PLANS:
+        price = value.get(plan)
+        if not isinstance(price, Mapping):
+            errors.append(f"{plan}: price is missing")
+            continue
+        for key in price:
+            if key not in PRICE_KEYS:
+                errors.append(f"{plan}: unknown price field '{key}'")
+        monthly, yearly = price.get("monthly_mmk"), price.get("yearly_mmk")
+        problems = _price_problems(plan, monthly, yearly)
+        errors.extend(problems)
+        if not problems:
+            out[plan] = {"monthly_mmk": monthly, "yearly_mmk": yearly}
+    return out
+
+
+def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None, prices: Any = None):
     """-> (normalised limits {plan: {feature: Limit}}, caps {plan: float}, contact {"en", "my"}, owner contact
-    {"email", "viber"} or None when `owner` is None); ValueError if invalid."""
+    {"email", "viber"} or None when `owner` is None, prices {plan: {"monthly_mmk", "yearly_mmk"}} or None when
+    `prices` is None); ValueError if invalid."""
     errors: List[str] = []
     rows: Dict[str, Dict[str, Limit]] = {}
     if not isinstance(plan_rows, Mapping):
@@ -177,18 +226,19 @@ def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None):
             out_contact[lang] = text
 
     out_owner = _owner_contact(owner, errors) if owner is not None else None
+    out_prices = _prices_of(prices, errors) if prices is not None else None
 
     if errors:
         raise ValueError("; ".join(errors))
-    return rows, out_caps, out_contact, out_owner
+    return rows, out_caps, out_contact, out_owner, out_prices
 
 
 # ---- the cache <-> the database ----
 
 def _set_cache(new_limits: Dict[str, Dict[str, Limit]], new_caps: Dict[str, float], new_contact: Dict[str, str],
-               new_owner: Dict[str, str]) -> None:
-    global _limits, _caps, _contact, _owner
-    _limits, _caps, _contact, _owner = new_limits, new_caps, new_contact, new_owner
+               new_owner: Dict[str, str], new_prices: Dict[str, Dict[str, Optional[int]]]) -> None:
+    global _limits, _caps, _contact, _owner, _prices
+    _limits, _caps, _contact, _owner, _prices = new_limits, new_caps, new_contact, new_owner, new_prices
 
 
 # Bumped by every save, before the write and after the cache changes. A load whose read overlapped a save may hold
@@ -197,9 +247,10 @@ _write_gen = 0
 
 
 async def load() -> None:
-    """Read the limits, caps and contact texts into the cache.
+    """Read the limits, caps, prices and contact texts into the cache.
 
-    A missing or malformed row keeps its catalogue default (logged). If a save happened while the rows were being
+    A missing or malformed row keeps its catalogue default (logged); a stored price that breaks the rules is not
+    shown (the plan has no price, logged). If a save happened while the rows were being
     read, the snapshot may predate it, so it is discarded (the next refresh reads a consistent state).
     """
     gen = _write_gen
@@ -224,10 +275,18 @@ async def load() -> None:
                 logger.warning("No stored plan limit for %s.%s; using the default", plan, feature)
 
     new_caps = dict(DEFAULT_COST_CAPS)
+    new_prices = {p: {k: None for k in PRICE_KEYS} for p in PLANS}
     for row in cap_rows:
         plan = row.get("plan")
         if plan in PLANS and row.get("cost_cap_usd") is not None:
             new_caps[plan] = float(row["cost_cap_usd"])
+        if plan in PLANS:
+            monthly, yearly = row.get("price_monthly_mmk"), row.get("price_yearly_mmk")
+            problems = _price_problems(plan, monthly, yearly)
+            if problems:
+                logger.warning("Ignoring the stored price of %s: %s", plan, "; ".join(problems))
+            else:
+                new_prices[plan] = {"monthly_mmk": monthly, "yearly_mmk": yearly}
     new_contact = {lang: texts.get(key, "") for lang, key in plans_db.CONTACT_KEYS.items()}
     # A stored owner contact that no longer passes validation (edited by hand) is not shown.
     new_owner = {}
@@ -241,24 +300,26 @@ async def load() -> None:
     if _write_gen != gen:
         logger.debug("Discarding a stale plans snapshot: a save happened while it was being read")
         return
-    _set_cache(new_limits, new_caps, new_contact, new_owner)
+    _set_cache(new_limits, new_caps, new_contact, new_owner, new_prices)
 
 
 async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: str,
-               owner_contact: Mapping | None = None) -> None:
+               owner_contact: Mapping | None = None, prices: Mapping | None = None) -> None:
     """Validate, store and cache the limits (plan -> feature -> Limit or {mode, quota, period}), the cost caps
-    (plan -> USD), the upgrade contact texts ({"en", "my"}) and, when given, the owner's {"email", "viber"} (empty
-    string clears one; None leaves both as they are). Raises ValueError with a readable message when
-    anything is invalid; nothing is written then. `admin_id` is only recorded in the server log (the route writes
-    the admin action log).
+    (plan -> USD), the upgrade contact texts ({"en", "my"}), when given the owner's {"email", "viber"} (empty
+    string clears one; None leaves both as they are) and, when given, every plan's price (plan -> {"monthly_mmk",
+    "yearly_mmk"} in whole kyat, None for not set; Free has none and a yearly price needs a monthly one; None leaves
+    the prices as they are). Raises ValueError with a readable message when anything is invalid; nothing is written
+    then. `admin_id` is only recorded in the server log (the route writes the admin action log).
     """
     global _write_gen
-    rows, out_caps, out_contact, out_owner = _validate(plan_rows, caps, contact, owner_contact)
+    rows, out_caps, out_contact, out_owner, out_prices = _validate(plan_rows, caps, contact, owner_contact, prices)
     flat = [{"plan": p, "feature": f, "mode": lim.mode, "quota": lim.quota, "period": lim.period}
             for p in PLANS for f, lim in rows[p].items()]
     _write_gen += 1
-    await plans_db.write_all(flat, out_caps, out_contact, out_owner)
-    _set_cache(rows, out_caps, out_contact, out_owner if out_owner is not None else dict(_owner))
+    await plans_db.write_all(flat, out_caps, out_contact, out_owner, out_prices)
+    _set_cache(rows, out_caps, out_contact, out_owner if out_owner is not None else dict(_owner),
+               out_prices if out_prices is not None else {p: dict(v) for p, v in _prices.items()})
     _write_gen += 1
     logger.info("Plans saved by admin %s", admin_id)
 

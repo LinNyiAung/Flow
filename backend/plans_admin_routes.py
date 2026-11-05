@@ -1,5 +1,5 @@
-"""Admin API for plans: every plan's per-feature limits, monthly AI cost cap, the upgrade contact texts and the owner's
-own email and Viber number, and the users' upgrade requests (at the end of this file).
+"""Admin API for plans: every plan's per-feature limits, monthly AI cost cap and price in kyat, the upgrade contact texts
+and the owner's own email and Viber number, and the users' upgrade requests (at the end of this file).
 
 Moderators can view; admins and super admins can change. A change applies in this process at once and in
 other workers within a minute (plans.store refreshes every 60 s). Every change is written to the admin action log.
@@ -38,6 +38,9 @@ class PlanBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     limits: Dict[str, LimitBody]
     cost_cap_usd: StrictFloat
+    # Whole kyat; null: not set. Left out of every plan (an older admin panel): the prices stay as they are.
+    price_monthly_mmk: Optional[StrictInt] = None
+    price_yearly_mmk: Optional[StrictInt] = None
 
 
 class ContactBody(BaseModel):
@@ -71,6 +74,8 @@ def _snapshot() -> dict:
                 "limits": {f: {"mode": lim.mode, "quota": lim.quota, "period": lim.period}
                            for f, lim in store.limits(plan).items()},
                 "cost_cap_usd": store.cost_cap(plan),
+                "price_monthly_mmk": store.prices(plan)["monthly_mmk"],
+                "price_yearly_mmk": store.prices(plan)["yearly_mmk"],
             }
             for plan in PLANS
         },
@@ -81,6 +86,10 @@ def _snapshot() -> dict:
 
 def _fmt(lim: dict) -> str:
     return f"counted {lim['quota']}/{lim['period']}" if lim["mode"] == "counted" else lim["mode"]
+
+
+def _fmt_price(mmk: Optional[int]) -> str:
+    return f"{mmk} MMK" if mmk is not None else "(none)"
 
 
 def _changes(before: dict, after: dict) -> str:
@@ -94,6 +103,10 @@ def _changes(before: dict, after: dict) -> str:
         old_cap, new_cap = before["plans"][plan]["cost_cap_usd"], after["plans"][plan]["cost_cap_usd"]
         if old_cap != new_cap:
             out.append(f"{plan} cost cap: {old_cap:g} -> {new_cap:g} USD")
+        for label, key in (("monthly", "price_monthly_mmk"), ("yearly", "price_yearly_mmk")):
+            old_price, new_price = before["plans"][plan][key], after["plans"][plan][key]
+            if old_price != new_price:
+                out.append(f"{plan} {label} price: {_fmt_price(old_price)} -> {_fmt_price(new_price)}")
     for lang in ("en", "my"):
         if before["upgrade_contact"][lang] != after["upgrade_contact"][lang]:
             out.append(f"upgrade contact ({lang}) changed")
@@ -109,20 +122,26 @@ def _changes(before: dict, after: dict) -> str:
 
 @router.get("")
 async def get_plans(current_admin: dict = Depends(require_moderator_or_above)):
-    """Every plan's limits and cost cap, the upgrade contact texts and the owner's email and Viber number."""
+    """Every plan's limits, cost cap and prices, the upgrade contact texts and the owner's email and Viber number."""
     return _snapshot()
 
 
 @router.put("")
 async def put_plans(body: PlansBody, current_admin: dict = Depends(require_admin_or_super)):
     """Replace all plans' limits, cost caps and the upgrade contact (and the owner's email and Viber number when
-    `owner_contact` is sent). 422 carries the validation message."""
+    `owner_contact` is sent, and every plan's prices when any plan sends a price field). 422 carries the validation
+    message."""
     before = _snapshot()
     plan_rows = {plan: {f: lim.model_dump() for f, lim in p.limits.items()} for plan, p in body.plans.items()}
     caps = {plan: p.cost_cap_usd for plan, p in body.plans.items()}
+    # A body with no price field at all (an older admin panel) leaves the prices alone; otherwise a plan without
+    # them has none.
+    sends_prices = any({"price_monthly_mmk", "price_yearly_mmk"} & p.model_fields_set for p in body.plans.values())
+    prices = ({plan: {"monthly_mmk": p.price_monthly_mmk, "yearly_mmk": p.price_yearly_mmk}
+               for plan, p in body.plans.items()} if sends_prices else None)
     try:
         await store.save(plan_rows, caps, body.upgrade_contact.model_dump(), current_admin["_id"],
-                         body.owner_contact.model_dump() if body.owner_contact is not None else None)
+                         body.owner_contact.model_dump() if body.owner_contact is not None else None, prices)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
@@ -161,6 +180,8 @@ def _request_row(row: dict) -> dict:
         "note": row["note"],
         # The number the user gave for the owner to contact them on Viber; null: contact them by their account email.
         "viber_number": row["viber_number"],
+        # "month" / "year": the price the user picked; null when the plan had no price shown.
+        "billing": row["billing"],
         "created_at": row["created_at"].isoformat(),
         "status": row["status"],
         "handled_at": row["handled_at"].isoformat() if row["handled_at"] else None,

@@ -15,20 +15,21 @@ STATUSES = ("pending", "done", "dismissed")
 
 
 async def upsert_pending(user_id: str, plan: str, note: Optional[str], now: datetime,
-                         viber_number: Optional[str] = None) -> Dict[str, Any]:
-    """The user's pending request: created, or (when one is pending already) its plan, note, Viber number and date
-    replaced.
+                         viber_number: Optional[str] = None, billing: Optional[str] = None) -> Dict[str, Any]:
+    """The user's pending request: created, or (when one is pending already) its plan, note, Viber number, billing
+    period and date replaced.
 
     One conditional upsert on the partial unique index (one pending row per user), so two taps at once never
     make two rows. Returns the row.
     """
     stmt = pg_insert(upgrade_requests).values(id=str(uuid.uuid4()), user_id=user_id, plan=plan, note=note,
-                                              viber_number=viber_number, status="pending", created_at=now)
+                                              viber_number=viber_number, billing=billing, status="pending",
+                                              created_at=now)
     stmt = stmt.on_conflict_do_update(
         # The predicate must be a literal (not a bind parameter) for Postgres to match it to the partial index.
         index_elements=[_ur.user_id], index_where=text("status = 'pending'"),
-        set_={"plan": stmt.excluded.plan, "note": stmt.excluded.note,
-              "viber_number": stmt.excluded.viber_number, "created_at": stmt.excluded.created_at}
+        set_={"plan": stmt.excluded.plan, "note": stmt.excluded.note, "viber_number": stmt.excluded.viber_number,
+              "billing": stmt.excluded.billing, "created_at": stmt.excluded.created_at}
     ).returning(*upgrade_requests.c)
     return row_to_doc(await write_returning(stmt))
 

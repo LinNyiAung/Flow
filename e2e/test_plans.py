@@ -290,9 +290,10 @@ def utc(*args):
 
 
 def body_of(limits, caps, contact):
-    """The admin API body ({plans: {plan: {limits, cost_cap_usd}}, upgrade_contact, owner_contact}) for catalogue-shaped inputs."""
+    """The admin API body ({plans: {plan: {limits, cost_cap_usd, price_monthly_mmk, price_yearly_mmk}},
+    upgrade_contact, owner_contact}) for catalogue-shaped inputs; no plan has a price."""
     return {"plans": {p: {"limits": {f: {"mode": l.mode, "quota": l.quota, "period": l.period} for f, l in limits[p].items()},
-                          "cost_cap_usd": caps[p]} for p in limits},
+                          "cost_cap_usd": caps[p], "price_monthly_mmk": None, "price_yearly_mmk": None} for p in limits},
             "upgrade_contact": dict(contact), "owner_contact": {"email": "", "viber": ""}}
 
 
@@ -588,7 +589,8 @@ def api_checks():
         j = r.json() if r.status_code == 200 else {}
         want = default_body()
         shaped = (set(j) == {"plans", "upgrade_contact", "owner_contact"} and set(j.get("plans", {})) == set(catalog.PLANS)
-                  and all(set(v) == {"limits", "cost_cap_usd"} and set(v["limits"]) == set(catalog.FEATURES)
+                  and all(set(v) == {"limits", "cost_cap_usd", "price_monthly_mmk", "price_yearly_mmk"}
+                          and set(v["limits"]) == set(catalog.FEATURES)
                           and all(set(x) == {"mode", "quota", "period"} for x in v["limits"].values())
                           for v in j.get("plans", {}).values()))
         check(r.status_code == 200 and shaped, "admin_plans_get_defaults: the moderator gets plans (3 x 8 limits + cost cap) and the upgrade contact",
@@ -709,6 +711,217 @@ def api_checks():
             c.close()
 
 
+# ---- plan prices (MMK): the store and the admin Plans API ----
+
+NO_PRICES = {p: {"monthly_mmk": None, "yearly_mmk": None} for p in ("free", "plus", "pro")}
+
+
+def stored_prices(conn):
+    """{plan: (price_monthly_mmk, price_yearly_mmk)} as the database holds them."""
+    return {r[0]: (r[1], r[2]) for r in conn.execute("SELECT plan, price_monthly_mmk, price_yearly_mmk FROM plan_settings")}
+
+
+def prices_of(plus=(None, None), pro=(None, None), free=(None, None)):
+    """store.save's prices argument from (monthly, yearly) pairs."""
+    return {p: {"monthly_mmk": m, "yearly_mmk": y} for p, (m, y) in (("free", free), ("plus", plus), ("pro", pro))}
+
+
+async def price_store_checks():
+    """store.save / load with prices (the plans.store side; the HTTP side is price_api_checks)."""
+    from plans import store
+    with connect() as conn:
+        try:
+            await store.save(*mutated(), "t2-admin", prices=prices_of())
+            before = stored_prices(conn)
+            check(before == {"free": (None, None), "plus": (None, None), "pro": (None, None)}
+                  and all(store.prices(p) == NO_PRICES[p] for p in NO_PRICES),
+                  "price_store: no plan has a price to start with (null in the database and the cache)", before)
+
+            async def rejects(label, prices, expect):
+                try:
+                    await store.save(*mutated(), "t2-admin", prices=prices)
+                    msg = None
+                except ValueError as e:
+                    msg = str(e)
+                check(msg is not None and expect.lower() in msg.lower(),
+                      f"price_store_validation: {label} is rejected with a clear message", msg)
+                check(stored_prices(conn) == before and store.prices("plus") == NO_PRICES["plus"],
+                      f"price_store_validation: {label} writes nothing")
+
+            await rejects("a price for Free", prices_of(free=(1000, None)), "free")
+            await rejects("a yearly price for Free", prices_of(free=(None, 1000)), "free")
+            await rejects("a yearly price without a monthly price", prices_of(plus=(None, 150000)), "yearly price needs a monthly")
+            await rejects("a monthly price of 0", prices_of(plus=(0, None)), "1 to 1,000,000,000")
+            await rejects("a negative price", prices_of(pro=(-5, None)), "1 to 1,000,000,000")
+            await rejects("a price over 1,000,000,000", prices_of(pro=(1_000_000_001, None)), "1 to 1,000,000,000")
+            await rejects("a fractional price", prices_of(plus=(15000.5, None)), "whole number")
+            await rejects("a boolean price", prices_of(plus=(True, None)), "whole number")
+            await rejects("a text price", prices_of(plus=("15000", None)), "whole number")
+            await rejects("a missing plan", {"free": NO_PRICES["free"], "plus": NO_PRICES["plus"]}, "pro")
+            await rejects("an unknown plan", {**prices_of(), "gold": {"monthly_mmk": 1, "yearly_mmk": None}}, "gold")
+            await rejects("an unknown price field", {**prices_of(), "plus": {"monthly_mmk": 1, "weekly_mmk": 1}}, "weekly_mmk")
+            await rejects("prices that are not an object", "lots", "prices")
+
+            # save -> cache and database; the boundaries are valid
+            await store.save(*mutated(), "t2-admin", prices=prices_of(plus=(15000, 150000), pro=(1_000_000_000, None)))
+            check(store.prices("plus") == {"monthly_mmk": 15000, "yearly_mmk": 150000}
+                  and store.prices("pro") == {"monthly_mmk": 1_000_000_000, "yearly_mmk": None}
+                  and store.prices("free") == NO_PRICES["free"],
+                  "price_store_save: the cache holds the new prices at once (1,000,000,000 is allowed)", store.prices("pro"))
+            check(stored_prices(conn) == {"free": (None, None), "plus": (15000, 150000), "pro": (1_000_000_000, None)},
+                  "price_store_save: plan_settings holds them", stored_prices(conn))
+            # save() without prices (every older caller) keeps them
+            await store.save(*mutated(caps={"plus": 1.5}), "t2-admin")
+            check(store.prices("plus")["monthly_mmk"] == 15000 and stored_prices(conn)["plus"] == (15000, 150000)
+                  and store.cost_cap("plus") == 1.5,
+                  "price_store_save: a save without prices leaves them as they are")
+            # a price of 1 is fine; None clears one
+            await store.save(*mutated(), "t2-admin", prices=prices_of(plus=(1, None)))
+            check(stored_prices(conn) == {"free": (None, None), "plus": (1, None), "pro": (None, None)},
+                  "price_store_save: a price of 1 is valid; null clears a price", stored_prices(conn))
+            check(store.prices("plus") is not store.prices("plus") and store.prices("plus") == {"monthly_mmk": 1, "yearly_mmk": None},
+                  "price_store_copies: prices() hands out copies")
+
+            # load: what another process stored shows up; a stored price that breaks the rules is ignored
+            conn.execute("UPDATE plan_settings SET price_monthly_mmk = 20000, price_yearly_mmk = 200000 WHERE plan = 'pro'")
+            conn.execute("UPDATE plan_settings SET price_monthly_mmk = 1500000000 WHERE plan = 'plus'")
+            await store.load()
+            check(store.prices("pro") == {"monthly_mmk": 20000, "yearly_mmk": 200000},
+                  "price_store_load: load() reads the prices from the database", store.prices("pro"))
+            check(store.prices("plus") == NO_PRICES["plus"],
+                  "price_store_load: a stored price over 1,000,000,000 (edited by hand) is ignored: the plan shows no price",
+                  store.prices("plus"))
+        finally:
+            await store.save(*mutated(), "t2-admin", prices=prices_of())
+            await store.load()
+            check(stored_prices(conn) == {"free": (None, None), "plus": (None, None), "pro": (None, None)}
+                  and store.prices("plus") == NO_PRICES["plus"], "price_store: the prices are null again at the end")
+
+
+def price_api_checks():
+    """Prices through /api/admin/plans and GET /api/plan."""
+    import copy
+    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
+    db = __import__("pgcompat").get_db()
+    made = make_admins(db, ("admin", "moderator", "super_admin"))
+    email = f"pl-price-{uuid.uuid4().hex[:5]}@example.com"
+    AD = MOD = SUP = USER = {}
+
+    def put(body, h=None):
+        return c.put("/api/admin/plans", headers=h or AD, json=body)
+
+    def get():
+        return c.get("/api/admin/plans", headers=MOD).json()
+
+    def with_prices(plus=(None, None), pro=(None, None), free=(None, None)):
+        body = default_body()
+        for plan, (m, y) in (("free", free), ("plus", plus), ("pro", pro)):
+            body["plans"][plan].update(price_monthly_mmk=m, price_yearly_mmk=y)
+        return body
+
+    def app_prices():
+        r = c.get("/api/plan", headers=USER)
+        return r.json().get("prices", "missing") if r.status_code == 200 else r.status_code
+
+    def detail(r):
+        d = r.json().get("detail") if r.headers.get("content-type", "").startswith("application/json") else None
+        return d if isinstance(d, str) else str(d)
+
+    try:
+        AD, MOD, SUP = (admin_login(c, made[r]) for r in ("admin", "moderator", "super_admin"))
+        c.post("/api/auth/register", json={"name": "price", "email": email, "password": "secret123"})
+        db.users.update_one({"email": email}, {"$set": {"is_verified": True}})
+        USER = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json()["access_token"]}
+        check(put(default_body()).status_code == 200, "admin_prices: start with no prices")
+        j = get()
+        check(all(j["plans"][p]["price_monthly_mmk"] is None and j["plans"][p]["price_yearly_mmk"] is None for p in j["plans"]),
+              "admin_prices_get: every plan has price_monthly_mmk and price_yearly_mmk, null when not set", j["plans"]["plus"])
+        check(app_prices() == NO_PRICES, "app_prices: GET /api/plan has prices for every plan, all null when none is set",
+              app_prices())
+
+        # --- set, read back (admin and app)
+        body = with_prices(plus=(15000, 150000), pro=(30000, None))
+        r = put(body)
+        check(r.status_code == 200 and r.json() == body, "admin_prices_put: PUT with prices returns them", f"{r.status_code} {r.text[:300]}")
+        check(get() == body, "admin_prices_put: GET shows Plus 15000 / 150000 and Pro 30000 / none")
+        check(app_prices() == {"free": {"monthly_mmk": None, "yearly_mmk": None},
+                               "plus": {"monthly_mmk": 15000, "yearly_mmk": 150000},
+                               "pro": {"monthly_mmk": 30000, "yearly_mmk": None}},
+              "app_prices: GET /api/plan shows them to the user (Free: none)", app_prices())
+        with connect() as conn:
+            check(stored_prices(conn) == {"free": (None, None), "plus": (15000, 150000), "pro": (30000, None)},
+                  "admin_prices_put: plan_settings holds them", stored_prices(conn))
+
+        # --- the admin log names the price changes
+        logs = c.get("/api/admin/logs", headers=SUP, params={"limit": 100}).json()
+        upd = [x for x in logs if x["admin_email"] == made["admin"] and x["action"] == "plans_update"]
+        details = (upd[0].get("details") or "") if upd else ""
+        check("plus monthly price: (none) -> 15000 MMK" in details and "plus yearly price: (none) -> 150000 MMK" in details
+              and "pro monthly price: (none) -> 30000 MMK" in details and "pro yearly price" not in details,
+              "admin_prices_logged: the log says 'plus monthly price: (none) -> 15000 MMK' (only what changed)", details)
+
+        # --- a PUT without any price field (an older admin panel) keeps them
+        old = copy.deepcopy(body)
+        for p in old["plans"].values():
+            p.pop("price_monthly_mmk")
+            p.pop("price_yearly_mmk")
+        old["plans"]["plus"]["cost_cap_usd"] = 1.25
+        r = put(old)
+        check(r.status_code == 200 and r.json()["plans"]["plus"]["price_monthly_mmk"] == 15000
+              and r.json()["plans"]["pro"]["price_monthly_mmk"] == 30000 and r.json()["plans"]["plus"]["cost_cap_usd"] == 1.25,
+              "admin_prices_put: a PUT with no price fields saves the rest and keeps the prices", f"{r.status_code} {r.text[:300]}")
+        check(app_prices()["plus"] == {"monthly_mmk": 15000, "yearly_mmk": 150000}, "admin_prices_put: and the app still sees them")
+        # --- a PUT that sends prices for one plan only: the others have none
+        one = copy.deepcopy(old)
+        one["plans"]["pro"]["price_monthly_mmk"] = 25000
+        r = put(one)
+        check(r.status_code == 200 and r.json()["plans"]["pro"]["price_monthly_mmk"] == 25000
+              and r.json()["plans"]["pro"]["price_yearly_mmk"] is None
+              and r.json()["plans"]["plus"]["price_monthly_mmk"] is None and r.json()["plans"]["plus"]["price_yearly_mmk"] is None,
+              "admin_prices_put: once any plan sends a price field, a plan without them has no price", f"{r.status_code} {r.text[:300]}")
+        check(put(body).status_code == 200 and get() == body, "setup: put Plus 15000 / 150000 and Pro 30000 back")
+
+        # --- validation: 422, readable, nothing saved
+        pre = get()
+
+        def bad(label, mutate, expect=None):
+            b = copy.deepcopy(body)
+            mutate(b)
+            r = put(b)
+            check(r.status_code == 422 and (expect is None or expect.lower() in detail(r).lower()),
+                  f"admin_prices_invalid_422: {label} gives 422" + (f" mentioning {expect!r}" if expect else ""),
+                  f"{r.status_code} {r.text[:300]}")
+
+        bad("a monthly price for Free", lambda b: b["plans"]["free"].update(price_monthly_mmk=5000), "Free has no price")
+        bad("a yearly price for Free", lambda b: b["plans"]["free"].update(price_yearly_mmk=5000), "Free has no price")
+        bad("a yearly price without a monthly price", lambda b: b["plans"]["pro"].update(price_monthly_mmk=None, price_yearly_mmk=300000),
+            "needs a monthly price")
+        bad("a monthly price of 0", lambda b: b["plans"]["plus"].update(price_monthly_mmk=0), "1 to 1,000,000,000")
+        bad("a yearly price of 0", lambda b: b["plans"]["plus"].update(price_yearly_mmk=0), "1 to 1,000,000,000")
+        bad("a negative price", lambda b: b["plans"]["plus"].update(price_monthly_mmk=-1), "1 to 1,000,000,000")
+        bad("a price over 1,000,000,000", lambda b: b["plans"]["pro"].update(price_monthly_mmk=1_000_000_001), "1 to 1,000,000,000")
+        bad("a fractional price", lambda b: b["plans"]["plus"].update(price_monthly_mmk=15000.5))
+        bad("a text price", lambda b: b["plans"]["plus"].update(price_monthly_mmk="15000"))
+        bad("a boolean price", lambda b: b["plans"]["plus"].update(price_monthly_mmk=True))
+        bad("a price too large for a JSON integer column", lambda b: b["plans"]["pro"].update(price_yearly_mmk=10 ** 20))
+        check(get() == pre and app_prices()["plus"]["monthly_mmk"] == 15000,
+              "admin_prices_invalid_422: nothing was changed by the rejected requests")
+        mb = copy.deepcopy(body)
+        mb["plans"]["plus"]["price_monthly_mmk"] = 99
+        check(put(mb, MOD).status_code == 403 and get() == pre, "admin_prices_roles: a moderator cannot change prices (403)")
+        check(put(mb, SUP).status_code == 200 and get()["plans"]["plus"]["price_monthly_mmk"] == 99,
+              "admin_prices_roles: a super admin can")
+    finally:
+        try:
+            r = put(default_body())
+            check(r.status_code == 200 and get() == default_body() and app_prices() == NO_PRICES,
+                  "admin_prices: the prices are null again at the end (admin API and GET /api/plan)")
+        finally:
+            db.users.delete_many({"email": email})
+            db.admins.delete_many({"email": {"$in": list(made.values())}})
+            c.close()
+
+
 async def plans_checks():
     """Task 2 and 3 checks under ONE event loop: the backend's async DB engine binds to the first loop it is used on."""
     from sql.db import dispose_engine
@@ -723,6 +936,8 @@ async def plans_checks():
         period_checks()
         await store_checks()
         api_checks()
+        await price_store_checks()  # plan prices: the store
+        price_api_checks()  # plan prices: the admin Plans API and GET /api/plan
         await plans_quota_checks.run(sys.modules[__name__])  # task 3: quota engine, cost cap, /api/plan
         await plans_subscription_checks.run(sys.modules[__name__])  # task 4: expiry, trial, reminders, admin usage controls
         await plans_chat_checks.run(sys.modules[__name__])  # task 5: chat quotas and Pro's Advanced chat

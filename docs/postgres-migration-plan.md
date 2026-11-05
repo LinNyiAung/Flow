@@ -373,6 +373,26 @@ Rolling back: `alembic downgrade a7d3e5c91f20` drops the `custom_insights` table
 `insight_custom` limits. `ai_usage` rows of type `custom_insight` stay, and older code cannot
 read them on the per-user usage detail (the same caveat as the `claude` rows above).
 
+### Plan prices
+
+The owner sets what Plus and Pro cost, in kyat, on the admin **Plans** page: a monthly price and
+an optional yearly price (the app shows "save X%" against 12 monthly payments). Until a price is
+set nothing about prices shows anywhere and upgrade requests work as before. Once a plan has a
+price, the app's upgrade dialog asks **monthly or yearly**, and the choice shows on the admin
+**Upgrade requests** page. Upgrades stay manual. No new environment variables.
+
+- Migration `d6b2e8f4a1c7`
+  (`backend/alembic/versions/20261105_d6b2e8f4a1c7_plan_prices.py`) adds
+  `plan_settings.price_monthly_mmk` / `price_yearly_mmk` (null: not set; Free never has one; a
+  yearly price needs a monthly price) and `upgrade_requests.billing` (`month` / `year`, null when
+  no price was shown). It seeds nothing.
+- An admin panel without the price fields (an older build still open in a browser) saves the
+  rest of the Plans page and leaves the prices alone.
+- The new Myanmar wording in the app was written without a native speaker and needs checking
+  before release.
+
+Rolling back: `alembic downgrade b8f4d2c6e9a1` drops the prices and the billing choices.
+
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
 

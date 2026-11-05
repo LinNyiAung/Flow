@@ -1,6 +1,7 @@
 """Plan-polish checks for test_plans: upgrade requests (the table and its migration, POST /api/plan/upgrade-request,
 the `upgrade_request` field of GET /api/plan, the admin list / done / dismiss API, the automatic "done" when an admin sets
-the plan, the dashboard count) and the admin users list showing the effective plan (an expired Plus reads Free).
+the plan, the dashboard count), the billing period a request carries once the owner has set plan prices (with the
+prices migration), and the admin users list showing the effective plan (an expired Plus reads Free).
 
 Run from test_plans (inside its single asyncio.run): `await plans_upgrade_request_checks.run(test_plans_module)`.
 Users are registered through the API; plans change only through the admin API (the DB is used to read results and to
@@ -16,10 +17,11 @@ BASE = "http://127.0.0.1:8765"
 MYANMAR = re.compile("[က-႟]")
 BEFORE_REQUESTS = "e1b6d3a8f245"  # the revision the upgrade_requests migration revises
 BEFORE_VIBER = "f2c9a47e5b18"  # the revision the viber_number migration revises
-REQUEST_KEYS = {"plan", "note", "viber_number", "status", "created_at"}
-PLAN_REQUEST_KEYS = {"plan", "note", "viber_number", "created_at"}
+BEFORE_PRICES = "b8f4d2c6e9a1"  # the revision the plan prices / billing migration revises
+REQUEST_KEYS = {"plan", "note", "viber_number", "billing", "status", "created_at"}
+PLAN_REQUEST_KEYS = {"plan", "note", "viber_number", "billing", "created_at"}
 ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "trial_ends_at", "requested_plan", "note",
-                  "viber_number", "created_at", "status", "handled_at"}
+                  "viber_number", "billing", "created_at", "status", "handled_at"}
 OWNER_EMAIL, OWNER_VIBER = "owner@example.com", "+959123456789"
 
 
@@ -41,6 +43,7 @@ async def run(t):
     tag = uuid.uuid4().hex[:5]
     saved_contact = None
     saved_owner = None
+    prices_set = False
 
     def register(name, lang="en"):
         email = f"t8r-{name}-{tag}@example.com"
@@ -62,11 +65,18 @@ async def run(t):
         return c.post("/api/plan/upgrade-request", headers=h, json=body)
 
     def rows(uid):
-        """(id, plan, note, status, created_at, handled_at, handled_by, viber_number) of the user's requests."""
+        """(id, plan, note, status, created_at, handled_at, handled_by, viber_number, billing) of the user's requests."""
         with t.connect() as conn:
-            return conn.execute("SELECT id, plan, note, status, created_at, handled_at, handled_by, viber_number "
+            return conn.execute("SELECT id, plan, note, status, created_at, handled_at, handled_by, viber_number, billing "
                                 "FROM upgrade_requests "
                                 "WHERE user_id = %s ORDER BY created_at", (uid,)).fetchall()
+
+    def put_prices(plus=(None, None), pro=(None, None)):
+        """Set Plus's and Pro's (monthly, yearly) prices through the admin API (the rest as it is now)."""
+        snap = c.get("/api/admin/plans", headers=AD).json()
+        for plan, (monthly, yearly) in (("plus", plus), ("pro", pro)):
+            snap["plans"][plan].update(price_monthly_mmk=monthly, price_yearly_mmk=yearly)
+        return c.put("/api/admin/plans", headers=AD, json=snap).status_code == 200
 
     def pending_count():
         with t.connect() as conn:
@@ -114,6 +124,59 @@ async def run(t):
             ok, out = t.alembic("upgrade", "head")
             check(ok and viber_column() == ("text", "YES") and t.current_revision(conn) != BEFORE_VIBER,
                   "upgrade_requests_viber_migration: upgrade adds it again", out)
+
+            # ---- plan prices and the billing period (migration)
+            price_cols = {"plan_settings.price_monthly_mmk": ("integer", "YES"),
+                          "plan_settings.price_yearly_mmk": ("integer", "YES"), "upgrade_requests.billing": ("text", "YES")}
+            price_checks = {"ck_plan_settings_price_monthly_positive", "ck_plan_settings_price_yearly_positive",
+                            "ck_plan_settings_free_has_no_price", "ck_plan_settings_yearly_needs_monthly",
+                            "ck_upgrade_requests_billing"}
+
+            def price_columns():
+                return {f"{r[0]}.{r[1]}": (r[2], r[3]) for r in conn.execute(
+                    "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns "
+                    "WHERE (table_name = 'plan_settings' AND column_name IN ('price_monthly_mmk', 'price_yearly_mmk')) "
+                    "OR (table_name = 'upgrade_requests' AND column_name = 'billing')")}
+
+            def price_constraints():
+                return {r[0] for r in conn.execute("SELECT conname FROM pg_constraint WHERE conname = ANY(%s)",
+                                                   (sorted(price_checks),))}
+
+            check(price_columns() == price_cols and price_constraints() == price_checks,
+                  "plan_prices_migration: head has the nullable price columns, upgrade_requests.billing and their CHECKs",
+                  (price_columns(), sorted(price_constraints())))
+            ok, out = t.alembic("downgrade", BEFORE_PRICES)
+            check(ok and t.current_revision(conn) == BEFORE_PRICES and price_columns() == {} and not price_constraints()
+                  and "plan_settings" in t.table_names(conn) and viber_column() == ("text", "YES"),
+                  "plan_prices_migration: downgrade -1 drops only the price columns, billing and their CHECKs", out)
+            ok, out = t.alembic("upgrade", "head")
+            check(ok and price_columns() == price_cols and price_constraints() == price_checks
+                  and t.current_revision(conn) != BEFORE_PRICES,
+                  "plan_prices_migration: upgrade adds them again", out)
+            check(not conn.execute("SELECT 1 FROM plan_settings WHERE price_monthly_mmk IS NOT NULL "
+                                   "OR price_yearly_mmk IS NOT NULL").fetchone(),
+                  "plan_prices_migration: nothing is seeded (no plan has a price)")
+            price = "UPDATE plan_settings SET price_monthly_mmk = %s, price_yearly_mmk = %s WHERE plan = %s"
+            for label, params, want in (
+                ("Plus monthly and yearly", (15000, 150000, "plus"), True),
+                ("Pro monthly only", (30000, None, "pro"), True),
+                ("a price of 1", (1, 1, "plus"), True),
+                ("a monthly price for Free", (5000, None, "free"), False),
+                ("a yearly price for Free", (None, 5000, "free"), False),
+                ("a yearly price without a monthly price", (None, 150000, "plus"), False),
+                ("a monthly price of 0", (0, None, "plus"), False),
+                ("a negative yearly price", (15000, -1, "pro"), False),
+            ):
+                check(t.accepted(conn, (price, params)) == want,
+                      f"plan_prices_schema: plan_settings {'accepts' if want else 'rejects'} {label}")
+
+            # ---- constraints
+            uid = "t8r-" + tag
+            user = t.new_user(uid)
+            bill = "INSERT INTO upgrade_requests (id, user_id, plan, status, billing) VALUES ('rb', %s, 'plus', 'pending', %s)"
+            for value, want in (("month", True), ("year", True), (None, True), ("week", False), ("", False)):
+                check(t.accepted(conn, user, (bill, (uid, value))) == want,
+                      f"plan_prices_schema: upgrade_requests.billing {'accepts' if want else 'rejects'} {value!r}")
 
             # ---- constraints
             uid = "t8r-" + tag
@@ -253,6 +316,54 @@ async def run(t):
                   f"upgrade_request_viber: {label} is refused (422, readable) and changes nothing",
                   f"{r.status_code} {r.text[:200]}")
         ask(h, "plus")  # back to no number and no note for the checks below
+
+        # ---- the billing period the user picked (plan prices)
+        check(rows(uid)[0][8] is None and plan_request(h)["billing"] is None and listed(MOD, uid)["billing"] is None,
+              "upgrade_request_billing: without prices a request has billing null (row, GET /api/plan, admin list)")
+        for billing in ("month", "year"):
+            r = ask(h, "pro", "x", billing=billing)
+            check(r.status_code == 422 and "billing" in r.text and rows(uid)[0][1] == "plus" and rows(uid)[0][8] is None,
+                  f"upgrade_request_billing: billing {billing!r} while the plan has no price is a 422 and changes nothing",
+                  f"{r.status_code} {r.text[:200]}")
+        prices_set = put_prices(plus=(15000, 150000), pro=(30000, None))
+        check(prices_set, "setup: Plus 15000 / 150000 MMK, Pro 30000 MMK a month (no yearly price)")
+        first_id = rows(uid)[0][0]
+        r = ask(h, "plus", billing="month")
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and set(j) == REQUEST_KEYS and j["billing"] == "month" and rows(uid)[0][8] == "month"
+              and len(rows(uid)) == 1 and rows(uid)[0][0] == first_id,
+              "upgrade_request_billing: billing 'month' is stored and returned", f"{r.status_code} {r.text[:200]}")
+        check(plan_request(h)["billing"] == "month" and listed(MOD, uid)["billing"] == "month"
+              and listed(AD, uid)["billing"] == "month",
+              "upgrade_request_billing: GET /api/plan and the admin list show billing 'month'")
+        r = ask(h, "plus", billing="year")
+        check(r.status_code == 200 and r.json()["billing"] == "year" and rows(uid)[0][8] == "year" and len(rows(uid)) == 1
+              and rows(uid)[0][0] == first_id and listed(MOD, uid)["billing"] == "year",
+              "upgrade_request_billing: billing 'year' replaces it in place, and the admin list shows 'year'",
+              f"{r.status_code} {r.text[:200]}")
+        r = ask(h, "pro", "yearly please", billing="year")
+        check(r.status_code == 422 and "yearly" in r.text and rows(uid)[0][1] == "plus" and rows(uid)[0][8] == "year",
+              "upgrade_request_billing: billing 'year' for Pro (no yearly price) is a 422 with a plain message and changes nothing",
+              f"{r.status_code} {r.text[:200]}")
+        r = ask(h, "pro", billing="month")
+        check(r.status_code == 200 and r.json()["billing"] == "month" and rows(uid)[0][1] == "pro" and rows(uid)[0][8] == "month",
+              "upgrade_request_billing: billing 'month' for Pro is fine", f"{r.status_code} {r.text[:200]}")
+        for label, body in (("no billing field", {}), ("billing null", {"billing": None})):
+            ask(h, "plus", billing="year")
+            r = c.post("/api/plan/upgrade-request", headers=h, json={"plan": "plus", **body})
+            check(r.status_code == 200 and r.json()["billing"] is None and rows(uid)[0][8] is None and len(rows(uid)) == 1,
+                  f"upgrade_request_billing: {label} still works while prices are set, and clears the stored period",
+                  f"{r.status_code} {r.text[:200]}")
+        for label, value in (("'week'", "week"), ("'monthly'", "monthly"), ("a number", 12), ("an empty string", "")):
+            r = c.post("/api/plan/upgrade-request", headers=h, json={"plan": "plus", "billing": value})
+            check(r.status_code == 422 and rows(uid)[0][8] is None,
+                  f"upgrade_request_billing: billing {label} is a 422", f"{r.status_code} {r.text[:150]}")
+        check(put_prices(), "setup: no prices again")
+        prices_set = False
+        r = ask(h, "plus", billing="month")
+        check(r.status_code == 422 and rows(uid)[0][8] is None,
+              "upgrade_request_billing: once the owner clears the price, billing is refused again", f"{r.status_code} {r.text[:150]}")
+        ask(h, "plus")
 
         # ---- already on that plan or higher
         plus_uid, plus_h = register("plus")
@@ -743,6 +854,8 @@ async def run(t):
                     conn.execute(f"DROP TRIGGER IF EXISTS t8r_refuse_note_{i} ON notifications")
                 conn.execute("DROP FUNCTION IF EXISTS t8r_refuse_note()")
     finally:
+        if prices_set:  # a check failed while the prices were set: clear them so other checks see none
+            put_prices()
         if saved_contact is not None:  # the checks changed the upgrade contact: put the original back
             snap = c.get("/api/admin/plans", headers=AD).json()
             snap["upgrade_contact"] = saved_contact

@@ -362,8 +362,15 @@ plan_settings = Table(
     "plan_settings", metadata,
     Column("plan", Text, primary_key=True),
     Column("cost_cap_usd", Numeric(12, 6), nullable=False),
+    # What a paid plan costs, in whole kyat; null: the owner has not set it (the app shows no price).
+    Column("price_monthly_mmk", Integer),
+    Column("price_yearly_mmk", Integer),  # optional, a discount on 12 months
     CheckConstraint("plan IN ('free','plus','pro')", name="plan"),
     CheckConstraint("cost_cap_usd >= 0", name="cost_cap_non_negative"),
+    CheckConstraint("price_monthly_mmk IS NULL OR price_monthly_mmk > 0", name="price_monthly_positive"),
+    CheckConstraint("price_yearly_mmk IS NULL OR price_yearly_mmk > 0", name="price_yearly_positive"),
+    CheckConstraint("plan <> 'free' OR (price_monthly_mmk IS NULL AND price_yearly_mmk IS NULL)", name="free_has_no_price"),
+    CheckConstraint("price_yearly_mmk IS NULL OR price_monthly_mmk IS NOT NULL", name="yearly_needs_monthly"),
 )
 
 app_settings = Table(
@@ -393,6 +400,7 @@ upgrade_requests = Table(
     Column("plan", Text, nullable=False),
     Column("note", Text),
     Column("viber_number", Text),  # for the owner to contact the user on Viber; null: use the account email
+    Column("billing", Text),  # 'month' / 'year', the price the user picked; null: the plan had no price
     Column("status", Text, nullable=False, server_default="pending"),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("handled_at", TS),
@@ -400,6 +408,7 @@ upgrade_requests = Table(
     CheckConstraint("plan IN ('plus','pro')", name="plan"),
     CheckConstraint("status IN ('pending','done','dismissed')", name="status"),
     CheckConstraint("note IS NULL OR char_length(note) <= 500", name="note_length"),
+    CheckConstraint("billing IS NULL OR billing IN ('month','year')", name="billing"),
 )
 Index("uq_upgrade_requests_pending_user", upgrade_requests.c.user_id, unique=True,
       postgresql_where=upgrade_requests.c.status == "pending")

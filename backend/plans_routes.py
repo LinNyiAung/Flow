@@ -2,8 +2,8 @@
 rendering of plan errors.
 
 GET /api/plan gives the app everything it shows about plans: the effective plan, its end date and trial state, each
-feature's allowance this period, every plan's limits (for the Upgrade screen), the upgrade contact texts, the owner's
-email and Viber number and the user's pending upgrade request (or null; it carries the Viber number they gave). Costs and cost caps are never included.
+feature's allowance this period, every plan's limits and prices (for the Upgrade screen), the upgrade contact texts, the owner's
+email and Viber number and the user's pending upgrade request (or null; it carries the Viber number and billing period they gave). Costs and cost caps are never included.
 Upgrades are manual: a user asks for Plus or Pro here and the owner handles the request in the admin panel.
 """
 from datetime import datetime, UTC
@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from notification_service import translate
-from plans import quota
+from plans import quota, store
 from plans.access import PlanError, effective_plan, is_trial, user_language
 from plans.catalog import PLAN_RANK
 from plans.contact import normalize_viber
@@ -31,6 +31,8 @@ class UpgradeRequestBody(BaseModel):
     plan: Literal["plus", "pro"]
     note: Optional[str] = None
     viber_number: Optional[str] = None
+    # The price the user picked; only when the plan has that price (the app sends it only then).
+    billing: Optional[Literal["month", "year"]] = None
 
     @field_validator("note")
     @classmethod
@@ -49,7 +51,7 @@ class UpgradeRequestBody(BaseModel):
 
 
 def _request_json(row: dict) -> dict:
-    return {"plan": row["plan"], "note": row["note"], "viber_number": row["viber_number"],
+    return {"plan": row["plan"], "note": row["note"], "viber_number": row["viber_number"], "billing": row["billing"],
             "created_at": row["created_at"].isoformat()}
 
 
@@ -63,11 +65,22 @@ async def get_plan(current_user: dict = Depends(get_current_user)):
 
 @router.post("/plan/upgrade-request")
 async def request_upgrade(body: UpgradeRequestBody, current_user: dict = Depends(get_current_user)):
-    """Ask the owner for Plus or Pro. A pending request is updated in place (plan, note, Viber number, date) rather than added to.
+    """Ask the owner for Plus or Pro. A pending request is updated in place (plan, note, Viber number, billing period,
+    date) rather than added to.
 
     400 when the user already has that plan or a higher one (Pro counts as Plus). A free trial of Plus does not count
-    as having Plus here: a trial user may ask to keep it.
+    as having Plus here: a trial user may ask to keep it. 422 when `billing` names a price the plan does not have.
     """
+    # The app offers only the prices it was shown, so this means the owner changed them since (it names the field,
+    # like the other 422s, so the app can tell).
+    if body.billing is not None:
+        price = store.prices(body.plan)
+        if price["monthly_mmk"] is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail=f"billing: the {body.plan.capitalize()} plan has no price")
+        if body.billing == "year" and price["yearly_mmk"] is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail=f"billing: the {body.plan.capitalize()} plan has no yearly price")
     current = effective_plan(current_user)
     if is_trial(current_user):
         current = "free"
@@ -76,7 +89,7 @@ async def request_upgrade(body: UpgradeRequestBody, current_user: dict = Depends
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=translate("plan_upgrade_request_already", user_language(current_user), plan=body.plan.capitalize()))
     row = await requests_db.upsert_pending(current_user["_id"], body.plan, body.note, datetime.now(UTC),
-                                           body.viber_number)
+                                           body.viber_number, body.billing)
     return {**_request_json(row), "status": row["status"]}
 
 

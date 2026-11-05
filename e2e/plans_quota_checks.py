@@ -15,7 +15,7 @@ import httpx
 
 BASE = "http://127.0.0.1:8765"
 MYANMAR = re.compile("[က-႟]")
-STATUS_KEYS = {"plan", "expires_at", "is_trial", "trial_ends_at", "features", "catalog", "upgrade_contact",
+STATUS_KEYS = {"plan", "expires_at", "is_trial", "trial_ends_at", "features", "catalog", "prices", "upgrade_contact",
                "owner_contact", "upgrade_request"}
 FEATURE_KEYS = {"mode", "limit", "period", "used", "remaining", "resets_at"}
 DETAIL_KEYS = {"code", "feature", "resets_at", "upgrade_available", "message"}
@@ -354,6 +354,8 @@ async def run(t):
               and cat.get("pro", {}).get("chat_advanced") == {"mode": "counted", "quota": 100, "period": "month"}
               and cat.get("plus", {}).get("reports") == {"mode": "included", "quota": None, "period": None},
               "plan_status_shape: the catalog has the 3 plans' limits", cat.get("pro"))
+        check(j.get("prices") == {p: {"monthly_mmk": None, "yearly_mmk": None} for p in catalog.PLANS},
+              "plan_status_shape: prices has every plan, null while the owner has set none", j.get("prices"))
         check(set(j.get("upgrade_contact", {})) == {"en", "my"}, "plan_status_shape: the upgrade contact has en and my",
               j.get("upgrade_contact"))
         check("cost" not in r.text.lower(), "plan_status_shape: no cost or cap amount is shown to the user")
