@@ -315,7 +315,7 @@
 - Modify: `frontend/web/manifest.json`: `name`/`short_name` `"Toe Pwar"`, the description above, `background_color`/`theme_color` taken from `AppTheme` primary.
 - Create: `frontend/flutter_launcher_icons-web.yaml`. It holds only a `flutter_launcher_icons:` block with `web: generate: true, image_path: "assets/icon/flow.png"`, so the Android icons are not regenerated. Run `dart run flutter_launcher_icons -f flutter_launcher_icons-web.yaml`.
 - Create: `docs/web-version.md`, which contains:
-  - **Build:** `flutter build web --release --dart-define=API_BASE_URL=https://flowfinance.onrender.com`.
+  - **Build:** `flutter build web --release --dart-define=API_BASE_URL=https://toepwar-t9vc.onrender.com`.
   - **Render Static Site** settings for the owner, step by step:
     - Root Directory: repo root;
     - Build Command installs Flutter pinned to the version in `flutter --version` (`git clone https://github.com/flutter/flutter.git -b <version> --depth 1 "$HOME/flutter"`), then `cd frontend && flutter build web ...`;

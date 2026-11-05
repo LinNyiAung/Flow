@@ -3,7 +3,7 @@
 ## Configuration
 
 The backend URL is read from the `VITE_API_BASE_URL` environment variable at build time
-(see `src/api.js`). If it is not set, the panel defaults to `https://flowfinance.onrender.com`.
+(see `src/api.js`). If it is not set, the panel defaults to `https://toepwar-t9vc.onrender.com`.
 
 ```bash
 # e.g. point a local dev build at a local backend

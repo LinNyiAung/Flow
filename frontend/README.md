@@ -4,7 +4,7 @@ A new Flutter project.
 
 ## Backend URL
 
-The API base URL defaults to production (`https://flowfinance.onrender.com`).
+The API base URL defaults to production (`https://toepwar-t9vc.onrender.com`).
 To run against a backend on your LAN (e.g. a dev machine running uvicorn on
 port 8000), pass it at build/run time:
 

@@ -14,7 +14,7 @@ def send_verification_email(receiver_email: str, verification_token: str):
     msg['From'] = sender_email
     msg['To'] = receiver_email
 
-    base_url = os.getenv("PUBLIC_BASE_URL", "https://flowfinance.onrender.com").rstrip("/")
+    base_url = os.getenv("PUBLIC_BASE_URL", "https://toepwar-t9vc.onrender.com").rstrip("/")
     query = urlencode({"email": receiver_email, "token": verification_token}, quote_via=quote)
     verification_link = f"{base_url}/api/auth/verify-email?{query}"
 

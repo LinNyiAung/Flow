@@ -51,7 +51,7 @@ anyone use it. The website is also where Android users find the APK download lin
 
 - Flutter (Dart SDK ^3.8.1). `frontend/web/` already exists (generated defaults: name
   "frontend", default icons and description).
-- Backend: FastAPI on Render (`https://flowfinance.onrender.com`). The app's API base
+- Backend: FastAPI on Render (`https://toepwar-t9vc.onrender.com`). The app's API base
   URL comes from `--dart-define=API_BASE_URL=...`; the web build must pass the production
   URL explicitly (the in-code default is a LAN development address).
 - **Launch order:** the PostgreSQL backend (merged to `main` on 2026-10-16) is **not yet
@@ -103,7 +103,7 @@ follows the same rule: a web-only alternative, Android unchanged.
 
 - **Render Static Site** serving the built `build/web` folder, with a rewrite of every path
   to `index.html` so deep links and refreshes work.
-- Built with `flutter build web --release --dart-define=API_BASE_URL=https://flowfinance.onrender.com`.
+- Built with `flutter build web --release --dart-define=API_BASE_URL=https://toepwar-t9vc.onrender.com`.
 - Render's static sites have no Flutter preinstalled. The builder chooses between:
   - installing Flutter in the Render build command;
   - building elsewhere (e.g. a GitHub Action) and deploying the output.

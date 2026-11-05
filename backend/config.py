@@ -42,7 +42,7 @@ class Settings:
     MAX_CHAT_HISTORY = int(os.getenv("MAX_CHAT_HISTORY", "20"))
 
     # Public base URL of this API (used in e-mail verification links)
-    PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://flowfinance.onrender.com").rstrip("/")
+    PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://toepwar-t9vc.onrender.com").rstrip("/")
 
     # Optional one-time super-admin bootstrap (only used when the admins collection is empty)
     ADMIN_BOOTSTRAP_EMAIL = os.getenv("ADMIN_BOOTSTRAP_EMAIL")

@@ -2,7 +2,7 @@
 // All requests go through `apiRequest` so that error handling and
 // session expiry (401) behave the same everywhere.
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'https://flowfinance.onrender.com';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'https://toepwar-t9vc.onrender.com';
 
 const TOKEN_KEY = 'admin_token';
 const ADMIN_KEY = 'admin_info';

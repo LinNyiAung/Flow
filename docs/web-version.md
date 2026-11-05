@@ -1,7 +1,7 @@
 # Toe Pwar on the web
 
 The website is the same Flutter code as the Android app, built for the browser. It talks to
-the same backend (`https://flowfinance.onrender.com`) and uses the same accounts. The Android
+the same backend (`https://toepwar-t9vc.onrender.com`) and uses the same accounts. The Android
 app is not affected by anything on this page.
 
 ## 1. Build it
@@ -9,7 +9,7 @@ app is not affected by anything on this page.
 From the `frontend` folder, with Flutter **3.32.1** (stable):
 
 ```
-flutter build web --release --dart-define=API_BASE_URL=https://flowfinance.onrender.com
+flutter build web --release --dart-define=API_BASE_URL=https://toepwar-t9vc.onrender.com
 ```
 
 The finished site is in `frontend/build/web` (plain static files).
@@ -22,7 +22,7 @@ The website cannot work until the backend is live and updated, so do this in ord
    has the endpoints the website needs (including the public `GET /api/app/latest-android`
    used by the "Get the Android app" link). The steps for the PostgreSQL move are in
    [postgres-migration-plan.md](postgres-migration-plan.md), section "Deploying on Render".
-   Finish that, and check the backend answers at https://flowfinance.onrender.com, before
+   Finish that, and check the backend answers at https://toepwar-t9vc.onrender.com, before
    going on.
 2. **Then create the website on Render** (section 3 below).
 3. **Last, allow the website to call the backend.** Open the backend service on Render, then
@@ -51,7 +51,7 @@ You do these clicks in the Render dashboard:
    - **Build Command:** paste this as one line:
 
      ```
-     [ -d "$HOME/flutter" ] || git clone https://github.com/flutter/flutter.git -b 3.32.1 --depth 1 "$HOME/flutter" && export PATH="$HOME/flutter/bin:$PATH" && cd frontend && flutter build web --release --dart-define=API_BASE_URL=https://flowfinance.onrender.com
+     [ -d "$HOME/flutter" ] || git clone https://github.com/flutter/flutter.git -b 3.32.1 --depth 1 "$HOME/flutter" && export PATH="$HOME/flutter/bin:$PATH" && cd frontend && flutter build web --release --dart-define=API_BASE_URL=https://toepwar-t9vc.onrender.com
      ```
 
      The version number `3.32.1` is pinned on purpose so the site is built with the same
