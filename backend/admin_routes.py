@@ -62,6 +62,7 @@ from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import budgets as budgets_db
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
+from ai_usage_service import served_differs
 from config import settings
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -1162,6 +1163,7 @@ async def get_user_ai_usage_detail(
                 estimated_cost_usd=record["estimated_cost_usd"],
                 fallback_from=record.get("fallback_from"),
                 served_model=record.get("served_model"),
+                served_differs=served_differs(record["provider"], record["model_name"], record.get("served_model")),
                 outcome=record.get("outcome"),
                 cost_estimated=bool(record.get("cost_estimated")),
                 created_at=record["created_at"]

@@ -9,6 +9,7 @@ Usage rows: one per billed answer: "used" for the answer returned, "rejected" fo
 an error (HTTP error, timeout) were not billed and record nothing.
 """
 import asyncio
+import contextvars
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import aclosing
@@ -105,20 +106,59 @@ def _fallback_from(failures: list[ProviderFailure]) -> str | None:
 
 
 def _billed(c: Completion | None) -> bool:
-    return c is not None and (c.input_tokens > 0 or c.output_tokens > 0)
+    return c is not None and (c.input_tokens > 0 or c.output_tokens > 0 or c.audio_seconds is not None
+                              or any(_billed(r) for r in c.requests))
+
+
+def _rows(c: Completion, outcome: str) -> list[tuple[Completion, str]]:
+    """The usage rows of an answer: one per provider request. An answer made of several requests (c.requests, e.g.
+    the translation's cut-off retry) gives one row per request: when the answer is used, each request keeps its own
+    outcome (a request whose text was not used is "rejected"); otherwise every request gets `outcome`."""
+    if not c.requests:
+        return [(c, outcome)]
+    return [(r, (r.outcome or outcome) if outcome == "used" else outcome) for r in c.requests if _billed(r)]
 
 
 async def _track(feature: str, user_id: str | None, t: Target, c: Completion, fallback_from: str | None,
                  outcome: str) -> None:
-    """One usage row for this answer (nothing without a user)."""
+    """The usage rows for this answer (nothing without a user)."""
     if not user_id:
         return
-    await track_ai_usage(user_id, FEATURES[feature].usage_type, AIProviderType(t.provider), t.model,
-                         c.input_tokens, c.output_tokens, c.input_tokens + c.output_tokens,
-                         fallback_from=fallback_from, audio_seconds=c.audio_seconds,
-                         audio_input_tokens=c.audio_input_tokens, cached_input_tokens=c.cached_input_tokens,
-                         cache_write_tokens=c.cache_write_tokens, served_model=c.served_model,
-                         cost_estimated=c.estimated, outcome=outcome)
+    for r, row_outcome in _rows(c, outcome):
+        await track_ai_usage(user_id, FEATURES[feature].usage_type, AIProviderType(t.provider), t.model,
+                             r.input_tokens, r.output_tokens, r.input_tokens + r.output_tokens,
+                             fallback_from=fallback_from, audio_seconds=r.audio_seconds,
+                             audio_input_tokens=r.audio_input_tokens, cached_input_tokens=r.cached_input_tokens,
+                             cache_write_tokens=r.cache_write_tokens, served_model=r.served_model,
+                             cost_estimated=r.estimated, outcome=row_outcome)
+
+
+# Usage writes run as tasks so a cancelled request still completes them (the caller awaits them shielded, or, on the
+# GeneratorExit / CancelledError path, not at all). The set keeps a strong reference until each task is done (the
+# event loop keeps only weak ones).
+_usage_writes: set[asyncio.Task] = set()
+
+
+def pending_usage_writes() -> list[asyncio.Task]:
+    """The usage writes still running (tests await them)."""
+    return list(_usage_writes)
+
+
+def _spawn_write(coro) -> asyncio.Task:
+    """Run a usage write as its own task, in a fresh context: it uses its own connection, never the caller's
+    transaction() (which may be gone by the time a cancelled caller's write runs)."""
+    task = asyncio.get_running_loop().create_task(coro, context=contextvars.Context())
+    _usage_writes.add(task)
+    task.add_done_callback(_usage_writes.discard)
+    return task
+
+
+async def _record(feature: str, user_id: str | None, t: Target, c: Completion, fallback_from: str | None,
+                  outcome: str) -> None:
+    """Write the usage rows of this answer. If the caller is cancelled meanwhile the write still completes (shielded
+    task), so a billed answer is recorded exactly once."""
+    if user_id:
+        await asyncio.shield(_spawn_write(_track(feature, user_id, t, c, fallback_from, outcome)))
 
 
 async def _rejected(feature: str, user_id: str | None, t: Target, c: Completion | None,
@@ -126,17 +166,13 @@ async def _rejected(feature: str, user_id: str | None, t: Target, c: Completion 
     """An answer that was billed but not used (refused, filtered, empty, unparseable): record what it cost, with
     the fallback_from of that attempt. No row when the answer carries no usage. Health is not touched."""
     if _billed(c):
-        await _track(feature, user_id, t, c, _fallback_from(failures), "rejected")
+        await _record(feature, user_id, t, c, _fallback_from(failures), "rejected")
 
 
-# Usage writes for streams that ended early, scheduled as tasks so a cancelled request still completes them. The set
-# keeps a strong reference until each task is done (the event loop keeps only weak ones).
-_usage_writes: set[asyncio.Task] = set()
-
-
-def pending_usage_writes() -> list[asyncio.Task]:
-    """The early-ended stream usage writes still running (tests await them)."""
-    return list(_usage_writes)
+def _billed_before_error(e: BaseException) -> Completion | None:
+    """What a `call` was billed for before it failed with this error (it sets `billed_usage`; see errors.py)."""
+    c = getattr(e, "billed_usage", None)
+    return c if isinstance(c, Completion) else None
 
 
 def _record_cut_short(feature: str, user_id: str | None, t: Target, prompt: Prompt, parts: list[str],
@@ -154,22 +190,20 @@ def _record_cut_short(feature: str, user_id: str | None, t: Target, prompt: Prom
         c = Completion(text, (len(prompt.system) + len(prompt.user)) // 4, len(text) // 4, "stop",
                        served_model=final.served_model if final else None, estimated=True)
     try:
-        task = asyncio.get_running_loop().create_task(_track(feature, user_id, t, c, _fallback_from(failures),
-                                                             "cancelled"))
+        _spawn_write(_track(feature, user_id, t, c, _fallback_from(failures), "cancelled"))
     except RuntimeError:  # no running loop (a generator finalised after the loop closed)
         logger.warning(f"Could not record the usage of a stream cut short ({t.provider}/{t.model})")
-        return
-    _usage_writes.add(task)
-    task.add_done_callback(_usage_writes.discard)
 
 
 async def _succeeded(feature: str, user_id: str | None, t: Target, c: Completion,
                      failures: list[ProviderFailure]) -> str | None:
-    """Clear the target's cool-off, record the success and the usage; returns fallback_from."""
+    """Clear the target's cool-off, record the usage and the success; returns fallback_from. The usage is written
+    first and shielded: a request cancelled from here on (a client that leaves as the answer completes) still
+    records it, once."""
     health.mark_success(t)
-    await health.persist_success(t)
     fallback_from = _fallback_from(failures)
-    await _track(feature, user_id, t, c, fallback_from, "used")
+    await _record(feature, user_id, t, c, fallback_from, "used")
+    await health.persist_success(t)
     return fallback_from
 
 
@@ -204,6 +238,8 @@ async def run(feature: str, *, user_id: str | None,
                 failures.append(_unusable(t, e))
                 break
             except Exception as e:
+                # requests a `call` was billed for before this error (e.g. translation chunks): record them
+                await _rejected(feature, user_id, t, _billed_before_error(e), failures)
                 f = classify(e, t.provider, t.model)
                 if f is None:
                     raise  # request-level: no fallback, no health change

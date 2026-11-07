@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 #   "cache_write"         optional: per 1M Claude cache creation tokens (the 5-minute TTL rate);
 #   "audio_input"         optional: per 1M audio input tokens (Gemini transcription);
 #   "cached_audio_input"  optional: per 1M cached audio input tokens;
-#   "per_minute"          optional: USD per minute of audio (OpenAI speech-to-text, billed by duration, not tokens);
+#   "per_minute"          optional: USD per minute of audio (OpenAI speech-to-text). An entry that also has token
+#                         prices is priced by tokens when the call reported audio input tokens and no duration;
 #   "long_context"        optional: {"above": N, prices...}: these prices apply when the request's input tokens are
 #                         more than N (decided per request, by the prompt size);
 #   "schedule"            optional: [(effective_from_utc, {prices}), ...] in date order; the latest entry whose start
@@ -31,10 +32,12 @@ PRICING = {
     "openai": {
         "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached_input": 0.075},
         "gpt-4o": {"input": 2.50, "output": 10.00, "cached_input": 1.25},
-        # speech-to-text, per minute of audio
+        # speech-to-text. whisper-1 is billed per minute of audio. The gpt-4o*-transcribe models are billed by
+        # tokens (audio input / text input / text output per 1M) when the response reports token usage; their
+        # per-minute price is the fallback when it does not.
         "whisper-1": {"per_minute": 0.006},
-        "gpt-4o-transcribe": {"per_minute": 0.006},
-        "gpt-4o-mini-transcribe": {"per_minute": 0.003},
+        "gpt-4o-transcribe": {"per_minute": 0.006, "audio_input": 6.00, "input": 2.50, "output": 10.00},
+        "gpt-4o-mini-transcribe": {"per_minute": 0.003, "audio_input": 3.00, "input": 1.25, "output": 5.00},
     },
     "gemini": {
         "gemini-2.5-flash": {"input": 0.30, "output": 2.50, "cached_input": 0.03,
@@ -101,6 +104,33 @@ def resolve_model(provider: str, model: str | None) -> str | None:
             return name
 
 
+def _normalised(model: str | None) -> str:
+    """A model name without case, spaces, a `models/` prefix or trailing snapshot suffixes."""
+    name = (model or "").strip().lower()
+    if name.startswith("models/"):
+        name = name[len("models/"):]
+    while (stripped := _SUFFIX.sub("", name)) != name:
+        name = stripped
+    return name
+
+
+def price_key(provider: str, model: str | None, served_model: str | None = None) -> str | None:
+    """The PRICING key a call is priced with (the served model's first), or None when neither name is known (the
+    call is then priced by the unknown-model rule)."""
+    return resolve_model(provider, served_model) or resolve_model(provider, model)
+
+
+def served_differs(provider: str, model: str | None, served_model: str | None) -> bool:
+    """True when the provider reports that another model answered than the one requested. A dated snapshot or
+    alias of the requested model (gpt-4o-mini-2024-07-18 for gpt-4o-mini) is the same model."""
+    if not (served_model or "").strip():
+        return False
+
+    def key(name):
+        return resolve_model(provider, name) or _normalised(name)
+    return key(served_model) != key(model)
+
+
 def _prices_at(entry: dict, at: datetime) -> dict:
     """The entry's prices in effect at `at` (its base prices overridden by the latest started schedule step)."""
     prices = {k: v for k, v in entry.items() if k != "schedule"}
@@ -123,13 +153,18 @@ def _fallback_prices(provider: str, model: str, served_model: str | None, at: da
         return None
     from ai_providers.features import is_openai_audio_model  # lazy: ai_providers imports this module
 
-    per_minute = [e["per_minute"] for e in entries if "per_minute" in e]
+    speech = [e for e in entries if "per_minute" in e]
     audio_name = is_openai_audio_model(model) or is_openai_audio_model(served_model or "")
-    if provider == "openai" and audio_name and per_minute:
-        return {"per_minute": max(per_minute)}
-    text = [e for e in entries if "input" in e and "output" in e]
+    if provider == "openai" and audio_name and speech:
+        prices = {"per_minute": max(e["per_minute"] for e in speech)}
+        by_tokens = [e for e in speech if "input" in e and "output" in e]
+        if by_tokens:  # a token-billed speech-to-text model: the highest token prices too
+            prices.update(input=max(e["input"] for e in by_tokens), output=max(e["output"] for e in by_tokens),
+                          audio_input=max(e.get("audio_input", e["input"]) for e in by_tokens))
+        return prices
+    text = [e for e in entries if "input" in e and "output" in e and "per_minute" not in e]
     if not text:
-        return {"per_minute": max(per_minute)} if per_minute else None
+        return {"per_minute": max(e["per_minute"] for e in speech)} if speech else None
 
     def top(key, default="input"):
         return max(e.get(key, e[default]) for e in text)
@@ -148,13 +183,14 @@ def calculate_cost(provider: str, model: str, input_tokens: int, output_tokens: 
     each priced at its own rate (audio_input=True: all input tokens are audio). Cached tokens are counted against
     the text input first, then the audio. The price is the served model's when PRICING knows it, else the requested
     model's; a model missing from PRICING is priced at its provider's highest prices (warned once per process); an
-    unknown provider costs 0. Per-minute (speech-to-text) models are priced from `audio_seconds`, or, when that is
-    unknown, from seconds estimated from `output_tokens` (estimated_audio_seconds).
+    unknown provider costs 0. Speech-to-text: a model with token prices (gpt-4o*-transcribe) whose call reported
+    audio input tokens and no duration is priced by tokens; otherwise per minute, from `audio_seconds`, or, when
+    that is unknown, from seconds estimated from `output_tokens` (estimated_audio_seconds).
     """
     try:
         provider_key = (provider or "").strip().lower()
         when = _utc(at)
-        key = resolve_model(provider_key, served_model) or resolve_model(provider_key, model)
+        key = price_key(provider_key, model, served_model)
         if key is not None:
             prices = _prices_at(PRICING[provider_key][key], when)
         else:
@@ -171,7 +207,11 @@ def calculate_cost(provider: str, model: str, input_tokens: int, output_tokens: 
 
         input_tokens = max(int(input_tokens or 0), 0)
         output_tokens = max(int(output_tokens or 0), 0)
-        if "per_minute" in prices:
+        audio = input_tokens if audio_input else min(max(int(audio_input_tokens or 0), 0), input_tokens)
+        # Speech-to-text: by tokens when the model has token prices and the call reported audio tokens but no
+        # duration (gpt-4o*-transcribe); otherwise per minute, from the duration or an estimate from the transcript.
+        by_tokens = "input" in prices and "output" in prices and audio_seconds is None and audio > 0
+        if "per_minute" in prices and not by_tokens:
             seconds = audio_seconds if audio_seconds is not None else estimated_audio_seconds(output_tokens)
             return round(max(float(seconds), 0.0) / 60 * prices["per_minute"], 6)
 
@@ -184,7 +224,6 @@ def calculate_cost(provider: str, model: str, input_tokens: int, output_tokens: 
         price_cached_audio = prices.get("cached_audio_input", price_cached)
         price_write = prices.get("cache_write", price_in)
 
-        audio = input_tokens if audio_input else min(max(int(audio_input_tokens or 0), 0), input_tokens)
         text = input_tokens - audio
         cached = max(int(cached_input_tokens or 0), 0)
         cached_text = min(cached, text)

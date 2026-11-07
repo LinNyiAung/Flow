@@ -424,7 +424,8 @@ Gemini 2.5 Flash was stored about 5–8 times too cheap, voice input on Whisper 
 (about $0), and a model missing from the table cost $0. Now: prices per model and date, cached input
 tokens at the cached rate, Gemini audio input at the audio rate, Whisper per minute of audio, the
 Gemini 2.5 Pro and Claude Haiku 5.5 long-prompt rates, the model that actually answered (a provider
-may serve another model than the one requested), a model missing from the table at its provider's
+may serve another model than the one requested), `gpt-4o-transcribe` / `gpt-4o-mini-transcribe` by
+their reported audio and text tokens, a model missing from the table at its provider's
 highest prices, billed answers the app rejected, and chat streams cut short after text started. The
 AI Providers page also offers `gemini-3.5-flash-lite` and `gemini-3.8-flash` (Google routes
 `gemini-2.5-flash` and `gemini-2.5-pro` to them from 2026-12-01) and the OpenAI speech-to-text models
@@ -443,6 +444,10 @@ AI Providers page also offers `gemini-3.5-flash-lite` and `gemini-3.8-flash` (Go
      transaction each). Running it again changes 0 rows.
   Older rows have no stored audio length, so OpenAI voice input rows are priced from a duration
   estimated from the transcript; the script says how many.
+  Rows of a model missing from the price table (a retired one such as `gemini-2.0-flash-exp`, or a
+  name typed under "Other…") are priced at their provider's highest prices. The dry run (and
+  `--apply`) lists each such provider/model with its row count and old and new cost; add
+  `--keep-unknown` (to the dry run and to `--apply`) to leave those rows at their stored cost.
 - The plan cost caps use the recalculated numbers immediately: heavy users may reach their monthly
   cap sooner than before. That is the correct behaviour (the old numbers were too low); raise the
   caps on the admin **Plans** page if needed.

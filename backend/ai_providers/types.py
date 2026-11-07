@@ -46,3 +46,7 @@ class Completion:
     cache_write_tokens: int = 0          # Claude cache creation tokens
     audio_input_tokens: int = 0          # input tokens that were audio (priced at the audio input rate)
     estimated: bool = False              # tokens or duration estimated (len // 4 ...) rather than reported
+    # An answer made of several provider requests (the translation's cut-off retry): each request, recorded as its
+    # own usage row (so each is priced on its own, long-prompt rates included). The totals above are their sums.
+    requests: tuple["Completion", ...] = ()
+    outcome: str | None = None           # for one of `requests`: "rejected" when its text was not used

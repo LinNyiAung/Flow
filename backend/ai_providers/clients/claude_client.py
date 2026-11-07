@@ -57,21 +57,26 @@ def strict_schema(schema):
     return out
 
 
-def _completion(message) -> Completion:
+def _completion(message, prompt: Prompt | None = None) -> Completion:
     """BetaMessage -> Completion. Claude reports cache reads and cache writes apart from input_tokens; input_tokens
     here is their sum (every input token billed), with the cached and written parts carried separately. The served
-    model is message.model (a server-side fallback can answer with another model than the one requested)."""
+    model is message.model (a server-side fallback can answer with another model than the one requested). Without
+    `usage`, the tokens are len // 4 of the prompt and the answer, marked estimated (like the OpenAI client)."""
     usage = getattr(message, "usage", None)
+    text = text_of(message)
+    served = getattr(message, "model", None)
+    served = served if isinstance(served, str) else None
+    finish = map_finish(getattr(message, "stop_reason", None))
+    if usage is None:
+        chars = (len(prompt.system) + len(prompt.user)) if prompt is not None else 0
+        return Completion(text, chars // 4, len(text) // 4, finish, served_model=served, estimated=True)
 
     def count(name):
         v = getattr(usage, name, None)
         return v if isinstance(v, int) else 0
     read, write = count("cache_read_input_tokens"), count("cache_creation_input_tokens")
-    served = getattr(message, "model", None)
-    return Completion(text_of(message), count("input_tokens") + read + write, count("output_tokens"),
-                      map_finish(getattr(message, "stop_reason", None)),
-                      served_model=served if isinstance(served, str) else None,
-                      cached_input_tokens=read, cache_write_tokens=write, estimated=usage is None)
+    return Completion(text, count("input_tokens") + read + write, count("output_tokens"), finish,
+                      served_model=served, cached_input_tokens=read, cache_write_tokens=write)
 
 
 class ClaudeClient:
@@ -120,8 +125,8 @@ class ClaudeClient:
             kwargs["timeout"] = timeout  # seconds, this request only (create() and stream() both take it)
         if prompt.max_tokens > STREAM_ABOVE_TOKENS:
             async with self._messages().stream(**kwargs) as s:
-                return _completion(await s.get_final_message())
-        return _completion(await self._messages().create(**kwargs))
+                return _completion(await s.get_final_message(), prompt)
+        return _completion(await self._messages().create(**kwargs), prompt)
 
     async def stream(self, model: str, prompt: Prompt, *, effort: str | None = None) -> AsyncIterator[str | Completion]:
         async with self._messages().stream(**self._request(model, prompt, effort)) as s:
@@ -129,7 +134,7 @@ class ClaudeClient:
                 if text:
                     yield text
             final = await s.get_final_message()
-        done = _completion(final)
+        done = _completion(final, prompt)
         done.text = ""
         yield done
 

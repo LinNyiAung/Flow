@@ -25,7 +25,7 @@ from ai_providers import errors as _errors
 from ai_providers import runner as _runner
 from ai_providers import settings as _ai_settings
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer
-from ai_providers.types import Prompt
+from ai_providers.types import Completion, Prompt
 
 logger = logging.getLogger(__name__)
 
@@ -893,8 +893,10 @@ def _translation_call(english_content: str):
     The single-shot attempt and, when it is cut off at the output limit (completion finish "length",
     whichever provider), the section-by-section retry all run on the same target, so a translation never
     mixes providers. A chunk that is still cut off (or refused, filtered or empty) raises UnusableAnswer:
-    the runner then tries the next provider with the whole text. The returned Completion sums the tokens
-    of every request, so the runner tracks the usage once for the answering target.
+    the runner then tries the next provider with the whole text. Every provider request is billed, so the
+    returned Completion (or the error) lists them in `requests`, and the runner writes one usage row per
+    request: the cut-off first attempt "rejected", the chunks whose text is used "used". On a give-up or an
+    error after some chunks, every request billed so far is recorded as "rejected".
     """
     feature = "insight_translation"
 
@@ -910,26 +912,35 @@ def _translation_call(english_content: str):
         chunks = _split_markdown_sections(english_content)
         logger.warning(f"⚠️ Myanmar translation truncated on {t.provider}/{t.model}; "
                        f"retrying in {len(chunks)} section chunk(s)")
-        # Every request is billed: a give-up passes the summed usage on, so the runner records it as rejected.
-        spent = replace(first, text="", finish="stop")
+        billed = [replace(first, text="", outcome="rejected")]  # the cut-off text is replaced by the chunks
+
+        def spent(text=""):
+            """One Completion listing every billed request (its totals are their sums)."""
+            return Completion(text, sum(r.input_tokens for r in billed), sum(r.output_tokens for r in billed), "stop",
+                              served_model=next((r.served_model for r in billed if r.served_model), None),
+                              cached_input_tokens=sum(r.cached_input_tokens for r in billed),
+                              cache_write_tokens=sum(r.cache_write_tokens for r in billed),
+                              estimated=any(r.estimated for r in billed), requests=tuple(billed))
         if len(chunks) <= 1:
-            raise UnusableAnswer("translation cut off at the output limit", completion=spent)
+            raise UnusableAnswer("translation cut off at the output limit", completion=spent())
         parts = []
         for chunk in chunks:
-            c = await translate(client, t, chunk)
-            spent = replace(spent, input_tokens=spent.input_tokens + c.input_tokens,
-                            output_tokens=spent.output_tokens + c.output_tokens,
-                            cached_input_tokens=spent.cached_input_tokens + c.cached_input_tokens,
-                            cache_write_tokens=spent.cache_write_tokens + c.cache_write_tokens,
-                            served_model=spent.served_model or c.served_model,
-                            estimated=spent.estimated or c.estimated)
+            try:
+                c = await translate(client, t, chunk)
+            except Exception as e:
+                try:
+                    e.billed_usage = spent()  # the requests billed before this error (see ai_providers.errors)
+                except AttributeError:  # an exception type that takes no attributes: nothing to pass on
+                    pass
+                raise
+            billed.append(replace(c, text=""))
             if c.finish == "refusal":
-                raise UnusableAnswer("refusal", completion=spent)
+                raise UnusableAnswer("refusal", completion=spent())
             if c.finish != "stop" or not _has_content(c.text):
                 raise UnusableAnswer(f"translation chunk {c.finish if c.finish != 'stop' else 'empty'}",
-                                     completion=spent)
+                                     completion=spent())
             parts.append(c.text.strip())
-        return replace(spent, text="\n\n".join(parts))
+        return spent("\n\n".join(parts))
 
     return call
 

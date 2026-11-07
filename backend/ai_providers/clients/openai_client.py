@@ -62,6 +62,37 @@ def audio_seconds_of(response) -> float | None:
     return float(duration) if isinstance(duration, (int, float)) else None
 
 
+def transcription_tokens_of(response) -> tuple[int, int, int] | None:
+    """(input, output, audio input) tokens from a transcription's `usage` of type "tokens" (UsageTokens:
+    input_tokens, output_tokens, input_token_details.audio_tokens / text_tokens); None for any other usage. Without
+    a breakdown the input counts as audio (the request sends the recording and no prompt)."""
+    usage = getattr(response, "usage", None)
+    if usage is None or getattr(usage, "type", None) != "tokens":
+        return None
+    tokens_in, tokens_out = getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None)
+    if not isinstance(tokens_in, int) or not isinstance(tokens_out, int):
+        return None
+    details = getattr(usage, "input_token_details", None)
+    audio = getattr(details, "audio_tokens", None) if details is not None else None
+    if not isinstance(audio, int):
+        text_tokens = getattr(details, "text_tokens", None) if details is not None else None
+        audio = tokens_in - text_tokens if isinstance(text_tokens, int) else tokens_in
+    return tokens_in, tokens_out, max(0, min(audio, tokens_in))
+
+
+def wav_seconds(audio: bytes) -> float | None:
+    """The length of a PCM WAV recording, read from its header with the standard library; None for anything else
+    (other containers need a decoder this backend does not have)."""
+    if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        return None
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as w:
+            rate = w.getframerate()
+            return w.getnframes() / rate if rate > 0 else None
+    except (wave.Error, EOFError, ValueError):
+        return None
+
+
 def _silent_wav() -> bytes:
     """Half a second of silence: the smallest thing Whisper accepts for a ping."""
     buf = io.BytesIO()
@@ -134,9 +165,17 @@ class OpenAIClient:
             kwargs["language"] = language  # omitted -> auto-detect
         r = await self._client().audio.transcriptions.create(**kwargs)
         text = r.text or ""
-        tokens = len(text) // 4  # the token columns stay an estimate (speech-to-text is billed per minute)
+        served = getattr(r, "model", None)
+        tokens = transcription_tokens_of(r)
+        if tokens is not None:  # gpt-4o*-transcribe: billed by tokens, reported exactly
+            tokens_in, tokens_out, audio_tokens = tokens
+            return Completion(text, tokens_in, tokens_out, "stop", served_model=served, audio_input_tokens=audio_tokens)
+        # whisper-1: billed per minute of audio. The token columns stay an estimate.
         seconds = audio_seconds_of(r)
-        return Completion(text, tokens, tokens, "stop", audio_seconds=seconds, served_model=getattr(r, "model", None),
+        if seconds is None:
+            seconds = wav_seconds(audio)
+        estimate = len(text) // 4
+        return Completion(text, estimate, estimate, "stop", audio_seconds=seconds, served_model=served,
                           estimated=seconds is None)
 
     async def ping(self, model: str) -> None:

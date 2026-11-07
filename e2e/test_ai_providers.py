@@ -1460,9 +1460,36 @@ async def client_checks():
           "openai_transcribe: the audio length comes from usage (type 'duration', seconds); no verbose_json needed",
           (r.audio_seconds, r.estimated, k))
     r = await get_client("openai").transcribe("gpt-4o-mini-transcribe", b"x", "a.wav", None)
-    check(r.text == "fake transcript" and r.audio_seconds is None and r.estimated is True
-          and r.output_tokens == len("fake transcript") // 4,
-          "openai_transcribe: gpt-4o-mini-transcribe (token usage, no duration) -> no seconds, marked estimated", r)
+    check(r.text == "fake transcript" and r.audio_seconds is None and r.estimated is False
+          and (r.input_tokens, r.output_tokens, r.audio_input_tokens) == (60, 4, 60),
+          "openai_transcribe: gpt-4o-mini-transcribe reports token usage -> real tokens (audio 60 in, 4 out), "
+          "not estimated", r)
+    # the SDK shape (openai.types.audio.Transcription.usage: UsageTokens.input_token_details.audio_tokens/text_tokens)
+    try:
+        from openai.types.audio import Transcription
+        real = Transcription.model_validate({"text": "hi", "usage": {
+            "type": "tokens", "input_tokens": 70, "output_tokens": 5, "total_tokens": 75,
+            "input_token_details": {"audio_tokens": 64, "text_tokens": 6}}})
+        check(openai_client.transcription_tokens_of(real) == (70, 5, 64)
+              and openai_client.transcription_tokens_of(NS(usage=NS(type="tokens", input_tokens=9, output_tokens=1)))
+              == (9, 1, 9)
+              and openai_client.transcription_tokens_of(NS(usage=NS(type="duration", seconds=3.0))) is None,
+              "openai_transcribe: transcription_tokens_of reads UsageTokens (no breakdown: all audio), not durations")
+    except Exception as e:  # noqa: BLE001
+        check(False, "openai_transcribe: transcription_tokens_of reads UsageTokens", repr(e))
+    # no usage at all: a WAV recording's length comes from its header (standard library), else the text estimate
+    saved_usage = stubenv._transcription_usage
+    stubenv._transcription_usage = lambda model: None
+    try:
+        r_wav = await get_client("openai").transcribe("gpt-4o-transcribe", openai_client._silent_wav(), "a.wav", None)
+        r_mp3 = await get_client("openai").transcribe("whisper-1", b"ID3xxxx", "a.mp3", None)
+    finally:
+        stubenv._transcription_usage = saved_usage
+    check(r_wav.audio_seconds == 0.5 and r_wav.estimated is False and r_mp3.audio_seconds is None and r_mp3.estimated,
+          "openai_transcribe: no usage -> WAV length from the header (0.5 s, exact); other formats estimated",
+          (r_wav, r_mp3))
+    check(openai_client.wav_seconds(openai_client._silent_wav()) == 0.5 and openai_client.wav_seconds(b"RIFFjunk") is None
+          and openai_client.wav_seconds(b"") is None, "openai_transcribe: wav_seconds reads PCM WAV headers only")
     # the SDK shapes, read from openai.types.audio: Transcription.usage is UsageDuration | UsageTokens;
     # TranscriptionVerbose has `duration`
     check(openai_client.audio_seconds_of(NS(text="x", usage=NS(type="duration", seconds=12.5))) == 12.5
@@ -1625,6 +1652,10 @@ async def client_checks():
     check(c.input_tokens == 1150 and c.cached_input_tokens == 1000 and c.cache_write_tokens == 50 and c.output_tokens == 7
           and c.served_model == "claude-haiku-5-5",
           "claude usage: input_tokens + cache reads + cache writes, the cache parts apart, message.model served", c)
+    c = claude_client._completion(NS(content=[NS(type="text", text="x" * 40)], stop_reason="refusal",
+                                     model="claude-sonnet-5-5"), Prompt("s" * 100, "u" * 100))
+    check(c.input_tokens == 50 and c.output_tokens == 10 and c.estimated and c.finish == "refusal",
+          "claude usage: no usage -> len // 4 of the prompt and the answer, marked estimated (review M8)", c)
 
 
 async def _gemini_server_timeout_header_checks():
@@ -2172,6 +2203,7 @@ async def _cost_runner_checks(uid, usage_rows, go, go_stream, parse_json, claude
     from contextlib import aclosing
 
     from ai_providers import health, runner, settings
+    from ai_providers.clients.base import get_client
     from ai_providers.errors import AllProvidersFailed, UnusableAnswer
     from ai_providers.types import Completion, FeatureSetting, Prompt, Target
 
@@ -2304,6 +2336,115 @@ async def _cost_runner_checks(uid, usage_rows, go, go_stream, parse_json, claude
     check(isinstance(err, AllProvidersFailed) and len(rows) == 1 and rows[0]["outcome"] == "rejected"
           and rows[0]["input_tokens"] == 100 and rows[0]["output_tokens"] == 50 and rows[0]["cached_input_tokens"] == 20,
           "rejected_answer_recorded: UnusableAnswer(completion=...) from a call is recorded", rows)
+
+    # review M4: the request is cancelled while the success's usage INSERT is in flight: exactly one row, never two
+    import sql.ai_usage as ai_usage_sql
+    real_insert = ai_usage_sql.insert_usage
+    entered = asyncio.Event()
+
+    async def slow_insert(doc):
+        entered.set()
+        await asyncio.sleep(0.3)
+        await real_insert(doc)
+    async def stream_request():
+        return [x async for x in runner.run_stream("chat", user_id=uid, prompt=big)]
+
+    async def run_request():
+        return await runner.run("chat", user_id=uid, call=runner.default_call(big, "chat"))
+    for label, request in (("run_stream", stream_request), ("run", run_request)):
+        n0 = await start()
+        entered.clear()
+        ai_usage_sql.insert_usage = slow_insert
+        try:
+            task = asyncio.create_task(request())
+            await asyncio.wait_for(entered.wait(), 10)
+            task.cancel()
+            try:
+                await task
+                cancelled = False
+            except asyncio.CancelledError:
+                cancelled = True
+            rows = await new_rows(n0)
+        finally:
+            ai_usage_sql.insert_usage = real_insert
+        check(cancelled and len(rows) == 1 and rows[0]["outcome"] == "used"
+              and rows[0]["input_tokens"] == stubenv.FAKE_USAGE[0],
+              f"success_write_survives_cancel: {label} cancelled during the usage INSERT still writes exactly one "
+              "'used' row (M4)", (cancelled, rows))
+        check(health.is_available(T("claude", "claude-sonnet-5-5")), f"success_write_survives_cancel: {label} no cool-off")
+
+    # review M6: the translation's cut-off retry writes one row per request, each priced on its own: 2.5 Pro's
+    # long-prompt rate applies per request (150k-token chunks stay on the base rate although they sum past 200k)
+    import insights_service as ins
+    gc = get_client("gemini")
+    script = []
+
+    async def scripted_complete(model, prompt, *, effort=None, timeout=None):
+        step = script.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        return step
+    await settings.save_panel("insight_translation", FeatureSetting(T("gemini", "gemini-2.5-pro"), (), "panel"), "t6@x")
+    try:
+        health.reset()
+        stubenv.clear_fake_ai()
+        n0 = len(await usage_rows())
+        n_chunks = len(ins._split_markdown_sections(LONG_INSIGHT))
+        script[:] = ([Completion("cut", 150_000, 1000, "length", served_model="gemini-2.5-pro")]
+                     + [Completion(f"part {i}", 150_000, 2000, "stop", served_model="gemini-2.5-pro")
+                        for i in range(n_chunks)])
+        gc.complete = scripted_complete
+        r = await runner.run("insight_translation", user_id=uid, call=ins._translation_call(LONG_INSIGHT))
+        rows = await new_rows(n0)
+        per_request = round((150_000 * 1.25 + 2000 * 10.00) / 1e6, 6)
+        check(isinstance(r, runner.RunResult) and n_chunks > 1
+              and [(x["outcome"], x["input_tokens"]) for x in rows]
+              == [("rejected", 150_000)] + [("used", 150_000)] * n_chunks
+              and float(rows[0]["estimated_cost_usd"]) == round((150_000 * 1.25 + 1000 * 10.00) / 1e6, 6)
+              and all(float(x["estimated_cost_usd"]) == per_request for x in rows[1:]),
+              "translation_rows_per_request: the cut-off attempt 'rejected', each chunk 'used', each at the base "
+              "2.5 Pro rate (M6)", [(x["outcome"], x["input_tokens"], float(x["estimated_cost_usd"])) for x in rows])
+
+        # a later chunk fails with an HTTP error: the requests billed before it are recorded as 'rejected'
+        health.reset()
+        n0 = len(await usage_rows())
+        script[:] = [Completion("cut", 1000, 100, "length"), Completion("part 0", 500, 50, "stop"),
+                     stubenv.FakeAPIError(503, None, "The service is unavailable")]
+        try:
+            await runner.run("insight_translation", user_id=uid, call=ins._translation_call(LONG_INSIGHT))
+            err = None
+        except AllProvidersFailed as e:
+            err = e
+        rows = await new_rows(n0)
+        check(isinstance(err, AllProvidersFailed) and [(x["outcome"], x["input_tokens"]) for x in rows]
+              == [("rejected", 1000), ("rejected", 500)],
+              "translation_rows_per_request: chunks billed before an HTTP error are recorded 'rejected'; the failed "
+              "request is not (M6)", [(x["outcome"], x["input_tokens"]) for x in rows])
+    finally:
+        script.clear()
+        gc.__dict__.pop("complete", None)
+        await settings.clear_panel("insight_translation")
+        health.reset()
+
+    # review M8: a Claude answer without usage is still recorded (estimated), e.g. when it is rejected
+    cc_client = get_client("claude")
+    real_create = cc_client._messages
+
+    class _NoUsage:
+        async def create(self, **k):
+            return NS(content=[], stop_reason="refusal", model=k.get("model"))
+    n0 = await start()
+    cc_client._messages = lambda: _NoUsage()
+    try:
+        r, called = await go(prompt=big)
+    finally:
+        cc_client.__dict__.pop("_messages", None)
+    rows = await new_rows(n0)
+    check(isinstance(r, runner.RunResult) and real_create == cc_client._messages
+          and [(x["provider"], x["outcome"], x["cost_estimated"], x["input_tokens"]) for x in rows]
+          == [("claude", "rejected", True, 200), ("openai", "used", False, stubenv.FAKE_USAGE[0])],
+          "claude_no_usage: a refusal without usage still writes a 'rejected' row, estimated from the prompt (M8)",
+          [(x["provider"], x["outcome"], x["cost_estimated"], x["input_tokens"]) for x in rows])
     stubenv.clear_fake_ai()
 
 
@@ -2436,6 +2577,41 @@ def pricing_checks():
           and close(cc("claude", "claude-haiku-5-5", 100_001, M), 100_001 * 0.50 / M + 2.50),
           "long_context: claude-haiku-5-5 over 100,000 prompt tokens at 0.50/2.50")
 
+    # review M7: gpt-4o*-transcribe billed by tokens when the call reported them (audio 6.00 / 3.00, text input
+    # 2.50 / 1.25, output 10.00 / 5.00 per 1M); per minute otherwise; whisper-1 always per minute
+    check(near(cc("openai", "gpt-4o-transcribe", M, M, audio_input_tokens=M), 16.00)
+          and near(cc("openai", "gpt-4o-transcribe", M, 0, audio_input_tokens=800_000), round(0.8 * 6.00 + 0.2 * 2.50, 6))
+          and near(cc("openai", "gpt-4o-mini-transcribe", M, M, audio_input_tokens=M), 8.00)
+          and near(cc("openai", "gpt-4o-mini-transcribe", M, 0, audio_input_tokens=500_000),
+                   round(0.5 * 3.00 + 0.5 * 1.25, 6)),
+          "transcribe_tokens: gpt-4o-transcribe 1M audio + 1M out = $16; gpt-4o-mini-transcribe $8; text input apart")
+    check(near(cc("openai", "gpt-4o-mini-transcribe", 600, 20, audio_input_tokens=600, audio_seconds=60), 0.003)
+          and near(cc("openai", "gpt-4o-mini-transcribe", 55, 55), round(16.0 / 60 * 0.003, 6))
+          and near(cc("openai", "whisper-1", M, M, audio_input_tokens=M),
+                   round(aus.estimated_audio_seconds(M) / 60 * 0.006, 6)),
+          "transcribe_tokens: a known duration or no audio tokens -> per minute; whisper-1 is never token-priced")
+    aus._warned_unknown.discard(("openai", "gpt-5-transcribe"))
+    check(near(cc("openai", "gpt-5-transcribe", M, M, audio_input_tokens=M), 16.00)
+          and near(cc("openai", "gpt-5-transcribe", 0, 0, audio_seconds=60), 0.006),
+          "transcribe_tokens: an unknown *transcribe* model with token usage gets the highest token prices")
+
+    # review M9: -NNN version suffixes never cross from flash-lite to flash
+    check(aus.resolve_model("gemini", "gemini-2.5-flash-lite-001") == "gemini-2.5-flash-lite"
+          and aus.resolve_model("gemini", "gemini-2.5-flash-001") == "gemini-2.5-flash"
+          and aus.resolve_model("gemini", "models/gemini-2.5-pro-002") == "gemini-2.5-pro",
+          "resolve_model: -001 suffixes resolve to their own model (flash-lite stays flash-lite)")
+    # review M5: "answered by" only for another model, not a dated snapshot of the same one
+    check(not aus.served_differs("openai", "gpt-4o-mini", "gpt-4o-mini-2024-07-18")
+          and not aus.served_differs("gemini", "gemini-2.5-flash", "models/gemini-2.5-flash-001")
+          and not aus.served_differs("claude", "claude-sonnet-5-5", None)
+          and not aus.served_differs("claude", "claude-sonnet-5-5", "")
+          and aus.served_differs("gemini", "gemini-2.5-flash", "gemini-3.5-flash-lite")
+          and aus.served_differs("gemini", "gemini-2.5-flash", "gemini-2.5-flash-lite")
+          and aus.served_differs("claude", "claude-sonnet-5-5", "claude-opus-5-5")
+          and aus.served_differs("gemini", "gemini-2.5-flash", "gemini-x-preview")
+          and not aus.served_differs("openai", "my-custom-model", "my-custom-model-2026-01-01"),
+          "served_differs: snapshots/aliases are the same model; another model (or an unknown one) differs")
+
 
 async def cost_tracking_checks():
     """AI cost fix: track_ai_usage stores the cost and its detail, the cost cap sees it, and the recalculation
@@ -2481,6 +2657,17 @@ async def cost_tracking_checks():
               "track_ai_usage: audio_input=True stores every input token as audio, priced at 1.00", rows[-1])
         await execute(delete(ai_usage).where(ai_usage.c.user_id == uid))
 
+        # review M1: "answers given by a backup" counts used and cut-short backup answers, not rejected ones
+        future = datetime(2031, 1, 1, tzinfo=UTC)  # alone in this window
+        for n, outcome in enumerate(("rejected", "used", "cancelled", None, "rejected")):
+            await execute(insert(ai_usage).values(id=f"{uid}-fb{n}", user_id=uid, feature_type="chat",
+                                                  provider="claude", model_name="claude-sonnet-5-5",
+                                                  fallback_from="gemini", outcome=outcome,
+                                                  created_at=future + timedelta(seconds=n)))
+        counts = await ai_usage_db.backup_answer_counts(future - timedelta(seconds=1))
+        check(counts == {"gemini": 3}, "backup_answer_counts: rejected backup answers are not counted (M1)", counts)
+        await execute(delete(ai_usage).where(ai_usage.c.user_id == uid))
+
         # the recalculation script: seeded rows at the old (wrong) costs
         t0 = datetime(2026, 11, 1, 12, tzinfo=UTC)
         seed = [
@@ -2491,8 +2678,19 @@ async def cost_tracking_checks():
             ("d", "chat", "claude", "claude-sonnet-5-5", 1000, 100, 0.003, {}),  # already right: unchanged
             ("e", "chat", "openai", "gpt-4o-mini", 1_000_000, 0, 0.15, {"cached_input_tokens": 400_000,
                                                                         "served_model": "gpt-4o-mini-2024-07-18"}),
-            ("f", "transaction_audio_transcription", "openai", "whisper-1", 3, 3, 0.0, {"audio_seconds": 30.0}),
+            ("f", "transaction_audio_transcription", "openai", "whisper-1", 3, 3, 0.0,
+             {"audio_seconds": 30.0, "outcome": "used"}),
             ("g", "chat", "gemini", "gemini-3.8-flash", 1_000_000, 0, 0.0, {"created_at": datetime(2027, 1, 2, tzinfo=UTC)}),
+            # review M9: the call date, not "now", picks the dated price (the last second of 2026)
+            ("h", "chat", "gemini", "gemini-3.8-flash", 1_000_000, 0, 0.0,
+             {"created_at": datetime(2026, 12, 31, 23, 59, 59, tzinfo=UTC)}),
+            # review M2: a retired model (was $0): priced at gemini's highest prices, and listed
+            ("i", "chat", "gemini", "gemini-2.0-flash-exp", 1000, 100, 0.0, {}),
+            # review M3: a newer gemini voice row whose breakdown had no audio: text rate, not repriced as audio
+            ("j", "transaction_audio_transcription", "gemini", "gemini-2.5-flash", 2000, 10, 0.000625, {"outcome": "used"}),
+            # review M7: a newer gpt-4o-mini-transcribe row with its reported tokens: priced by tokens
+            ("k", "transaction_audio_transcription", "openai", "gpt-4o-mini-transcribe", 600, 20, 0.0,
+             {"outcome": "used", "audio_input_tokens": 600}),
         ]
         for i, f, p, m, tin, tout, cost, extra in seed:
             await execute(insert(ai_usage).values(**{
@@ -2507,6 +2705,10 @@ async def cost_tracking_checks():
             "e": round(0.6 * 0.15 + 0.4 * 0.075, 6),
             "f": 0.003,
             "g": 1.50,
+            "h": 0.75,
+            "i": round((1000 * 1.25 + 100 * 10.00) / 1e6, 6),
+            "j": 0.000625,
+            "k": round((600 * 3.00 + 20 * 5.00) / 1e6, 6),
         }
         printed = []
 
@@ -2518,18 +2720,38 @@ async def cost_tracking_checks():
         check(await costs() == old, "recalculate_dry_run: writes nothing", await costs())
         old_sum = sum(Decimal(str(s[6])) for s in seed)
         new_sum = sum(Decimal(str(v)).quantize(Decimal("0.000001")) for v in expect.values())
-        check(dry["total"]["rows"] == 7 and dry["total"]["changed"] == 6 and dry["total"]["old"] == old_sum
+        check(dry["total"]["rows"] == 11 and dry["total"]["changed"] == 9 and dry["total"]["old"] == old_sum
               and dry["total"]["new"] == new_sum and dry["providers"]["claude"]["changed"] == 0
-              and dry["providers"]["gemini"]["rows"] == 3 and dry["estimated_audio_rows"] == 1 and dry["applied"] == 0,
+              and dry["providers"]["gemini"]["rows"] == 6 and dry["estimated_audio_rows"] == 1 and dry["applied"] == 0,
               "recalculate_dry_run: reports rows, old vs new sums per provider and in total, and the rows that change",
               (dry, old_sum, new_sum))
+        unk = dry["unknown"]
+        check(list(unk) == [("gemini", "gemini-2.0-flash-exp")]
+              and unk[("gemini", "gemini-2.0-flash-exp")]["rows"] == 1
+              and unk[("gemini", "gemini-2.0-flash-exp")]["new"] == Decimal(str(expect["i"])),
+              "recalculate_unknown: the dry run lists each model missing from PRICING with rows and old/new cost (M2)",
+              unk)
         text = "\n".join(printed)
         check("dry run" in text and "total" in text and "estimated" in text and "postgresql" not in text.lower()
-              and "54329" not in text, "recalculate_dry_run: the printout (no connection string)", text)
+              and "54329" not in text and "gemini/gemini-2.0-flash-exp: 1 row(s), old 0.000000, new 0.002250" in text
+              and "--keep-unknown" in text,
+              "recalculate_dry_run: the printout lists the unknown models (no connection string)", text)
+        # --keep-unknown: the unknown model's row keeps its stored cost
+        printed.clear()
+        kept = await rc.recalculate(True, keep_unknown=True, user_id=uid, batch_size=3, out=printed.append)
+        got = await costs()
+        check(kept["applied"] == 8 and got["i"] == 0.0
+              and all(abs(got[k] - v) < 1e-9 for k, v in expect.items() if k != "i")
+              and "kept at their stored cost" in "\n".join(printed),
+              "recalculate_keep_unknown: --apply --keep-unknown updates the known rows and leaves the unknown one",
+              (kept["applied"], got))
         applied = await rc.recalculate(True, user_id=uid, batch_size=3, out=printed.append)
         got = await costs()
-        check(applied["applied"] == 6 and all(abs(got[k] - v) < 1e-9 for k, v in expect.items()),
-              "recalculate_apply: updates the changed rows to the new prices", (got, expect))
+        check(applied["applied"] == 1 and all(abs(got[k] - v) < 1e-9 for k, v in expect.items()),
+              "recalculate_apply: without --keep-unknown the remaining row is repriced too", (got, expect))
+        check(got["j"] == 0.000625 and got["h"] == 0.75 and got["k"] == expect["k"],
+              "recalculate: newer rows are not treated as legacy (M3); the call date picks 3.8's price (M9); "
+              "gpt-4o-mini-transcribe rows are priced by their stored tokens (M7)", got)
         again = await rc.recalculate(True, user_id=uid, out=printed.append)
         check(again["applied"] == 0 and again["total"]["changed"] == 0 and await costs() == got,
               "recalculate_apply_again: a second --apply changes 0 rows", again["total"])
@@ -3505,10 +3727,11 @@ async def _insight_inprocess_checks(uid):
         new = await new_usage(seen)
         check(called == ["claude"] * 5 and mm.count("Fake answer") == 4,
               "translation: the cut-off retry runs on the same provider (one attempt + 4 chunks)", (called, mm[:80]))
-        check(len(new) == 1 and new[0]["provider"] == "claude" and new[0]["input_tokens"] == 50
-              and new[0]["output_tokens"] == 25,
-              "translation: one usage row for the whole retry, tokens summed over the 5 requests",
-              [(r["provider"], r["input_tokens"], r["output_tokens"]) for r in new])
+        # (AI cost fix, review M6: one row per provider request, each priced on its own)
+        check([(r["provider"], r["outcome"], r["input_tokens"], r["output_tokens"]) for r in new]
+              == [("claude", "rejected", 10, 5)] + [("claude", "used", 10, 5)] * 4,
+              "translation: one usage row per request: the cut-off attempt 'rejected', the 4 chunks 'used'",
+              [(r["provider"], r["outcome"], r["input_tokens"], r["output_tokens"]) for r in new])
 
         # a chunk still cut off: the next provider translates the whole text (never mixing providers)
         seen = {r["id"] for r in await translation_usage()}
@@ -3524,12 +3747,12 @@ async def _insight_inprocess_checks(uid):
               "translation: a chunk still cut off moves to the backup, which answers the whole text alone",
               (called, repr(err), mm[:80]))
         rows = await new_usage(seen)
-        # (AI cost fix: claude's two billed requests are one 'rejected' row, their tokens summed)
-        check([(r["provider"], r["fallback_from"], r["outcome"]) for r in rows]
-              == [("claude", None, "rejected"), ("openai", "claude", "used")]
-              and rows[0]["input_tokens"] == 2 * stubenv.FAKE_USAGE[0],
-              "translation: claude's billed attempts are one 'rejected' row; the backup's usage row names "
-              "fallback_from=claude", [(r["provider"], r["fallback_from"], r["outcome"], r["input_tokens"]) for r in rows])
+        # (AI cost fix: claude's two billed requests are two 'rejected' rows)
+        check([(r["provider"], r["fallback_from"], r["outcome"], r["input_tokens"]) for r in rows]
+              == [("claude", None, "rejected", 10), ("claude", None, "rejected", 10), ("openai", "claude", "used", 10)],
+              "translation: claude's billed attempts are 'rejected' rows (one per request); the backup's usage row "
+              "names fallback_from=claude", [(r["provider"], r["fallback_from"], r["outcome"], r["input_tokens"])
+                                             for r in rows])
 
         # ... and with no backups it still fails as InsightAIError (nothing cached, as before)
         settings.set_panel_cache({"insight_translation": FeatureSetting(Target("claude", "claude-sonnet-5-5"), (), "panel")})
@@ -4422,6 +4645,23 @@ async def usage_stats_checks():
         got = sorted((x["provider"], x["fallback_from"]) for x in recs)
         check(len(recs) == 2 and ("openai", "claude") in got and ("claude", None) in got,
               "usage_records_include_fallback_from: the backup's record names fallback_from claude", got)
+        # --- review M5: served_model is returned in full; served_differs only for another model, not a snapshot
+        from sqlalchemy import insert as sa_insert
+
+        from sql.tables import ai_usage as ai_usage_t
+        for rid, provider, model, served in (("snap", "openai", "gpt-4o-mini", "gpt-4o-mini-2024-07-18"),
+                                             ("moved", "gemini", "gemini-2.5-flash", "gemini-3.5-flash-lite")):
+            await execute(sa_insert(ai_usage_t).values(
+                id=f"{uid}-{rid}", user_id=uid, feature_type="chat", provider=provider,
+                model_name=model, served_model=served, outcome="used"))
+        recs = {x["id"]: x for x in c.get(f"/api/admin/ai-usage/user/{uid}", headers=AD).json()}
+        snap, moved = recs.get(f"{uid}-snap", {}), recs.get(f"{uid}-moved", {})
+        check(snap.get("served_model") == "gpt-4o-mini-2024-07-18" and snap.get("served_differs") is False
+              and moved.get("served_model") == "gemini-3.5-flash-lite" and moved.get("served_differs") is True
+              and moved.get("outcome") == "used" and moved.get("cost_estimated") is False,
+              "usage_records_served_differs: a dated snapshot is not 'answered by'; a rerouted model is (M5)",
+              (snap, moved))
+        await execute(delete(ai_usage_t).where(ai_usage_t.c.id.in_([f"{uid}-snap", f"{uid}-moved"])))
         # --- the usage filter knows the custom insight type (422 before the enum value existed)
         MODR = admin_login(c, made["moderator"])
         r = c.get(f"/api/admin/ai-usage/user/{uid}", headers=MODR, params={"feature_type": "custom_insight"})

@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-from sqlalchemy import case, distinct, func, insert, select
+from sqlalchemy import case, distinct, func, insert, or_, select
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value
 from sql.docs import rows_to_docs
@@ -44,10 +44,12 @@ async def user_cost_since(user_id: str, since: datetime) -> float:
 
 
 async def backup_answer_counts(since: datetime) -> Dict[str, int]:
-    """fallback_from provider -> number of answers since `since` that a backup gave after that provider failed."""
+    """fallback_from provider -> number of answers since `since` that a backup gave after that provider failed.
+    A backup's billed answer that was rejected (outcome 'rejected') is not an answer given; a cut-short one counts."""
     rows = await fetch_all(
         select(c.fallback_from, func.count().label("n"))
-        .where(c.fallback_from.is_not(None), c.created_at >= since)
+        .where(c.fallback_from.is_not(None), c.created_at >= since,
+               or_(c.outcome.is_(None), c.outcome != "rejected"))
         .group_by(c.fallback_from))
     return {r["fallback_from"]: int(r["n"]) for r in rows}
 
