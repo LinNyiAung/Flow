@@ -532,7 +532,7 @@ const AIUsageStats = ({ token }) => {
                       </div>
                       <div className="text-xs text-slate-400">
                         {providerLabel(record.provider ?? '')} · {record.model_name}
-                        {record.served_model && record.served_model !== record.model_name ? ` (answered by ${record.served_model})` : ''}
+                        {record.served_differs && record.served_model ? ` (answered by ${record.served_model})` : ''}
                         {record.fallback_from ? ` (backup for ${providerLabel(record.fallback_from)})` : ''}
                       </div>
                       {(record.outcome === 'rejected' || record.outcome === 'cancelled' || record.cost_estimated) && (
