@@ -152,6 +152,14 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
                         )}
                         <span className="text-slate-500">→</span>
                         <PlanBadge plan={item.requested_plan} />
+                        {item.is_renewal && (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border bg-sky-500/10 text-sky-300 border-sky-500/20"
+                            title="The user asks to keep the plan they have: extend its end date on the user's detail panel"
+                          >
+                            Renewal
+                          </span>
+                        )}
                         {BILLING_LABELS[item.billing] && (
                           <span className="text-xs font-semibold text-slate-300">{BILLING_LABELS[item.billing]}</span>
                         )}

@@ -179,8 +179,9 @@ export const resetUserUsage = (token, userId) =>
 // ─── Upgrade requests ─────────────────────────────────────────────────────────
 /**
  * status: 'pending' (default) | 'done' | 'dismissed'. Resolves to
- * [{ id, user_id, name, email, current_plan, is_trial, trial_ends_at, requested_plan, note, viber_number,
+ * [{ id, user_id, name, email, current_plan, is_trial, trial_ends_at, requested_plan, is_renewal, note, viber_number,
  *    billing ('month' | 'year' | null), created_at, status, handled_at }].
+ * is_renewal: a pending request for the paid plan the user has now (they ask to extend it); false once handled.
  */
 export const getUpgradeRequests = (token, params = {}) =>
   apiRequest('/api/admin/upgrade-requests', { token, params });
