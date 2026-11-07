@@ -6,7 +6,8 @@ expire_paid_plans() additionally downgrades expired users to "free" so the store
 targeting stay truthful.
 
 A trial is a Plus plan with users.trial_ends_at set (see plans.access.is_trial). send_trial_reminders() tells trial
-users, each at most once, when the trial is about to end.
+users, each at most once, when the trial is about to end. send_plan_renewal_reminders() does the same for paying users
+whose plan has an end date (once per end date), so they can ask to renew before it ends.
 """
 import asyncio
 import logging
@@ -29,8 +30,11 @@ logger = logging.getLogger(__name__)
 NOTIFY_IF_ENDED_WITHIN = timedelta(days=7)
 
 # Trial reminders: "trial ends soon" once the trial has at most 3 days left, "last day" once it has at most 1 day.
+# The paid-plan renewal reminders use the same two windows.
 TRIAL_REMINDER_SOON = timedelta(days=3)
 TRIAL_REMINDER_LAST = timedelta(days=1)
+PLAN_REMINDER_SOON = TRIAL_REMINDER_SOON
+PLAN_REMINDER_LAST = TRIAL_REMINDER_LAST
 
 
 def active_paid_filter(now: Optional[datetime] = None):
@@ -157,6 +161,51 @@ async def send_trial_reminders(now: Optional[datetime] = None) -> int:
 
     if sent:
         logger.info(f"Trial reminder job: sent {sent} reminder(s)")
+    return sent
+
+
+async def send_plan_renewal_reminders(now: Optional[datetime] = None) -> int:
+    """Remind paying users that their Plus / Pro plan is ending; returns the number of reminders sent.
+
+    Same windows as the trial reminders: "plan_ending_soon" when 3 days or less are left (but more than 1 day), and
+    "plan_ends_today" when 1 day or less is left; a user first seen inside the last day gets only the last-day one.
+    Only users on a paid plan with an end date still in the future who are not on a free trial (trial users get the
+    trial reminders instead); lifetime plans (no end date) are never reminded. Each reminder is claimed in the database
+    for that end date before it is sent, so overlapping runs or a re-run cannot send it twice, and an admin extension
+    to a new end date re-arms both.
+    """
+    now = now or datetime.now(UTC)
+    candidates = await users_db.list_fields(
+        ["subscription_type", "subscription_expires_at", "language"],
+        users_db.active_paid(now),
+        users_db.users.c.subscription_expires_at.isnot(None),
+        users_db.users.c.subscription_expires_at > now,
+        users_db.users.c.subscription_expires_at <= now + PLAN_REMINDER_SOON,
+        users_db.not_on_trial(now),
+    )
+
+    sent = 0
+    for user in candidates:
+        ends_at = ensure_utc_datetime(user["subscription_expires_at"])
+        kind = "last" if ends_at - now <= PLAN_REMINDER_LAST else "3d"
+        if not await users_db.claim_plan_reminder(user["_id"], kind, user["subscription_expires_at"], now):
+            continue
+        sent += 1
+        try:
+            lang = user_language(user)
+            plan = _plan_name(user["subscription_type"])
+            key = "plan_ends_today" if kind == "last" else "plan_ending_soon"
+            await create_notification(
+                user_id=user["_id"],
+                notification_type=key,
+                title=translate(f"{key}_title", lang, plan=plan),
+                message=translate(f"{key}_msg", lang, plan=plan, date=_format_end_date(ends_at, lang)),
+            )
+        except Exception as e:
+            logger.error(f"Could not create plan renewal reminder for user {user['_id']}: {e}")
+
+    if sent:
+        logger.info(f"Plan renewal reminder job: sent {sent} reminder(s)")
     return sent
 
 

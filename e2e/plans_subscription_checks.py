@@ -18,6 +18,7 @@ STATUS_KEYS = {"subscription_type", "plan", "is_paid", "is_trial", "expires_at",
 USAGE_KEYS = {"plan", "features", "month_spend_usd", "cost_cap_usd", "cost_cap_reached"}
 USAGE_FEATURE_KEYS = {"mode", "used", "limit", "period"}
 DETAIL_KEYS = {"code", "feature", "resets_at", "upgrade_available", "message"}
+BEFORE_PLAN_REMINDERS = "d6b2e8f4a1c7"  # the revision the plan renewal reminders migration (a9c4f1e7b352) revises
 
 
 def parse(value):
@@ -92,6 +93,23 @@ async def run(t):
             cols = t.column_names(conn, "users")
         check({"trial_reminder_3d_at", "trial_reminder_last_at"} <= cols,
               "trial_reminder_columns: users has trial_reminder_3d_at and trial_reminder_last_at", sorted(cols))
+
+        # ---- plan_reminder_migration (leaves the database at head)
+        plan_cols = {"plan_reminder_3d_for", "plan_reminder_last_for"}
+        with t.connect() as conn:
+            types = {r[0]: (r[1], r[2]) for r in conn.execute(
+                "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = ANY(%s)", (sorted(plan_cols),))}
+            check(types == {c_: ("timestamp with time zone", "YES") for c_ in plan_cols},
+                  "plan_reminder_migration: head has the nullable timestamptz columns plan_reminder_3d_for and "
+                  "plan_reminder_last_for", types)
+            ok, out = t.alembic("downgrade", BEFORE_PLAN_REMINDERS)  # -1 while this migration is head
+            check(ok and t.current_revision(conn) == BEFORE_PLAN_REMINDERS and not (plan_cols & t.column_names(conn, "users"))
+                  and {"trial_reminder_3d_at", "trial_reminder_last_at"} <= t.column_names(conn, "users"),
+                  "plan_reminder_migration: downgrade -1 drops only the two columns", out)
+            ok, out = t.alembic("upgrade", "head")
+            check(ok and plan_cols <= t.column_names(conn, "users") and t.current_revision(conn) != BEFORE_PLAN_REMINDERS,
+                  "plan_reminder_migration: upgrade head adds them again", out)
 
         # ---- trial_sets_plus_and_marker
         uid, h = register("trial")
@@ -261,6 +279,119 @@ async def run(t):
         await asyncio.gather(*(ss.send_trial_reminders() for _ in range(4)))
         check(len(notes(uid, "trial_ending_soon")) == 1, "trial_reminder_3_days: four overlapping runs send exactly one reminder",
               len(notes(uid, "trial_ending_soon")))
+
+        # ---- plan renewal reminders (paying Plus / Pro users whose plan has an end date)
+        from plans.access import format_date
+        PLAN_TYPES = ("plan_ending_soon", "plan_ends_today")
+
+        def paid_user(name, plan, ends_in, lang="en"):
+            """A user the admin put on `plan` ending `ends_in` from now (None: lifetime) -> (id, headers, stored end)."""
+            uid_, h_ = register(name, lang)
+            set_plan(uid_, plan, None if ends_in is None else datetime.now(UTC) + ends_in)
+            return uid_, h_, row(uid_, "subscription_expires_at")[0]
+
+        # ---- plan_reminder_3_days
+        uid, _, ends = paid_user("pr3", "plus", timedelta(days=2, hours=12))
+        sent = await ss.send_plan_renewal_reminders()
+        soon = notes(uid, "plan_ending_soon")
+        # (`sent` is not asserted: the server's own hourly job may have sent this one first, which is just as good.)
+        check(len(soon) == 1 and not notes(uid, "plan_ends_today"),
+              "plan_reminder_3_days: a Plus plan ending in 2.5 days gets one 'plan ends soon' reminder", (sent, soon))
+        check(soon and soon[0]["title"] == "Your Plus Plan Ends Soon"
+              and soon[0]["message"] == f"Your Toe Pwar Plus plan ends on {format_date(aware(ends), 'en')}. Renew before "
+                                        "then to keep your AI allowances and Plus features.",
+              "plan_reminder_3_days: the reminder is in English and names Plus and the end date", soon)
+        check(row(uid, "plan_reminder_3d_for", "plan_reminder_last_for") == (ends, None),
+              "plan_reminder_3_days: plan_reminder_3d_for holds the end date it was sent for",
+              row(uid, "plan_reminder_3d_for", "plan_reminder_last_for"))
+        await ss.send_plan_renewal_reminders()
+        await ss.send_plan_renewal_reminders(datetime.now(UTC) + timedelta(hours=2))
+        check(len(notes(uid, "plan_ending_soon")) == 1 and not notes(uid, "plan_ends_today"),
+              "plan_reminder_3_days: a second run (and a later one the same day) sends nothing more")
+
+        # ---- plan_reminder_last_day
+        uid, _, ends = paid_user("prlast", "pro", timedelta(hours=20))
+        await ss.send_plan_renewal_reminders()
+        last = notes(uid, "plan_ends_today")
+        check(len(last) == 1 and not notes(uid, "plan_ending_soon"),
+              "plan_reminder_last_day: a Pro plan first seen in its last 24 hours gets only the 'ends today' reminder", last)
+        check(last and last[0]["title"] == "Your Pro Plan Ends Today"
+              and last[0]["message"] == f"Your Toe Pwar Pro plan ends within 24 hours, on {format_date(aware(ends), 'en')}. "
+                                        "Renew now to keep your AI allowances and Pro features.",
+              "plan_reminder_last_day: the 'ends today' text names Pro and the end date", last)
+        await ss.send_plan_renewal_reminders()
+        check(len(notes(uid, "plan_ends_today")) == 1 and row(uid, "plan_reminder_last_for")[0] == ends,
+              "plan_reminder_last_day: a second run sends nothing more")
+        # a plan that already got the 3-day reminder gets the last-day one when the day comes, once; Myanmar text
+        uid, _, ends = paid_user("pr3then1", "plus", timedelta(days=2, hours=12), "my")
+        await ss.send_plan_renewal_reminders()
+        later = datetime.now(UTC) + timedelta(days=2)
+        await ss.send_plan_renewal_reminders(later)
+        await ss.send_plan_renewal_reminders(later + timedelta(hours=1))
+        soon, last = notes(uid, "plan_ending_soon"), notes(uid, "plan_ends_today")
+        check(len(soon) == 1 and len(last) == 1
+              and all(MYANMAR.search(x["message"]) and MYANMAR.search(x["title"]) and "Plus" in x["message"]
+                      and format_date(aware(ends), "my") in x["message"] for x in soon + last),
+              "plan_reminder_last_day: a Myanmar user gets one 'ends soon' then one 'ends today', both in Myanmar with "
+              "the Burmese date", (len(soon), len(last)))
+
+        # ---- no_plan_reminder: more than 3 days left, lifetime, ended, trial, free
+        p5, _, _ = paid_user("pr5", "plus", timedelta(days=5))
+        plife, _, _ = paid_user("prlife", "pro", None)
+        pended, _, _ = paid_user("prended", "plus", timedelta(hours=-1))
+        ptrial, _, _ = trial_user("prtrial", timedelta(days=2))
+        ptrial_last, _, _ = trial_user("prtrial-last", timedelta(hours=10))
+        pfree, _ = register("prfree")
+        await ss.send_plan_renewal_reminders()
+        check(all(not notes(u, *PLAN_TYPES) for u in (p5, plife, pended, ptrial, ptrial_last, pfree)),
+              "no_plan_reminder: none for 5 days left, a lifetime plan, a plan that has ended, a trial, or a Free user")
+        check(row(plife, "plan_reminder_3d_for", "plan_reminder_last_for") == (None, None)
+              and row(ptrial, "plan_reminder_3d_for", "plan_reminder_last_for") == (None, None),
+              "no_plan_reminder: nothing is claimed for them either")
+        await ss.send_trial_reminders()
+        check(len(notes(ptrial, "trial_ending_soon")) == 1 and len(notes(ptrial_last, "trial_ends_today")) == 1,
+              "no_plan_reminder: trial users still get their trial reminders")
+
+        # ---- plan_reminder_extension: a new end date re-arms the reminders; a far one sends nothing
+        uid, _, first_end = paid_user("prext", "plus", timedelta(days=2))
+        await ss.send_plan_renewal_reminders()
+        check(len(notes(uid, "plan_ending_soon")) == 1, "plan_reminder_extension: setup: one reminder for the first end date")
+        new_end = datetime.now(UTC) + timedelta(days=2, hours=20)
+        set_plan(uid, "plus", new_end)
+        await ss.send_plan_renewal_reminders()
+        await ss.send_plan_renewal_reminders()
+        soon = sorted(notes(uid, "plan_ending_soon"), key=lambda n: n["created_at"])
+        stored_end = row(uid, "subscription_expires_at")[0]
+        check(len(soon) == 2 and format_date(aware(stored_end), "en") in soon[1]["message"]
+              and row(uid, "plan_reminder_3d_for")[0] == stored_end and stored_end != first_end,
+              "plan_reminder_extension: extended to a new end date within 3 days, one new reminder for the new date",
+              (len(soon), [n["message"] for n in soon]))
+        set_plan(uid, "plus", datetime.now(UTC) + timedelta(days=30))
+        await ss.send_plan_renewal_reminders()
+        check(len(notes(uid, "plan_ending_soon")) == 2 and not notes(uid, "plan_ends_today"),
+              "plan_reminder_extension: extended far away (30 days), nothing more is sent")
+        # the same end date saved again by the admin does not re-arm it
+        uid, _, ends = paid_user("prsame", "pro", timedelta(days=2))
+        await ss.send_plan_renewal_reminders()
+        set_plan(uid, "pro", aware(ends))
+        await ss.send_plan_renewal_reminders()
+        check(len(notes(uid, "plan_ending_soon")) == 1,
+              "plan_reminder_extension: re-saving the same plan and end date sends no second reminder")
+
+        # ---- plan_reminder_race: overlapping runs send exactly one
+        uid, _, _ = paid_user("prrace", "pro", timedelta(days=2))
+        await asyncio.gather(*(ss.send_plan_renewal_reminders() for _ in range(4)))
+        check(len(notes(uid, "plan_ending_soon")) == 1, "plan_reminder_race: four overlapping runs send exactly one reminder",
+              len(notes(uid, "plan_ending_soon")))
+
+        # ---- plan_reminder_preference: a stored preference of "off" is honoured
+        uid, h = register("prpref")
+        r = c.put("/api/notifications/preferences", headers=h, json={"preferences": {"plan_ending_soon": False}})
+        set_plan(uid, "plus", datetime.now(UTC) + timedelta(days=2))
+        await ss.send_plan_renewal_reminders()
+        check(r.status_code == 200 and not notes(uid, *PLAN_TYPES),
+              "plan_reminder_preference: a user whose stored preference for it is off is not reminded",
+              f"{r.status_code} {r.text[:150]}")
 
         # ---- admin_usage_view
         uid, h = register("usage")

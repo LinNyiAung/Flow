@@ -20,8 +20,8 @@ BEFORE_VIBER = "f2c9a47e5b18"  # the revision the viber_number migration revises
 BEFORE_PRICES = "b8f4d2c6e9a1"  # the revision the plan prices / billing migration revises
 REQUEST_KEYS = {"plan", "note", "viber_number", "billing", "status", "created_at"}
 PLAN_REQUEST_KEYS = {"plan", "note", "viber_number", "billing", "created_at"}
-ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "trial_ends_at", "requested_plan", "note",
-                  "viber_number", "billing", "created_at", "status", "handled_at"}
+ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "trial_ends_at", "requested_plan",
+                  "is_renewal", "note", "viber_number", "billing", "created_at", "status", "handled_at"}
 OWNER_EMAIL, OWNER_VIBER = "owner@example.com", "+959123456789"
 
 
@@ -368,11 +368,16 @@ async def run(t):
         # ---- already on that plan or higher
         plus_uid, plus_h = register("plus")
         pro_uid, pro_h = register("pro", "my")
+        life_uid, life_h = register("plus-life")
         set_plan(plus_uid, "plus", datetime.now(UTC) + timedelta(days=10))
         set_plan(pro_uid, "pro")
-        r = ask(plus_h, "plus")
-        check(r.status_code == 400 and isinstance(r.json().get("detail"), str) and "Plus" in r.json()["detail"],
-              "upgrade_request_refused: a Plus user asking for Plus gets 400 with a readable message", f"{r.status_code} {r.text[:200]}")
+        set_plan(life_uid, "plus")
+        r = ask(life_h, "plus")
+        check(r.status_code == 400 and isinstance(r.json().get("detail"), str) and "Plus" in r.json()["detail"]
+              and not rows(life_uid),
+              "upgrade_request_refused: a lifetime Plus user asking for Plus gets 400 with a readable message (nothing to "
+              "renew)", f"{r.status_code} {r.text[:200]}")
+        check(ask(life_h, "pro").status_code == 200, "upgrade_request_refused: a lifetime Plus user may ask for Pro")
         check(ask(plus_h, "pro").status_code == 200, "upgrade_request_refused: a Plus user may ask for Pro")
         r = ask(pro_h, "plus")
         check(r.status_code == 400 and MYANMAR.search(r.json().get("detail", "")),
@@ -393,8 +398,10 @@ async def run(t):
               "upgrade_request_trial: a user on the Plus trial may ask for Plus (the trial is not 'already on Plus')",
               f"{r.status_code} {r.text[:200]}")
         row = listed(MOD, trial_uid)
-        check(row is not None and row["current_plan"] == "plus" and row["is_trial"] is True and row["requested_plan"] == "plus",
-              "upgrade_request_trial: the admin list marks the trial user (is_trial true, current plan plus)", row)
+        check(row is not None and row["current_plan"] == "plus" and row["is_trial"] is True and row["requested_plan"] == "plus"
+              and row["is_renewal"] is False,
+              "upgrade_request_trial: the admin list marks the trial user (is_trial true, current plan plus; asking to "
+              "keep the trial's plan is not a renewal)", row)
         check(row is not None and row["trial_ends_at"] is not None
               and abs((parse(row["trial_ends_at"]) - trial_ends).total_seconds()) < 1,
               "upgrade_request_trial: the row carries trial_ends_at, the end of the trial (the admin panel shows it)", row)
@@ -411,6 +418,74 @@ async def run(t):
         trial_auto = set_plan(trial_uid, "plus", datetime.now(UTC) + timedelta(days=30))
         check(trial_auto and rows(trial_uid)[0][3] == "pending",
               "upgrade_request_trial: the admin setting Plus does not answer the user's request for Pro")
+
+        # ---- renewal: a paying user whose plan has an end date may ask for the same plan again
+        def activated(user_id):
+            return sorted(db.notifications.find({"user_id": user_id, "type": {"$in": ["plan_activated"]}}),
+                          key=lambda n: n["created_at"])
+
+        rn_uid, rn_h = register("renew")
+        rn_end = datetime.now(UTC) + timedelta(days=2)
+        set_plan(rn_uid, "plus", rn_end)
+        r = ask(rn_h, "plus", "renew me")
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and set(j) == REQUEST_KEYS and j["plan"] == "plus" and j["status"] == "pending"
+              and len(rows(rn_uid)) == 1 and rows(rn_uid)[0][1] == "plus" and rows(rn_uid)[0][3] == "pending",
+              "upgrade_request_renewal: a Plus user with an end date may ask for Plus again (200, stored pending)",
+              f"{r.status_code} {r.text[:200]}")
+        check((plan_request(rn_h) or {}).get("plan") == "plus",
+              "upgrade_request_renewal: GET /api/plan shows the pending renewal")
+        check(ask(rn_h, "plus", billing="month").status_code == 422 and rows(rn_uid)[0][8] is None,
+              "upgrade_request_renewal: the billing rules apply (no price set: billing is a 422)")
+        prices_set = put_prices(plus=(15000, 150000), pro=(30000, None))
+        r = ask(rn_h, "plus", "renew me", billing="year")
+        check(prices_set and r.status_code == 200 and r.json()["billing"] == "year" and rows(rn_uid)[0][8] == "year"
+              and len(rows(rn_uid)) == 1,
+              "upgrade_request_renewal: a renewal keeps the billing period picked (yearly)", f"{r.status_code} {r.text[:200]}")
+        rp_uid, rp_h = register("renew-pro")
+        set_plan(rp_uid, "pro", datetime.now(UTC) + timedelta(days=20))
+        r = ask(rp_h, "pro", billing="year")
+        check(r.status_code == 422 and not rows(rp_uid),
+              "upgrade_request_renewal: billing 'year' for Pro (no yearly price) is still a 422", f"{r.status_code} {r.text[:150]}")
+        check(put_prices(), "setup: no prices again")
+        prices_set = False
+        check(ask(rp_h, "pro").status_code == 200 and rows(rp_uid)[0][1] == "pro",
+              "upgrade_request_renewal: a Pro user with an end date may renew Pro")
+        r = ask(rp_h, "plus")
+        check(r.status_code == 400 and rows(rp_uid)[0][1] == "pro",
+              "upgrade_request_renewal: a lower plan is still a 400 (and leaves the renewal alone)", f"{r.status_code} {r.text[:150]}")
+        check(ask(pro_h, "pro").status_code == 400, "upgrade_request_renewal: a lifetime Pro user cannot renew (400)")
+        # the admin list marks renewals
+        row = listed(MOD, rn_uid)
+        check(row is not None and row["is_renewal"] is True and row["current_plan"] == "plus" and row["requested_plan"] == "plus"
+              and row["billing"] == "year" and row["is_trial"] is False,
+              "upgrade_request_renewal: the admin list marks it is_renewal true (current plan = requested plan)", row)
+        check(listed(MOD, rp_uid)["is_renewal"] is True, "upgrade_request_renewal: a Pro renewal is marked too")
+        check(listed(MOD, plus_uid)["is_renewal"] is False and listed(MOD, uid)["is_renewal"] is False
+              and listed(MOD, life_uid)["is_renewal"] is False and listed(MOD, exp_uid)["is_renewal"] is False,
+              "upgrade_request_renewal: real upgrades (Plus asking Pro, Free asking Plus, an expired Plus) are not renewals")
+        # the admin saving the same plan and end date again changes nothing: the renewal stays pending, no notice
+        with t.connect() as conn:
+            stored_end = conn.execute("SELECT subscription_expires_at FROM users WHERE id = %s", (rn_uid,)).fetchone()[0]
+        told = len(activated(rn_uid))  # the setup's plan change told them once already
+        set_plan(rn_uid, "plus", stored_end)
+        check(rows(rn_uid)[0][3] == "pending" and len(activated(rn_uid)) == told,
+              "upgrade_request_renewal: re-saving the same plan and end date leaves the renewal pending and sends nothing")
+        # the admin extending the plan answers it and tells the user the new end date
+        new_end = stored_end + timedelta(days=30)
+        check(set_plan(rn_uid, "plus", new_end), "setup: extend the Plus plan by 30 days")
+        got = rows(rn_uid)[0]
+        check(got[3] == "done" and got[6] == admin_id and got[5] is not None and plan_request(rn_h) is None,
+              "upgrade_request_renewal: the admin extending the same plan marks the renewal done", got)
+        from plans.access import format_date
+        got = activated(rn_uid)[told:]
+        check(len(got) == 1 and got[0]["message"] == f"Your Plus plan is now active. It runs until {format_date(new_end, 'en')}.",
+              "upgrade_request_renewal: and the user gets plan_activated with the new end date", got)
+        row = listed(MOD, rn_uid, status="done")
+        check(row is not None and row["is_renewal"] is False,
+              "upgrade_request_renewal: a handled request is never marked as a renewal", row)
+        check([x for x in logs(made["admin"]) if x["action"] == "upgrade_request_done" and x["target_user_id"] == rn_uid],
+              "upgrade_request_renewal: the automatic close is written to the admin log")
 
         # ---- admin list
         row = listed(MOD, uid)

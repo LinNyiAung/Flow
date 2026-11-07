@@ -393,6 +393,29 @@ price, the app's upgrade dialog asks **monthly or yearly**, and the choice shows
 
 Rolling back: `alembic downgrade b8f4d2c6e9a1` drops the prices and the billing choices.
 
+### Plan renewal reminders
+
+Paying Plus / Pro users whose plan has an end date now get "Your {plan} Plan Ends Soon"
+(`plan_ending_soon`, 3 days or less left) and "Your {plan} Plan Ends Today" (`plan_ends_today`,
+24 hours or less left), from an hourly job (`send_plan_renewal_reminders`, at minute 20 like the
+trial reminders). Lifetime plans and trial users (who keep their trial reminders) get none. The
+app's Upgrade screen offers **Renew {plan}** for such a plan; the request shows on the admin
+**Upgrade requests** page with a **Renewal** tag. Setting that same plan with a later end date on
+the user's detail panel marks the request done and sends "Your plan is active" with the new end
+date. No new environment variables.
+
+- Migration `a9c4f1e7b352`
+  (`backend/alembic/versions/20261107_a9c4f1e7b352_plan_renewal_reminders.py`) adds
+  `users.plan_reminder_3d_for` and `users.plan_reminder_last_for`: the end date each reminder was
+  sent for, so each goes out once per end date and again after an extension to a new date.
+- On the first run after the deploy, every paying user whose plan ends within 3 days gets a
+  reminder at once.
+- The new Myanmar wording (app and notifications) was written without a native speaker and needs
+  checking before release.
+
+Rolling back: `alembic downgrade d6b2e8f4a1c7` drops the two columns. A backend rolled back to
+older code refuses renewal requests (400) again; pending ones stay in the list.
+
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
 

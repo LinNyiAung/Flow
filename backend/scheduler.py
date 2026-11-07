@@ -13,7 +13,7 @@ from budget_service import process_due_budget_rollovers
 from insights_service import generate_weekly_insights_for_all_users, generate_monthly_insights_for_all_users
 from custom_insights_service import fail_stuck_reports
 from insight_schedule import WEEKLY_INSIGHT_CRON, MONTHLY_INSIGHT_CRON
-from subscription_service import expire_paid_plans, send_trial_reminders
+from subscription_service import expire_paid_plans, send_plan_renewal_reminders, send_trial_reminders
 from tz_utils import get_app_timezone
 
 logging.basicConfig(level=logging.INFO)
@@ -112,6 +112,19 @@ def start_scheduler():
         trigger=CronTrigger(timezone=app_tz, minute=20),
         id="send_trial_reminders",
         name="Send Plus trial reminders",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+
+    # Remind paying Plus / Pro users whose plan has an end date, 3 days before it ends and on its last day, on the
+    # same hourly schedule. Each reminder is claimed in the database for that end date first, so it goes out at most
+    # once per end date however often this runs (an admin extension to a new end date re-arms it).
+    scheduler.add_job(
+        send_plan_renewal_reminders,
+        trigger=CronTrigger(timezone=app_tz, minute=20),
+        id="send_plan_renewal_reminders",
+        name="Send paid plan renewal reminders",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,

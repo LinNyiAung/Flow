@@ -167,6 +167,10 @@ def _request_row(row: dict) -> dict:
     plan = effective_plan({"subscription_type": row["subscription_type"],
                            "subscription_expires_at": row["subscription_expires_at"]})
     on_trial = plan != "free" and is_trial({"trial_ends_at": row["trial_ends_at"]})
+    # A renewal: a pending request for the paid plan the user has now (not a trial, which asks to buy the plan it is
+    # trying). Worked out when the list is read; a handled request is never marked, since by then the user usually
+    # has the plan they asked for whether it was a renewal or an upgrade.
+    is_renewal = row["status"] == "pending" and not on_trial and plan == row["plan"]
     return {
         "id": row["_id"],
         "user_id": row["user_id"],
@@ -177,6 +181,7 @@ def _request_row(row: dict) -> dict:
         # When the trial ends, for "On trial until {date}" in the admin panel; null when the user is not on a trial.
         "trial_ends_at": row["trial_ends_at"].isoformat() if on_trial else None,
         "requested_plan": row["plan"],
+        "is_renewal": is_renewal,
         "note": row["note"],
         # The number the user gave for the owner to contact them on Viber; null: contact them by their account email.
         "viber_number": row["viber_number"],

@@ -667,14 +667,20 @@ async def update_user_subscription(
     await users_db.set_plan(user_id, subscription_data.subscription_type.value, expires_at)
 
     # A pending upgrade request for this plan (or a lower one) is answered by this change. Judged by the plan the
-    # user really has afterwards, so setting a plan that has already ended does not count.
+    # user really has afterwards, so setting a plan that has already ended does not count. That includes a renewal
+    # request (the plan the user already has): setting that plan with a new end date answers it. Re-saving the plan
+    # and end date the user already had changes nothing for them, so it answers nothing.
     new_plan = effective_plan({"subscription_type": subscription_data.subscription_type.value,
                                "subscription_expires_at": expires_at})
+    unchanged = (effective_plan(user) == new_plan and not is_trial(user)
+                 and _to_aware_utc(user.get("subscription_expires_at")) == expires_at)
     # One conditional UPDATE (the plan test is in its WHERE), so a request that changed to a higher plan between a
     # read and the write could not be closed by mistake.
     covered = [plan for plan, rank in PLAN_RANK.items() if rank <= PLAN_RANK[new_plan]]
-    closed = await upgrade_requests_db.mark_user_done_if_covered(
-        user_id, covered, current_admin["_id"], datetime.now(UTC))
+    closed = None
+    if not unchanged:
+        closed = await upgrade_requests_db.mark_user_done_if_covered(
+            user_id, covered, current_admin["_id"], datetime.now(UTC))
     if closed:
         await log_admin_action(
             admin_id=current_admin["_id"],
@@ -688,8 +694,6 @@ async def update_user_subscription(
     # Tell the user (stored notification + push) that Plus / Pro is now theirs, whether or not they had asked for it.
     # Nothing for Free, or for a plan whose end date has already passed (it is not active), or when the admin saved
     # the plan the user already had with the same end date (nothing changed for them). Never fails this call.
-    unchanged = (effective_plan(user) == new_plan and not is_trial(user)
-                 and _to_aware_utc(user.get("subscription_expires_at")) == expires_at)
     if new_plan != "free" and not unchanged:
         await notify_plan_activated(user, new_plan, expires_at)
 

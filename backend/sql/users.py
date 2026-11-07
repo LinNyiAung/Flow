@@ -42,6 +42,11 @@ def effectively_free(now: datetime) -> ColumnElement:
     return or_(users.c.subscription_type.not_in(PAID_PLANS), users.c.subscription_expires_at <= now)
 
 
+def not_on_trial(now: datetime) -> ColumnElement:
+    """No running free trial: the trial marker is unset or in the past (the SQL side of plans.access.is_trial)."""
+    return or_(users.c.trial_ends_at.is_(None), users.c.trial_ends_at <= now)
+
+
 HAS_DEVICE = users.c.fcm_token.isnot(None)
 
 
@@ -182,6 +187,26 @@ async def claim_trial_reminder(user_id: str, kind: str, trial_ends_at: datetime,
     column = users.c[_REMINDER_COLUMNS[kind]]
     return await update_user(user_id, users.c.trial_ends_at == trial_ends_at, users.c.subscription_type.in_(PAID_PLANS),
                              column.is_(None), **{column.name: now}) > 0
+
+
+# Which column records the plan end date a paid-plan reminder went out for ("3d": ends within 3 days, "last": within
+# the last day).
+_PLAN_REMINDER_COLUMNS = {"3d": "plan_reminder_3d_for", "last": "plan_reminder_last_for"}
+
+
+async def claim_plan_reminder(user_id: str, kind: str, expires_at: datetime, now: datetime) -> bool:
+    """Record that the `kind` paid-plan reminder is being sent for the plan ending at `expires_at`; True for exactly
+    one caller.
+
+    Only while the user is still on a paid plan ending at exactly `expires_at` (not yet passed), is not on a free trial,
+    and the reminder has not been sent for that end date yet (the column is NULL or holds another date). So overlapping
+    runs or a re-run never send it twice, and an admin extension to a new end date re-arms it.
+    """
+    column = users.c[_PLAN_REMINDER_COLUMNS[kind]]
+    return await update_user(user_id, users.c.subscription_type.in_(PAID_PLANS),
+                             users.c.subscription_expires_at == expires_at, users.c.subscription_expires_at > now,
+                             not_on_trial(now), column.is_distinct_from(expires_at),
+                             **{column.name: expires_at}) > 0
 
 
 async def claim_ai_data_fresh(user_id: str) -> bool:

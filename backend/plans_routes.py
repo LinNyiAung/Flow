@@ -69,7 +69,9 @@ async def request_upgrade(body: UpgradeRequestBody, current_user: dict = Depends
     date) rather than added to.
 
     400 when the user already has that plan or a higher one (Pro counts as Plus). A free trial of Plus does not count
-    as having Plus here: a trial user may ask to keep it. 422 when `billing` names a price the plan does not have.
+    as having Plus here: a trial user may ask to keep it. A paying user whose plan has an end date may ask for that
+    same plan again: a renewal (the admin list marks it, see plans_admin_routes._request_row); a lifetime plan cannot
+    be renewed (400). 422 when `billing` names a price the plan does not have (renewals included).
     """
     # The app offers only the prices it was shown, so this means the owner changed them since (it names the field,
     # like the other 422s, so the app can tell).
@@ -84,7 +86,8 @@ async def request_upgrade(body: UpgradeRequestBody, current_user: dict = Depends
     current = effective_plan(current_user)
     if is_trial(current_user):
         current = "free"
-    if PLAN_RANK[current] >= PLAN_RANK[body.plan]:
+    renewal = current == body.plan and current != "free" and current_user.get("subscription_expires_at") is not None
+    if PLAN_RANK[current] >= PLAN_RANK[body.plan] and not renewal:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=translate("plan_upgrade_request_already", user_language(current_user), plan=body.plan.capitalize()))

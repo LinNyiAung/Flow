@@ -46,6 +46,10 @@ users = Table(
     Column("usage_reset_at", TS),  # admin "reset usage": allowances and cost cap count from here
     Column("trial_reminder_3d_at", TS),  # when the "trial ends soon" reminder went out (each reminder is sent at most once)
     Column("trial_reminder_last_at", TS),  # when the "last day of the trial" reminder went out
+    # The plan end date (subscription_expires_at) the paid-plan reminders were sent for: once per end date, so an
+    # admin extension to a new end date re-arms them.
+    Column("plan_reminder_3d_for", TS),  # "your plan ends soon"
+    Column("plan_reminder_last_for", TS),  # "your plan ends today"
     Column("has_claimed_free_trial", Boolean, nullable=False, server_default=text("false")),
     Column("default_currency", Text, nullable=False, server_default="usd"),
     Column("language", Text, nullable=False, server_default="en"),
