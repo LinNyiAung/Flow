@@ -14,9 +14,10 @@ import '../../services/localization_service.dart';
 
 /// The Upgrade screen: the user's current plan and a Free / Plus / Pro
 /// comparison built from the limits the server reports (`GET /api/plan`), so
-/// no number lives in the app, plus a "Request Plus / Request Pro" button for
-/// each higher plan (upgrades are manual: the owner sees the request in the
-/// admin panel) and the owner's upgrade contact message, email and Viber number.
+/// no number lives in the app, plus an "Upgrade to Plus / Pro" button for each
+/// higher plan and a "Renew" button for a paid plan with an end date (upgrades
+/// and renewals are manual: the owner sees the request in the admin panel) and
+/// the owner's upgrade contact message, email and Viber number.
 class SubscriptionScreen extends StatefulWidget {
   @override
   _SubscriptionScreenState createState() => _SubscriptionScreenState();
@@ -162,6 +163,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           builder: (context, authProvider, planProvider, child) {
             final isPaid = authProvider.isPaid;
             final hasClaimedTrial = authProvider.hasClaimedFreeTrial;
+            // A paid plan that ends on a date (not lifetime) can be renewed.
+            final hasEndDate = isPaid && authProvider.subscriptionExpiresAt != null;
+            final plans = requestablePlans(authProvider.plan,
+                isTrial: authProvider.isTrial, hasEndDate: hasEndDate);
 
             return Column(
               children: [
@@ -215,20 +220,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           const SizedBox(height: 12),
                           _buildComparison(context, planProvider, authProvider.plan, localizations),
 
-                          // ── Ask for a higher plan ──
-                          if (!authProvider.isPro && planProvider.status != null) ...[
+                          // ── Ask for a higher plan, or to renew this one ──
+                          if (plans.isNotEmpty && planProvider.status != null) ...[
                             const SizedBox(height: 16),
                             _buildUpgradeRequests(
                               context,
                               planProvider,
+                              plans,
                               authProvider.plan,
                               authProvider.isTrial,
+                              hasEndDate,
                               localizations,
                             ),
                           ],
 
                           // ── Upgrade contact ──
-                          if (!authProvider.isPro) ...[
+                          if (plans.isNotEmpty) ...[
                             const SizedBox(height: 24),
                             _buildContactBox(context, planProvider.status, localizations),
                           ],
@@ -389,21 +396,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  // ── "Upgrade to Plus" / "Upgrade to Pro" (or "Buy Plus" on the trial) ──────
-  // One card per plan above the user's own, with the plan's price above the
-  // button once the owner has set one. After a request, that plan's card
-  // says when it was requested; asking for the other plan moves it there.
+  // ── "Upgrade to Plus" / "Upgrade to Pro" (or "Buy Plus" on the trial, ──────
+  // "Renew Plus" for a paid plan with an end date). One card per plan in
+  // [plans] (see requestablePlans), with the plan's price above the button
+  // once the owner has set one. After a request, that plan's card says when it
+  // was requested; asking for the other plan moves it there.
   Widget _buildUpgradeRequests(
     BuildContext context,
     PlanProvider planProvider,
+    List<Plan> plans,
     Plan currentPlan,
     bool isTrial,
+    bool hasEndDate,
     AppLocalizations localizations,
   ) {
     final scheme = Theme.of(context).colorScheme;
     final pending = planProvider.upgradeRequest;
     final accountEmail = Provider.of<AuthProvider>(context, listen: false).user?.email;
-    final plans = requestablePlans(currentPlan, isTrial: isTrial);
+    String label(Plan plan) =>
+        upgradeButtonLabel(localizations, plan, current: currentPlan, isTrial: isTrial, hasEndDate: hasEndDate);
     return Column(
       children: [
         for (final plan in plans)
@@ -449,13 +460,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             key: Key('request-${plan.name}'),
                             onPressed: planProvider.isRequestingUpgrade
                                 ? null
-                                : () => _requestUpgrade(
-                                      plan,
-                                      upgradeButtonLabel(localizations, plan,
-                                          current: currentPlan, isTrial: isTrial),
-                                    ),
-                            child: Text(upgradeButtonLabel(localizations, plan,
-                                current: currentPlan, isTrial: isTrial)),
+                                : () => _requestUpgrade(plan, label(plan)),
+                            child: Text(label(plan)),
                           ),
                         ),
                       ],
@@ -547,11 +553,14 @@ String upgradeRequestedText(
 }
 
 /// The button (and dialog title) for asking for [plan]: "Buy Plus" for the
-/// plan a trial user is trying, otherwise "Upgrade to [plan]".
+/// plan a trial user is trying, "Renew [plan]" for the paid plan a user has
+/// until an end date ([hasEndDate]), otherwise "Upgrade to [plan]".
 String upgradeButtonLabel(AppLocalizations l, Plan plan,
-    {required Plan current, bool isTrial = false}) {
+    {required Plan current, bool isTrial = false, bool hasEndDate = false}) {
   final name = l.planName(plan);
-  return isTrial && plan == current ? l.upgradeBuyButton(name) : l.upgradeRequestButton(name);
+  if (plan == current && isTrial) return l.upgradeBuyButton(name);
+  if (plan == current && hasEndDate) return l.upgradeRenewButton(name);
+  return l.upgradeRequestButton(name);
 }
 
 /// A price in kyat as the app shows it: "K15,000" (no decimals; Western
@@ -573,11 +582,16 @@ String? upgradeYearlyText(AppLocalizations l, PlanPrice price) {
 }
 
 /// The paid plans a user on [current] can ask for: the ones above it (Pro
-/// counts as Plus, so a Pro user has none). A free trial of Plus does not count
-/// as having Plus, so a trial user may ask to keep it (the server agrees).
-List<Plan> requestablePlans(Plan current, {bool isTrial = false}) {
+/// counts as Plus, so a lifetime Pro user has none). A free trial of Plus does
+/// not count as having Plus, so a trial user may ask to keep it. A paid plan
+/// with an end date ([hasEndDate], not a trial) can be renewed, so it is
+/// offered too. The server applies the same rules.
+List<Plan> requestablePlans(Plan current, {bool isTrial = false, bool hasEndDate = false}) {
   final held = isTrial && current == Plan.plus ? Plan.free : current;
-  return [Plan.plus, Plan.pro].where((p) => p.index > held.index).toList();
+  final renewable = !isTrial && hasEndDate && current != Plan.free;
+  return [Plan.plus, Plan.pro]
+      .where((p) => p.index > held.index || (renewable && p == current))
+      .toList();
 }
 
 /// The longest note the server accepts, counted in Unicode code points like
@@ -625,8 +639,8 @@ class UpgradeRequestDialog extends StatefulWidget {
 
   final Plan plan;
 
-  /// The button's wording ("Upgrade to Pro" / "Buy Plus"); defaults to
-  /// "Upgrade to [plan]".
+  /// The button's wording ("Upgrade to Pro" / "Buy Plus" / "Renew Plus");
+  /// defaults to "Upgrade to [plan]".
   final String? title;
   final String? accountEmail;
   final String? initialViber;

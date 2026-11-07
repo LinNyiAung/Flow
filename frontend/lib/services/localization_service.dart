@@ -1121,6 +1121,7 @@ class AppLocalizations {
       'planDetailsUnavailable': 'Plan details aren\'t available right now.',
       'upgradeRequestButton': 'Upgrade to {plan}',
       'upgradeBuyButton': 'Buy {plan}',
+      'upgradeRenewButton': 'Renew {plan}',
       'upgradeRequestIntro': 'We\'ll let the team know you\'d like {plan}. They\'ll be in touch to set it up.',
       'upgradeRequestNoteLabel': 'Note (optional)',
       'upgradeRequestNoteHint': 'Anything you\'d like us to know',
@@ -2229,6 +2230,7 @@ class AppLocalizations {
       'planDetailsUnavailable': 'အစီအစဉ် အသေးစိတ်ကို ယခု မရရှိနိုင်ပါ။',
       'upgradeRequestButton': '{plan} သို့ အဆင့်မြှင့်ရန်',
       'upgradeBuyButton': '{plan} ဝယ်ယူရန်',
+      'upgradeRenewButton': '{plan} သက်တမ်းတိုးရန်',
       'upgradeRequestIntro': 'သင် {plan} ကို အသုံးပြုလိုကြောင်း ကျွန်ုပ်တို့အဖွဲ့ကို အသိပေးပါမည်။ စီစဉ်ပေးရန် သင့်ထံ ဆက်သွယ်ပါမည်။',
       'upgradeRequestNoteLabel': 'မှတ်ချက် (မဖြည့်လည်းရသည်)',
       'upgradeRequestNoteHint': 'ပြောလိုသည်များရှိပါက ရေးပါ',
@@ -3381,6 +3383,7 @@ class AppLocalizations {
   String get planDetailsUnavailable => translate('planDetailsUnavailable');
   String upgradeRequestButton(String plan) => translate('upgradeRequestButton').replaceAll('{plan}', plan);
   String upgradeBuyButton(String plan) => translate('upgradeBuyButton').replaceAll('{plan}', plan);
+  String upgradeRenewButton(String plan) => translate('upgradeRenewButton').replaceAll('{plan}', plan);
   String upgradeRequestIntro(String plan) => translate('upgradeRequestIntro').replaceAll('{plan}', plan);
   String get upgradeRequestNoteLabel => translate('upgradeRequestNoteLabel');
   String get upgradeRequestNoteHint => translate('upgradeRequestNoteHint');

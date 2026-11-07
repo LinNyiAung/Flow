@@ -280,6 +280,8 @@ class FCMService {
       case 'subscription_expired':
       case 'trial_ending_soon':
       case 'trial_ends_today':
+      case 'plan_ending_soon':
+      case 'plan_ends_today':
       case 'plan_activated':
       case 'upgrade_request_declined':
       case 'custom_insight_ready':

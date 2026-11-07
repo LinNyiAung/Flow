@@ -174,6 +174,8 @@ Color _getNotificationColor(NotificationType type) {
     case NotificationType.subscription_expired:
     case NotificationType.trial_ending_soon:
     case NotificationType.trial_ends_today:
+    case NotificationType.plan_ending_soon:
+    case NotificationType.plan_ends_today:
     case NotificationType.plan_activated:
     case NotificationType.upgrade_request_declined:
     case NotificationType.custom_insight_ready:

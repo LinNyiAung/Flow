@@ -455,6 +455,32 @@ void main() {
     });
   });
 
+  group('plan renewal reminder notifications', () {
+    Map<String, dynamic> json(String type) => {
+          'id': 'n1',
+          'user_id': 'u1',
+          'type': type,
+          'title': 'Your Plus Plan Ends Soon',
+          'message': 'Renew before then.',
+          'created_at': '2026-11-07T00:00:00Z',
+          'is_read': false,
+        };
+
+    test('both plan reminder types are known types, not a system broadcast', () {
+      expect(AppNotification.fromJson(json('plan_ending_soon')).type, NotificationType.plan_ending_soon);
+      expect(AppNotification.fromJson(json('plan_ends_today')).type, NotificationType.plan_ends_today);
+    });
+
+    test('they are handled like the trial reminders: plan notices (open the Upgrade screen), no plan reload', () {
+      for (final type in [NotificationType.plan_ending_soon, NotificationType.plan_ends_today]) {
+        expect(type.isPlanNotice, NotificationType.trial_ending_soon.isPlanNotice, reason: type.name);
+        expect(type.isPlanNotice, isTrue, reason: type.name);
+        expect(notificationRefreshesPlan(type.name), notificationRefreshesPlan('trial_ending_soon'), reason: type.name);
+        expect(notificationRefreshesPlan(type.name), isFalse, reason: type.name);
+      }
+    });
+  });
+
   group('plan_activated / upgrade_request_declined notifications', () {
     Map<String, dynamic> json(String type) => {
           'id': 'n1',

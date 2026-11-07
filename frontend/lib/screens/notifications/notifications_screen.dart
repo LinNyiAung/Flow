@@ -80,6 +80,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.workspace_premium_rounded;
       case NotificationType.trial_ending_soon:
       case NotificationType.trial_ends_today:
+      case NotificationType.plan_ending_soon:
+      case NotificationType.plan_ends_today:
       case NotificationType.plan_activated:
       case NotificationType.upgrade_request_declined:
         return Icons.workspace_premium_rounded;
@@ -139,6 +141,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.subscription_expired:
       case NotificationType.trial_ending_soon:
       case NotificationType.trial_ends_today:
+      case NotificationType.plan_ending_soon:
+      case NotificationType.plan_ends_today:
       case NotificationType.plan_activated:
       case NotificationType.upgrade_request_declined:
         return scheme.tertiary;

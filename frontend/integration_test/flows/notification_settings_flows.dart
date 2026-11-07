@@ -232,6 +232,41 @@ void upgradeRequestFlows() {
       check(hasTextContaining('contact you by email at ${free.email}'),
           'Request Pro: the card does not say we will email the account address ${free.email}');
     });
+
+    e2eTest('upgrade: Plus user with an end date renews Plus', (t) async {
+      await login(plus); // seeded on Plus with an end date
+      await drawerGo(L.subscription);
+      await waitFor(find.byType(SubscriptionScreen));
+      final renewPlus = find.text(L.upgradeRenewButton(L.planNamePlus));
+      final upgradePro = find.text(L.upgradeRequestButton(L.planNamePro));
+
+      step('the screen offers Renew Plus next to Upgrade to Pro');
+      await scrollTo(renewPlus);
+      check(renewPlus.evaluate().isNotEmpty, 'Upgrade screen: no "Renew Plus" button for a Plus user with an end date');
+      check(find.text(L.upgradeRequestButton(L.planNamePlus)).evaluate().isEmpty,
+          'Upgrade screen: a Plus user is offered "Upgrade to Plus"');
+      check(upgradePro.evaluate().isNotEmpty, 'Upgrade screen: the "Upgrade to Pro" button is missing for a Plus user');
+
+      step('Renew Plus: the dialog is titled like the button; Send');
+      await tap(renewPlus);
+      await waitFor(find.byKey(const Key('upgrade-request-note')));
+      check(find.descendant(of: find.byType(AlertDialog), matching: find.text(L.upgradeRenewButton(L.planNamePlus)))
+              .evaluate().isNotEmpty,
+          'Renew dialog: the title is not "Renew Plus"');
+      await enter(find.byKey(const Key('upgrade-request-note')), 'E2E: please renew');
+      await hideKeyboard();
+      await tapKey('upgrade-request-send');
+      await expectSoon(find.byKey(const Key('upgrade-requested-plus')),
+          'Renew Plus: the Plus card does not say it was requested',
+          timeout: const Duration(seconds: 20));
+      check(renewPlus.evaluate().isEmpty, 'Renew Plus: the button is still there after requesting');
+
+      step('the server holds the pending renewal');
+      final plan = await apiGet(await apiToken(plus), '/api/plan');
+      final pending = plan['upgrade_request'];
+      check(pending != null && pending['plan'] == 'plus' && pending['note'] == 'E2E: please renew',
+          'Server upgrade_request after renewing Plus: $pending');
+    });
   });
 }
 

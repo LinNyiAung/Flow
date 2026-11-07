@@ -26,6 +26,11 @@ enum NotificationType {
   trial_ending_soon,
   // ignore: constant_identifier_names
   trial_ends_today,
+  // A paying user's plan (with an end date) ends within 3 days / within 24 hours.
+  // ignore: constant_identifier_names
+  plan_ending_soon,
+  // ignore: constant_identifier_names
+  plan_ends_today,
   // An admin put the user on Plus or Pro.
   // ignore: constant_identifier_names
   plan_activated,
@@ -47,6 +52,8 @@ extension PlanNotificationType on NotificationType {
       this == NotificationType.subscription_expired ||
       this == NotificationType.trial_ending_soon ||
       this == NotificationType.trial_ends_today ||
+      this == NotificationType.plan_ending_soon ||
+      this == NotificationType.plan_ends_today ||
       this == NotificationType.plan_activated ||
       this == NotificationType.upgrade_request_declined;
 }

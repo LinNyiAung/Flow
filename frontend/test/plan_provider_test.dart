@@ -614,6 +614,38 @@ void main() {
       expect(upgradeButtonLabel(my, Plan.plus, current: Plan.plus, isTrial: true), contains('ဝယ်ယူရန်'));
     });
 
+    test('a paid plan with an end date can be renewed; a lifetime plan cannot', () {
+      // Plus until a date: renew Plus, or upgrade to Pro.
+      expect(requestablePlans(Plan.plus, hasEndDate: true), [Plan.plus, Plan.pro]);
+      // Pro until a date: renew Pro (nothing higher).
+      expect(requestablePlans(Plan.pro, hasEndDate: true), [Plan.pro]);
+      // Lifetime: nothing to renew.
+      expect(requestablePlans(Plan.plus), [Plan.pro]);
+      expect(requestablePlans(Plan.pro), isEmpty);
+      // The trial (which has an end date too) keeps "Buy Plus", not a renewal.
+      expect(requestablePlans(Plan.plus, isTrial: true, hasEndDate: true), [Plan.plus, Plan.pro]);
+      // Free has nothing to renew whatever the flags say.
+      expect(requestablePlans(Plan.free, hasEndDate: true), [Plan.plus, Plan.pro]);
+    });
+
+    test('the button says Renew for the paid plan with an end date', () {
+      final en = AppLocalizations(const Locale('en'));
+      String label(Plan plan, Plan current, {bool isTrial = false, bool hasEndDate = false}) =>
+          upgradeButtonLabel(en, plan, current: current, isTrial: isTrial, hasEndDate: hasEndDate);
+
+      expect(label(Plan.plus, Plan.plus, hasEndDate: true), 'Renew Plus');
+      expect(label(Plan.pro, Plan.pro, hasEndDate: true), 'Renew Pro');
+      expect(label(Plan.pro, Plan.plus, hasEndDate: true), 'Upgrade to Pro'); // higher plans keep "Upgrade to"
+      expect(label(Plan.plus, Plan.plus, isTrial: true, hasEndDate: true), 'Buy Plus'); // the trial is unchanged
+      expect(label(Plan.pro, Plan.free), 'Upgrade to Pro');
+
+      final my = AppLocalizations(const Locale('my'));
+      final renew = upgradeButtonLabel(my, Plan.plus, current: Plan.plus, hasEndDate: true);
+      expect(renew, contains('သက်တမ်းတိုးရန်'));
+      expect(renew, contains('Plus'));
+      expect(renew, isNot(contains('Renew')));
+    });
+
     testWidgets('the request texts are in Myanmar', (tester) async {
       await openScreen(
         tester,
