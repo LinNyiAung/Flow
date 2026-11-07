@@ -197,13 +197,14 @@ def _record_cut_short(feature: str, user_id: str | None, t: Target, prompt: Prom
 
 async def _succeeded(feature: str, user_id: str | None, t: Target, c: Completion,
                      failures: list[ProviderFailure]) -> str | None:
-    """Clear the target's cool-off, record the usage and the success; returns fallback_from. The usage is written
-    first and shielded: a request cancelled from here on (a client that leaves as the answer completes) still
-    records it, once."""
+    """Clear the target's cool-off, record the usage and the success; returns fallback_from. Both writes run as
+    shielded tasks: a request cancelled from here on (a client that leaves as the answer completes) still records
+    the usage, once, and still saves the provider's last success."""
     health.mark_success(t)
     fallback_from = _fallback_from(failures)
+    persist = _spawn_write(health.persist_success(t))
     await _record(feature, user_id, t, c, fallback_from, "used")
-    await health.persist_success(t)
+    await asyncio.shield(persist)
     return fallback_from
 
 

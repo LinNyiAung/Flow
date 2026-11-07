@@ -2351,8 +2351,10 @@ async def _cost_runner_checks(uid, usage_rows, go, go_stream, parse_json, claude
 
     async def run_request():
         return await runner.run("chat", user_id=uid, call=runner.default_call(big, "chat"))
+    from sql import ai_settings
     for label, request in (("run_stream", stream_request), ("run", run_request)):
         n0 = await start()
+        await execute_status_delete()
         entered.clear()
         ai_usage_sql.insert_usage = slow_insert
         try:
@@ -2372,6 +2374,10 @@ async def _cost_runner_checks(uid, usage_rows, go, go_stream, parse_json, claude
               f"success_write_survives_cancel: {label} cancelled during the usage INSERT still writes exactly one "
               "'used' row (M4)", (cancelled, rows))
         check(health.is_available(T("claude", "claude-sonnet-5-5")), f"success_write_survives_cancel: {label} no cool-off")
+        st = await ai_settings.get_provider_status()
+        check((st.get("claude") or {}).get("last_success_at") is not None,
+              f"success_write_survives_cancel: {label} cancelled during the usage INSERT still saves the provider's "
+              "last success (N1)", st)
 
     # review M6: the translation's cut-off retry writes one row per request, each priced on its own: 2.5 Pro's
     # long-prompt rate applies per request (150k-token chunks stay on the base rate although they sum past 200k)
