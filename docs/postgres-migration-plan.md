@@ -217,9 +217,9 @@ After the deploy, check by hand (needs the real keys, so the automated suites ca
 
 Notes:
 
-- The **AI Usage & Costs** page counts only the provider that answered. Tokens spent on attempts that
-  failed before a fallback (for example a cut-off or unusable answer) are not shown, so the page
-  can undercount spend when fallbacks happen.
+- The **AI Usage & Costs** page counts every billed answer: the one used, and (since the AI cost fix
+  below) answers that were billed but unusable (tagged "rejected") and chat streams cut short after
+  text started ("cancelled"). Attempts that failed with an error were not billed and are not shown.
 - Rolling back: after `alembic downgrade` to the previous revision, `ai_usage` rows with provider
   `claude` stay in the table, and the previous version's per-user usage detail may reject them
   (it does not know `claude`). Delete or remap those rows if the old version must show them.
@@ -415,6 +415,41 @@ date. No new environment variables.
 
 Rolling back: `alembic downgrade d6b2e8f4a1c7` drops the two columns. A backend rolled back to
 older code refuses renewal requests (400) again; pending ones stay in the list.
+
+### AI cost fix
+
+The estimated AI cost of each call (the admin **AI Usage & Token Costs** page and the hidden plan
+cost caps) now uses the list prices checked on 2026-11-07 (`PRICING` in `backend/ai_usage_service.py`):
+Gemini 2.5 Flash was stored about 5–8 times too cheap, voice input on Whisper was priced as tokens
+(about $0), and a model missing from the table cost $0. Now: prices per model and date, cached input
+tokens at the cached rate, Gemini audio input at the audio rate, Whisper per minute of audio, the
+Gemini 2.5 Pro and Claude Haiku 5.5 long-prompt rates, the model that actually answered (a provider
+may serve another model than the one requested), a model missing from the table at its provider's
+highest prices, billed answers the app rejected, and chat streams cut short after text started. The
+AI Providers page also offers `gemini-3.5-flash-lite` and `gemini-3.8-flash` (Google routes
+`gemini-2.5-flash` and `gemini-2.5-pro` to them from 2026-12-01) and the OpenAI speech-to-text models
+`gpt-4o-mini-transcribe` and `gpt-4o-transcribe`; the built-in defaults are unchanged.
+
+- Migration `e5b7c3a9d2f6`
+  (`backend/alembic/versions/20261107_e5b7c3a9d2f6_ai_usage_cost_detail.py`) adds to `ai_usage`:
+  `served_model`, `cached_input_tokens`, `cache_write_tokens`, `audio_input_tokens`, `audio_seconds`,
+  `cost_estimated` and `outcome` (`used` / `rejected` / `cancelled`; NULL on older rows means used).
+  `input_tokens` stays the whole billed input (for Claude: input + cache reads + cache writes).
+- After the deploy, re-price the stored rows from the backend directory (on Render: the service's
+  **Shell**, where `DATABASE_URL` is set):
+  1. `python -m scripts.recalculate_ai_costs` — a dry run: prints per provider and in total the row
+     count, the old and new cost sums and how many rows change; writes nothing.
+  2. `python -m scripts.recalculate_ai_costs --apply` — writes the new costs in batches (one
+     transaction each). Running it again changes 0 rows.
+  Older rows have no stored audio length, so OpenAI voice input rows are priced from a duration
+  estimated from the transcript; the script says how many.
+- The plan cost caps use the recalculated numbers immediately: heavy users may reach their monthly
+  cap sooner than before. That is the correct behaviour (the old numbers were too low); raise the
+  caps on the admin **Plans** page if needed.
+- Costs stay estimates from token counts and list prices; compare with the provider invoices.
+
+Rolling back: `alembic downgrade a9c4f1e7b352` drops the new columns (older code does not read them);
+recalculated costs stay.
 
 Later schema changes: edit `backend/sql/tables.py`, then
 `alembic revision --autogenerate -m "<what changed>"`, review the generated file, commit.
