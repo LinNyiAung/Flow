@@ -19,6 +19,8 @@ USAGE_KEYS = {"plan", "features", "month_spend_usd", "cost_cap_usd", "cost_cap_r
 USAGE_FEATURE_KEYS = {"mode", "used", "limit", "period"}
 DETAIL_KEYS = {"code", "feature", "resets_at", "upgrade_available", "message"}
 BEFORE_PLAN_REMINDERS = "d6b2e8f4a1c7"  # the revision the plan renewal reminders migration (a9c4f1e7b352) revises
+AI_COST_DETAIL = "e5b7c3a9d2f6"  # the ai_usage cost detail migration (AI cost fix)
+BEFORE_AI_COST_DETAIL = "a9c4f1e7b352"
 
 
 def parse(value):
@@ -103,13 +105,28 @@ async def run(t):
             check(types == {c_: ("timestamp with time zone", "YES") for c_ in plan_cols},
                   "plan_reminder_migration: head has the nullable timestamptz columns plan_reminder_3d_for and "
                   "plan_reminder_last_for", types)
-            ok, out = t.alembic("downgrade", BEFORE_PLAN_REMINDERS)  # -1 while this migration is head
+            ok, out = t.alembic("downgrade", BEFORE_PLAN_REMINDERS)  # also undoes the later revisions (AI cost detail)
             check(ok and t.current_revision(conn) == BEFORE_PLAN_REMINDERS and not (plan_cols & t.column_names(conn, "users"))
                   and {"trial_reminder_3d_at", "trial_reminder_last_at"} <= t.column_names(conn, "users"),
                   "plan_reminder_migration: downgrade -1 drops only the two columns", out)
             ok, out = t.alembic("upgrade", "head")
             check(ok and plan_cols <= t.column_names(conn, "users") and t.current_revision(conn) != BEFORE_PLAN_REMINDERS,
                   "plan_reminder_migration: upgrade head adds them again", out)
+
+        # ---- ai_usage_cost_detail_migration (e5b7c3a9d2f6): up, down, up (leaves the database at head)
+        cost_cols = {"served_model", "cached_input_tokens", "cache_write_tokens", "audio_input_tokens", "audio_seconds",
+                     "cost_estimated", "outcome"}
+        with t.connect() as conn:
+            check(cost_cols <= t.column_names(conn, "ai_usage") and t.current_revision(conn) == AI_COST_DETAIL,
+                  "ai_usage_cost_detail_migration: head has the cost detail columns", sorted(t.column_names(conn, "ai_usage")))
+            ok, out = t.alembic("downgrade", BEFORE_AI_COST_DETAIL)
+            left = t.column_names(conn, "ai_usage")
+            check(ok and t.current_revision(conn) == BEFORE_AI_COST_DETAIL and not (cost_cols & left)
+                  and {"estimated_cost_usd", "fallback_from", "input_tokens"} <= left,
+                  "ai_usage_cost_detail_migration: downgrade drops only the cost detail columns", out)
+            ok, out = t.alembic("upgrade", "head")
+            check(ok and cost_cols <= t.column_names(conn, "ai_usage") and t.current_revision(conn) == AI_COST_DETAIL,
+                  "ai_usage_cost_detail_migration: upgrade head adds them again", out)
 
         # ---- trial_sets_plus_and_marker
         uid, h = register("trial")

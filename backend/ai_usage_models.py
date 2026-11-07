@@ -45,6 +45,9 @@ class AIUsageResponse(BaseModel):
     total_tokens: int
     estimated_cost_usd: float
     fallback_from: Optional[AIProviderType] = None  # set when this answer came from a backup after that provider failed
+    served_model: Optional[str] = None  # the model the provider says answered, when reported
+    outcome: Optional[str] = None  # used | rejected (billed, unusable) | cancelled (stream cut short); None = used
+    cost_estimated: bool = False  # the tokens or the audio length were estimated, not reported
     created_at: datetime
 
 

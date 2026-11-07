@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
 from plans import quota
@@ -24,7 +25,7 @@ from ai_providers import errors as _errors
 from ai_providers import runner as _runner
 from ai_providers import settings as _ai_settings
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer
-from ai_providers.types import Completion, Prompt
+from ai_providers.types import Prompt
 
 logger = logging.getLogger(__name__)
 
@@ -909,18 +910,26 @@ def _translation_call(english_content: str):
         chunks = _split_markdown_sections(english_content)
         logger.warning(f"⚠️ Myanmar translation truncated on {t.provider}/{t.model}; "
                        f"retrying in {len(chunks)} section chunk(s)")
+        # Every request is billed: a give-up passes the summed usage on, so the runner records it as rejected.
+        spent = replace(first, text="", finish="stop")
         if len(chunks) <= 1:
-            raise UnusableAnswer("translation cut off at the output limit")
-        tokens_in, tokens_out, parts = first.input_tokens, first.output_tokens, []
+            raise UnusableAnswer("translation cut off at the output limit", completion=spent)
+        parts = []
         for chunk in chunks:
             c = await translate(client, t, chunk)
-            tokens_in, tokens_out = tokens_in + c.input_tokens, tokens_out + c.output_tokens
+            spent = replace(spent, input_tokens=spent.input_tokens + c.input_tokens,
+                            output_tokens=spent.output_tokens + c.output_tokens,
+                            cached_input_tokens=spent.cached_input_tokens + c.cached_input_tokens,
+                            cache_write_tokens=spent.cache_write_tokens + c.cache_write_tokens,
+                            served_model=spent.served_model or c.served_model,
+                            estimated=spent.estimated or c.estimated)
             if c.finish == "refusal":
-                raise UnusableAnswer("refusal")
+                raise UnusableAnswer("refusal", completion=spent)
             if c.finish != "stop" or not _has_content(c.text):
-                raise UnusableAnswer(f"translation chunk {c.finish if c.finish != 'stop' else 'empty'}")
+                raise UnusableAnswer(f"translation chunk {c.finish if c.finish != 'stop' else 'empty'}",
+                                     completion=spent)
             parts.append(c.text.strip())
-        return Completion("\n\n".join(parts), tokens_in, tokens_out, "stop")
+        return replace(spent, text="\n\n".join(parts))
 
     return call
 

@@ -54,11 +54,14 @@ FEATURES: dict[str, FeatureSpec] = {s.key: s for s in (
 # offered only for voice input: see known_models().
 KNOWN_MODELS: dict[str, list[str]] = {
     "openai": ["gpt-4o-mini", "gpt-4o"],
-    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
+    # The 2.5 models first: they are still the built-in defaults. Google routes gemini-2.5-flash to
+    # gemini-3.5-flash-lite and gemini-2.5-pro to gemini-3.8-flash from 2026-12-01.
+    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash"],
     "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
 }
 AUDIO_FEATURE = "transaction_audio"
-OPENAI_AUDIO_MODELS: list[str] = ["whisper-1"]
+# The OpenAI client's transcribe() sends model, file and language, which all three accept.
+OPENAI_AUDIO_MODELS: list[str] = ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"]
 
 
 def known_models(feature: str) -> dict[str, list[str]]:

@@ -58,9 +58,20 @@ def strict_schema(schema):
 
 
 def _completion(message) -> Completion:
+    """BetaMessage -> Completion. Claude reports cache reads and cache writes apart from input_tokens; input_tokens
+    here is their sum (every input token billed), with the cached and written parts carried separately. The served
+    model is message.model (a server-side fallback can answer with another model than the one requested)."""
     usage = getattr(message, "usage", None)
-    return Completion(text_of(message), getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0,
-                      map_finish(getattr(message, "stop_reason", None)))
+
+    def count(name):
+        v = getattr(usage, name, None)
+        return v if isinstance(v, int) else 0
+    read, write = count("cache_read_input_tokens"), count("cache_creation_input_tokens")
+    served = getattr(message, "model", None)
+    return Completion(text_of(message), count("input_tokens") + read + write, count("output_tokens"),
+                      map_finish(getattr(message, "stop_reason", None)),
+                      served_model=served if isinstance(served, str) else None,
+                      cached_input_tokens=read, cache_write_tokens=write, estimated=usage is None)
 
 
 class ClaudeClient:
@@ -119,7 +130,8 @@ class ClaudeClient:
                     yield text
             final = await s.get_final_message()
         done = _completion(final)
-        yield Completion("", done.input_tokens, done.output_tokens, done.finish)
+        done.text = ""
+        yield done
 
     async def transcribe(self, model: str, audio: bytes, filename: str, language: str | None) -> Completion:
         raise NotImplementedError("Claude cannot transcribe audio")

@@ -1161,6 +1161,9 @@ async def get_user_ai_usage_detail(
                 total_tokens=record["total_tokens"],
                 estimated_cost_usd=record["estimated_cost_usd"],
                 fallback_from=record.get("fallback_from"),
+                served_model=record.get("served_model"),
+                outcome=record.get("outcome"),
+                cost_estimated=bool(record.get("cost_estimated")),
                 created_at=record["created_at"]
             )
             for record in usage_records

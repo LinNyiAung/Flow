@@ -65,6 +65,43 @@ def usage_of(meta, input_chars: int, text: str) -> tuple[int, int]:
     return value("prompt_token_count", input_chars // 4), value("candidates_token_count", len(text) // 4) + thoughts
 
 
+def _count(meta, name) -> int:
+    v = getattr(meta, name, None) if meta else None
+    return v if isinstance(v, int) else 0
+
+
+def audio_tokens_of(meta) -> int | None:
+    """AUDIO tokens in usage_metadata.prompt_tokens_details (a list of ModalityTokenCount: modality, token_count);
+    None when the response has no breakdown."""
+    details = getattr(meta, "prompt_tokens_details", None) if meta else None
+    if not isinstance(details, list):
+        return None
+    total = 0
+    for d in details:
+        modality = getattr(d, "modality", None)
+        name = str(getattr(modality, "value", None) or getattr(modality, "name", None) or modality or "").upper()
+        if name == "AUDIO":
+            total += _count(d, "token_count")
+    return total
+
+
+def completion_of(text: str, finish, meta, input_chars: int, served: str | None, *, audio: bool = False) -> Completion:
+    """A Completion from usage_metadata (see usage_of): cached_content_token_count is part of prompt_token_count; for
+    an audio request the AUDIO tokens of the modality breakdown (all input tokens when there is none) are priced as
+    audio. Marked estimated when the token counts fell back to len // 4."""
+    tokens_in, tokens_out = usage_of(meta, input_chars, text)
+    # (an empty answer may omit candidates_token_count: that 0 is exact)
+    estimated = not (meta and isinstance(getattr(meta, "prompt_token_count", None), int)
+                     and (isinstance(getattr(meta, "candidates_token_count", None), int) or not text))
+    audio_tokens = 0
+    if audio:
+        found = audio_tokens_of(meta)
+        audio_tokens = tokens_in if found is None else min(found, tokens_in)
+    return Completion(text, tokens_in, tokens_out, map_finish(finish), served_model=served,
+                      cached_input_tokens=min(_count(meta, "cached_content_token_count"), tokens_in),
+                      audio_input_tokens=audio_tokens, estimated=estimated)
+
+
 def _chars(prompt: Prompt) -> int:
     return len(prompt.system) + len(prompt.user)
 
@@ -106,17 +143,17 @@ class GeminiClient:
     async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None,
                        timeout: int | None = None) -> Completion:
         r = await self._models().generate_content(**self._request(model, prompt, timeout))
-        text = r.text or ""
-        tokens_in, tokens_out = usage_of(getattr(r, "usage_metadata", None), _chars(prompt), text)
-        return Completion(text, tokens_in, tokens_out, map_finish(_finish_of(r)))
+        return completion_of(r.text or "", _finish_of(r), getattr(r, "usage_metadata", None), _chars(prompt),
+                             getattr(r, "model_version", None))
 
     async def stream(self, model: str, prompt: Prompt, *, effort: str | None = None) -> AsyncIterator[str | Completion]:
         resp = await self._models().generate_content_stream(**self._request(model, prompt))
         parts: list[str] = []
-        meta, finish = None, None
+        meta, finish, served = None, None, None
         async for chunk in resp:
             if getattr(chunk, "usage_metadata", None):
                 meta = chunk.usage_metadata
+            served = getattr(chunk, "model_version", None) or served  # GenerateContentResponse.model_version
             reason = _finish_of(chunk)
             if reason is not None:
                 finish = reason
@@ -124,8 +161,9 @@ class GeminiClient:
             if text:
                 parts.append(text)
                 yield text
-        tokens_in, tokens_out = usage_of(meta, _chars(prompt), "".join(parts))
-        yield Completion("", tokens_in, tokens_out, map_finish(finish))
+        done = completion_of("".join(parts), finish, meta, _chars(prompt), served)
+        done.text = ""
+        yield done
 
     async def transcribe(self, model: str, audio: bytes, filename: str, language: str | None) -> Completion:
         mime = _AUDIO_MIME.get(os.path.splitext(filename or "")[1].lower(), "audio/mpeg")
@@ -134,9 +172,8 @@ class GeminiClient:
             model=model,
             contents=[types.Part.from_bytes(data=audio, mime_type=mime), instruction],
             config=types.GenerateContentConfig(http_options=_http_options(None)))
-        text = (r.text or "").strip()
-        tokens_in, tokens_out = usage_of(getattr(r, "usage_metadata", None), len(instruction), text)
-        return Completion(text, tokens_in, tokens_out, map_finish(_finish_of(r)))
+        return completion_of((r.text or "").strip(), _finish_of(r), getattr(r, "usage_metadata", None),
+                             len(instruction), getattr(r, "model_version", None), audio=True)
 
     async def ping(self, model: str) -> None:
         await self._models().generate_content(

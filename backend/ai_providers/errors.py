@@ -67,7 +67,14 @@ class ProviderFailure:
 
 
 class UnusableAnswer(Exception):
-    """Raised by a parser: this provider's answer can't be used, try the next provider (no cool-off)."""
+    """Raised by a parser: this provider's answer can't be used, try the next provider (no cool-off).
+
+    A `call` that made billed requests before giving up can pass them as `completion` (tokens summed), so the runner
+    records them as a rejected usage row; a parser need not (the runner already has the answer it parsed)."""
+
+    def __init__(self, *args, completion=None):
+        super().__init__(*args)
+        self.completion = completion
 
 
 class AllProvidersFailed(Exception):

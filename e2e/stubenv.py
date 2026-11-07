@@ -320,12 +320,15 @@ class _FakeCompletions:
         kind = _begin("openai", "chat.completions.create", k.get("model"), streaming=stream, stream=stream)
         if "max_tokens" in k:  # like OpenAI's reasoning models: only max_completion_tokens is accepted
             raise _unsupported_max_tokens()
-        usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2])
+        # like CompletionUsage: cached tokens are part of prompt_tokens
+        usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2],
+                    prompt_tokens_details=_ns(cached_tokens=0, audio_tokens=0))
         wants_json = (k.get("response_format") or {}).get("type") == "json_object"
         text = _answer_text(kind, json.dumps(k.get("messages", [])), wants_json)
         finish = "length" if kind == "length_once" else "stop"
+        served = k.get("model")  # the real API names the model (often a dated snapshot) on the response and every chunk
         if not stream:
-            return _ns(choices=[_ns(message=_ns(content=text), finish_reason=finish)], usage=usage, model="fake")
+            return _ns(choices=[_ns(message=_ns(content=text), finish_reason=finish)], usage=usage, model=served)
 
         async def gen():
             delay = _stream_delay(kind)
@@ -334,18 +337,31 @@ class _FakeCompletions:
                 if delay:
                     await asyncio.sleep(delay)
                 last_finish = "length" if kind == "length_once" and i == len(parts) - 1 else None
-                yield _ns(choices=[_ns(delta=_ns(content=part), finish_reason=last_finish)], usage=None, model="fake")
+                yield _ns(choices=[_ns(delta=_ns(content=part), finish_reason=last_finish)], usage=None, model=served)
                 if kind == "fail_mid_stream":
                     raise FakeAPIError(503, None, "The service is unavailable")
-            yield _ns(choices=[], usage=usage, model="fake")
+            yield _ns(choices=[], usage=usage, model=served)
         return gen()
+
+
+FAKE_AUDIO_SECONDS = 4.5  # the length a fake transcription reports
+
+
+def _transcription_usage(model):
+    """Like openai.types.audio.Transcription.usage: whisper-1 reports the duration, the gpt-4o*-transcribe models
+    report token usage (no duration)."""
+    if "transcribe" in str(model or "").lower():
+        return _ns(type="tokens", input_tokens=60, output_tokens=4, total_tokens=64,
+                   input_token_details=_ns(audio_tokens=60, text_tokens=0))
+    return _ns(type="duration", seconds=FAKE_AUDIO_SECONDS)
 
 
 class _FakeTranscriptions:
     async def create(self, *a, **k):
         LAST_KWARGS["openai"] = dict(k)
         kind = _begin("openai", "audio.transcriptions.create", k.get("model"))
-        return _ns(text={"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"))
+        return _ns(text={"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"),
+                   usage=_transcription_usage(k.get("model")))
 
 
 class FakeAsyncOpenAI:
@@ -362,9 +378,19 @@ openai.OpenAI = StubAsyncOpenAI
 
 
 # ---- Gemini (google.genai) ----
-def _gemini_response(text, finish_reason="STOP"):
-    return _ns(text=text, candidates=[_ns(finish_reason=finish_reason)],
-               usage_metadata=_ns(prompt_token_count=FAKE_USAGE[0], candidates_token_count=FAKE_USAGE[1]))
+FAKE_GEMINI_AUDIO_TOKENS = 8  # of the FAKE_USAGE[0] prompt tokens of a fake transcription, the audio part
+
+
+def _gemini_response(text, finish_reason="STOP", model=None, audio=False):
+    """Like GenerateContentResponse: model_version names the model; usage_metadata.prompt_tokens_details breaks the
+    prompt down by modality (an audio request: AUDIO plus the TEXT instruction)."""
+    details = [_ns(modality="TEXT", token_count=FAKE_USAGE[0])]
+    if audio:
+        details = [_ns(modality="AUDIO", token_count=FAKE_GEMINI_AUDIO_TOKENS),
+                   _ns(modality="TEXT", token_count=FAKE_USAGE[0] - FAKE_GEMINI_AUDIO_TOKENS)]
+    return _ns(text=text, candidates=[_ns(finish_reason=finish_reason)], model_version=model,
+               usage_metadata=_ns(prompt_token_count=FAKE_USAGE[0], candidates_token_count=FAKE_USAGE[1],
+                                  cached_content_token_count=None, prompt_tokens_details=details))
 
 
 def _gemini_wants_json(config):
@@ -382,9 +408,10 @@ class _FakeGeminiModels:
         kind = _begin("gemini", "aio.models.generate_content", model)
         wants_json = _gemini_wants_json(config)
         if _gemini_has_audio(contents):  # a transcription request answers like OpenAI's audio.transcriptions
-            return _gemini_response({"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"))
+            return _gemini_response({"empty": "", "bad_json": "not json"}.get(kind, "fake transcript"), model=model,
+                                    audio=True)
         text = _answer_text(kind, json.dumps([contents, str(config)], default=str), wants_json)
-        return _gemini_response(text, "MAX_TOKENS" if kind == "length_once" else "STOP")
+        return _gemini_response(text, "MAX_TOKENS" if kind == "length_once" else "STOP", model=model)
 
     async def generate_content_stream(self, *, model=None, contents=None, config=None, **k):
         LAST_KWARGS["gemini"] = dict(k, model=model, contents=contents, config=config)
@@ -400,7 +427,7 @@ class _FakeGeminiModels:
                     await asyncio.sleep(delay)
                 last = i == len(parts) - 1
                 end = "MAX_TOKENS" if kind == "length_once" else "STOP"
-                chunk = _gemini_response(part, finish_reason=end if last else None)
+                chunk = _gemini_response(part, finish_reason=end if last else None, model=model)
                 if not last:
                     chunk.usage_metadata = None
                 yield chunk
@@ -438,7 +465,8 @@ import anthropic  # noqa: E402
 def _claude_message(text, stop_reason, model):
     content = [_ns(type="text", text=text)] if text else []
     return _ns(id="msg_fake", type="message", role="assistant", model=model, content=content, stop_reason=stop_reason,
-               usage=_ns(input_tokens=FAKE_USAGE[0], output_tokens=FAKE_USAGE[1]))
+               usage=_ns(input_tokens=FAKE_USAGE[0], output_tokens=FAKE_USAGE[1], cache_read_input_tokens=0,
+                         cache_creation_input_tokens=0))
 
 
 def _claude_answer(kind, k):

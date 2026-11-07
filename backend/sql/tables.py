@@ -9,7 +9,7 @@ Conventions (see docs/postgres-migration-plan.md):
 - user_id foreign keys cascade on delete, so deleting a user is one atomic operation.
 """
 from sqlalchemy import (
-    Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer, MetaData,
+    Boolean, CheckConstraint, Column, Date, DateTime, Double, ForeignKey, Index, Integer, MetaData,
     Numeric, SmallInteger, Table, Text, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -322,6 +322,18 @@ ai_usage = Table(
     # The provider that failed before this one answered (a fallback happened); NULL = no fallback.
     Column("fallback_from", Text),
     CheckConstraint("fallback_from IS NULL OR fallback_from IN ('openai','gemini','claude')", name="fallback_from"),
+    # Cost detail (migration e5b7c3a9d2f6), kept so a price change can be re-applied exactly. input_tokens is the
+    # whole billed input; cached_input_tokens / cache_write_tokens / audio_input_tokens are parts of it.
+    Column("served_model", Text),  # the model the provider says answered; NULL: not reported (or an older row)
+    Column("cached_input_tokens", Integer, nullable=False, server_default="0"),
+    Column("cache_write_tokens", Integer, nullable=False, server_default="0"),
+    Column("audio_input_tokens", Integer, nullable=False, server_default="0"),
+    Column("audio_seconds", Double),  # speech-to-text audio length, when the provider reports it
+    Column("cost_estimated", Boolean, nullable=False, server_default=text("false")),  # tokens/duration estimated
+    # used: the answer the user got; rejected: billed but unusable (the next provider was asked); cancelled: a
+    # stream that ended early after text started. NULL (older rows) means used.
+    Column("outcome", Text),
+    CheckConstraint("outcome IS NULL OR outcome IN ('used','rejected','cancelled')", name="outcome"),
 )
 Index("ix_ai_usage_created", ai_usage.c.created_at)
 Index("ix_ai_usage_user_created", ai_usage.c.user_id, ai_usage.c.created_at)

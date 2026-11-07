@@ -356,17 +356,26 @@ def _resolution_checks():
           "catalogue: chat_advanced is 'Advanced chat', all providers, built-in claude-sonnet-5-5", adv)
     check(features.KNOWN_MODELS == {
         "openai": ["gpt-4o-mini", "gpt-4o"],
-        "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
+        "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash"],
         "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"]}, "catalogue: known models",
         features.KNOWN_MODELS)
-    # F1: known models per feature: voice input on OpenAI offers only whisper-1, nothing else offers it
+    # the built-in defaults stay on the 2.5 models (switching is the owner's choice on the panel)
+    check(features._MODEL_FALLBACK["gemini"] == "gemini-2.5-flash"
+          and features.FEATURES["chat"].default == T("gemini", "gemini-2.5-flash")
+          and features.FEATURES["insight_translation"].default == T("gemini", "gemini-2.5-pro"),
+          "catalogue: built-in gemini defaults unchanged (2.5 flash / 2.5 pro)")
+    # F1: known models per feature: voice input on OpenAI offers only the speech-to-text models, nothing else does
     km = {k: features.known_models(k) for k in features.FEATURES}
-    check(km["transaction_audio"] == {"openai": ["whisper-1"], "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"]},
-          "known_models_per_feature: audio offers whisper-1 on openai, the gemini models on gemini", km["transaction_audio"])
+    audio_models = ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"]
+    check(km["transaction_audio"] == {"openai": audio_models,
+                                      "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite",
+                                                 "gemini-3.8-flash"]},
+          "known_models_per_feature: audio offers the speech-to-text models on openai, the gemini models on gemini",
+          km["transaction_audio"])
     check(all(m == {p: features.KNOWN_MODELS[p] for p in features.FEATURES[k].allowed}
               for k, m in km.items() if k != "transaction_audio")
-          and not any("whisper-1" in ms for k, m in km.items() if k != "transaction_audio" for ms in m.values()),
-          "known_models_per_feature: other features offer their allowed providers' models, never whisper-1", km)
+          and not any(a in ms for k, m in km.items() if k != "transaction_audio" for ms in m.values() for a in audio_models),
+          "known_models_per_feature: other features offer their allowed providers' models, never speech-to-text", km)
     km["chat"]["openai"].append("x")
     check("x" not in features.known_models("chat")["openai"], "known_models_per_feature: returns a copy")
     check(all("claude" in s.allowed for k, s in features.FEATURES.items() if k != "transaction_audio")
@@ -638,6 +647,39 @@ def migration_checks():
                     got = False
                 check(got == expect_ok, f"migration_applied: ai_usage.fallback_from {provider!r} {'accepted' if expect_ok else 'rejected'}")
                 conn.rollback()
+            # AI cost fix (migration e5b7c3a9d2f6): the cost detail columns, with defaults for older rows
+            detail = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
+                "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns "
+                "WHERE table_name = 'ai_usage' AND column_name = ANY(%s)",
+                (["served_model", "cached_input_tokens", "cache_write_tokens", "audio_input_tokens", "audio_seconds",
+                  "cost_estimated", "outcome"],))}
+            check(detail.get("served_model", ("",))[0] == "text" and detail.get("outcome", ("",))[0] == "text"
+                  and detail.get("audio_seconds", ("",))[0] == "double precision"
+                  and all(detail.get(c_, ("", "", ""))[:2] == ("integer", "NO")
+                          for c_ in ("cached_input_tokens", "cache_write_tokens", "audio_input_tokens"))
+                  and detail.get("cost_estimated", ("", ""))[:2] == ("boolean", "NO"),
+                  "migration_applied: ai_usage cost detail columns (served_model, cached/cache-write/audio tokens, "
+                  "audio_seconds, cost_estimated, outcome)", detail)
+            conn.execute("INSERT INTO users (id, name, email, password) VALUES ('t3-user','t','t3@x.test','x')")
+            conn.execute("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name) "
+                         "VALUES ('t3-old','t3-user','chat','openai','m')")
+            row = conn.execute("SELECT cached_input_tokens, cache_write_tokens, audio_input_tokens, cost_estimated, "
+                               "outcome, served_model, audio_seconds FROM ai_usage WHERE id = 't3-old'").fetchone()
+            check(tuple(row) == (0, 0, 0, False, None, None, None),
+                  "migration_applied: a row written without the detail columns (older code) gets the defaults", row)
+            for outcome, expect_ok in (("rejected", True), ("cancelled", True), ("used", True), ("lost", False)):
+                try:
+                    with conn.transaction():
+                        conn.execute("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, outcome) "
+                                     "VALUES ('t3-o','t3-user','chat','openai','m', %s)", (outcome,))
+                        raise RuntimeError("roll back")
+                except RuntimeError:
+                    got = True
+                except Exception:  # noqa: BLE001
+                    got = False
+                check(got == expect_ok,
+                      f"migration_applied: ai_usage.outcome {outcome!r} {'accepted' if expect_ok else 'rejected'}")
+            conn.rollback()
     except Exception as e:  # noqa: BLE001
         check(False, "migration_applied", repr(e))
 
@@ -1414,6 +1456,35 @@ async def client_checks():
     check(r.text == "fake transcript" and r.input_tokens == r.output_tokens == len("fake transcript") // 4
           and k["language"] == "en" and k["model"] == "whisper-1" and k["file"] == ("a.wav", b"RIFFxxxx"),
           "openai_transcribe: whisper-1 with language, tokens estimated len//4", (r, k))
+    check(r.audio_seconds == stubenv.FAKE_AUDIO_SECONDS and r.estimated is False and "response_format" not in k,
+          "openai_transcribe: the audio length comes from usage (type 'duration', seconds); no verbose_json needed",
+          (r.audio_seconds, r.estimated, k))
+    r = await get_client("openai").transcribe("gpt-4o-mini-transcribe", b"x", "a.wav", None)
+    check(r.text == "fake transcript" and r.audio_seconds is None and r.estimated is True
+          and r.output_tokens == len("fake transcript") // 4,
+          "openai_transcribe: gpt-4o-mini-transcribe (token usage, no duration) -> no seconds, marked estimated", r)
+    # the SDK shapes, read from openai.types.audio: Transcription.usage is UsageDuration | UsageTokens;
+    # TranscriptionVerbose has `duration`
+    check(openai_client.audio_seconds_of(NS(text="x", usage=NS(type="duration", seconds=12.5))) == 12.5
+          and openai_client.audio_seconds_of(NS(text="x", usage=NS(type="tokens", input_tokens=5, output_tokens=1))) is None
+          and openai_client.audio_seconds_of(NS(text="x", duration=7.0, usage=None)) == 7.0
+          and openai_client.audio_seconds_of(NS(text="x")) is None,
+          "openai_transcribe: audio_seconds_of reads usage.seconds, else duration, else None")
+    try:
+        from openai.types.audio import Transcription
+        real = Transcription.model_validate({"text": "hi", "usage": {"type": "duration", "seconds": 3.2}})
+        check(openai_client.audio_seconds_of(real) == 3.2, "openai_transcribe: reads the real SDK Transcription type",
+              real)
+    except Exception as e:  # noqa: BLE001
+        check(False, "openai_transcribe: reads the real SDK Transcription type", repr(e))
+    await get_client("openai").ping("gpt-4o-transcribe")
+    check(stubenv.LAST_KWARGS["openai"].get("model") == "gpt-4o-transcribe" and "file" in stubenv.LAST_KWARGS["openai"],
+          "ping: an OpenAI *transcribe* model pings through a transcription, not chat", stubenv.LAST_KWARGS["openai"])
+    # Gemini transcription: AUDIO tokens of the modality breakdown are the audio part
+    r = await get_client("gemini").transcribe("gemini-2.5-flash", b"x", "a.mp3", None)
+    check(r.audio_input_tokens == stubenv.FAKE_GEMINI_AUDIO_TOKENS and r.input_tokens == stubenv.FAKE_USAGE[0]
+          and r.served_model == "gemini-2.5-flash" and r.estimated is False,
+          "gemini_transcribe: audio_input_tokens from prompt_tokens_details (AUDIO), served model from model_version", r)
     await get_client("openai").transcribe("whisper-1", b"x", "a.wav", None)
     check("language" not in stubenv.LAST_KWARGS["openai"], "openai_transcribe: no language -> omitted")
     try:
@@ -1506,6 +1577,54 @@ async def client_checks():
                       NS(type="text", text="b")], stop_reason="end_turn", usage=NS(input_tokens=3, output_tokens=4))
     check(claude_client.text_of(msg) == "ab" and claude_client.text_of(NS(content=[])) == "",
           "claude: text is the concatenation of text blocks only")
+
+    # AI cost (A, B, C): the served model, cached tokens and the audio split, from each SDK's usage shape
+    for p, m in models.items():
+        stubenv.clear_fake_ai()
+        done = await get_client(p).complete(m, Prompt("s", "hi"))
+        finals = [x async for x in get_client(p).stream(m, Prompt("s", "hi")) if not isinstance(x, str)]
+        check(done.served_model == m and finals and finals[-1].served_model == m and finals[-1].text == ""
+              and finals[-1].input_tokens == stubenv.FAKE_USAGE[0] and not finals[-1].estimated,
+              f"served_model: {p} complete and the stream's final Completion name the answering model",
+              (done, finals))
+    c = openai_client._with_usage("hi", "stop", NS(prompt_tokens=1000, completion_tokens=10,
+                                                   prompt_tokens_details=NS(cached_tokens=400)),
+                                  "gpt-4o-mini-2024-07-18", Prompt("s", "u"))
+    check(c.input_tokens == 1000 and c.cached_input_tokens == 400 and c.output_tokens == 10
+          and c.served_model == "gpt-4o-mini-2024-07-18" and not c.estimated,
+          "openai usage: prompt_tokens_details.cached_tokens is the cached part of prompt_tokens; response.model served", c)
+    c = openai_client._with_usage("abcdefgh", "stop", None, None, Prompt("ssss", "uuuu"))
+    check(c.input_tokens == 2 and c.output_tokens == 2 and c.estimated,
+          "openai usage: no usage -> len // 4 of prompt and answer, marked estimated", c)
+    meta = NS(prompt_token_count=1000, candidates_token_count=20, thoughts_token_count=5, cached_content_token_count=300,
+              prompt_tokens_details=[NS(modality=NS(value="AUDIO", name="AUDIO"), token_count=700),
+                                     NS(modality="TEXT", token_count=300)])
+    c = gemini_client.completion_of("x", None, meta, 0, "gemini-3.5-flash-lite", audio=True)
+    check(c.input_tokens == 1000 and c.output_tokens == 25 and c.cached_input_tokens == 300 and c.audio_input_tokens == 700
+          and c.served_model == "gemini-3.5-flash-lite" and not c.estimated,
+          "gemini usage: cached_content_token_count, AUDIO tokens of prompt_tokens_details, model_version", c)
+    c = gemini_client.completion_of("x", None, NS(prompt_token_count=1000, candidates_token_count=2), 0, None, audio=True)
+    check(c.audio_input_tokens == 1000, "gemini usage: an audio request without a modality breakdown is all audio", c)
+    c = gemini_client.completion_of("x", None, meta, 0, None)
+    check(c.audio_input_tokens == 0, "gemini usage: a text request has no audio part", c)
+    c = gemini_client.completion_of("xxxxxxxx", None, None, 40, None)
+    check(c.estimated and c.input_tokens == 10 and c.output_tokens == 2,
+          "gemini usage: no usage_metadata -> len // 4, marked estimated", c)
+    try:
+        from google.genai import types as gtypes
+        real = gtypes.GenerateContentResponseUsageMetadata(
+            prompt_token_count=50, candidates_token_count=1, prompt_tokens_details=[
+                gtypes.ModalityTokenCount(modality=gtypes.MediaModality.AUDIO, token_count=40),
+                gtypes.ModalityTokenCount(modality=gtypes.MediaModality.TEXT, token_count=10)])
+        check(gemini_client.audio_tokens_of(real) == 40, "gemini usage: reads the real SDK's MediaModality.AUDIO")
+    except Exception as e:  # noqa: BLE001
+        check(False, "gemini usage: reads the real SDK's MediaModality.AUDIO", repr(e))
+    msg = NS(content=[NS(type="text", text="a")], stop_reason="end_turn", model="claude-haiku-5-5",
+             usage=NS(input_tokens=100, output_tokens=7, cache_read_input_tokens=1000, cache_creation_input_tokens=50))
+    c = claude_client._completion(msg)
+    check(c.input_tokens == 1150 and c.cached_input_tokens == 1000 and c.cache_write_tokens == 50 and c.output_tokens == 7
+          and c.served_model == "claude-haiku-5-5",
+          "claude usage: input_tokens + cache reads + cache writes, the cache parts apart, message.model served", c)
 
 
 async def _gemini_server_timeout_header_checks():
@@ -1705,10 +1824,10 @@ async def _runner_checks(uid):
     # enum and pricing
     check(AIProviderType("claude") == AIProviderType.CLAUDE and AIProviderType.CLAUDE.value == "claude",
           "usage: AIProviderType.CLAUDE")
-    check(PRICING.get("claude") == {"claude-sonnet-5-5": {"input": 2.00, "output": 10.00},
-                                    "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
-                                    "claude-opus-5-5": {"input": 4.00, "output": 20.00}},
-          "usage: PRICING['claude']", PRICING.get("claude"))
+    # input/output unchanged; the cache rates and Haiku's long-prompt rate card were added with the AI cost fix
+    check({m: (p["input"], p["output"]) for m, p in PRICING.get("claude", {}).items()}
+          == {"claude-sonnet-5-5": (2.00, 10.00), "claude-haiku-5-5": (0.10, 0.50), "claude-opus-5-5": (4.00, 20.00)},
+          "usage: PRICING['claude'] input/output", PRICING.get("claude"))
 
     # the happy path: the main provider answers, effort goes to claude, usage is tracked without fallback
     health.reset()
@@ -1966,7 +2085,13 @@ async def _runner_checks(uid):
     check(isinstance(err, stubenv.FakeAPIError) and len(items) == 1 and isinstance(items[0], str)
           and called == ["claude"], "stream_no_fallback_after_chunk: one chunk, then the error; no openai call",
           (items, err, called))
-    check(len(await usage_rows()) == n0, "stream_no_fallback_after_chunk: no usage row")
+    await asyncio.gather(*runner.pending_usage_writes())
+    rows = await usage_rows()
+    check(len(rows) == n0 + 1 and rows[-1]["provider"] == "claude" and rows[-1]["outcome"] == "cancelled"
+          and rows[-1]["cost_estimated"] is True and rows[-1]["input_tokens"] == len("su") // 4
+          and rows[-1]["output_tokens"] == len(items[0]) // 4 and rows[-1]["fallback_from"] is None,
+          "stream_error_after_chunk_records_usage: one 'cancelled' row with estimated tokens (the provider billed it)",
+          rows[n0:])
 
     # a provider failure after the first chunk still counts: status records it, and two in a row cool claude
     health.reset()
@@ -2033,11 +2158,386 @@ async def _runner_checks(uid):
     r = await runner.run("chat", user_id=None, call=runner.default_call(Prompt("s", "u"), "chat"))
     check(isinstance(r, runner.RunResult) and len(await usage_rows()) == n0, "run: user_id None tracks nothing")
 
+    await _cost_runner_checks(uid, usage_rows, go, go_stream, parse_json, claude_main)
+
     # the package exports the runner
     import ai_providers
     check(all(hasattr(ai_providers, n) for n in ("run", "run_stream", "Prompt", "Completion", "Target",
                                                   "AllProvidersFailed", "UnusableAnswer", "RunResult")),
           "ai_providers re-exports the runner API")
+
+
+async def _cost_runner_checks(uid, usage_rows, go, go_stream, parse_json, claude_main):
+    """AI cost fix: streams cut short still record usage once; billed-but-rejected answers record a row."""
+    from contextlib import aclosing
+
+    from ai_providers import health, runner, settings
+    from ai_providers.errors import AllProvidersFailed, UnusableAnswer
+    from ai_providers.types import Completion, FeatureSetting, Prompt, Target
+
+    T = Target
+    big = Prompt("s" * 400, "u" * 400)  # 800 characters: 200 estimated input tokens
+
+    async def new_rows(n0):
+        await asyncio.gather(*runner.pending_usage_writes())
+        return (await usage_rows())[n0:]
+
+    async def start(**fakes):
+        health.reset()
+        await settings.save_panel("chat", claude_main, "t6@x")
+        stubenv.set_fake_ai(**fakes) if fakes else stubenv.clear_fake_ai()
+        return len(await usage_rows())
+
+    # the consumer closes the stream after 2 chunks: one 'cancelled' row with estimated tokens
+    n0 = await start()
+    gen = runner.run_stream("chat", user_id=uid, prompt=big)
+    got = [await gen.__anext__(), await gen.__anext__()]
+    await gen.aclose()
+    await gen.aclose()  # closing again changes nothing
+    rows = await new_rows(n0)
+    check(len(rows) == 1 and rows[0]["provider"] == "claude" and rows[0]["model_name"] == "claude-sonnet-5-5"
+          and rows[0]["outcome"] == "cancelled" and rows[0]["cost_estimated"] is True
+          and rows[0]["input_tokens"] == 200 and rows[0]["output_tokens"] == len("".join(got)) // 4
+          and rows[0]["fallback_from"] is None and float(rows[0]["estimated_cost_usd"]) > 0,
+          "stream_closed_after_2_chunks: exactly one 'cancelled' row, tokens estimated from the prompt and the text sent",
+          (got, rows))
+    check(health.is_available(T("claude", "claude-sonnet-5-5")), "stream_closed_after_2_chunks: no cool-off")
+
+    # the request task is cancelled mid-stream: the row is still written (scheduled, not awaited in the cancel path)
+    n0 = await start(claude="slow")
+    got = []
+
+    async def consume():
+        async with aclosing(runner.run_stream("chat", user_id=uid, prompt=big)) as items:
+            async for x in items:
+                got.append(x)
+    task = asyncio.create_task(consume())
+    for _ in range(100):
+        if got:
+            break
+        await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    rows = await new_rows(n0)
+    check(len(got) == 1 and len(rows) == 1 and rows[0]["outcome"] == "cancelled" and rows[0]["input_tokens"] == 200
+          and rows[0]["output_tokens"] == len(got[0]) // 4,
+          "stream_cancelled_mid_stream: the cancelled request still records one 'cancelled' row", (got, rows))
+
+    # a stream that completes records exactly one row, with the provider's real usage
+    n0 = await start()
+    items = [x async for x in runner.run_stream("chat", user_id=uid, prompt=big)]
+    rows = await new_rows(n0)
+    check(isinstance(items[-1], runner.RunResult) and len(rows) == 1 and rows[0]["outcome"] == "used"
+          and rows[0]["input_tokens"] == stubenv.FAKE_USAGE[0] and rows[0]["output_tokens"] == stubenv.FAKE_USAGE[1]
+          and rows[0]["cost_estimated"] is False and rows[0]["served_model"] == "claude-sonnet-5-5",
+          "stream_completed: exactly one 'used' row with the provider's usage and the served model", rows)
+    # closed right after the RunResult: still one row
+    n0 = await start()
+    gen = runner.run_stream("chat", user_id=uid, prompt=big)
+    async for x in gen:
+        if isinstance(x, runner.RunResult):
+            break
+    await gen.aclose()
+    rows = await new_rows(n0)
+    check(len(rows) == 1 and rows[0]["outcome"] == "used", "stream_closed_after_result: no second row", rows)
+
+    # nothing yielded: no extra row (closed before the first chunk, or every provider failed)
+    n0 = await start()
+    gen = runner.run_stream("chat", user_id=uid, prompt=big)
+    await gen.aclose()
+    await settings.save_panel("chat", FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"), "t6@x")
+    stubenv.set_fake_ai(claude="server")
+    try:
+        [x async for x in runner.run_stream("chat", user_id=uid, prompt=big)]
+        err = None
+    except AllProvidersFailed as e:
+        err = e
+    rows = await new_rows(n0)
+    check(isinstance(err, AllProvidersFailed) and rows == [],
+          "stream_nothing_yielded: no row when closed before a chunk or when every provider failed", (err, rows))
+
+    # E: a refused answer was billed: a 'rejected' row, then the backup's 'used' row; an HTTP error records nothing
+    n0 = await start()
+    r, called = await go(claude="refusal")
+    rows = await new_rows(n0)
+    check(isinstance(r, runner.RunResult) and called == ["claude", "openai"]
+          and [(x["provider"], x["outcome"], x["fallback_from"]) for x in rows]
+          == [("claude", "rejected", None), ("openai", "used", "claude")]
+          and float(rows[0]["estimated_cost_usd"]) > 0,
+          "rejected_answer_recorded: refusal -> claude 'rejected' row + openai 'used' row (fallback_from claude)",
+          [(x["provider"], x["outcome"], x["fallback_from"]) for x in rows])
+    n0 = await start()
+    r, called = await go(claude="bad_json", parse=parse_json, prompt=Prompt("s", "u", json_schema={"type": "object"}))
+    rows = await new_rows(n0)
+    check([(x["provider"], x["outcome"]) for x in rows] == [("claude", "rejected"), ("openai", "used")],
+          "rejected_answer_recorded: a parse that raises UnusableAnswer records the billed answer as rejected",
+          [(x["provider"], x["outcome"]) for x in rows])
+    n0 = await start()
+    r, called = await go(claude="server")
+    rows = await new_rows(n0)
+    check(isinstance(r, runner.RunResult) and [(x["provider"], x["outcome"]) for x in rows] == [("openai", "used")],
+          "http_error_not_recorded: a 503 attempt writes no row; only the answer used", rows)
+    n0 = await start()
+    items, err, called = await go_stream(claude="empty")
+    rows = await new_rows(n0)
+    check(err is None and [(x["provider"], x["outcome"], x["fallback_from"]) for x in rows]
+          == [("claude", "rejected", None), ("openai", "used", "claude")],
+          "rejected_answer_recorded: an empty streamed answer before any chunk is 'rejected', the backup 'used'",
+          [(x["provider"], x["outcome"], x["fallback_from"]) for x in rows])
+    check(health.is_available(T("claude", "claude-sonnet-5-5")), "rejected_answer_recorded: no cool-off")
+
+    # a `call` that gives up after billed requests passes them on its UnusableAnswer
+    n0 = await start()
+    await settings.save_panel("chat", FeatureSetting(T("claude", "claude-sonnet-5-5"), (), "panel"), "t6@x")
+
+    async def gives_up(client, t):
+        raise UnusableAnswer("cut off", completion=Completion("", 100, 50, "stop", cached_input_tokens=20))
+    try:
+        await runner.run("chat", user_id=uid, call=gives_up)
+        err = None
+    except AllProvidersFailed as e:
+        err = e
+    rows = await new_rows(n0)
+    check(isinstance(err, AllProvidersFailed) and len(rows) == 1 and rows[0]["outcome"] == "rejected"
+          and rows[0]["input_tokens"] == 100 and rows[0]["output_tokens"] == 50 and rows[0]["cached_input_tokens"] == 20,
+          "rejected_answer_recorded: UnusableAnswer(completion=...) from a call is recorded", rows)
+    stubenv.clear_fake_ai()
+
+
+def pricing_checks():
+    """AI cost fix: calculate_cost with the 2026-11-07 list prices (USD per 1M tokens, per minute for speech-to-text)."""
+    import logging
+    from datetime import UTC, datetime
+
+    import ai_usage_service as aus
+    cc = aus.calculate_cost
+    M = 1_000_000
+    near = lambda a, b: abs(a - b) < 1e-9  # noqa: E731
+
+    # 1M in + 1M out = input + output price. gemini-2.5-pro and claude-haiku-5-5 bill a prompt over 200k / 100k
+    # tokens on their long-prompt rate card, so they are checked with 100k in (+ 1M out) here; see long_context below.
+    for provider, model, tin, want in (("openai", "gpt-4o-mini", M, 0.75), ("openai", "gpt-4o", M, 12.50),
+                                       ("gemini", "gemini-2.5-flash", M, 2.80), ("gemini", "gemini-2.5-flash-lite", M, 0.50),
+                                       ("gemini", "gemini-2.5-pro", 100_000, 10.125),
+                                       ("gemini", "gemini-3.5-flash-lite", M, 2.80),
+                                       ("claude", "claude-sonnet-5-5", M, 12.00), ("claude", "claude-haiku-5-5", 100_000, 0.51),
+                                       ("claude", "claude-opus-5-5", M, 24.00)):
+        got = cc(provider, model, tin, M, at=datetime(2026, 11, 7, tzinfo=UTC))
+        check(near(got, want), f"pricing: {provider}/{model} {tin:,} in + 1M out = ${want}", got)
+    check(near(cc("gemini", "gemini-2.5-pro", M, M), 17.50) and near(cc("claude", "claude-haiku-5-5", M, M), 3.00),
+          "pricing: 1M-token prompts on gemini-2.5-pro / claude-haiku-5-5 use the long-prompt rates (2.50/15.00, 0.50/2.50)")
+    check("gemini-2.0-flash-exp" not in aus.PRICING["gemini"], "pricing: the retired gemini-2.0-flash-exp is gone")
+    check(near(cc("gemini", "gemini-2.5-flash", M, 0, audio_input=True), 1.00)
+          and near(cc("gemini", "gemini-2.5-flash-lite", M, 0, audio_input=True), 0.30)
+          and near(cc("gemini", "gemini-3.5-flash-lite", M, 0, audio_input=True), 0.30)
+          and near(cc("gemini", "gemini-2.5-pro", 100_000, 0, audio_input=True), 0.125),
+          "pricing: gemini audio input at the audio rate (2.5 flash 1.00, flash-lite 0.30, 3.5 flash-lite 0.30, "
+          "others = text input)")
+    before, after = datetime(2026, 12, 31, 23, 59, 59, tzinfo=UTC), datetime(2027, 1, 1, tzinfo=UTC)
+    check(near(cc("gemini", "gemini-3.8-flash", M, M, at=before), 4.50)
+          and near(cc("gemini", "gemini-3.8-flash", M, M, at=after), 9.00)
+          and near(cc("gemini", "gemini-3.8-flash", M, 0, audio_input=True, at=before), 0.75)
+          and near(cc("gemini", "gemini-3.8-flash", M, M, at=datetime(2026, 12, 31, 23, 59, 59)), 4.50),
+          "pricing: gemini-3.8-flash 0.75/3.75 until 2026-12-31T23:59:59Z, 1.50/7.50 from 2027-01-01T00:00:00Z "
+          "(naive = UTC; audio = text input)")
+    check(near(cc("openai", " GPT-4o-Mini ", M, M), 0.75) and near(cc(" Gemini ", "GEMINI-2.5-FLASH", M, M), 2.80),
+          "pricing: provider and model matched case-insensitively after trimming")
+    check(near(cc("openai", "whisper-1", 0, 0, audio_seconds=90), 0.009)
+          and near(cc("openai", "gpt-4o-mini-transcribe", 0, 0, audio_seconds=60), 0.003)
+          and near(cc("openai", "gpt-4o-transcribe", 0, 0, audio_seconds=60), 0.006),
+          "pricing: speech-to-text per minute (whisper-1 90 s = $0.009, gpt-4o-mini-transcribe 60 s = $0.003)")
+    # unknown seconds: tokens are characters // 4; 5.5 characters per word, 2.5 words per second
+    want = round(55 * 4 / 5.5 / 2.5 / 60 * 0.006, 6)
+    check(near(cc("openai", "whisper-1", 55, 55), want) and want > 0 and near(aus.estimated_audio_seconds(55), 16.0),
+          "pricing: per-minute with unknown seconds estimates them from the transcript tokens (55 tokens = 16 s)",
+          (cc("openai", "whisper-1", 55, 55), want))
+
+    # unknown models: never $0; warned once per (provider, model); unknown provider still 0
+    aus._warned_unknown.clear()
+    with LogCapture("ai_usage_service") as cap:
+        got = [cc("openai", "gpt-9", M, M) for _ in range(3)]
+        g = cc("gemini", "gemini-9-ultra", M, M, at=datetime(2026, 11, 7, tzinfo=UTC))
+        g27 = cc("gemini", "gemini-9-ultra", M, M, at=after)
+        a = cc("openai", "whisper-2", 0, 0, audio_seconds=60)
+        a2 = cc("openai", "gpt-9o-transcribe", 0, 0, audio_seconds=120)
+        c9 = cc("claude", "claude-next", M, M)
+        none = cc("bard", "x", M, M)
+    warns = [r.getMessage() for r in cap.at(logging.WARNING)]
+    check(got == [12.5] * 3, "pricing_unknown: openai gpt-9 is priced at gpt-4o's prices (not 0)", got)
+    check(near(g, 11.25) and near(g27, 11.50),
+          "pricing_unknown: an unknown gemini model gets the highest gemini input and output prices, separately", (g, g27))
+    check(near(a, 0.006) and near(a2, 0.012), "pricing_unknown: an unknown openai speech-to-text name is 0.006/min",
+          (a, a2))
+    check(near(c9, 24.0) and none == 0.0, "pricing_unknown: unknown claude model -> opus prices; unknown provider -> 0",
+          (c9, none))
+    check(sum("gpt-9" in w and "gpt-9o" not in w for w in warns) == 1 and len(warns) == 6,
+          "pricing_unknown: the warning is logged once per (provider, model) per process", warns)
+
+    # A: the served model is priced when known; snapshot names; unknown served -> requested
+    dec = datetime(2026, 12, 5, tzinfo=UTC)
+    check(near(cc("gemini", "gemini-2.5-pro", M, M, served_model="gemini-3.8-flash", at=dec), 4.50),
+          "served_model: gemini-2.5-pro requested, gemini-3.8-flash served -> 3.8 flash prices")
+    check(near(cc("gemini", "gemini-2.5-flash", M, M, served_model="models/gemini-3.5-flash-lite"), 2.80)
+          and near(cc("openai", "gpt-4o-mini", M, M, served_model="gpt-4o-mini-2024-07-18"), 0.75)
+          and near(cc("openai", "gpt-4o", M, M, served_model="gpt-4o-2024-08-06"), 12.5)
+          and near(cc("claude", "claude-sonnet-5-5", M, M, served_model="claude-sonnet-5-5-20261001"), 12.0)
+          and near(cc("gemini", "gemini-2.5-flash", M, M, served_model="gemini-2.5-flash-latest"), 2.80),
+          "served_model: models/ prefix and -YYYY-MM-DD / -YYYYMMDD / -latest suffixes price as the base model")
+    check(near(cc("gemini", "gemini-2.5-flash", M, M, served_model="gemini-2.5-flash-lite"), 0.50)
+          and aus.resolve_model("gemini", "gemini-2.5-flash-lite") == "gemini-2.5-flash-lite"
+          and aus.resolve_model("gemini", "gemini-2.5-flash-lite-2026-01-01") == "gemini-2.5-flash-lite",
+          "served_model: gemini-2.5-flash-lite is never read as gemini-2.5-flash")
+    check(near(cc("gemini", "gemini-2.5-pro", 100_000, M, served_model="gemini-x-preview"), 10.125)
+          and near(cc("openai", "gpt-4o-mini", M, M, served_model="fake"), 0.75),
+          "served_model: an unknown served model falls back to the requested model's prices")
+
+    # B: cached input tokens
+    check(near(cc("openai", "gpt-4o-mini", M, 0, cached_input_tokens=400_000), round(0.6 * 0.15 + 0.4 * 0.075, 6))
+          and near(cc("openai", "gpt-4o", M, 0, cached_input_tokens=M), 1.25),
+          "cached_tokens: openai gpt-4o-mini 1M prompt of which 400k cached = 600k x 0.15 + 400k x 0.075 per 1M")
+    check(near(cc("gemini", "gemini-2.5-flash", M, 0, cached_input_tokens=400_000), round(0.6 * 0.30 + 0.4 * 0.03, 6))
+          and near(cc("gemini", "gemini-2.5-flash-lite", M, 0, cached_input_tokens=M), 0.01)
+          and near(cc("gemini", "gemini-2.5-pro", 100_000, 0, cached_input_tokens=100_000), 0.0125)
+          and near(cc("gemini", "gemini-2.5-pro", M, 0, cached_input_tokens=100_000), round(0.1 * 0.25 + 0.9 * 2.50, 6))
+          and near(cc("gemini", "gemini-3.5-flash-lite", M, 0, cached_input_tokens=M), 0.03)
+          and near(cc("gemini", "gemini-3.8-flash", M, 0, cached_input_tokens=M, at=before), 0.075)
+          and near(cc("gemini", "gemini-3.8-flash", M, 0, cached_input_tokens=M, at=after), 0.15),
+          "cached_tokens: gemini cached rates (2.5 flash 0.03, flash-lite 0.01, 2.5 pro long prompt 0.25, "
+          "3.5 flash-lite 0.03, 3.8 flash 0.075 then 0.15)")
+    check(near(cc("gemini", "gemini-2.5-flash", M, 0, audio_input_tokens=M, cached_input_tokens=M), 0.10)
+          and near(cc("gemini", "gemini-2.5-flash", M, 0, audio_input_tokens=500_000, cached_input_tokens=600_000),
+                   round(0.5 * 0.03 + 0.1 * 0.10 + 0.4 * 1.00, 6)),
+          "cached_tokens: cached tokens count against the text input first, then the audio (cached audio 0.10)")
+    check(near(cc("claude", "claude-sonnet-5-5", M, 0, cached_input_tokens=M), 0.20)
+          and near(cc("claude", "claude-opus-5-5", M, 0, cached_input_tokens=M), 0.20)
+          and near(cc("claude", "claude-haiku-5-5", 100_000, 0, cached_input_tokens=100_000), 0.001)
+          and near(cc("claude", "claude-sonnet-5-5", M, 0, cache_write_tokens=M), 2.50)
+          and near(cc("claude", "claude-opus-5-5", M, 0, cache_write_tokens=M), 5.00)
+          and near(cc("claude", "claude-haiku-5-5", 100_000, 0, cache_write_tokens=100_000), 0.0125)
+          and near(cc("claude", "claude-sonnet-5-5", 3000, 0, cached_input_tokens=1000, cache_write_tokens=1000),
+                   (1000 * 2.0 + 1000 * 0.2 + 1000 * 2.5) / M),
+          "cached_tokens: claude cache reads (sonnet 0.20 = 0.1x, opus 0.20 = 0.05x, haiku 0.01) and 5-minute "
+          "cache writes (1.25x)")
+
+    # C: the audio/text split, and the long-prompt rate cards
+    check(near(cc("gemini", "gemini-2.5-flash", M, 0, audio_input_tokens=800_000), round(0.8 * 1.00 + 0.2 * 0.30, 6)),
+          "audio_split: gemini audio tokens at 1.00, the rest at 0.30")
+    close = lambda a, b: abs(a - b) < 2e-6  # noqa: E731  (the 6-decimal rounding of a half-micro-dollar)
+    check(near(cc("gemini", "gemini-2.5-pro", 200_000, 0), 0.25) and close(cc("gemini", "gemini-2.5-pro", 200_001, 0),
+                                                                           200_001 * 2.50 / M)
+          and near(cc("gemini", "gemini-2.5-pro", 200_000, M), 10.25)
+          and close(cc("gemini", "gemini-2.5-pro", 200_001, M), 200_001 * 2.50 / M + 15.0),
+          "long_context: gemini-2.5-pro 200,000 prompt tokens at 1.25/10.00, 200,001 at 2.50/15.00",
+          (cc("gemini", "gemini-2.5-pro", 200_001, 0), cc("gemini", "gemini-2.5-pro", 200_001, M)))
+    check(near(cc("claude", "claude-haiku-5-5", 100_000, M), 0.51)
+          and close(cc("claude", "claude-haiku-5-5", 100_001, M), 100_001 * 0.50 / M + 2.50),
+          "long_context: claude-haiku-5-5 over 100,000 prompt tokens at 0.50/2.50")
+
+
+async def cost_tracking_checks():
+    """AI cost fix: track_ai_usage stores the cost and its detail, the cost cap sees it, and the recalculation
+    script reprices stored rows (dry run, --apply, idempotent)."""
+    import uuid
+    from datetime import UTC, datetime, timedelta
+    from decimal import Decimal
+
+    from sqlalchemy import delete, insert, select
+
+    from ai_usage_models import AIFeatureType, AIProviderType
+    from ai_usage_service import calculate_cost, track_ai_usage
+    from scripts import recalculate_ai_costs as rc
+    from sql import ai_usage as ai_usage_db
+    from sql.db import execute, fetch_all
+    from sql.tables import ai_usage, users
+
+    uid = f"t-cost-{uuid.uuid4().hex[:6]}"
+    await execute(insert(users).values(id=uid, name="cost", email=f"{uid}@x.test", password="x"))
+    try:
+        since = datetime.now(UTC) - timedelta(seconds=5)
+        rec = await track_ai_usage(uid, AIFeatureType.CHAT, AIProviderType.GEMINI, "gemini-2.5-flash", 1_000_000, 100_000,
+                                   1_100_000, served_model="gemini-2.5-flash", cached_input_tokens=200_000)
+        want = round(0.8 * 0.30 + 0.2 * 0.03 + 0.1 * 2.50, 6)
+        rows = await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid))
+        check(rec and abs(rec["estimated_cost_usd"] - want) < 1e-9 and len(rows) == 1
+              and float(rows[0]["estimated_cost_usd"]) == want and rows[0]["cached_input_tokens"] == 200_000
+              and rows[0]["served_model"] == "gemini-2.5-flash" and rows[0]["outcome"] == "used"
+              and rows[0]["cost_estimated"] is False,
+              "track_ai_usage: stores the new cost (2.5 flash at 0.30/2.50, cached at 0.03) and the detail columns", rows)
+        spent = await ai_usage_db.user_cost_since(uid, since)
+        check(abs(spent - want) < 1e-9, "track_ai_usage: the cost cap's user_cost_since sees the new cost", (spent, want))
+        await track_ai_usage(uid, AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION, AIProviderType.OPENAI, "whisper-1",
+                             3, 3, 6, audio_seconds=90.0)
+        rows = await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid).order_by(ai_usage.c.created_at))
+        check(float(rows[-1]["estimated_cost_usd"]) == 0.009 and rows[-1]["audio_seconds"] == 90.0,
+              "track_ai_usage: whisper-1 90 s is stored as $0.009 with its audio_seconds", rows[-1])
+        await track_ai_usage(uid, AIFeatureType.TRANSACTION_AUDIO_TRANSCRIPTION, AIProviderType.GEMINI,
+                             "gemini-2.5-flash", 1000, 10, 1010, audio_input=True)
+        rows = await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid).order_by(ai_usage.c.created_at))
+        check(rows[-1]["audio_input_tokens"] == 1000
+              and float(rows[-1]["estimated_cost_usd"]) == round((1000 * 1.00 + 10 * 2.50) / 1e6, 6),
+              "track_ai_usage: audio_input=True stores every input token as audio, priced at 1.00", rows[-1])
+        await execute(delete(ai_usage).where(ai_usage.c.user_id == uid))
+
+        # the recalculation script: seeded rows at the old (wrong) costs
+        t0 = datetime(2026, 11, 1, 12, tzinfo=UTC)
+        seed = [
+            # id, feature, provider, model, in, out, old cost, extra
+            ("a", "chat", "gemini", "gemini-2.5-flash", 1_000_000, 100_000, 0.105, {}),
+            ("b", "transaction_audio_transcription", "openai", "whisper-1", 55, 55, 0.0, {}),
+            ("c", "transaction_audio_transcription", "gemini", "gemini-2.5-flash", 2000, 10, 0.000153, {}),
+            ("d", "chat", "claude", "claude-sonnet-5-5", 1000, 100, 0.003, {}),  # already right: unchanged
+            ("e", "chat", "openai", "gpt-4o-mini", 1_000_000, 0, 0.15, {"cached_input_tokens": 400_000,
+                                                                        "served_model": "gpt-4o-mini-2024-07-18"}),
+            ("f", "transaction_audio_transcription", "openai", "whisper-1", 3, 3, 0.0, {"audio_seconds": 30.0}),
+            ("g", "chat", "gemini", "gemini-3.8-flash", 1_000_000, 0, 0.0, {"created_at": datetime(2027, 1, 2, tzinfo=UTC)}),
+        ]
+        for i, f, p, m, tin, tout, cost, extra in seed:
+            await execute(insert(ai_usage).values(**{
+                "id": f"{uid}-{i}", "user_id": uid, "feature_type": f, "provider": p, "model_name": m,
+                "input_tokens": tin, "output_tokens": tout, "total_tokens": tin + tout, "estimated_cost_usd": cost,
+                "created_at": t0, **extra}))
+        expect = {
+            "a": round(0.30 + 0.1 * 2.50, 6),
+            "b": round(16.0 / 60 * 0.006, 6),
+            "c": round((2000 * 1.00 + 10 * 2.50) / 1e6, 6),
+            "d": 0.003,
+            "e": round(0.6 * 0.15 + 0.4 * 0.075, 6),
+            "f": 0.003,
+            "g": 1.50,
+        }
+        printed = []
+
+        async def costs():
+            got = await fetch_all(select(ai_usage.c.id, ai_usage.c.estimated_cost_usd).where(ai_usage.c.user_id == uid))
+            return {r["id"].rsplit("-", 1)[1]: float(r["estimated_cost_usd"]) for r in got}
+        old = await costs()
+        dry = await rc.recalculate(False, user_id=uid, batch_size=3, out=printed.append)
+        check(await costs() == old, "recalculate_dry_run: writes nothing", await costs())
+        old_sum = sum(Decimal(str(s[6])) for s in seed)
+        new_sum = sum(Decimal(str(v)).quantize(Decimal("0.000001")) for v in expect.values())
+        check(dry["total"]["rows"] == 7 and dry["total"]["changed"] == 6 and dry["total"]["old"] == old_sum
+              and dry["total"]["new"] == new_sum and dry["providers"]["claude"]["changed"] == 0
+              and dry["providers"]["gemini"]["rows"] == 3 and dry["estimated_audio_rows"] == 1 and dry["applied"] == 0,
+              "recalculate_dry_run: reports rows, old vs new sums per provider and in total, and the rows that change",
+              (dry, old_sum, new_sum))
+        text = "\n".join(printed)
+        check("dry run" in text and "total" in text and "estimated" in text and "postgresql" not in text.lower()
+              and "54329" not in text, "recalculate_dry_run: the printout (no connection string)", text)
+        applied = await rc.recalculate(True, user_id=uid, batch_size=3, out=printed.append)
+        got = await costs()
+        check(applied["applied"] == 6 and all(abs(got[k] - v) < 1e-9 for k, v in expect.items()),
+              "recalculate_apply: updates the changed rows to the new prices", (got, expect))
+        again = await rc.recalculate(True, user_id=uid, out=printed.append)
+        check(again["applied"] == 0 and again["total"]["changed"] == 0 and await costs() == got,
+              "recalculate_apply_again: a second --apply changes 0 rows", again["total"])
+        # the stored detail columns are used: the same tokens with and without a recorded cache/served model differ
+        check(abs(got["e"] - calculate_cost("openai", "gpt-4o-mini", 1_000_000, 0)) > 0.02,
+              "recalculate: the stored cached tokens are priced at the cached rate")
+    finally:
+        await execute(delete(users).where(users.c.id == uid))  # cascades to its ai_usage rows
 
 
 async def execute_status_delete():
@@ -2203,9 +2703,12 @@ async def admin_api_checks():
               "settings_get: feature shape", chat)
         # F1: each feature row lists the models its picker offers, per allowed provider
         audio = feats["transaction_audio"]
-        check(audio.get("known_models") == {"openai": ["whisper-1"], "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"]},
-              "settings_get_known_models_per_feature: audio offers only whisper-1 on openai", audio.get("known_models"))
-        check(chat.get("known_models") == {"openai": ["gpt-4o-mini", "gpt-4o"], "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
+        gemini_models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
+        check(audio.get("known_models") == {"openai": ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"],
+                                            "gemini": gemini_models},
+              "settings_get_known_models_per_feature: audio offers only the speech-to-text models on openai",
+              audio.get("known_models"))
+        check(chat.get("known_models") == {"openai": ["gpt-4o-mini", "gpt-4o"], "gemini": gemini_models,
                                            "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"]}
               and all(set(f["known_models"]) == set(f["allowed"]) for f in feats.values())
               and not any("whisper-1" in ms for k, f in feats.items() if k != "transaction_audio"
@@ -2987,7 +3490,8 @@ async def _insight_inprocess_checks(uid):
 
         async def translation_usage():
             return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid,
-                                                          ai_usage.c.feature_type == "translation"))
+                                                          ai_usage.c.feature_type == "translation")
+                                   .order_by(ai_usage.c.created_at))
 
         async def new_usage(seen):
             return [r for r in await translation_usage() if r["id"] not in seen]
@@ -3020,9 +3524,12 @@ async def _insight_inprocess_checks(uid):
               "translation: a chunk still cut off moves to the backup, which answers the whole text alone",
               (called, repr(err), mm[:80]))
         rows = await new_usage(seen)
-        check([(r["provider"], r["fallback_from"]) for r in rows] == [("openai", "claude")],
-              "translation: the backup's usage row names fallback_from=claude",
-              [(r["provider"], r["fallback_from"]) for r in rows])
+        # (AI cost fix: claude's two billed requests are one 'rejected' row, their tokens summed)
+        check([(r["provider"], r["fallback_from"], r["outcome"]) for r in rows]
+              == [("claude", None, "rejected"), ("openai", "claude", "used")]
+              and rows[0]["input_tokens"] == 2 * stubenv.FAKE_USAGE[0],
+              "translation: claude's billed attempts are one 'rejected' row; the backup's usage row names "
+              "fallback_from=claude", [(r["provider"], r["fallback_from"], r["outcome"], r["input_tokens"]) for r in rows])
 
         # ... and with no backups it still fails as InsightAIError (nothing cached, as before)
         settings.set_panel_cache({"insight_translation": FeatureSetting(Target("claude", "claude-sonnet-5-5"), (), "panel")})
@@ -3165,8 +3672,9 @@ async def budget_checks():
         cats = (r.json().get("category_budgets") if r.status_code == 200 else None) or []
         check(r.status_code == 200 and calls(before) == ["claude", "openai"] and cats and cats[0]["allocated_amount"] == 450,
               "budget_bad_json_falls_back: 200 from openai after claude's bad JSON", f"{r.status_code} {r.text[:200]} {calls(before)}")
-        check(len(rows) == 1 and rows[0]["provider"] == "openai" and rows[0]["fallback_from"] == "claude",
-              "budget_bad_json_falls_back: the usage row has fallback_from claude",
+        check([(x["provider"], x["fallback_from"], x["outcome"]) for x in rows]
+              == [("claude", None, "rejected"), ("openai", "claude", "used")],
+              "budget_bad_json_falls_back: claude's billed bad answer is 'rejected'; the used row has fallback_from claude",
               [(x["provider"], x["fallback_from"]) for x in rows])
         admin_reset(c, AD)
 
@@ -3264,7 +3772,8 @@ async def _budget_inprocess_checks(uid):
         return await bs._generate_ai_category_budgets(uid, bs.BudgetPeriod.MONTHLY, now, now + timedelta(days=30), parent)
 
     async def usage(feature):
-        return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid, ai_usage.c.feature_type == feature))
+        return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid, ai_usage.c.feature_type == feature)
+                               .order_by(ai_usage.c.created_at))
 
     try:
         settings.set_panel_cache({})
@@ -3320,15 +3829,19 @@ async def _budget_inprocess_checks(uid):
 
         # --- AllProvidersFailed / unusable answers: the non-AI fallbacks, as before
         want_adjusted = [x.allocated_amount for x in bs._generate_adjusted_budgets(parent, 31)]
-        for label, fakes in (("every provider fails", {"claude": "server"}), ("bad json", {"claude": "bad_json"})):
+        # (AI cost fix: a billed bad-JSON answer is recorded as one 'rejected' row; a 5xx attempt was not billed)
+        for label, fakes, want_rows in (("every provider fails", {"claude": "server"}, []),
+                                        ("bad json", {"claude": "bad_json"}, [("claude", "rejected")])):
             health.reset()
             use("budget_auto_create", "claude", "claude-sonnet-5-5")
             n0 = len(await usage("budget_auto_create"))
             stubenv.set_fake_ai(**fakes)
             out = await auto()
+            rows = (await usage("budget_auto_create"))[n0:]
             check([x.allocated_amount for x in out] == want_adjusted and want_adjusted == [90.0]
-                  and len(await usage("budget_auto_create")) == n0,
-                  f"budget auto-create: {label} -> the adjusted (non-AI) budgets, no usage row", [x.allocated_amount for x in out])
+                  and [(x["provider"], x["outcome"]) for x in rows] == want_rows,
+                  f"budget auto-create: {label} -> the adjusted (non-AI) budgets, usage rows {want_rows}",
+                  ([x.allocated_amount for x in out], [(x["provider"], x["outcome"]) for x in rows]))
         stubenv.clear_fake_ai()
         health.reset()
 
@@ -3484,8 +3997,10 @@ async def transaction_checks():
         rows = (await usage(uid, "transaction_text_extraction"))[n0:]
         check(r.status_code == 200 and calls(before) == ["claude", "openai"] and r.json().get("amount") == 2.5,
               "text_bad_json_falls_back: 200 from openai after claude's bad JSON", f"{r.status_code} {r.text[:200]} {calls(before)}")
-        check(len(rows) == 1 and rows[0]["provider"] == "openai" and rows[0]["fallback_from"] == "claude",
-              "text_bad_json_falls_back: the usage row has fallback_from claude", [(x["provider"], x["fallback_from"]) for x in rows])
+        check([(x["provider"], x["fallback_from"], x["outcome"]) for x in rows]
+              == [("claude", None, "rejected"), ("openai", "claude", "used")],
+              "text_bad_json_falls_back: claude's billed bad answer is 'rejected'; the used row has fallback_from claude",
+              [(x["provider"], x["fallback_from"], x["outcome"]) for x in rows])
         admin_reset(c, AD)
 
         # --- F1: a model-level 400 (a model typed under "Other..." that the endpoint can't use) falls back to the
@@ -3945,6 +4460,13 @@ async def all_async_checks():
         import traceback
         traceback.print_exc()
         check(False, "runner_checks ran to completion", repr(e))
+    try:
+        pricing_checks()
+        await cost_tracking_checks()
+    except Exception as e:  # noqa: BLE001 - report instead of aborting the suite
+        import traceback
+        traceback.print_exc()
+        check(False, "pricing / cost tracking checks ran to completion", repr(e))
     await refresh_race_checks()
     try:
         await admin_api_checks()
