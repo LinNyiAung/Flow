@@ -315,7 +315,7 @@ async def run(t):
         last = notes(uid, "plan_ends_today")
         check(len(last) == 1 and not notes(uid, "plan_ending_soon"),
               "plan_reminder_last_day: a Pro plan first seen in its last 24 hours gets only the 'ends today' reminder", last)
-        check(last and last[0]["title"] == "Your Pro Plan Ends Today"
+        check(last and last[0]["title"] == "Your Pro Plan Ends Within 24 Hours"
               and last[0]["message"] == f"Your Toe Pwar Pro plan ends within 24 hours, on {format_date(aware(ends), 'en')}. "
                                         "Renew now to keep your AI allowances and Pro features.",
               "plan_reminder_last_day: the 'ends today' text names Pro and the end date", last)

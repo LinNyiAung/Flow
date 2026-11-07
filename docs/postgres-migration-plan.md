@@ -396,7 +396,7 @@ Rolling back: `alembic downgrade b8f4d2c6e9a1` drops the prices and the billing 
 ### Plan renewal reminders
 
 Paying Plus / Pro users whose plan has an end date now get "Your {plan} Plan Ends Soon"
-(`plan_ending_soon`, 3 days or less left) and "Your {plan} Plan Ends Today" (`plan_ends_today`,
+(`plan_ending_soon`, 3 days or less left) and "Your {plan} Plan Ends Within 24 Hours" (`plan_ends_today`,
 24 hours or less left), from an hourly job (`send_plan_renewal_reminders`, at minute 20 like the
 trial reminders). Lifetime plans and trial users (who keep their trial reminders) get none. The
 app's Upgrade screen offers **Renew {plan}** for such a plan; the request shows on the admin
