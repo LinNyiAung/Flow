@@ -30,6 +30,13 @@ const orderedProviders = (...maps) => {
 
 const isFeatureStats = (obj) => obj && typeof obj === 'object' && !Array.isArray(obj);
 
+// A small tag on a usage record: "rejected", "cancelled" or "estimated".
+const UsageTag = ({ title, children }) => (
+  <span title={title} className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-300 border border-amber-500/20">
+    {children}
+  </span>
+);
+
 const InlineError = ({ message, onRetry }) => (
   <div className="p-6 md:p-10 bg-red-500/5 border border-red-500/20 rounded-2xl flex flex-col md:flex-row items-start md:items-center gap-4 mb-6">
     <AlertCircle size={22} className="text-red-400 flex-shrink-0" />
@@ -235,6 +242,9 @@ const AIUsageStats = ({ token }) => {
           </h1>
           <p className="text-slate-400 font-medium text-sm md:text-base">
             Monitor AI API usage and costs across all features
+          </p>
+          <p className="text-slate-500 text-xs md:text-sm mt-1">
+            Costs are estimates from token counts and list prices (checked Nov 7, 2026); compare with your provider invoices.
           </p>
         </div>
         {loading && <RefreshCw size={20} className="animate-spin text-blue-500 mt-3 flex-shrink-0" />}
@@ -522,8 +532,16 @@ const AIUsageStats = ({ token }) => {
                       </div>
                       <div className="text-xs text-slate-400">
                         {providerLabel(record.provider ?? '')} · {record.model_name}
+                        {record.served_model && record.served_model !== record.model_name ? ` (answered by ${record.served_model})` : ''}
                         {record.fallback_from ? ` (backup for ${providerLabel(record.fallback_from)})` : ''}
                       </div>
+                      {(record.outcome === 'rejected' || record.outcome === 'cancelled' || record.cost_estimated) && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {record.outcome === 'rejected' && <UsageTag title="Billed, but the answer was unusable, so the next provider was asked">rejected</UsageTag>}
+                          {record.outcome === 'cancelled' && <UsageTag title="The answer stopped early after text was sent">cancelled</UsageTag>}
+                          {record.cost_estimated && <UsageTag title="Tokens or audio length were estimated, not reported by the provider">estimated</UsageTag>}
+                        </div>
+                      )}
                     </div>
                     <div className="text-xs text-slate-500">
                       {record.created_at ? new Date(record.created_at).toLocaleString() : ''}
