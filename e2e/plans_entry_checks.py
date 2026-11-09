@@ -7,6 +7,7 @@ the cost cap through the admin Plans API. The database is used only to preset a 
 checks do) and to read results. The auto-create checks call budget_service in this process (the fake AI clients are
 installed here too). At the end the fakes are cleared, the default plans are put back and every user made is removed.
 """
+import asyncio
 import io
 import re
 import time
@@ -359,17 +360,37 @@ async def run(t):
                 set_plan(uid, plan, expires)
             if cost:
                 add_cost(uid, cost)
+
+            def window_budget(budget_id, name, amount, auto_create):
+                return {
+                    "_id": budget_id, "user_id": uid, "name": name, "period": "monthly", "currency": "usd",
+                    "start_date": window_start, "end_date": window_end,
+                    "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": amount, "spent_amount": 0,
+                                         "percentage_used": 0, "is_exceeded": False}],
+                    "total_budget": amount, "total_spent": 0, "remaining_budget": amount, "percentage_used": 0,
+                    "status": "completed", "is_active": False, "auto_create_enabled": auto_create,
+                    "auto_create_with_ai": auto_create, "created_at": now, "updated_at": now}
+
+            # The transaction POST queues the server's update_all_user_budgets as a background task, which recomputes
+            # every budget of the user and starts auto-create for a completed one. Had it listed the parent, the server
+            # would claim it and this test's own auto_create_next_budget call would return None (flaky). So a probe
+            # budget over the same window (auto-create off) is in place before the POST, the parent is inserted only
+            # once the server's run has recomputed the probe (its list was read before that), and the probe is removed.
+            probe_id = f"t6-probe-{label}-{tag}"
+            db.budgets.insert_one(window_budget(probe_id, f"T6 probe {label}", 1000, False))
             c.post("/api/transactions", headers=h, json={
                 "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "amount": 20, "currency": "usd",
                 "date": (window_start + timedelta(days=3, hours=12)).isoformat(), "description": "t6 auto-create spend"})
+            deadline = time.monotonic() + 30
+            while float((db.budgets.find_one({"_id": probe_id}) or {}).get("total_spent") or 0) < 20:
+                if time.monotonic() > deadline:
+                    check(False, f"auto_create_ai_only_paid ({label}): the server's budget recompute after the transaction "
+                                 "did not run within 30 s")
+                    break
+                await asyncio.sleep(0.05)
+            db.budgets.delete_one({"_id": probe_id})
             parent_id = f"t6-parent-{label}-{tag}"
-            db.budgets.insert_one({
-                "_id": parent_id, "user_id": uid, "name": f"T6 {label}", "period": "monthly", "currency": "usd",
-                "start_date": window_start, "end_date": window_end,
-                "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50, "spent_amount": 0,
-                                     "percentage_used": 0, "is_exceeded": False}],
-                "total_budget": 50, "total_spent": 0, "remaining_budget": 50, "percentage_used": 0, "status": "completed",
-                "is_active": False, "auto_create_enabled": True, "auto_create_with_ai": True, "created_at": now, "updated_at": now})
+            db.budgets.insert_one(window_budget(parent_id, f"T6 {label}", 50, True))
             before = len(outbox_lines())
             child_id = await bs.auto_create_next_budget(db.budgets.find_one({"_id": parent_id}))
             calls = ai_calls_since(before)
