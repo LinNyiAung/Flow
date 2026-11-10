@@ -9,6 +9,8 @@ import {
 
 const MAX_CONTACT_LENGTH = 500;
 const MAX_PRICE_MMK = 1000000000;
+// The owner's contact fields, as the API names them (owner_contact).
+const OWNER_KEYS = ['email', 'viber', 'telegram', 'facebook', 'messenger'];
 // Free has no price; only the paid plans get price fields.
 const PAID_PLANS = PLANS.filter((p) => p !== 'free');
 
@@ -37,7 +39,7 @@ const toDraft = (data) => ({
     }];
   })),
   contact: { en: data.upgrade_contact?.en ?? '', my: data.upgrade_contact?.my ?? '' },
-  owner: { email: data.owner_contact?.email ?? '', viber: data.owner_contact?.viber ?? '' },
+  owner: Object.fromEntries(OWNER_KEYS.map((key) => [key, data.owner_contact?.[key] ?? ''])),
 });
 
 const toBody = (draft) => ({
@@ -54,7 +56,7 @@ const toBody = (draft) => ({
     }];
   })),
   upgrade_contact: { en: draft.contact.en, my: draft.contact.my },
-  owner_contact: { email: draft.owner.email.trim(), viber: draft.owner.viber.trim() },
+  owner_contact: Object.fromEntries(OWNER_KEYS.map((key) => [key, draft.owner[key].trim()])),
 });
 
 // The same rules as the server (plans/contact.py), so a typo is caught before saving. The server's 422 stays the source of truth.
@@ -63,6 +65,42 @@ const validViber = (text) => {
   const digits = text.replace(/[\s\-.()]/g, '');
   if (!digits) return true;
   return /^\+[0-9]{8,15}$/.test(digits.startsWith('09') ? `+95${digits.slice(1)}` : digits);
+};
+
+// Telegram: a number (only digits after the separators, with an optional leading +; the Viber rule) or a username:
+// @name, name, or a t.me / telegram.me link, the name 5-32 of a-z A-Z 0-9 _ starting with a letter.
+const TELEGRAM_NAME = /^(?:(?:https?:\/\/)?(?:t|telegram)\.me\/|@)?[a-z][a-z0-9_]{4,31}$/i;
+const validTelegram = (text) => {
+  const t = text.trim();
+  const compact = t.replace(/[\s\-.()]/g, '');
+  if (!compact) return true;
+  if (/^\+?[0-9]+$/.test(compact)) return validViber(t);
+  return TELEGRAM_NAME.test(t);
+};
+
+// Facebook page / Messenger links: http(s) or no scheme, one of the hosts, a page path; no user name, port or
+// spaces; at most 300 characters (as typed and as stored with https://).
+const MAX_LINK_LENGTH = 300;
+const FACEBOOK_HOSTS = ['facebook.com', 'www.facebook.com', 'm.facebook.com', 'web.facebook.com', 'fb.com', 'www.fb.com', 'fb.me'];
+const MESSENGER_HOSTS = ['m.me', 'messenger.com', 'www.messenger.com'];
+const validLink = (text, hosts) => {
+  const t = text.trim();
+  if (!t) return true;
+  if (t.length > MAX_LINK_LENGTH || /\s/.test(t)) return false;
+  let rest = t;
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//.exec(t);
+  if (scheme) {
+    if (!['http', 'https'].includes(scheme[1].toLowerCase())) return false;
+    rest = t.slice(scheme[0].length);
+  }
+  const cut = rest.search(/[/?#]/);
+  const host = (cut < 0 ? rest : rest.slice(0, cut)).toLowerCase();
+  const tail = cut < 0 ? '' : rest.slice(cut);
+  // A user name (user@host) or a port (host:443) makes it differ from every allowed host.
+  if (!hosts.includes(host)) return false;
+  const path = tail.split(/[?#]/)[0];
+  if (path === '' || path === '/') return false;
+  return `https://${host}${tail}`.length <= MAX_LINK_LENGTH;
 };
 
 const validCost = (text) => /^\d+(\.\d+)?$/.test(text.trim()) && Number(text) <= 999999;
@@ -103,6 +141,15 @@ const findProblems = (draft, features) => {
   if (!validEmail(draft.owner.email)) out.push('Your email: enter a valid email address');
   if (!validViber(draft.owner.viber)) {
     out.push('Your Viber number: enter it with the country code, like +959123456789 (or 09 123 456 789)');
+  }
+  if (!validTelegram(draft.owner.telegram)) {
+    out.push('Telegram: enter a phone number with the country code (like +959123456789) or a username (like @yourname)');
+  }
+  if (!validLink(draft.owner.facebook, FACEBOOK_HOSTS)) {
+    out.push('Facebook page link: enter a facebook.com, fb.com or fb.me link to your page, like facebook.com/yourpage');
+  }
+  if (!validLink(draft.owner.messenger, MESSENGER_HOSTS)) {
+    out.push('Messenger link: enter an m.me or messenger.com link to your page, like m.me/yourpage');
   }
   return out;
 };
@@ -451,8 +498,9 @@ const PlansSettings = ({ token, adminRole }) => {
 
             <h2 className="text-xl font-bold text-slate-100 mb-1">Your contact details</h2>
             <p className="text-slate-400 text-sm mb-4">
-              Your own email and Viber number. The app shows them next to the message above so users can reach you directly,
-              and adds them to the notice a user gets when you close their upgrade request. Leave one empty to hide it.
+              Your own email, Viber number, Telegram, Facebook page and Messenger link. The app shows them next to the
+              message above so users can reach you directly, and adds them to the notice a user gets when you close their
+              upgrade request. Leave one empty to hide it.
             </p>
             <div className={`${card} p-5 mb-6 grid grid-cols-1 lg:grid-cols-2 gap-4`}>
               <OwnerField id="owner-email" label="Email" type="email" placeholder="you@example.com" maxLength={254}
@@ -460,6 +508,18 @@ const PlansSettings = ({ token, adminRole }) => {
               <OwnerField id="owner-viber" label="Viber number" type="tel" placeholder="09 123 456 789" maxLength={30}
                 hint="With the country code, like +959123456789. A Myanmar number starting with 09 is converted to +959…"
                 value={draft.owner.viber} disabled={!writable || busy} onChange={(t) => setOwner('viber', t)} />
+              <OwnerField id="owner-telegram" label="Telegram number or username" type="text"
+                placeholder="09 123 456 789 or @yourname" maxLength={64}
+                hint="A number with the country code (09… becomes +959…), or a username like @yourname or t.me/yourname"
+                value={draft.owner.telegram} disabled={!writable || busy} onChange={(t) => setOwner('telegram', t)} />
+              <OwnerField id="owner-facebook" label="Facebook page link" type="url"
+                placeholder="facebook.com/yourpage" maxLength={MAX_LINK_LENGTH}
+                hint="A facebook.com, fb.com or fb.me link to your page. It is saved as an https:// link."
+                value={draft.owner.facebook} disabled={!writable || busy} onChange={(t) => setOwner('facebook', t)} />
+              <OwnerField id="owner-messenger" label="Messenger link" type="url"
+                placeholder="m.me/yourpage" maxLength={MAX_LINK_LENGTH}
+                hint="An m.me or messenger.com link to your page. It is saved as an https:// link."
+                value={draft.owner.messenger} disabled={!writable || busy} onChange={(t) => setOwner('messenger', t)} />
             </div>
           </fieldset>
 

@@ -162,7 +162,9 @@ export const testAIProvider = (token, provider, model = null) =>
 // ─── Plans ────────────────────────────────────────────────────────────────────
 /**
  * { plans: {plan: {limits: {feature: {mode, quota, period}}, cost_cap_usd, price_monthly_mmk, price_yearly_mmk}},
- *   upgrade_contact: {en, my}, owner_contact: {email, viber} }. A price is whole kyat, or null when not set (Free: always null).
+ *   upgrade_contact: {en, my}, owner_contact: {email, viber, telegram, facebook, messenger} }. A price is whole kyat, or
+ *   null when not set (Free: always null). An owner contact field is "" when not set; telegram is `+` and digits or
+ *   `@name`, facebook and messenger are https:// links.
  */
 export const getPlans = (token) => apiRequest('/api/admin/plans', { token });
 
