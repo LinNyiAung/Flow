@@ -61,3 +61,16 @@ a{color:#0B6B54}a:hover{color:#095A47}
 .tp .lang-btn[aria-pressed="true"]{background:#0B6B54;color:#FFFFFF}
 .tp .lang-btn[aria-pressed="false"]{background:transparent;color:#3F4A45}
 .tp .lang-btn[aria-pressed="false"]:hover{background:#DCEFE8}
+/* below 1000px the section links are an even tab bar under the header row (the design had a row of pills) */
+.tp .nav-mob{max-width:1160px;margin:0 auto;padding:0 clamp(16px, 4vw, 40px);display:grid;grid-template-columns:repeat(3, minmax(max-content, 1fr))}
+@media (max-width:339px){.tp .nav-tab{font-size:13px !important}}
+.tp .nav-tab{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 4px;border-bottom:3px solid transparent;color:#3F4A45;text-decoration:none;font-size:14px;font-weight:600;line-height:1.3;text-align:center}
+.tp .nav-tab:hover{color:#101815;border-bottom-color:#C6D0CB}
+.tp .nav-tab[aria-current="location"]{color:#0B6B54;border-bottom-color:#0B6B54}
+/* the section in view, in the desktop nav */
+.tp .nav-link[aria-current="location"]{color:#0B6B54 !important;background:#DCEFE8}
+/* the header is two rows below 1000px: keep a section's heading clear of it after a nav tap */
+@media (max-width:999px){.tp section[id]{scroll-margin-top:var(--header-h, 112px)}}
+/* small phones: tighten the top row so Myanmar's longer 'Go to app' fits (the design overflowed by a few px at 360px) */
+@media (max-width:419px){.tp header>div{gap:8px !important}.tp header .btn-fill{padding:0 12px !important}.tp .lang-btn{padding:0 10px !important}}
+@media (max-width:359px){.tp header .btn-fill,.tp .lang-btn{font-size:13px !important}.tp .lang-btn{padding:0 8px !important}}

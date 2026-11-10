@@ -61,6 +61,7 @@
   root.querySelectorAll('[data-set-lang]').forEach((btn) => {
     btn.addEventListener('click', () => {
       applyLang(btn.dataset.setLang);
+      measureHeader(); // Myanmar text is taller
       try { localStorage.setItem(LANG_KEY, btn.dataset.setLang); } catch (_) { /* not remembered */ }
     });
   });
@@ -162,6 +163,40 @@
     }
   }
 
+  // ---------------------------------------------------------------- header: the section in view, and its height
+
+  const header = root.querySelector('header');
+  const navLinks = [...root.querySelectorAll('header a[href^="#"]:not([href="#top"])')];
+  const sections = [...new Set(navLinks.map((a) => a.getAttribute('href')))].map((id) => root.querySelector(id));
+
+  // A section is "in view" once its top has passed a line a third of the way down the space under the header,
+  // until its bottom passes that line. None is marked above the first or below the last (hero, footer).
+  function markCurrentSection() {
+    const headerBottom = header.getBoundingClientRect().bottom;
+    const line = headerBottom + (window.innerHeight - headerBottom) / 3;
+    const current = sections.find((s) => {
+      const r = s.getBoundingClientRect();
+      return r.top <= line && r.bottom > line;
+    });
+    navLinks.forEach((a) => {
+      if (current && a.getAttribute('href') === '#' + current.id) a.setAttribute('aria-current', 'location');
+      else a.removeAttribute('aria-current');
+    });
+  }
+
+  // so a tapped section's heading lands just under the (sticky) header, whatever its height in this language
+  function measureHeader() {
+    root.style.setProperty('--header-h', Math.ceil(header.getBoundingClientRect().height) + 12 + 'px');
+  }
+
+  let frame = 0;
+  const onScroll = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; markCurrentSection(); });
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', () => { measureHeader(); onScroll(); });
+
   // ---------------------------------------------------------------- loading
 
   async function getJson(path) {
@@ -178,6 +213,8 @@
   }
 
   applyLang(savedOrBrowserLang());
+  measureHeader();
+  markCurrentSection();
 
   getJson('/api/plan/public').then((info) => {
     if (!info) return;
