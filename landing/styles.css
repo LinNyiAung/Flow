@@ -38,8 +38,8 @@ a{color:#0B6B54}a:hover{color:#095A47}
 .tp #features article:hover,.tp #plans article:hover,.tp #how li:hover{translate:0 -4px}
 .tp .btn-fill,.tp .btn-tonal,.tp .btn-white,.tp .btn-ghost{transition:background-color .15s ease,translate .2s ease}
 .tp .btn-fill:hover,.tp .btn-tonal:hover,.tp .btn-white:hover,.tp .btn-ghost:hover{translate:0 -2px}
-.tp a[href="https://app.toepwar.com"] svg{transition:translate .2s ease}
-.tp a[href="https://app.toepwar.com"]:hover svg{translate:4px 0}
+.tp a[data-app-link] svg{transition:translate .2s ease}
+.tp a[data-app-link]:hover svg{translate:4px 0}
 @supports (animation-timeline: view()){.tp .reveal{animation:tpRise linear both;animation-timeline:view();animation-range:entry 0% entry 35%}}
 }
 .tp .nav-link:hover{background:#DCEFE8 !important;color:#101815 !important}

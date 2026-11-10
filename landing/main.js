@@ -7,7 +7,7 @@
   // The backend, from <meta name="tp-api-base"> in index.html. Both endpoints used here are public (no login).
   const API_BASE = (document.querySelector('meta[name="tp-api-base"]') || {}).content || 'https://toepwar-t9vc.onrender.com';
   const LANG_KEY = 'tp-lang';
-  const FETCH_TIMEOUT_MS = 60000; // a sleeping Render instance can take a while to wake up
+  const FETCH_TIMEOUT_MS = 90000; // a sleeping Render free instance can take about a minute to wake up
 
   const COPY = window.TP_COPY;
   const root = document.querySelector('.tp');

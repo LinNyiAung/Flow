@@ -1,6 +1,8 @@
 # Toe Pwar landing page (toepwar.com)
 
-A single static page: plain HTML, CSS and a little JavaScript, with no build step. Its job is to send people to the web app at **https://app.toepwar.com**.
+A single static page: plain HTML, CSS and a little JavaScript, with no build step. Its job is to send people to the web app.
+
+The web app's address is in every "Go to app" and "Start free" link: the `<a … data-app-link>` tags in `index.html`. It is currently `https://toepwarapp.onrender.com/`. When the domain is set up, replace it in that one file with `https://app.toepwar.com`.
 
 The design is `docs/landing/toepwar-landing.design.html`; `docs/landing/HANDOFF.md` describes it. This folder is a plain-HTML version of that design, with the same markup and styles.
 
