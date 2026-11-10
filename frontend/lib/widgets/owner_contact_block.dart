@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/contact_details.dart';
 
-/// "Contact us directly": the owner's email (tap: opens the email app) and
-/// Viber number (tap: opens a Viber chat). When a link cannot be opened the
-/// value is copied to the clipboard and a snackbar says so. Each line is hidden
-/// when the owner has not set it, and the whole block when neither is set.
+/// "Contact us directly": the owner's email (tap: opens the email app), Viber
+/// number (tap: opens a Viber chat), Telegram number or username (tap: opens
+/// its t.me link), Facebook page and Messenger link (tap: opens the link; shown
+/// without `https://`). When a link cannot be opened the shown value is copied
+/// to the clipboard and a snackbar says so. Each line is hidden when the owner
+/// has not set it, and the whole block when none is set.
 class OwnerContactBlock extends StatelessWidget {
   const OwnerContactBlock({
     super.key,
@@ -66,9 +68,63 @@ class OwnerContactBlock extends StatelessWidget {
               l.ownerContactViberFailed(contact.viber),
             ),
           ),
+        if (contact.hasTelegram)
+          _ContactLine(
+            key: const Key('owner-contact-telegram'),
+            icon: Icons.send_rounded,
+            label: l.ownerContactTelegram,
+            value: contact.telegram,
+            centered: centered,
+            onTap: () => _open(
+              context,
+              telegramUri(contact.telegram),
+              contact.telegram,
+              l.ownerContactTelegramFailed(contact.telegram),
+            ),
+          ),
+        if (contact.hasFacebook)
+          _linkLine(
+            context,
+            key: const Key('owner-contact-facebook'),
+            icon: Icons.facebook,
+            label: l.ownerContactFacebook,
+            uri: facebookUri(contact.facebook),
+            shown: contactLinkDisplay(contact.facebook),
+            failed: l.ownerContactFacebookFailed,
+          ),
+        if (contact.hasMessenger)
+          _linkLine(
+            context,
+            key: const Key('owner-contact-messenger'),
+            icon: Icons.messenger_outline_rounded,
+            label: l.ownerContactMessenger,
+            uri: messengerUri(contact.messenger),
+            shown: contactLinkDisplay(contact.messenger),
+            failed: l.ownerContactMessengerFailed,
+          ),
       ],
     );
   }
+
+  /// A line for a link ([uri]) shown as [shown] (no `https://`), which is
+  /// also what is copied when it cannot be opened.
+  Widget _linkLine(
+    BuildContext context, {
+    required Key key,
+    required IconData icon,
+    required String label,
+    required Uri uri,
+    required String shown,
+    required String Function(String link) failed,
+  }) =>
+      _ContactLine(
+        key: key,
+        icon: icon,
+        label: label,
+        value: shown,
+        centered: centered,
+        onTap: () => _open(context, uri, shown, failed(shown)),
+      );
 
   Future<void> _open(
     BuildContext context,

@@ -17,7 +17,8 @@ import '../../services/localization_service.dart';
 /// no number lives in the app, plus an "Upgrade to Plus / Pro" button for each
 /// higher plan and a "Renew" button for a paid plan with an end date (upgrades
 /// and renewals are manual: the owner sees the request in the admin panel) and
-/// the owner's upgrade contact message, email and Viber number.
+/// the owner's upgrade contact message and contact details (email, Viber,
+/// Telegram, Facebook page, Messenger).
 class SubscriptionScreen extends StatefulWidget {
   @override
   _SubscriptionScreenState createState() => _SubscriptionScreenState();

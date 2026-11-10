@@ -216,7 +216,8 @@ class PlanStatus {
   /// Language code ('en' | 'my') -> message.
   final Map<String, String> upgradeContact;
 
-  /// The owner's own email and Viber number, for "Contact us directly".
+  /// The owner's own email, Viber number, Telegram, Facebook page and
+  /// Messenger link, for "Contact us directly".
   final OwnerContact ownerContact;
 
   /// The user's pending request for Plus or Pro; null when there is none.

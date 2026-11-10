@@ -135,6 +135,34 @@ void main() {
       expect(const OwnerContact(viber: '+959123456789').isEmpty, isFalse);
     });
 
+    test('Telegram, Facebook and Messenger are read from GET /api/plan', () {
+      final status = PlanStatus.fromJson({
+        'plan': 'free',
+        'owner_contact': {
+          'email': '',
+          'viber': '',
+          'telegram': ' @FlowOwner ',
+          'facebook': 'https://facebook.com/flowapp',
+          'messenger': 'https://m.me/flowapp',
+        },
+      });
+      final owner = status.ownerContact;
+      expect(owner.telegram, '@FlowOwner');
+      expect(owner.facebook, 'https://facebook.com/flowapp');
+      expect(owner.messenger, 'https://m.me/flowapp');
+      expect([owner.hasEmail, owner.hasViber, owner.hasTelegram, owner.hasFacebook, owner.hasMessenger],
+          [false, false, true, true, true]);
+      expect(owner.isEmpty, isFalse);
+      // Each one alone is enough to show the block; a non-text value is "not set".
+      expect(const OwnerContact(telegram: '@FlowOwner').isEmpty, isFalse);
+      expect(const OwnerContact(facebook: 'https://fb.me/x').isEmpty, isFalse);
+      expect(const OwnerContact(messenger: 'https://m.me/x').isEmpty, isFalse);
+      expect(OwnerContact.fromJson({'telegram': 5, 'facebook': null}).isEmpty, isTrue);
+      // An older server sends only email and Viber.
+      final old = OwnerContact.fromJson({'email': 'owner@example.com', 'viber': ''});
+      expect([old.telegram, old.facebook, old.messenger], ['', '', '']);
+    });
+
     test('the provider hands the number to the requester', () async {
       final sent = <(Plan, String?, String?)>[];
       final provider = PlanProvider(
@@ -159,6 +187,92 @@ void main() {
       await provider.requestUpgrade(Plan.plus);
       expect(provider.upgradeRequest!.viberNumber, isNull);
       provider.dispose();
+    });
+  });
+
+  group('Telegram, Facebook and Messenger rules', () {
+    test('normalizeTelegram follows the server rule: a number or an @username', () {
+      const good = {
+        '+959123456789': '+959123456789',
+        '09 123 456 789': '+959123456789',
+        '(09) 123-456.789': '+959123456789',
+        '+66 81 234 5678': '+66812345678',
+        '@FlowOwner': '@FlowOwner',
+        'FlowOwner': '@FlowOwner',
+        't.me/FlowOwner': '@FlowOwner',
+        'https://t.me/FlowOwner': '@FlowOwner',
+        'http://t.me/FlowOwner': '@FlowOwner',
+        'telegram.me/FlowOwner': '@FlowOwner',
+        'HTTPS://T.ME/flow_owner_1': '@flow_owner_1', // the host in any case, the name as typed
+        '  @abcde  ': '@abcde',
+        'abcdefghijabcdefghijabcdefghijab': '@abcdefghijabcdefghijabcdefghijab', // 32
+      };
+      good.forEach((input, want) => expect(normalizeTelegram(input), want, reason: input));
+      expect(normalizeTelegram(''), '');
+      expect(normalizeTelegram('  - '), '');
+      for (final bad in const [
+        '@abc', '@1abc', 'abcd', 'abcdefghijabcdefghijabcdefghijabc', '@flow-owner', '@flow owner', '+1234567',
+        '959123456789', '12345', 't.me/', 't.me/@abcde', 'https://t.me/flowowner/', 'www.t.me/flowowner',
+        'ftp://t.me/flowowner', '@flowownér', '@ſtuvw', '@Kabcd', '၀၉၁၂၃၄၅၆၇၈၉', '@@abcde',
+      ]) {
+        expect(normalizeTelegram(bad), isNull, reason: bad);
+      }
+    });
+
+    test('normalizeFacebookUrl follows the server rule', () {
+      const good = {
+        'facebook.com/flowapp': 'https://facebook.com/flowapp',
+        'www.facebook.com/flowapp': 'https://www.facebook.com/flowapp',
+        'm.facebook.com/flowapp': 'https://m.facebook.com/flowapp',
+        'web.facebook.com/flowapp': 'https://web.facebook.com/flowapp',
+        'fb.com/flowapp': 'https://fb.com/flowapp',
+        'www.fb.com/flowapp': 'https://www.fb.com/flowapp',
+        'fb.me/flowapp': 'https://fb.me/flowapp',
+        'http://facebook.com/flowapp': 'https://facebook.com/flowapp',
+        'HTTPS://WWW.Facebook.com/FlowApp': 'https://www.facebook.com/FlowApp',
+        'https://www.facebook.com/profile.php?id=100012345': 'https://www.facebook.com/profile.php?id=100012345',
+        'facebook.com/flowapp#about': 'https://facebook.com/flowapp#about',
+        '  facebook.com/flowapp  ': 'https://facebook.com/flowapp',
+      };
+      good.forEach((input, want) => expect(normalizeFacebookUrl(input), want, reason: input));
+      expect(normalizeFacebookUrl(''), '');
+      expect(normalizeFacebookUrl('facebook.com/${'a' * 279}')!.length, 300);
+      for (final bad in [
+        'facebook.com', 'facebook.com/', 'https://facebook.com', 'facebook.com?id=1', 'facebook.com/?id=1',
+        'evil.com/flowapp', 'facebook.com.evil.com/flowapp', 'user@facebook.com/flowapp',
+        'https://user@facebook.com/flowapp', 'https://facebook.com:443/flowapp', 'facebook.com/flow app',
+        'ftp://facebook.com/flowapp', 'javascript:alert(1)//facebook.com/x', '//facebook.com/flowapp',
+        'facebook.com\\@evil.com/x', 'm.me/flowapp', 'facebook.com/${'a' * 280}', 'facebook.com/${'a' * 300}',
+      ]) {
+        expect(normalizeFacebookUrl(bad), isNull, reason: bad);
+      }
+    });
+
+    test('normalizeMessengerUrl follows the server rule', () {
+      const good = {
+        'm.me/flowapp': 'https://m.me/flowapp',
+        'http://m.me/flowapp': 'https://m.me/flowapp',
+        'messenger.com/t/flowapp': 'https://messenger.com/t/flowapp',
+        'https://www.messenger.com/t/flowapp': 'https://www.messenger.com/t/flowapp',
+        'M.ME/FlowApp': 'https://m.me/FlowApp',
+      };
+      good.forEach((input, want) => expect(normalizeMessengerUrl(input), want, reason: input));
+      expect(normalizeMessengerUrl(' '), '');
+      for (final bad in ['m.me', 'm.me/', 'facebook.com/flowapp', 'www.m.me/flowapp', 'fb.me/flowapp', 'ftp://m.me/x']) {
+        expect(normalizeMessengerUrl(bad), isNull, reason: bad);
+      }
+    });
+
+    test('the links the app opens, and what it shows', () {
+      expect(telegramUri('+959123456789').toString(), 'https://t.me/+959123456789');
+      expect(telegramUri('@FlowOwner').toString(), 'https://t.me/FlowOwner');
+      expect(facebookUri('https://www.facebook.com/profile.php?id=1').toString(),
+          'https://www.facebook.com/profile.php?id=1');
+      expect(messengerUri('https://m.me/flowapp').toString(), 'https://m.me/flowapp');
+      // A stray % (kept as typed by the server) does not throw.
+      expect(facebookUri('https://facebook.com/a%zz').host, 'facebook.com');
+      expect(contactLinkDisplay('https://facebook.com/flowapp'), 'facebook.com/flowapp');
+      expect(contactLinkDisplay('https://m.me/flowapp'), 'm.me/flowapp');
     });
   });
 
@@ -375,6 +489,122 @@ void main() {
       expect(find.text('Couldn\'t open your email app. The address was copied: owner@example.com'), findsOneWidget);
     });
 
+    const all = OwnerContact(
+      email: 'owner@example.com',
+      viber: '+959123456789',
+      telegram: '@FlowOwner',
+      facebook: 'https://facebook.com/flowapp',
+      messenger: 'https://m.me/flowapp',
+    );
+    const lineKeys = [
+      'owner-contact-email',
+      'owner-contact-viber',
+      'owner-contact-telegram',
+      'owner-contact-facebook',
+      'owner-contact-messenger',
+    ];
+
+    testWidgets('shows Telegram, Facebook and Messenger after Viber, the links without https://', (tester) async {
+      await pumpBlock(tester, all);
+      for (final key in lineKeys) {
+        expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+      }
+      // In this order, top to bottom.
+      final tops = [for (final key in lineKeys) tester.getTopLeft(find.byKey(Key(key))).dy];
+      expect(tops, [...tops]..sort());
+      expect(find.text('Telegram: '), findsOneWidget);
+      expect(find.text('@FlowOwner'), findsOneWidget);
+      expect(find.text('Facebook: '), findsOneWidget);
+      expect(find.text('facebook.com/flowapp'), findsOneWidget);
+      expect(find.text('Messenger: '), findsOneWidget);
+      expect(find.text('m.me/flowapp'), findsOneWidget);
+      expect(find.textContaining('https://'), findsNothing);
+      expect(find.byIcon(Icons.send_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.facebook), findsOneWidget);
+      expect(find.byIcon(Icons.messenger_outline_rounded), findsOneWidget);
+    });
+
+    testWidgets('each new line shows only when it is set, and alone it is enough for the block', (tester) async {
+      for (final (contact, shown) in const [
+        (OwnerContact(telegram: '+959123456789'), 'owner-contact-telegram'),
+        (OwnerContact(facebook: 'https://fb.me/flowapp'), 'owner-contact-facebook'),
+        (OwnerContact(messenger: 'https://www.messenger.com/t/flowapp'), 'owner-contact-messenger'),
+      ]) {
+        await pumpBlock(tester, contact);
+        expect(find.text('Contact us directly'), findsOneWidget, reason: shown);
+        for (final key in lineKeys) {
+          expect(find.byKey(Key(key)), key == shown ? findsOneWidget : findsNothing, reason: '$shown: $key');
+        }
+      }
+      await pumpBlock(tester, const OwnerContact(email: 'owner@example.com', viber: '+959123456789'));
+      expect(find.byKey(const Key('owner-contact-telegram')), findsNothing);
+      expect(find.byKey(const Key('owner-contact-facebook')), findsNothing);
+      expect(find.byKey(const Key('owner-contact-messenger')), findsNothing);
+    });
+
+    testWidgets('tapping opens the t.me, Facebook and Messenger links', (tester) async {
+      await pumpBlock(tester, all);
+      for (final key in ['owner-contact-telegram', 'owner-contact-facebook', 'owner-contact-messenger']) {
+        await tester.tap(find.byKey(Key(key)));
+        await tester.pump();
+      }
+      await pumpBlock(tester, const OwnerContact(telegram: '+959123456789'));
+      await tester.tap(find.byKey(const Key('owner-contact-telegram')));
+      await tester.pump();
+
+      expect(launched.map((u) => u.toString()), [
+        'https://t.me/FlowOwner',
+        'https://facebook.com/flowapp',
+        'https://m.me/flowapp',
+        'https://t.me/+959123456789',
+      ]);
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    for (final (key, copiedText, message) in const [
+      ('owner-contact-telegram', '@FlowOwner', 'Couldn\'t open Telegram. The contact was copied: @FlowOwner'),
+      ('owner-contact-facebook', 'facebook.com/flowapp', 'Couldn\'t open Facebook. The link was copied: facebook.com/flowapp'),
+      ('owner-contact-messenger', 'm.me/flowapp', 'Couldn\'t open Messenger. The link was copied: m.me/flowapp'),
+    ]) {
+      testWidgets('when $key cannot be opened what is shown is copied and the user is told', (tester) async {
+        final copied = _recordClipboard(tester);
+        launchWorks = false;
+        await pumpBlock(tester, all);
+
+        await tester.tap(find.byKey(Key(key)));
+        await tester.pumpAndSettle();
+
+        expect(copied, [copiedText]);
+        expect(find.text(message), findsOneWidget);
+      });
+    }
+
+    testWidgets('the new lines and their failure messages in Myanmar', (tester) async {
+      final copied = _recordClipboard(tester);
+      launchWorks = false;
+      await pumpBlock(tester, all, locale: const Locale('my'));
+      expect(find.text('Telegram: '), findsOneWidget);
+      expect(find.text('Facebook: '), findsOneWidget);
+      expect(find.text('Messenger: '), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('owner-contact-telegram')));
+      await tester.pumpAndSettle();
+      expect(find.text('Telegram ကို မဖွင့်နိုင်ပါ။ ဆက်သွယ်ရန်အချက်အလက်ကို ကူးယူထားပါသည်- @FlowOwner'), findsOneWidget);
+      ScaffoldMessenger.of(tester.element(find.byType(OwnerContactBlock))).removeCurrentSnackBar();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('owner-contact-messenger')));
+      await tester.pumpAndSettle();
+      expect(find.text('Messenger ကို မဖွင့်နိုင်ပါ။ လင့်ခ်ကို ကူးယူထားပါသည်- m.me/flowapp'), findsOneWidget);
+      ScaffoldMessenger.of(tester.element(find.byType(OwnerContactBlock))).removeCurrentSnackBar();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('owner-contact-facebook')));
+      await tester.pumpAndSettle();
+      expect(find.text('Facebook ကို မဖွင့်နိုင်ပါ။ လင့်ခ်ကို ကူးယူထားပါသည်- facebook.com/flowapp'), findsOneWidget);
+      expect(copied, ['@FlowOwner', 'm.me/flowapp', 'facebook.com/flowapp']);
+    });
+
     testWidgets('is in Myanmar', (tester) async {
       await pumpBlock(tester, const OwnerContact(email: 'owner@example.com', viber: '+959123456789'), locale: const Locale('my'));
       expect(find.text('Contact us directly'), findsNothing);
@@ -416,6 +646,26 @@ void main() {
       expect(find.text('Contact us directly'), findsOneWidget);
       expect(find.text('owner@example.com'), findsOneWidget);
       expect(find.text('+959123456789'), findsOneWidget);
+    });
+
+    testWidgets('shows Telegram, Facebook and Messenger too, and the block for any one of them', (tester) async {
+      await openScreen(
+        tester,
+        _status(
+          owner: const OwnerContact(
+            telegram: '+959123456789',
+            facebook: 'https://www.facebook.com/flowapp',
+            messenger: 'https://m.me/flowapp',
+          ),
+        ),
+      );
+      await tester.ensureVisible(find.byKey(const Key('owner-contact')));
+      expect(find.text('Contact us directly'), findsOneWidget);
+      expect(find.byKey(const Key('owner-contact-email')), findsNothing);
+      expect(find.byKey(const Key('owner-contact-viber')), findsNothing);
+      expect(find.text('+959123456789'), findsOneWidget);
+      expect(find.text('www.facebook.com/flowapp'), findsOneWidget);
+      expect(find.text('m.me/flowapp'), findsOneWidget);
     });
 
     testWidgets('hides the block when the owner set neither', (tester) async {

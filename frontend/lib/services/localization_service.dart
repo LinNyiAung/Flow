@@ -1151,6 +1151,12 @@ class AppLocalizations {
       'ownerContactViber': 'Viber',
       'ownerContactEmailFailed': 'Couldn\'t open your email app. The address was copied: {email}',
       'ownerContactViberFailed': 'Couldn\'t open Viber. The number was copied: {number}',
+      'ownerContactTelegram': 'Telegram',
+      'ownerContactFacebook': 'Facebook',
+      'ownerContactMessenger': 'Messenger',
+      'ownerContactTelegramFailed': 'Couldn\'t open Telegram. The contact was copied: {contact}',
+      'ownerContactFacebookFailed': 'Couldn\'t open Facebook. The link was copied: {link}',
+      'ownerContactMessengerFailed': 'Couldn\'t open Messenger. The link was copied: {link}',
       'voiceNothingHeard': 'We didn\'t catch anything. Please try again.',
       'voiceRetryHint': 'Your recording was already read, so trying again does not use another entry.',
       'chatModeStandard': 'Standard',
@@ -2260,6 +2266,12 @@ class AppLocalizations {
       'ownerContactViber': 'Viber',
       'ownerContactEmailFailed': 'အီးမေးလ်အက်ပ်ကို မဖွင့်နိုင်ပါ။ လိပ်စာကို ကူးယူထားပါသည်- {email}',
       'ownerContactViberFailed': 'Viber ကို မဖွင့်နိုင်ပါ။ နံပါတ်ကို ကူးယူထားပါသည်- {number}',
+      'ownerContactTelegram': 'Telegram',
+      'ownerContactFacebook': 'Facebook',
+      'ownerContactMessenger': 'Messenger',
+      'ownerContactTelegramFailed': 'Telegram ကို မဖွင့်နိုင်ပါ။ ဆက်သွယ်ရန်အချက်အလက်ကို ကူးယူထားပါသည်- {contact}',
+      'ownerContactFacebookFailed': 'Facebook ကို မဖွင့်နိုင်ပါ။ လင့်ခ်ကို ကူးယူထားပါသည်- {link}',
+      'ownerContactMessengerFailed': 'Messenger ကို မဖွင့်နိုင်ပါ။ လင့်ခ်ကို ကူးယူထားပါသည်- {link}',
       'voiceNothingHeard': 'ဘာမှ မကြားလိုက်ရပါ။ ထပ်ကြိုးစားကြည့်ပါ။',
       'voiceRetryHint': 'သင့်အသံသွင်းချက်ကို ဖတ်ပြီးပြီဖြစ်၍ ထပ်ကြိုးစားခြင်းသည် အသုံးပြုခွင့် ထပ်မံမကုန်ပါ။',
       'chatModeStandard': 'Standard',
@@ -3399,6 +3411,9 @@ class AppLocalizations {
   String get ownerContactTitle => translate('ownerContactTitle');
   String get ownerContactEmail => translate('ownerContactEmail');
   String get ownerContactViber => translate('ownerContactViber');
+  String get ownerContactTelegram => translate('ownerContactTelegram');
+  String get ownerContactFacebook => translate('ownerContactFacebook');
+  String get ownerContactMessenger => translate('ownerContactMessenger');
   String upgradeRequestContactLine(String email) => translate('upgradeRequestContactLine').replaceAll('{email}', email);
   String upgradeRequestedViber(String date, String number) =>
       translate('upgradeRequestedViber').replaceAll('{date}', date).replaceAll('{number}', number);
@@ -3415,6 +3430,10 @@ class AppLocalizations {
   String get upgradeRequestPriceChanged => translate('upgradeRequestPriceChanged');
   String ownerContactEmailFailed(String email) => translate('ownerContactEmailFailed').replaceAll('{email}', email);
   String ownerContactViberFailed(String number) => translate('ownerContactViberFailed').replaceAll('{number}', number);
+  String ownerContactTelegramFailed(String contact) =>
+      translate('ownerContactTelegramFailed').replaceAll('{contact}', contact);
+  String ownerContactFacebookFailed(String link) => translate('ownerContactFacebookFailed').replaceAll('{link}', link);
+  String ownerContactMessengerFailed(String link) => translate('ownerContactMessengerFailed').replaceAll('{link}', link);
   String get voiceNothingHeard => translate('voiceNothingHeard');
   String get voiceRetryHint => translate('voiceRetryHint');
   String get chatModeStandard => translate('chatModeStandard');
