@@ -849,6 +849,10 @@ def price_api_checks():
                                "plus": {"monthly_mmk": 15000, "yearly_mmk": 150000},
                                "pro": {"monthly_mmk": 30000, "yearly_mmk": None}},
               "app_prices: GET /api/plan shows them to the user (Free: none)", app_prices())
+        r = c.get("/api/plan/public")
+        check(r.status_code == 200 and set(r.json()) == {"prices", "owner_contact"} and r.json()["prices"] == app_prices(),
+              "public_prices: GET /api/plan/public (no login) shows the same prices, and only prices and the owner contact",
+              f"{r.status_code} {r.text[:300]}")
         with connect() as conn:
             check(stored_prices(conn) == {"free": (None, None), "plus": (15000, 150000), "pro": (30000, None)},
                   "admin_prices_put: plan_settings holds them", stored_prices(conn))

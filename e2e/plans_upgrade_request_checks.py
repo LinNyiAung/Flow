@@ -828,6 +828,10 @@ async def run(t):
               "contact_messenger", stored_owner())
         check(all(c.get("/api/plan", headers=hh).json()["owner_contact"] == want5 for hh in (h, plus_h, pro_h)),
               "owner_contact_links: GET /api/plan carries all five fields to every user")
+        r = c.get("/api/plan/public")
+        check(r.status_code == 200 and r.json().get("owner_contact") == want5,
+              "owner_contact_public: GET /api/plan/public (no login) carries all five fields for the website",
+              f"{r.status_code} {r.text[:300]}")
         got = [x for x in logs(made["admin"]) if x["action"] == "plans_update"
                and "owner contact telegram" in (x["details"] or "")]
         check(got and OWNER_TELEGRAM in got[0]["details"] and "owner contact facebook" in got[0]["details"]

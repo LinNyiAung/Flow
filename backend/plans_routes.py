@@ -5,6 +5,7 @@ GET /api/plan gives the app everything it shows about plans: the effective plan,
 feature's allowance this period, every plan's limits and prices (for the Upgrade screen), the upgrade contact texts, the owner's
 contact details (email, Viber, Telegram, Facebook page and Messenger links) and the user's pending upgrade request (or null; it carries the Viber number and billing period they gave). Costs and cost caps are never included.
 Upgrades are manual: a user asks for Plus or Pro here and the owner handles the request in the admin panel.
+GET /api/plan/public gives the website (no login) just the prices and the owner's contact details.
 """
 from datetime import datetime, UTC
 from typing import Literal, Optional
@@ -16,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from notification_service import translate
 from plans import quota, store
 from plans.access import PlanError, effective_plan, is_trial, user_language
-from plans.catalog import PLAN_RANK
+from plans.catalog import PLAN_RANK, PLANS
 from plans.contact import normalize_viber
 from sql import upgrade_requests as requests_db
 from utils import get_current_user
@@ -61,6 +62,13 @@ async def get_plan(current_user: dict = Depends(get_current_user)):
     pending = await requests_db.get_pending(current_user["_id"])
     body["upgrade_request"] = _request_json(pending) if pending else None
     return body
+
+
+@router.get("/plan/public")
+async def get_public_plan_info():
+    """Public (no auth): every plan's prices and the owner's contact details, for the website (toepwar.com). The same
+    values as `prices` and `owner_contact` in GET /api/plan; nothing about any user, and no limits or costs."""
+    return {"prices": {p: store.prices(p) for p in PLANS}, "owner_contact": store.owner_contact()}
 
 
 @router.post("/plan/upgrade-request")
