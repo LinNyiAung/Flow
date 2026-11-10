@@ -294,7 +294,8 @@ def body_of(limits, caps, contact):
     upgrade_contact, owner_contact}) for catalogue-shaped inputs; no plan has a price."""
     return {"plans": {p: {"limits": {f: {"mode": l.mode, "quota": l.quota, "period": l.period} for f, l in limits[p].items()},
                           "cost_cap_usd": caps[p], "price_monthly_mmk": None, "price_yearly_mmk": None} for p in limits},
-            "upgrade_contact": dict(contact), "owner_contact": {"email": "", "viber": ""}}
+            "upgrade_contact": dict(contact),
+            "owner_contact": {"email": "", "viber": "", "telegram": "", "facebook": "", "messenger": ""}}
 
 
 def default_body():

@@ -1,6 +1,7 @@
 """The plan limits the app enforces: per plan and feature (locked / included / counted), a monthly AI cost cap per
 plan, each paid plan's price in kyat (monthly, and an optional yearly price), and the upgrade contact texts and the
-owner's own email and Viber number. The owner edits them in the admin panel; they live in the database
+owner's own contact details (email, Viber number, Telegram number or username, Facebook page link and Messenger link).
+The owner edits them in the admin panel; they live in the database
 (sql.plans) and are served from an in-memory cache that is loaded at startup and refreshed every minute, so
 a change is visible in this process at once and in the others within a minute.
 
@@ -14,7 +15,8 @@ from typing import Any, Dict, List, Optional
 
 from sql import plans as plans_db
 
-from .contact import normalize_email, normalize_viber
+from .contact import (normalize_email, normalize_facebook_url, normalize_messenger_url, normalize_telegram,
+                      normalize_viber)
 from .catalog import DEFAULT_COST_CAPS, DEFAULT_LIMITS, FEATURES, MODES, PERIODS, PLANS, Limit
 
 logger = logging.getLogger(__name__)
@@ -24,12 +26,22 @@ MAX_QUOTA = 2_147_483_647   # plan_limits.quota is a 32-bit integer
 MAX_COST_CAP = 999_999.0    # plan_settings.cost_cap_usd is NUMERIC(12, 6)
 MAX_PRICE_MMK = 1_000_000_000  # plan_settings.price_*_mmk are 32-bit integers; far above any real price
 PRICE_KEYS = ("monthly_mmk", "yearly_mmk")
+# The owner's contact fields, in the order they are shown: (key, normaliser, label for an error message). Each
+# normaliser returns the stored form or None for an empty value, and raises a readable ValueError.
+OWNER_FIELDS = (
+    ("email", normalize_email, "email"),
+    ("viber", normalize_viber, "Viber number"),
+    ("telegram", normalize_telegram, "Telegram"),
+    ("facebook", normalize_facebook_url, "Facebook page link"),
+    ("messenger", normalize_messenger_url, "Messenger link"),
+)
+OWNER_KEYS = tuple(key for key, _, _ in OWNER_FIELDS)
 
 _limits: Dict[str, Dict[str, Limit]] = {p: dict(f) for p, f in DEFAULT_LIMITS.items()}
 _caps: Dict[str, float] = dict(DEFAULT_COST_CAPS)
 _prices: Dict[str, Dict[str, Optional[int]]] = {p: {k: None for k in PRICE_KEYS} for p in PLANS}
 _contact: Dict[str, str] = {"en": "", "my": ""}
-_owner: Dict[str, str] = {"email": "", "viber": ""}
+_owner: Dict[str, str] = {key: "" for key in OWNER_KEYS}
 
 
 # ---- reading (the cache) ----
@@ -55,7 +67,9 @@ def upgrade_contact() -> Dict[str, str]:
 
 
 def owner_contact() -> Dict[str, str]:
-    """{"email": ..., "viber": ...}: the owner's own email and Viber number (`+` and digits); empty string when not set."""
+    """{"email", "viber", "telegram", "facebook", "messenger"}: the owner's own contact details in their stored form
+    (Viber: `+` and digits; Telegram: `+` and digits or `@name`; Facebook and Messenger: an `https://` link); empty
+    string when not set."""
     return dict(_owner)
 
 
@@ -99,15 +113,16 @@ def _limit(where: str, value: Any, errors: List[str]) -> Limit | None:
 
 
 def _owner_contact(value: Any, errors: List[str]) -> Dict[str, str]:
-    """{"email", "viber"} normalised ("" when empty) from a mapping with those keys; problems are appended to `errors`."""
+    """{"email", "viber", "telegram", "facebook", "messenger"} normalised ("" when empty or missing) from a mapping
+    with those keys; problems are appended to `errors`."""
     if not isinstance(value, Mapping):
-        errors.append("owner contact must be an object with email and viber")
+        errors.append("owner contact must be an object with email, viber, telegram, facebook and messenger")
         return {}
     for key in value:
-        if key not in ("email", "viber"):
+        if key not in OWNER_KEYS:
             errors.append(f"Unknown owner contact field '{key}'")
     out: Dict[str, str] = {}
-    for key, normalise, label in (("email", normalize_email, "email"), ("viber", normalize_viber, "Viber number")):
+    for key, normalise, label in OWNER_FIELDS:
         raw = value.get(key, "")
         if raw is not None and not isinstance(raw, str):
             errors.append(f"owner contact {label} must be text")
@@ -160,8 +175,8 @@ def _prices_of(value: Any, errors: List[str]) -> Dict[str, Dict[str, Optional[in
 
 def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None, prices: Any = None):
     """-> (normalised limits {plan: {feature: Limit}}, caps {plan: float}, contact {"en", "my"}, owner contact
-    {"email", "viber"} or None when `owner` is None, prices {plan: {"monthly_mmk", "yearly_mmk"}} or None when
-    `prices` is None); ValueError if invalid."""
+    {"email", "viber", "telegram", "facebook", "messenger"} or None when `owner` is None, prices
+    {plan: {"monthly_mmk", "yearly_mmk"}} or None when `prices` is None); ValueError if invalid."""
     errors: List[str] = []
     rows: Dict[str, Dict[str, Limit]] = {}
     if not isinstance(plan_rows, Mapping):
@@ -290,9 +305,10 @@ async def load() -> None:
     new_contact = {lang: texts.get(key, "") for lang, key in plans_db.CONTACT_KEYS.items()}
     # A stored owner contact that no longer passes validation (edited by hand) is not shown.
     new_owner = {}
-    for name, key in plans_db.OWNER_CONTACT_KEYS.items():
+    for name, normalise, _ in OWNER_FIELDS:
+        key = plans_db.OWNER_CONTACT_KEYS[name]
         try:
-            new_owner[name] = (normalize_email if name == "email" else normalize_viber)(texts.get(key)) or ""
+            new_owner[name] = normalise(texts.get(key)) or ""
         except ValueError:
             logger.warning("Ignoring the stored owner contact %s: not valid", name)
             new_owner[name] = ""
@@ -306,9 +322,9 @@ async def load() -> None:
 async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: str,
                owner_contact: Mapping | None = None, prices: Mapping | None = None) -> None:
     """Validate, store and cache the limits (plan -> feature -> Limit or {mode, quota, period}), the cost caps
-    (plan -> USD), the upgrade contact texts ({"en", "my"}), when given the owner's {"email", "viber"} (empty
-    string clears one; None leaves both as they are) and, when given, every plan's price (plan -> {"monthly_mmk",
-    "yearly_mmk"} in whole kyat, None for not set; Free has none and a yearly price needs a monthly one; None leaves
+    (plan -> USD), the upgrade contact texts ({"en", "my"}), when given the owner's {"email", "viber", "telegram",
+    "facebook", "messenger"} (an empty string or a missing key clears one; None leaves them all as they are) and,
+    when given, every plan's price (plan -> {"monthly_mmk", "yearly_mmk"} in whole kyat, None for not set; Free has none and a yearly price needs a monthly one; None leaves
     the prices as they are). Raises ValueError with a readable message when anything is invalid; nothing is written
     then. `admin_id` is only recorded in the server log (the route writes the admin action log).
     """

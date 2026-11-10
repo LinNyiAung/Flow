@@ -3,7 +3,7 @@ rendering of plan errors.
 
 GET /api/plan gives the app everything it shows about plans: the effective plan, its end date and trial state, each
 feature's allowance this period, every plan's limits and prices (for the Upgrade screen), the upgrade contact texts, the owner's
-email and Viber number and the user's pending upgrade request (or null; it carries the Viber number and billing period they gave). Costs and cost caps are never included.
+contact details (email, Viber, Telegram, Facebook page and Messenger links) and the user's pending upgrade request (or null; it carries the Viber number and billing period they gave). Costs and cost caps are never included.
 Upgrades are manual: a user asks for Plus or Pro here and the owner handles the request in the admin panel.
 """
 from datetime import datetime, UTC

@@ -340,6 +340,10 @@ async def run(t):
         check(r.status_code == 200 and set(j) == STATUS_KEYS and set(feats) == set(catalog.FEATURES)
               and all(set(v) == FEATURE_KEYS for v in feats.values()),
               "plan_status_shape: /api/plan has plan, dates, trial, all 8 features, catalog and contact", f"{r.status_code} {r.text[:300]}")
+        check(set(j.get("owner_contact") or {}) == {"email", "viber", "telegram", "facebook", "messenger"}
+              and all(isinstance(v, str) for v in (j.get("owner_contact") or {}).values()),
+              "plan_status_shape: owner_contact has the five text fields (email, viber, telegram, facebook, messenger)",
+              j.get("owner_contact"))
         check(j.get("plan") == "free" and j.get("is_trial") is False and j.get("expires_at") is None and j.get("trial_ends_at") is None,
               "plan_status_shape: a new user is on free, not on a trial", j)
         chat = feats.get("chat", {})

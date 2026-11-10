@@ -23,6 +23,13 @@ PLAN_REQUEST_KEYS = {"plan", "note", "viber_number", "billing", "created_at"}
 ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "trial_ends_at", "requested_plan",
                   "is_renewal", "note", "viber_number", "billing", "created_at", "status", "handled_at"}
 OWNER_EMAIL, OWNER_VIBER = "owner@example.com", "+959123456789"
+OWNER_KEYS = ("email", "viber", "telegram", "facebook", "messenger")
+OWNER_TELEGRAM, OWNER_FACEBOOK, OWNER_MESSENGER = "@FlowOwner", "https://facebook.com/flowapp", "https://m.me/flowapp"
+
+
+def owner_of(**set_):
+    """An owner_contact as the API returns it: every field, "" unless given."""
+    return {**{k: "" for k in OWNER_KEYS}, **set_}
 
 
 def parse(value):
@@ -750,29 +757,38 @@ async def run(t):
         snap0 = c.get("/api/admin/plans", headers=AD).json()
         saved_contact, saved_owner = snap0["upgrade_contact"], snap0["owner_contact"]
 
-        def put_owner(email, viber, h_=AD, **over):
+        def put_owner(email, viber, telegram="", facebook="", messenger="", h_=AD, **over):
             """PUT the whole settings with this owner contact (the rest as it is now)."""
             snap = c.get("/api/admin/plans", headers=AD).json()
-            snap["owner_contact"] = {"email": email, "viber": viber}
+            snap["owner_contact"] = {"email": email, "viber": viber, "telegram": telegram, "facebook": facebook,
+                                     "messenger": messenger}
             snap.update(over)
             return c.put("/api/admin/plans", headers=h_, json=snap)
+
+        def put_one(key, value):
+            """PUT the settings with only this owner contact field set."""
+            return put_owner(**{**owner_of(), key: value})
 
         def stored_owner():
             with t.connect() as conn:
                 return {r[0]: r[1] for r in conn.execute(
-                    "SELECT key, value FROM app_settings WHERE key IN ('contact_email', 'contact_viber')")}
+                    "SELECT key, value FROM app_settings WHERE key IN ('contact_email', 'contact_viber', "
+                    "'contact_telegram', 'contact_facebook', 'contact_messenger')")}
 
-        check(put_owner("", "").status_code == 200, "setup: clear the owner's email and Viber number")
-        check(c.get("/api/admin/plans", headers=MOD).json()["owner_contact"] == {"email": "", "viber": ""}
-              and c.get("/api/plan", headers=h).json()["owner_contact"] == {"email": "", "viber": ""},
-              "owner_contact: nothing is set by default: empty strings in the admin API and in GET /api/plan")
+        def stored_of(**set_):
+            return {f"contact_{k}": v for k, v in owner_of(**set_).items()}
+
+        check(put_owner("", "").status_code == 200, "setup: clear the owner's contact details")
+        check(c.get("/api/admin/plans", headers=MOD).json()["owner_contact"] == owner_of()
+              and c.get("/api/plan", headers=h).json()["owner_contact"] == owner_of(),
+              "owner_contact: nothing is set by default: empty strings (all five fields) in the admin API and in GET /api/plan")
         r = put_owner(" " + OWNER_EMAIL + " ", "09 123 456 789")
-        want = {"email": OWNER_EMAIL, "viber": OWNER_VIBER}
+        want = owner_of(email=OWNER_EMAIL, viber=OWNER_VIBER)
         check(r.status_code == 200 and r.json()["owner_contact"] == want,
               "owner_contact_save: an admin saves them; the answer shows the stripped email and the normalised number "
               "(09… -> +959…)", f"{r.status_code} {r.text[-200:]}")
         check(c.get("/api/admin/plans", headers=MOD).json()["owner_contact"] == want
-              and stored_owner() == {"contact_email": OWNER_EMAIL, "contact_viber": OWNER_VIBER},
+              and stored_owner() == stored_of(email=OWNER_EMAIL, viber=OWNER_VIBER),
               "owner_contact_save: a moderator reads them; app_settings holds contact_email and contact_viber")
         check(c.get("/api/plan", headers=h).json()["owner_contact"] == want
               and c.get("/api/plan", headers=plus_h).json()["owner_contact"] == want
@@ -791,12 +807,116 @@ async def run(t):
               "owner_contact_save: a save without owner_contact leaves the owner's email and number alone", f"{r.status_code} {r.text[-200:]}")
         # one at a time
         r = put_owner("", OWNER_VIBER)
-        check(r.status_code == 200 and r.json()["owner_contact"] == {"email": "", "viber": OWNER_VIBER}
-              and c.get("/api/plan", headers=h).json()["owner_contact"] == {"email": "", "viber": OWNER_VIBER},
+        check(r.status_code == 200 and r.json()["owner_contact"] == owner_of(viber=OWNER_VIBER)
+              and c.get("/api/plan", headers=h).json()["owner_contact"] == owner_of(viber=OWNER_VIBER),
               "owner_contact_save: an empty email clears just the email")
         r = put_owner(OWNER_EMAIL, "  ")
-        check(r.status_code == 200 and r.json()["owner_contact"] == {"email": OWNER_EMAIL, "viber": ""},
+        check(r.status_code == 200 and r.json()["owner_contact"] == owner_of(email=OWNER_EMAIL),
               "owner_contact_save: a blank number clears just the number")
+
+        # ---- Telegram, Facebook page and Messenger
+        r = put_owner(OWNER_EMAIL, OWNER_VIBER, "@FlowOwner", "facebook.com/flowapp", "m.me/flowapp")
+        want5 = owner_of(email=OWNER_EMAIL, viber=OWNER_VIBER, telegram=OWNER_TELEGRAM, facebook=OWNER_FACEBOOK,
+                         messenger=OWNER_MESSENGER)
+        check(r.status_code == 200 and r.json()["owner_contact"] == want5,
+              "owner_contact_links: an admin saves Telegram, Facebook and Messenger; the links come back as https://",
+              f"{r.status_code} {r.text[-300:]}")
+        check(c.get("/api/admin/plans", headers=MOD).json()["owner_contact"] == want5
+              and stored_owner() == stored_of(email=OWNER_EMAIL, viber=OWNER_VIBER, telegram=OWNER_TELEGRAM,
+                                              facebook=OWNER_FACEBOOK, messenger=OWNER_MESSENGER),
+              "owner_contact_links: a moderator reads them; app_settings holds contact_telegram, contact_facebook and "
+              "contact_messenger", stored_owner())
+        check(all(c.get("/api/plan", headers=hh).json()["owner_contact"] == want5 for hh in (h, plus_h, pro_h)),
+              "owner_contact_links: GET /api/plan carries all five fields to every user")
+        got = [x for x in logs(made["admin"]) if x["action"] == "plans_update"
+               and "owner contact telegram" in (x["details"] or "")]
+        check(got and OWNER_TELEGRAM in got[0]["details"] and "owner contact facebook" in got[0]["details"]
+              and "owner contact messenger" in got[0]["details"] and OWNER_MESSENGER in got[0]["details"],
+              "owner_contact_links: the change is written to the admin log", got[:1])
+        # a save that leaves owner_contact out keeps all five
+        snap = c.get("/api/admin/plans", headers=AD).json()
+        snap.pop("owner_contact")
+        r = c.put("/api/admin/plans", headers=AD, json=snap)
+        check(r.status_code == 200 and r.json()["owner_contact"] == want5,
+              "owner_contact_links: a save without owner_contact leaves Telegram, Facebook and Messenger alone",
+              f"{r.status_code} {r.text[-300:]}")
+        # an owner_contact without the new keys (an older admin panel) clears them, like a missing key in the store
+        snap["owner_contact"] = {"email": OWNER_EMAIL, "viber": OWNER_VIBER}
+        r = c.put("/api/admin/plans", headers=AD, json=snap)
+        check(r.status_code == 200 and r.json()["owner_contact"] == owner_of(email=OWNER_EMAIL, viber=OWNER_VIBER)
+              and stored_owner()["contact_telegram"] == "" and stored_owner()["contact_messenger"] == "",
+              "owner_contact_links: an owner_contact without telegram / facebook / messenger clears them",
+              f"{r.status_code} {r.text[-300:]}")
+        # every accepted form is stored in one normal form
+        accepted = (
+            ("telegram", "+959123456789", "+959123456789"), ("telegram", "09 123 456 789", "+959123456789"),
+            ("telegram", "(09) 123-456.789", "+959123456789"), ("telegram", "+66 81 234 5678", "+66812345678"),
+            ("telegram", "@FlowOwner", "@FlowOwner"), ("telegram", "FlowOwner", "@FlowOwner"),
+            ("telegram", "t.me/FlowOwner", "@FlowOwner"), ("telegram", "https://t.me/FlowOwner", "@FlowOwner"),
+            ("telegram", "http://t.me/FlowOwner", "@FlowOwner"), ("telegram", "telegram.me/FlowOwner", "@FlowOwner"),
+            ("telegram", "HTTPS://T.ME/flow_owner_1", "@flow_owner_1"), ("telegram", "  @abcde  ", "@abcde"),
+            ("telegram", "a" * 32, "@" + "a" * 32),
+            ("facebook", "facebook.com/flowapp", "https://facebook.com/flowapp"),
+            ("facebook", "www.facebook.com/flowapp", "https://www.facebook.com/flowapp"),
+            ("facebook", "m.facebook.com/flowapp", "https://m.facebook.com/flowapp"),
+            ("facebook", "web.facebook.com/flowapp", "https://web.facebook.com/flowapp"),
+            ("facebook", "fb.com/flowapp", "https://fb.com/flowapp"),
+            ("facebook", "www.fb.com/flowapp", "https://www.fb.com/flowapp"),
+            ("facebook", "fb.me/flowapp", "https://fb.me/flowapp"),
+            ("facebook", "http://facebook.com/flowapp", "https://facebook.com/flowapp"),
+            ("facebook", "https://www.facebook.com/flowapp", "https://www.facebook.com/flowapp"),
+            ("facebook", "HTTPS://WWW.Facebook.com/FlowApp", "https://www.facebook.com/FlowApp"),
+            ("facebook", "https://www.facebook.com/profile.php?id=100012345", "https://www.facebook.com/profile.php?id=100012345"),
+            ("facebook", "facebook.com/flowapp#about", "https://facebook.com/flowapp#about"),
+            ("messenger", "m.me/flowapp", "https://m.me/flowapp"), ("messenger", "https://m.me/flowapp", "https://m.me/flowapp"),
+            ("messenger", "http://m.me/flowapp", "https://m.me/flowapp"),
+            ("messenger", "messenger.com/t/flowapp", "https://messenger.com/t/flowapp"),
+            ("messenger", "www.messenger.com/t/flowapp", "https://www.messenger.com/t/flowapp"),
+            ("messenger", "M.ME/FlowApp", "https://m.me/FlowApp"),
+        )
+        for key, given, stored in accepted:
+            r = put_one(key, given)
+            check(r.status_code == 200 and r.json()["owner_contact"] == owner_of(**{key: stored})
+                  and stored_owner()[f"contact_{key}"] == stored,
+                  f"owner_contact_links: {key} {given!r} is stored as {stored!r}", f"{r.status_code} {r.text[-200:]}")
+        check(put_one("telegram", " - ").status_code == 200 and stored_owner()["contact_telegram"] == ""
+              and put_one("facebook", "   ").status_code == 200 and stored_owner()["contact_facebook"] == "",
+              "owner_contact_links: blanks clear a field (stored as empty)")
+        check(put_owner("", "", OWNER_TELEGRAM, "facebook.com/flowapp", "m.me/flowapp").status_code == 200,
+              "setup: Telegram, Facebook and Messenger set")
+        before_bad = c.get("/api/admin/plans", headers=AD).json()
+        rejected = (
+            ("telegram", "@abc", "a username too short"), ("telegram", "@1abc", "a username starting with a digit"),
+            ("telegram", "a" * 33, "a username too long"), ("telegram", "@flow-owner", "a username with a dash"),
+            ("telegram", "@flow owner", "a username with a space"), ("telegram", "+1234567", "a number too short"),
+            ("telegram", "959123456789", "a number without a plus or 09"), ("telegram", "12345", "a short number"),
+            ("telegram", "t.me/", "a t.me link without a name"), ("telegram", "https://t.me/flowowner/", "a t.me link with a slash"),
+            ("telegram", "ftp://t.me/flowowner", "a t.me link with another scheme"),
+            ("telegram", "www.t.me/flowowner", "another Telegram host"), ("telegram", "@flowownér", "a non-ASCII username"),
+            ("facebook", "evil.com/flowapp", "another host"), ("facebook", "facebook.com.evil.com/flowapp", "a look-alike host"),
+            ("facebook", "facebook.com", "no page"), ("facebook", "https://www.facebook.com/", "only a slash"),
+            ("facebook", "facebook.com?id=1", "only a query"), ("facebook", "user@facebook.com/flowapp", "a user name"),
+            ("facebook", "https://facebook.com:443/flowapp", "a port"), ("facebook", "facebook.com/flow app", "a space"),
+            ("facebook", "ftp://facebook.com/flowapp", "an ftp link"), ("facebook", "javascript:alert(1)//facebook.com/x", "javascript"),
+            ("facebook", "facebook.com/" + "a" * 300, "over 300 characters"), ("facebook", "m.me/flowapp", "a Messenger link"),
+            ("messenger", "m.me", "no page"), ("messenger", "m.me/", "only a slash"),
+            ("messenger", "facebook.com/flowapp", "a Facebook link"), ("messenger", "www.m.me/flowapp", "another host"),
+            ("messenger", "ftp://m.me/flowapp", "an ftp link"), ("messenger", "m.me/" + "a" * 300, "over 300 characters"),
+        )
+        labels = {"telegram": "Telegram", "facebook": "Facebook", "messenger": "Messenger"}
+        for key, given, label in rejected:
+            r = put_owner("", "", **{**{k: before_bad["owner_contact"][k] for k in ("telegram", "facebook", "messenger")},
+                                     key: given})
+            check(r.status_code == 422 and labels[key] in r.text
+                  and c.get("/api/admin/plans", headers=AD).json() == before_bad,
+                  f"owner_contact_links_validation: {key} {label} ({given[:40]!r}) is a 422 naming the field and saves nothing",
+                  f"{r.status_code} {r.text[:200]}")
+        r = put_owner("", "", "@abc", "evil.com/x", "m.me")
+        check(r.status_code == 422 and all(w in r.text for w in ("Telegram", "Facebook", "Messenger"))
+              and "phone number with the country code" in r.text,
+              "owner_contact_links_validation: the three problems are reported together, Telegram's with the hint", r.text[:300])
+        r = put_one("telegram", 5)
+        check(r.status_code == 422, "owner_contact_links_validation: a non-text telegram is a 422", r.status_code)
         before_bad = c.get("/api/admin/plans", headers=AD).json()
         for label, email, viber, word in (
             ("an email without @", "owner.example.com", "", "email"), ("an email without a domain dot", "owner@example", "", "email"),
@@ -811,7 +931,7 @@ async def run(t):
         check(r.status_code == 422 and "email" in r.text and "Viber" in r.text,
               "owner_contact_validation: both problems are reported together", r.text[:200])
         snap = c.get("/api/admin/plans", headers=AD).json()
-        for label, bad in (("an unknown field", {"email": "", "viber": "", "telegram": "x"}), ("a missing viber", {"email": ""}),
+        for label, bad in (("an unknown field", {"email": "", "viber": "", "whatsapp": "x"}), ("a missing viber", {"email": ""}),
                            ("a non-text email", {"email": 5, "viber": ""}), ("a string instead of an object", "me@example.com")):
             snap["owner_contact"] = bad
             r = c.put("/api/admin/plans", headers=AD, json=snap)
@@ -825,8 +945,8 @@ async def run(t):
         check(put_owner("super@example.com", "", h_=SUP).status_code == 200
               and c.get("/api/plan", headers=h).json()["owner_contact"]["email"] == "super@example.com",
               "owner_contact_roles: a super admin can")
-        check(put_owner("", "").status_code == 200 and stored_owner() == {"contact_email": "", "contact_viber": ""},
-              "owner_contact_save: both can be cleared again (stored as empty)")
+        check(put_owner("", "").status_code == 200 and stored_owner() == stored_of(),
+              "owner_contact_save: all can be cleared again (stored as empty)")
         check(put_contact(saved_contact["en"], saved_contact["my"]), "setup: put the upgrade contact back")
 
         # upgrade_request_declined: dismiss, contact message unset
@@ -889,7 +1009,36 @@ async def run(t):
         check(len(got) == 1 and got[0]["message"].endswith(f"\nဗိုင်ဘာ: {OWNER_VIBER}") and "အီးမေးလ်" not in got[0]["message"]
               and MYANMAR.search(got[0]["message"].split("\n")[0]),
               "upgrade_request_declined: with only a Viber number, just the Viber line follows (Myanmar default sentence)", got)
-        check(put_owner("", "").status_code == 200, "setup: clear the owner's email and Viber number")
+        # Telegram, Facebook and Messenger follow Email and Viber; the links without https://
+        check(put_contact("Message the owner on Telegram: @flowowner", "ပိုင်ရှင်ကို Telegram မှ ဆက်သွယ်ပါ")
+              and put_owner(OWNER_EMAIL, OWNER_VIBER, "t.me/FlowOwner", "https://www.facebook.com/flowapp",
+                            "m.me/flowapp").status_code == 200, "setup: all five contact details")
+        d11_uid, _ = request_for("dec-owner-all", "plus")
+        dismiss(d11_uid)
+        got = notes(d11_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"] == "Your request for Plus was closed. Message the owner on Telegram: @flowowner"
+              f"\nEmail: {OWNER_EMAIL}\nViber: {OWNER_VIBER}\nTelegram: @FlowOwner\nFacebook: www.facebook.com/flowapp"
+              "\nMessenger: m.me/flowapp",
+              "upgrade_request_declined: Telegram, Facebook and Messenger lines follow Email and Viber (links without https://)",
+              got)
+        d12_uid, _ = request_for("dec-owner-all-my", "pro", "my")
+        dismiss(d12_uid)
+        got = notes(d12_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"].endswith(
+                  f"\nအီးမေးလ်: {OWNER_EMAIL}\nဗိုင်ဘာ: {OWNER_VIBER}\nTelegram: @FlowOwner"
+                  "\nFacebook: www.facebook.com/flowapp\nMessenger: m.me/flowapp")
+              and "https://" not in got[0]["message"],
+              "upgrade_request_declined: a Myanmar user gets the same Telegram / Facebook / Messenger labels (Latin brand names)",
+              got)
+        check(put_contact("", "") and put_owner("", "", "+66 81 234 5678", "", "messenger.com/t/flowapp").status_code == 200,
+              "setup: no contact message, only a Telegram number and a Messenger link")
+        d13_uid, _ = request_for("dec-owner-tg", "plus")
+        dismiss(d13_uid)
+        got = notes(d13_uid, "upgrade_request_declined")
+        check(len(got) == 1 and got[0]["message"] == "Your request for Plus was closed. Contact us if you have questions."
+              "\nTelegram: +66812345678\nMessenger: messenger.com/t/flowapp",
+              "upgrade_request_declined: only the lines that are set (a Telegram number, a Messenger link)", got)
+        check(put_owner("", "").status_code == 200, "setup: clear the owner's contact details")
         put_contact(saved_contact["en"], saved_contact["my"])
         # a dismissal answered twice (409) notifies once
         d5_uid, _ = request_for("dec-twice")

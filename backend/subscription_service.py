@@ -16,6 +16,7 @@ from typing import Optional
 
 from plans import store
 from plans.catalog import PAID_PLANS
+from plans.contact import link_display
 from sql import users as users_db
 from firebase_service import send_fcm_data_message
 from notification_service import create_notification, translate
@@ -236,15 +237,17 @@ async def notify_plan_activated(user: dict, plan: str, expires_at: Optional[date
 async def notify_upgrade_request_declined(user: dict, plan: str) -> None:
     """Tell the user their upgrade request for `plan` was closed without a plan change ("upgrade_request_declined"):
     the owner's contact message (in the user's language) when one is set, otherwise a generic "contact us" sentence,
-    then the owner's email and Viber number ("Email: …", "Viber: …", each on its own line) when they are set.
+    then the owner's contact details that are set, each on its own line, in this order: "Email: …", "Viber: …",
+    "Telegram: …" (the number or @name), "Facebook: …" and "Messenger: …" (the link without `https://`).
     A failure is logged and swallowed, like notify_plan_activated."""
     try:
         lang = user_language(user)
         contact = (store.upgrade_contact().get(lang) or "").strip() or translate("upgrade_request_contact_default", lang)
         owner = store.owner_contact()
-        for key in ("email", "viber"):
+        for key in store.OWNER_KEYS:
             if owner.get(key):
-                contact += f"\n{translate(f'contact_{key}_label', lang)}: {owner[key]}"
+                value = link_display(owner[key]) if key in ("facebook", "messenger") else owner[key]
+                contact += f"\n{translate(f'contact_{key}_label', lang)}: {value}"
         await create_notification(
             user_id=user["_id"],
             notification_type="upgrade_request_declined",

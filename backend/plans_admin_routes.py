@@ -1,5 +1,6 @@
 """Admin API for plans: every plan's per-feature limits, monthly AI cost cap and price in kyat, the upgrade contact texts
-and the owner's own email and Viber number, and the users' upgrade requests (at the end of this file).
+and the owner's own contact details (email, Viber, Telegram, Facebook page, Messenger), and the users' upgrade
+requests (at the end of this file).
 
 Moderators can view; admins and super admins can change. A change applies in this process at once and in
 other workers within a minute (plans.store refreshes every 60 s). Every change is written to the admin action log.
@@ -50,17 +51,22 @@ class ContactBody(BaseModel):
 
 
 class OwnerContactBody(BaseModel):
-    """The owner's own email and Viber number; "" clears one. plans.store.save validates them."""
+    """The owner's own email, Viber number, Telegram number or username, Facebook page link and Messenger link;
+    "" clears one. plans.store.save validates them. Telegram, Facebook and Messenger came later: one left out (an older
+    admin panel) is read as "" and so cleared, like a key missing in plans.store.save."""
     model_config = ConfigDict(extra="forbid")
     email: str
     viber: str
+    telegram: str = ""
+    facebook: str = ""
+    messenger: str = ""
 
 
 class PlansBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     plans: Dict[str, PlanBody]
     upgrade_contact: ContactBody
-    # Left out: the owner's email and Viber number stay as they are.
+    # Left out: the owner's contact details all stay as they are.
     owner_contact: Optional[OwnerContactBody] = None
 
 
@@ -110,7 +116,7 @@ def _changes(before: dict, after: dict) -> str:
     for lang in ("en", "my"):
         if before["upgrade_contact"][lang] != after["upgrade_contact"][lang]:
             out.append(f"upgrade contact ({lang}) changed")
-    for key in ("email", "viber"):
+    for key in store.OWNER_KEYS:
         old, new = before["owner_contact"][key], after["owner_contact"][key]
         if old != new:
             out.append(f"owner contact {key}: {old or '(none)'} -> {new or '(none)'}")
@@ -122,13 +128,13 @@ def _changes(before: dict, after: dict) -> str:
 
 @router.get("")
 async def get_plans(current_admin: dict = Depends(require_moderator_or_above)):
-    """Every plan's limits, cost cap and prices, the upgrade contact texts and the owner's email and Viber number."""
+    """Every plan's limits, cost cap and prices, the upgrade contact texts and the owner's contact details."""
     return _snapshot()
 
 
 @router.put("")
 async def put_plans(body: PlansBody, current_admin: dict = Depends(require_admin_or_super)):
-    """Replace all plans' limits, cost caps and the upgrade contact (and the owner's email and Viber number when
+    """Replace all plans' limits, cost caps and the upgrade contact (and the owner's contact details when
     `owner_contact` is sent, and every plan's prices when any plan sends a price field). 422 carries the validation
     message."""
     before = _snapshot()

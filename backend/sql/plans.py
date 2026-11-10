@@ -10,8 +10,10 @@ from sql.db import execute, fetch_all, transaction, write_returning
 from sql.tables import app_settings, plan_limits, plan_settings, usage_counters, users
 
 CONTACT_KEYS = {"en": "upgrade_contact_en", "my": "upgrade_contact_my"}
-# The owner's own email and Viber number (not per language); a missing key or an empty value means "not set".
-OWNER_CONTACT_KEYS = {"email": "contact_email", "viber": "contact_viber"}
+# The owner's own email, Viber number, Telegram number or username, Facebook page link and Messenger link (not per
+# language); a missing key or an empty value means "not set".
+OWNER_CONTACT_KEYS = {"email": "contact_email", "viber": "contact_viber", "telegram": "contact_telegram",
+                      "facebook": "contact_facebook", "messenger": "contact_messenger"}
 
 # One counter row of a user: (feature, period, period_start).
 CounterKey = Tuple[str, str, date]
@@ -30,11 +32,12 @@ async def read_all() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[s
 async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, float], contact: Mapping[str, str],
                     owner_contact: Optional[Mapping[str, str]] = None,
                     prices: Optional[Mapping[str, Mapping[str, Optional[int]]]] = None) -> None:
-    """Upsert every limit row, cost cap and contact text (and the owner's email / Viber number, and the plan prices)
+    """Upsert every limit row, cost cap and contact text (and the owner's contact details, and the plan prices)
     in one transaction.
 
     limit_rows: dicts with plan, feature, mode, quota, period. caps: plan -> USD. contact: {"en": ..., "my": ...}.
-    owner_contact: {"email": ..., "viber": ...} ("" clears one), or None to leave both as they are.
+    owner_contact: {"email", "viber", "telegram", "facebook", "messenger"} ("" clears one), or None to leave them all
+    as they are.
     prices: plan -> {"monthly_mmk", "yearly_mmk"} (None clears one) for the plans in `caps`, or None to leave every
     price as it is.
     """
