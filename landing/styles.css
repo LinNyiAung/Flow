@@ -1,0 +1,63 @@
+/* Toe Pwar landing page. From docs/landing/toepwar-landing.design.html (the <helmet> styles). */
+body{margin:0;background:#E7EDEA}
+a{color:#0B6B54}a:hover{color:#095A47}
+.tp *{box-sizing:border-box}
+.tp a:focus-visible,.tp button:focus-visible{outline:3px solid #0B6B54;outline-offset:3px}
+.tp .on-jade a:focus-visible{outline-color:#FFFFFF}
+.tp .btn-fill:hover{background:#095A47 !important;color:#FFFFFF !important}
+.tp .btn-tonal:hover{background:#A2E0CB !important}
+.tp .btn-white:hover{background:#DCEFE8 !important}
+.tp .btn-ghost:hover{background:rgba(255,255,255,0.14) !important}
+.tp .foot-link:hover{color:#0B6B54 !important;text-decoration:underline}
+@keyframes tpFloat{0%,100%{transform:translateY(0) rotate(var(--r,0deg))}50%{transform:translateY(-10px) rotate(var(--r,0deg))}}
+@media (prefers-reduced-motion:no-preference){.tp .float-a{animation:tpFloat 7s ease-in-out infinite}.tp .float-b{animation:tpFloat 6s ease-in-out -1.5s infinite}.tp .float-c{animation:tpFloat 6.5s ease-in-out -3.5s infinite}}
+.tp .icon-link:hover{background:#DCEFE8 !important;border-color:#A2E0CB !important}
+@keyframes tpRise{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+@keyframes tpGrow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes tpGrowLoop{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+@keyframes tpFillX{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes tpWave{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+@keyframes tpPulse{0%{box-shadow:0 0 0 0 rgba(11,107,84,.4)}100%{box-shadow:0 0 0 14px rgba(11,107,84,0)}}
+@keyframes tpScan{0%,100%{top:6px}50%{top:calc(100% - 8px)}}
+@keyframes tpSeq{0%{opacity:0;transform:translateY(8px)}12%,84%{opacity:1;transform:none}95%,100%{opacity:0;transform:translateY(-4px)}}
+@media (prefers-reduced-motion:no-preference){
+.tp .rise{animation:tpRise .8s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0s)}
+.tp .growbars>div{transform-origin:bottom;animation:tpGrow .9s cubic-bezier(.2,.7,.2,1) both}
+.tp .growbars>div:nth-child(1){animation-delay:.5s}.tp .growbars>div:nth-child(2){animation-delay:.58s}.tp .growbars>div:nth-child(3){animation-delay:.66s}.tp .growbars>div:nth-child(4){animation-delay:.74s}.tp .growbars>div:nth-child(5){animation-delay:.82s}.tp .growbars>div:nth-child(6){animation-delay:.9s}.tp .growbars>div:nth-child(7){animation-delay:.98s}
+.tp .fillx{transform-origin:left;animation:tpFillX 1.2s cubic-bezier(.2,.7,.2,1) .8s both}
+.tp .wave>span{animation:tpWave 1.1s ease-in-out infinite}
+.tp .wave>span:nth-child(2n){animation-delay:-.35s}.tp .wave>span:nth-child(3n){animation-delay:-.7s}
+.tp .pulse{animation:tpPulse 1.6s ease-out infinite}
+.tp .scanline{animation:tpScan 2.6s ease-in-out infinite}
+.tp .seq{animation:tpSeq 7s ease-in-out infinite both;animation-delay:var(--d,0s)}
+.tp .pops>span{animation:tpSeq 7s ease-in-out infinite both}
+.tp .pops>span:nth-child(2){animation-delay:.35s}.tp .pops>span:nth-child(3){animation-delay:.7s}
+.tp .bars>span{transform-origin:bottom;animation:tpGrowLoop 3.2s ease-in-out infinite}
+.tp .bars>span:nth-child(2){animation-delay:-.6s}.tp .bars>span:nth-child(3){animation-delay:-1.2s}.tp .bars>span:nth-child(4){animation-delay:-1.8s}.tp .bars>span:nth-child(5){animation-delay:-2.4s}
+.tp #features article,.tp #plans article,.tp #how li{transition:translate .25s ease}
+.tp #features article:hover,.tp #plans article:hover,.tp #how li:hover{translate:0 -4px}
+.tp .btn-fill,.tp .btn-tonal,.tp .btn-white,.tp .btn-ghost{transition:background-color .15s ease,translate .2s ease}
+.tp .btn-fill:hover,.tp .btn-tonal:hover,.tp .btn-white:hover,.tp .btn-ghost:hover{translate:0 -2px}
+.tp a[href="https://app.toepwar.com"] svg{transition:translate .2s ease}
+.tp a[href="https://app.toepwar.com"]:hover svg{translate:4px 0}
+@supports (animation-timeline: view()){.tp .reveal{animation:tpRise linear both;animation-timeline:view();animation-range:entry 0% entry 35%}}
+}
+.tp .nav-link:hover{background:#DCEFE8 !important;color:#101815 !important}
+.tp section[id]{scroll-margin-top:84px}
+.tp .nav-mob{scrollbar-width:none}
+.tp .nav-mob::-webkit-scrollbar{display:none}
+@media (max-width:999px){.tp .nav-desk{display:none !important}}
+@media (min-width:1000px){.tp .nav-mob{display:none !important}}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+@media (max-width:419px){.tp .brand-word{display:none !important}}
+@media (prefers-reduced-motion:no-preference){.tp a,.tp button{transition:background-color .15s ease,color .15s ease}}
+
+/* ---- added for the static build (not in the design file) ---- */
+[hidden]{display:none !important}
+/* the language-dependent values the design computed in renderVals() */
+.tp{--lh-body:1.55;--lh-head:1.15;--lh-mock:1.35;--ls-head:-0.025em;--h1-size:clamp(38px, 3.6vw + 22px, 64px);--h2-size:clamp(28px, 1.8vw + 20px, 42px)}
+.tp[lang="my"]{--lh-body:1.85;--lh-head:1.55;--lh-mock:1.65;--ls-head:0;--h1-size:clamp(30px, 2.4vw + 20px, 48px);--h2-size:clamp(24px, 1.4vw + 18px, 34px)}
+/* language switch: the pressed button is jade; only the other one reacts to hover */
+.tp .lang-btn[aria-pressed="true"]{background:#0B6B54;color:#FFFFFF}
+.tp .lang-btn[aria-pressed="false"]{background:transparent;color:#3F4A45}
+.tp .lang-btn[aria-pressed="false"]:hover{background:#DCEFE8}
