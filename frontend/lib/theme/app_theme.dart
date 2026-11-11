@@ -455,4 +455,35 @@ class AppTheme {
   /// Chart ramp for the active brightness.
   static List<Color> chartRampFor(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark ? chartRampDark : chartRamp;
+
+  /// Categorical series colours, for charts whose slices must be told apart
+  /// (e.g. spending by category) — the jade ramp's greens all look alike
+  /// there. Jade first, then hues far from it and from each other; each is
+  /// at least 3:1 against the light card.
+  static const chartCategorical = <Color>[
+    Color(0xFF0B6B54), // jade
+    Color(0xFFB7791A), // amber
+    Color(0xFF3D6FB4), // blue
+    Color(0xFFC8553D), // coral
+    Color(0xFF7B5EA7), // violet
+    Color(0xFF7A8B3A), // olive
+    Color(0xFFB4497E), // rose
+    Color(0xFF5F6B7A), // slate
+  ];
+
+  /// [chartCategorical] for dark mode: the same hues, lighter, at least 3:1
+  /// against the dark card.
+  static const chartCategoricalDark = <Color>[
+    Color(0xFF7FD9BE), // mint
+    Color(0xFFF2B65A), // amber
+    Color(0xFF8AB4F0), // blue
+    Color(0xFFF08C74), // coral
+    Color(0xFFB79CE6), // violet
+    Color(0xFFB8C96A), // olive
+    Color(0xFFE68AB8), // rose
+    Color(0xFFAEB8C4), // slate
+  ];
+
+  static List<Color> chartCategoricalFor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark ? chartCategoricalDark : chartCategorical;
 }

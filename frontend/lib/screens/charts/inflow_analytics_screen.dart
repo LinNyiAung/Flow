@@ -5,6 +5,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/utils/chart_scale.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
@@ -21,6 +22,11 @@ import '../../widgets/app_drawer.dart';
 enum TimePeriod { daily, monthly, yearly, custom }
 
 class InflowAnalyticsScreen extends StatefulWidget {
+  const InflowAnalyticsScreen({super.key, this.transactionLoader = ApiService.getTransactions});
+
+  /// Where the transactions come from; replaceable in tests.
+  final TransactionLoader transactionLoader;
+
   @override
   _InflowAnalyticsScreenState createState() => _InflowAnalyticsScreenState();
 }
@@ -101,7 +107,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
     try {
       // Fetched locally (not via TransactionProvider) so this 10k-row,
       // inflow-only list never replaces the shared list Home renders.
-      final transactions = await ApiService.getTransactions(
+      final transactions = await widget.transactionLoader(
         type: TransactionType.inflow,
         startDate: startDate,
         endDate: endDate,
@@ -404,7 +410,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                               swapAnimationDuration: Duration.zero,
                               BarChartData(
                                 alignment: BarChartAlignment.spaceAround,
-                                maxY: _chartMaxY(timeSeriesData),
+                                maxY: _chartAxis(timeSeriesData).maxY,
                                 barTouchData: BarTouchData(
                                   touchCallback: (FlTouchEvent event, barTouchResponse) {
                                     setState(() {
@@ -468,6 +474,9 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                                   leftTitles: AxisTitles(
                                     sideTitles: SideTitles(
                                       showTitles: true,
+                                      // One label per gridline, up to a round top
+                                      // (see niceAxis), so labels never crowd.
+                                      interval: _chartAxis(timeSeriesData).interval,
                                       getTitlesWidget: (value, meta) {
                                         // Full "K936,000.00" doesn't fit the
                                         // reserved width and wraps mid-number
@@ -500,7 +509,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                                   // gridlines, every frame). Scaled to the
                                   // actual axis range instead, targeting
                                   // ~5 gridlines regardless of magnitude.
-                                  horizontalInterval: _chartMaxY(timeSeriesData) / 5,
+                                  horizontalInterval: _chartAxis(timeSeriesData).interval,
                                   getDrawingHorizontalLine: (value) {
                                     return FlLine(color: scheme.outlineVariant, strokeWidth: 1);
                                   },
@@ -554,14 +563,14 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
+                        // Wraps (no line limit): category names are short, and
+                        // "Food & Daily Liv..." told nobody anything.
                         category,
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        count == 1 ? '1 entry' : '$count entries',
+                        AppLocalizations.of(context).entriesCount(count),
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -655,17 +664,19 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
 
   Widget _buildPeriodSelector() {
     final localizations = AppLocalizations.of(context);
-    return Row(
+    // The period buttons stay one row (scrolling sideways when a language's
+    // labels don't fit); the currency menu has its own line below, rather
+    // than sharing the row and pushing "Custom" onto a second line.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: _segmentedRow([
+        _segmentedRow([
             _Segment(localizations.daily, TimePeriod.daily == _selectedPeriod, () => _selectPeriod(TimePeriod.daily)),
             _Segment(localizations.monthly, TimePeriod.monthly == _selectedPeriod, () => _selectPeriod(TimePeriod.monthly)),
             _Segment(localizations.yearly, TimePeriod.yearly == _selectedPeriod, () => _selectPeriod(TimePeriod.yearly)),
             _Segment(localizations.custom, TimePeriod.custom == _selectedPeriod, () => _selectPeriod(TimePeriod.custom)),
-          ]),
-        ),
-        const SizedBox(width: 8),
+        ]),
+        const SizedBox(height: 10),
         _currencyFilterChip(),
       ],
     );
@@ -675,7 +686,8 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
   // of per-currency choice chips underneath the period selector.
   Widget _currencyFilterChip() {
     final scheme = Theme.of(context).colorScheme;
-    final label = _selectedCurrency?.symbol ?? Currency.usd.symbol;
+    final currency = _selectedCurrency ?? Currency.usd;
+    final label = '${currency.symbol} ${currency.name.toUpperCase()}';
 
     return InkWell(
       borderRadius: BorderRadius.circular(8),
@@ -689,7 +701,10 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Icon(Icons.currency_exchange_rounded, size: 16, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
             Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            const SizedBox(width: 2),
             Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurfaceVariant),
           ],
         ),
@@ -749,35 +764,40 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
   // Mockup renders period/currency filters as a row of discrete pills —
   // filled primary when selected, outlined otherwise (see "Inflow
   // analytics" markup, lines 602-606 of the prototype) — not a single
-  // grouped, equal-width segmented track. Wrap (rather than Row) keeps
-  // longer localized labels from overflowing on narrow screens.
+  // grouped, equal-width segmented track. One row that scrolls sideways
+  // (with room after the last pill) when longer localized labels don't fit.
   Widget _segmentedRow(List<_Segment> segments) {
     final scheme = Theme.of(context).colorScheme;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: segments.map((s) {
-        return GestureDetector(
-          onTap: s.selected ? null : s.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              color: s.selected ? scheme.primary : Colors.transparent,
-              border: s.selected ? null : Border.all(color: scheme.outline),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              s.label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: s.selected ? FontWeight.w600 : FontWeight.w500,
-                color: s.selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsetsDirectional.only(end: 8),
+      child: Row(
+        children: [
+          for (final (i, s) in segments.indexed) ...[
+            if (i > 0) const SizedBox(width: 8),
+            GestureDetector(
+              onTap: s.selected ? null : s.onTap,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: s.selected ? scheme.primary : Colors.transparent,
+                  border: s.selected ? null : Border.all(color: scheme.outline),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  s.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: s.selected ? FontWeight.w600 : FontWeight.w500,
+                    color: s.selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ),
-          ),
-        );
-      }).toList(),
+          ],
+        ],
+      ),
     );
   }
 
@@ -820,11 +840,8 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
     );
   }
 
-  double _chartMaxY(Map<String, double> data) {
-    if (data.isEmpty) return 100;
-    final peak = data.values.reduce((a, b) => a > b ? a : b);
-    return peak <= 0 ? 100 : peak * 1.2;
-  }
+  ChartAxis _chartAxis(Map<String, double> data) =>
+      niceAxis(data.isEmpty ? 0 : data.values.reduce((a, b) => a > b ? a : b));
 
   String _compactAxisLabel(double value) {
     if (value == 0) return '0';

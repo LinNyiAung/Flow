@@ -334,6 +334,17 @@ Future<Uint8List> readBodyWithTimeout(Stream<List<int>> stream, Duration timeout
   return completer.future;
 }
 
+/// The shape of [ApiService.getTransactions], for screens that take their
+/// transactions from a replaceable loader (tests).
+typedef TransactionLoader = Future<List<Transaction>> Function({
+  int limit,
+  int skip,
+  TransactionType? type,
+  DateTime? startDate,
+  DateTime? endDate,
+  Currency? currency,
+});
+
 class ApiService {
   /// Override at build/run time, e.g.
   /// `flutter run --dart-define=API_BASE_URL=http://10.80.21.130:8000`.

@@ -4,6 +4,7 @@ import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/chart_scale.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
@@ -19,11 +20,20 @@ import '../../widgets/app_drawer.dart';
 enum TimePeriod { daily, monthly, yearly, custom }
 
 class OutflowAnalyticsScreen extends StatefulWidget {
+  const OutflowAnalyticsScreen({super.key, this.transactionLoader = ApiService.getTransactions});
+
+  /// Where the transactions come from; replaceable in tests.
+  final TransactionLoader transactionLoader;
+
   @override
   _OutflowAnalyticsScreenState createState() => _OutflowAnalyticsScreenState();
 }
 
 class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
+  /// Below this card width the legend goes under the donut, so category
+  /// names stay readable (e.g. 360 px phones).
+  static const double _legendBesideMinWidth = 300;
+
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   TimePeriod _selectedPeriod = TimePeriod.monthly;
   DateTime? _customStartDate;
@@ -98,7 +108,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     try {
       // Fetched locally (not via TransactionProvider) so this 10k-row,
       // outflow-only list never replaces the shared list Home renders.
-      final transactions = await ApiService.getTransactions(
+      final transactions = await widget.transactionLoader(
         type: TransactionType.outflow,
         startDate: startDate,
         endDate: endDate,
@@ -379,10 +389,10 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                             ],
                           ),
                           const SizedBox(height: 18),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              SizedBox(
+                          // Legend beside the donut when there's room for
+                          // readable names; under it on narrow phones.
+                          LayoutBuilder(builder: (context, constraints) {
+                            final donut = SizedBox(
                                 width: 130,
                                 height: 130,
                                 child: Stack(
@@ -437,11 +447,19 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                     ),
                                   ],
                                 ),
-                              ),
-                              const SizedBox(width: 18),
-                              Expanded(child: _buildLegend(categoryData, totalSpending)),
-                            ],
-                          ),
+                              );
+                            final legend = _buildLegend(categoryData, totalSpending);
+                            if (constraints.maxWidth < _legendBesideMinWidth) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [Center(child: donut), const SizedBox(height: 16), legend],
+                              );
+                            }
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [donut, const SizedBox(width: 18), Expanded(child: legend)],
+                            );
+                          }),
                         ],
                       ),
                     ),
@@ -465,7 +483,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                               swapAnimationDuration: Duration.zero,
                               BarChartData(
                                 alignment: BarChartAlignment.spaceAround,
-                                maxY: _chartMaxY(timeSeriesData),
+                                maxY: _chartAxis(timeSeriesData).maxY,
                                 barTouchData: BarTouchData(
                                   touchCallback: (FlTouchEvent event, barTouchResponse) {
                                     setState(() {
@@ -529,6 +547,9 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                   leftTitles: AxisTitles(
                                     sideTitles: SideTitles(
                                       showTitles: true,
+                                      // One label per gridline, up to a round top
+                                      // (see niceAxis), so labels never crowd.
+                                      interval: _chartAxis(timeSeriesData).interval,
                                       getTitlesWidget: (value, meta) {
                                         // Full "K936,000.00" doesn't fit the
                                         // reserved width and wraps mid-number
@@ -561,7 +582,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                   // gridlines, every frame). Scaled to the
                                   // actual axis range instead, targeting
                                   // ~5 gridlines regardless of magnitude.
-                                  horizontalInterval: _chartMaxY(timeSeriesData) / 5,
+                                  horizontalInterval: _chartAxis(timeSeriesData).interval,
                                   getDrawingHorizontalLine: (value) {
                                     return FlLine(color: scheme.outlineVariant, strokeWidth: 1);
                                   },
@@ -646,17 +667,19 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
 
   Widget _buildPeriodSelector() {
     final localizations = AppLocalizations.of(context);
-    return Row(
+    // The period buttons stay one row (scrolling sideways when a language's
+    // labels don't fit); the currency menu has its own line below, rather
+    // than sharing the row and pushing "Custom" onto a second line.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: _segmentedRow([
+        _segmentedRow([
             _Segment(localizations.daily, TimePeriod.daily == _selectedPeriod, () => _selectPeriod(TimePeriod.daily)),
             _Segment(localizations.monthly, TimePeriod.monthly == _selectedPeriod, () => _selectPeriod(TimePeriod.monthly)),
             _Segment(localizations.yearly, TimePeriod.yearly == _selectedPeriod, () => _selectPeriod(TimePeriod.yearly)),
             _Segment(localizations.custom, TimePeriod.custom == _selectedPeriod, () => _selectPeriod(TimePeriod.custom)),
-          ]),
-        ),
-        const SizedBox(width: 8),
+        ]),
+        const SizedBox(height: 10),
         _currencyFilterChip(),
       ],
     );
@@ -666,7 +689,8 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
   // of per-currency choice chips underneath the period selector.
   Widget _currencyFilterChip() {
     final scheme = Theme.of(context).colorScheme;
-    final label = _selectedCurrency?.symbol ?? Currency.usd.symbol;
+    final currency = _selectedCurrency ?? Currency.usd;
+    final label = '${currency.symbol} ${currency.name.toUpperCase()}';
 
     return InkWell(
       borderRadius: BorderRadius.circular(8),
@@ -680,7 +704,10 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Icon(Icons.currency_exchange_rounded, size: 16, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
             Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            const SizedBox(width: 2),
             Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurfaceVariant),
           ],
         ),
@@ -740,35 +767,40 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
   // Mockup renders period/currency filters as a row of discrete pills —
   // filled primary when selected, outlined otherwise (see "Outflow
   // analytics" markup, lines 407-411 of the prototype) — not a single
-  // grouped, equal-width segmented track. Wrap (rather than Row) keeps
-  // longer localized labels from overflowing on narrow screens.
+  // grouped, equal-width segmented track. One row that scrolls sideways
+  // (with room after the last pill) when longer localized labels don't fit.
   Widget _segmentedRow(List<_Segment> segments) {
     final scheme = Theme.of(context).colorScheme;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: segments.map((s) {
-        return GestureDetector(
-          onTap: s.selected ? null : s.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              color: s.selected ? scheme.primary : Colors.transparent,
-              border: s.selected ? null : Border.all(color: scheme.outline),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              s.label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: s.selected ? FontWeight.w600 : FontWeight.w500,
-                color: s.selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsetsDirectional.only(end: 8),
+      child: Row(
+        children: [
+          for (final (i, s) in segments.indexed) ...[
+            if (i > 0) const SizedBox(width: 8),
+            GestureDetector(
+              onTap: s.selected ? null : s.onTap,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: s.selected ? scheme.primary : Colors.transparent,
+                  border: s.selected ? null : Border.all(color: scheme.outline),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  s.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: s.selected ? FontWeight.w600 : FontWeight.w500,
+                    color: s.selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ),
-          ),
-        );
-      }).toList(),
+          ],
+        ],
+      ),
     );
   }
 
@@ -813,7 +845,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
 
   List<PieChartSectionData> _buildPieChartSections(Map<String, double> data, double total) {
     final categories = data.keys.toList();
-    final colors = AppTheme.chartRampFor(context);
+    final colors = AppTheme.chartCategoricalFor(context);
 
     return List.generate(categories.length, (i) {
       final isTouched = i == _touchedPieIndex;
@@ -832,7 +864,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
 
   Widget _buildLegend(Map<String, double> data, double total) {
     final categories = data.keys.toList();
-    final colors = AppTheme.chartRampFor(context);
+    final colors = AppTheme.chartCategoricalFor(context);
     final scheme = Theme.of(context).colorScheme;
 
     return Column(
@@ -849,7 +881,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                 child: Text(
                   categories[i],
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurface),
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -864,11 +896,8 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     );
   }
 
-  double _chartMaxY(Map<String, double> data) {
-    if (data.isEmpty) return 100;
-    final peak = data.values.reduce((a, b) => a > b ? a : b);
-    return peak <= 0 ? 100 : peak * 1.2;
-  }
+  ChartAxis _chartAxis(Map<String, double> data) =>
+      niceAxis(data.isEmpty ? 0 : data.values.reduce((a, b) => a > b ? a : b));
 
   String _compactAxisLabel(double value) {
     if (value == 0) return '0';
