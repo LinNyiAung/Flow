@@ -377,7 +377,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           const SizedBox(width: 8),
                           Flexible(
                             child: Text(
-                              type.name.replaceAll('_', ' ').toUpperCase(),
+                              localizations.goalTypeLabel(type).toUpperCase(),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -703,10 +703,10 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     const SizedBox(height: 2),
                     Text(
                       _currentGoal.isOverdue
-                          ? '${_currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase()} · ${localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!))}'
+                          ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: Localizations.localeOf(context).toLanguageTag()))}'
                           : _currentGoal.targetDate != null
-                              ? '${_currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(_currentGoal.targetDate!)}'
-                              : _currentGoal.goalType.name.replaceAll('_', ' ').toUpperCase(),
+                              ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy', Localizations.localeOf(context).toLanguageTag()).format(_currentGoal.targetDate!)}'
+                              : localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase(),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: _currentGoal.isOverdue ? FontWeight.w700 : FontWeight.w600,
@@ -859,7 +859,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!)),
+                  localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: Localizations.localeOf(context).toLanguageTag())),
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onErrorContainer),
                 ),
                 const SizedBox(height: 2),

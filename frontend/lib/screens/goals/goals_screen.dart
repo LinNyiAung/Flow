@@ -244,9 +244,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           const SizedBox(height: 4),
                           Text(
                             currencySummary != null
-                                ? 'of ${_selectedCurrency.symbol}${_formatter.format(currencySummary.totalTarget)}'
+                                ? '${localizations.ofAmount('${_selectedCurrency.symbol}${_formatter.format(currencySummary.totalTarget)}')}'
                                     ' · ${currencySummary.activeGoals + currencySummary.achievedGoals} ${localizations.goals}'
-                                : 'of ${_selectedCurrency.symbol}0.00',
+                                : localizations.ofAmount('${_selectedCurrency.symbol}0.00'),
                             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                           ),
                           const SizedBox(height: 14),
@@ -264,17 +264,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
             SliverToBoxAdapter(child: const SizedBox(height: 20)),
 
-            // Filter Chips (scrollable: longer labels, e.g. Myanmar, don't fit)
+            // Filter chips wrap onto a second line when they don't fit (e.g.
+            // Myanmar at 360 px), like the Budgets and Transactions filters.
             SliverToBoxAdapter(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+              child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     _buildFilterChip(localizations.filterChipAll, null),
-                    const SizedBox(width: 8),
                     _buildFilterChip(localizations.active, GoalStatus.active),
-                    const SizedBox(width: 8),
                     _buildFilterChip(localizations.achieved, GoalStatus.achieved),
                   ],
                 ),
@@ -498,11 +498,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // (see _refreshData), so a per-card currency tag is no longer needed
     // either. Fall back to the goal type when there's no target date.
     // Active goals past their target date say so ("Overdue · was due …").
+    final localeName = Localizations.localeOf(context).toLanguageTag();
     final subtitle = overdue
-        ? localizations.goalOverdueWasDue(formatOverdueDueDate(goal.targetDate!))
+        ? localizations.goalOverdueWasDue(formatOverdueDueDate(goal.targetDate!, locale: localeName))
         : goal.targetDate != null
-            ? '${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy').format(goal.targetDate!)}'
-            : goal.goalType.name.replaceAll('_', ' ').toUpperCase();
+            ? '${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy', localeName).format(goal.targetDate!)}'
+            : localizations.goalTypeLabel(goal.goalType).toUpperCase();
 
     return Card(
       child: InkWell(
@@ -534,11 +535,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         ),
                         const SizedBox(height: 2),
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (overdue) ...[
-                              Icon(Icons.schedule_rounded, size: 14, color: scheme.error),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 1),
+                                child: Icon(Icons.schedule_rounded, size: 14, color: scheme.error),
+                              ),
                               const SizedBox(width: 4),
                             ],
+                            // Wraps: "Overdue · was due …" is long in Myanmar.
                             Expanded(
                               child: Text(
                                 subtitle,
@@ -547,8 +553,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                   fontWeight: overdue ? FontWeight.w700 : FontWeight.w500,
                                   color: overdue ? scheme.error : scheme.onSurfaceVariant,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],

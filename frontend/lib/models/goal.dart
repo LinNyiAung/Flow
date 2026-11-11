@@ -9,12 +9,13 @@ enum GoalStatus { active, achieved }
 final formatter = NumberFormat("#,##0.00", "en_US");
 
 /// Short due date for the "Overdue · was due …" label: "Oct 07", with the
-/// year added when it isn't [now]'s year ("Dec 20, 2025").
-String formatOverdueDueDate(DateTime due, {DateTime? now}) {
+/// year added when it isn't [now]'s year ("Dec 20, 2025"). Month names in
+/// [locale] (e.g. Myanmar "နို ၀၇").
+String formatOverdueDueDate(DateTime due, {DateTime? now, String? locale}) {
   final current = now ?? DateTime.now();
   return due.year == current.year
-      ? DateFormat('MMM dd').format(due)
-      : DateFormat('MMM dd, yyyy').format(due);
+      ? DateFormat('MMM dd', locale).format(due)
+      : DateFormat('MMM dd, yyyy', locale).format(due);
 }
 
 class Goal {
