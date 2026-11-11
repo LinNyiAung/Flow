@@ -559,7 +559,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     )
                   else
                     Text(
-                      '${goal.progressPercentage.toStringAsFixed(0)}%',
+                      goal.progressLabel,
                       style: AppTheme.money(14, weight: FontWeight.w700, color: accent),
                     ),
                 ],

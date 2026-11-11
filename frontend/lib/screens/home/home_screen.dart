@@ -849,7 +849,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   SizedBox(width: responsive.sp8),
                   Text(
-                    '${goal.progressPercentage.toStringAsFixed(0)}%',
+                    goal.progressLabel,
                     style: TextStyle(
                       fontSize: responsive.fs13,
                       fontWeight: FontWeight.w700,

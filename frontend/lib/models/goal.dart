@@ -80,6 +80,10 @@ class Goal {
   String get displayRemainingAmount {
     return formatMoney((targetAmount - currentAmount), currency);
   }
+
+  /// Progress as a whole percent ("13%"), the same on the list, the
+  /// dashboard and the detail.
+  String get progressLabel => '${progressPercentage.toStringAsFixed(0)}%';
 }
 
 class GoalsSummary {

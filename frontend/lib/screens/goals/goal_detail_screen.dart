@@ -701,17 +701,13 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer),
                     ),
                     const SizedBox(height: 2),
+                    // Overdue: just the category. The OVERDUE badge and the
+                    // red banner below already say it and when it was due.
                     Text(
-                      _currentGoal.isOverdue
-                          ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.goalOverdueWasDue(AppDates.compactDay(context, _currentGoal.targetDate!))}'
-                          : _currentGoal.targetDate != null
-                              ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.dueDatePrefix} ${AppDates.full(context, _currentGoal.targetDate!)}'
-                              : localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: _currentGoal.isOverdue ? FontWeight.w700 : FontWeight.w600,
-                        color: _currentGoal.isOverdue ? scheme.error : onHeroMuted,
-                      ),
+                      _currentGoal.targetDate != null && !_currentGoal.isOverdue
+                          ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.dueDatePrefix} ${AppDates.full(context, _currentGoal.targetDate!)}'
+                          : localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase(),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onHeroMuted),
                     ),
                   ],
                 ),
@@ -757,7 +753,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             children: [
               Flexible(
                 child: Text(
-                  '${_currentGoal.progressPercentage.toStringAsFixed(1)}% ${localizations.completed}',
+                  '${_currentGoal.progressLabel} ${localizations.completed}',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: onHeroMuted),
                 ),
               ),
