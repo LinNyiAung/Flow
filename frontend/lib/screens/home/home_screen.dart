@@ -652,6 +652,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ResponsiveHelper responsive,
   ) {
     final scheme = Theme.of(context).colorScheme;
+    final localizations = AppLocalizations.of(context);
     final over = budget.percentageUsed > 100;
     final tint = over ? scheme.errorContainer : scheme.secondaryContainer;
     final ink = over ? scheme.error : scheme.primary;
@@ -706,8 +707,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ProgressMeter(value: budget.percentageUsed / 100, overrideColor: ink),
               SizedBox(height: responsive.sp4),
               Text(
-                '${budget.displayTotalSpent} of ${budget.displayTotalBudget}'
-                '${daysRemaining >= 0 ? ' · $daysRemaining days remaining' : ''}',
+                '${localizations.amountOfTotal(budget.displayTotalSpent, budget.displayTotalBudget)}'
+                '${daysRemaining >= 0 ? ' · ${localizations.daysRemainingCount(daysRemaining)}' : ''}',
                 style: TextStyle(
                   fontSize: responsive.fs12,
                   fontWeight: FontWeight.w500,
@@ -862,7 +863,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ProgressMeter(value: goal.progressPercentage / 100, overrideColor: accent),
               SizedBox(height: responsive.sp4),
               Text(
-                '${goal.displayCurrentAmount} of ${goal.displayTargetAmount}',
+                AppLocalizations.of(context).amountOfTotal(goal.displayCurrentAmount, goal.displayTargetAmount),
                 style: TextStyle(
                   fontSize: responsive.fs12,
                   fontWeight: FontWeight.w500,
@@ -933,7 +934,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: responsive.padding(vertical: 8, horizontal: 4),
+        padding: responsive.padding(vertical: 8, horizontal: 2),
         child: Column(
           children: [
             Container(
@@ -944,6 +945,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Icon(icon, size: responsive.iconSize(mobile: 22), color: scheme.primary),
             ),
             SizedBox(height: responsive.sp6),
+            // Up to three lines: a long Myanmar word that doesn't fit one
+            // line breaks onto the next instead of ending in "…".
             Text(
               label,
               textAlign: TextAlign.center,
@@ -952,7 +955,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 fontWeight: FontWeight.w600,
                 color: scheme.onSurface,
               ),
-              maxLines: 2,
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),
           ],
@@ -1097,11 +1100,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final String headline;
     final String body;
     if (lastMessage != null) {
-      headline = 'Continue chatting';
+      headline = localizations.continueChatting;
       body = lastMessage.content;
     } else {
       headline = localizations.aiAssistant;
-      body = 'Ask me anything about your finances.';
+      body = localizations.askAboutYourFinances;
     }
 
     return GestureDetector(
@@ -1279,16 +1282,23 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SizedBox(width: responsive.sp8),
+            // The amount takes the width it needs (the category text on the
+            // left gives way); only a huge amount on a narrow phone scales
+            // down, so it is never cut short.
             ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: responsive.widthPercent(30)),
+              constraints: BoxConstraints(maxWidth: responsive.widthPercent(50)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    '${isInflow ? '+' : '-'}${transaction.currency.symbol}${formatter.format(transaction.amount)}',
-                    style: AppTheme.money(15, weight: FontWeight.w700, color: moneyColor),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: Text(
+                      '${isInflow ? '+' : '-'}${transaction.currency.symbol}${formatter.format(transaction.amount)}',
+                      style: AppTheme.money(15, weight: FontWeight.w700, color: moneyColor),
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
                   ),
                   SizedBox(height: 4),
                   Text(
@@ -1357,8 +1367,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (balance == null) return SizedBox.shrink();
                 final isDefault = currency == defaultCurrency;
                 final heldText = balance.allocatedToGoals > 0
-                    ? '${currency.symbol}${formatter.format(balance.allocatedToGoals)} held for goals'
-                    : 'Nothing held';
+                    ? localizations.heldForGoals('${currency.symbol}${formatter.format(balance.allocatedToGoals)}')
+                    : localizations.nothingHeld;
 
                 return Container(
                   margin: EdgeInsets.only(bottom: responsive.sp16),
