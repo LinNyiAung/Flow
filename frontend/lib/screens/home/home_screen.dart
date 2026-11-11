@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/chat_provider.dart';
@@ -1302,7 +1303,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    DateFormat('yyyy-MM-dd').format(transaction.date),
+                    AppDates.compactDay(context, transaction.date),
                     style: TextStyle(
                       fontSize: responsive.fs12,
                       color: scheme.onSurfaceVariant,

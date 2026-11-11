@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/utils/date_locale.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
@@ -48,9 +48,6 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  /// For month names in the app's language.
-  String? get _localeName => dateLocaleOf(context);
   ReportPeriod _selectedPeriod = ReportPeriod.month;
   Currency? _selectedCurrency;
   DateTime? _customStartDate;
@@ -342,7 +339,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             const SizedBox(height: 4),
             if (report != null)
               Text(
-                '${DateFormat('MMM d', _localeName).format(report.startDate)} – ${DateFormat('MMM d, yyyy', _localeName).format(report.endDate)} · '
+                '${AppDates.range(context, report.startDate, report.endDate)} · '
                 '${report.currency.name.toUpperCase()} · ${localizations.entriesCount(report.totalTransactions)}',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
               ),
@@ -621,7 +618,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               Text(label, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
               const SizedBox(height: 4),
               Text(
-                date != null ? DateFormat('MMM d, yyyy', _localeName).format(date) : localizations.select,
+                date != null ? AppDates.full(context, date) : localizations.select,
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ],
@@ -648,7 +645,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       children: [
         HeroCard(
           label:
-              '${localizations.netLabel} · ${DateFormat('MMM d', _localeName).format(report.startDate)} – ${DateFormat('MMM d, yyyy', _localeName).format(report.endDate)}',
+              '${localizations.netLabel} · ${AppDates.range(context, report.startDate, report.endDate)}',
           value: '${report.netBalance >= 0 ? '+' : ''}${report.currency.symbol}${formatter.format(report.netBalance)}',
           labelTrailing: _currencyHeroChip(),
           onLabelTap: _pickCurrencyFilter,
@@ -861,7 +858,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '${DateFormat('MMM d', _localeName).format(report.startDate)} – ${DateFormat('MMM d, yyyy', _localeName).format(report.endDate)} · '
+                '${AppDates.range(context, report.startDate, report.endDate)} · '
                 '${report.totalTransactions} ${localizations.transactions.toLowerCase()} · '
                 '${report.currencyReports.length} ${localizations.currencies.toLowerCase()}',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),

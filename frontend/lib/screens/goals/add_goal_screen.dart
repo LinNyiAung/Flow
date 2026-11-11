@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -364,7 +365,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                _targetDate == null ? localizations.selectTargetDate : DateFormat('MMM dd, yyyy').format(_targetDate!),
+                                _targetDate == null ? localizations.selectTargetDate : AppDates.full(context, _targetDate!),
                                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,

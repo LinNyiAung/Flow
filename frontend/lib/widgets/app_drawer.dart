@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/android_download_link.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
@@ -191,7 +192,7 @@ class AppDrawer extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
+                        '${localizations.expiresOn}: ${AppDates.full(context, authProvider.subscriptionExpiresAt!)}',
                         style: TextStyle(
                           fontSize: responsive.fs11,
                           color: scheme.onSurfaceVariant,
@@ -281,10 +282,6 @@ class AppDrawer extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 
   // Matches the app's other destructive-confirmation sheets (e.g. Delete

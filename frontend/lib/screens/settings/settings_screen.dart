@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/screens/settings/change_password_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -163,7 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (authProvider.isPaid && authProvider.subscriptionExpiresAt != null) ...[
                           const SizedBox(height: 6),
                           Text(
-                            '${localizations.expiresOn}: ${_formatDate(authProvider.subscriptionExpiresAt!)}',
+                            '${localizations.expiresOn}: ${AppDates.full(context, authProvider.subscriptionExpiresAt!)}',
                             style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                           ),
                         ],
@@ -386,10 +387,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary),
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 
   void _showAboutDialog(BuildContext context) {

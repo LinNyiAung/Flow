@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -293,8 +294,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             const SizedBox(height: 6),
             Text(
               isTrial
-                  ? localizations.planTrialEnds(DateFormat('MMM dd, yyyy').format(endDate))
-                  : '${localizations.expiresOn}: ${DateFormat('MMM dd, yyyy').format(endDate)}',
+                  ? localizations.planTrialEnds(AppDates.full(context, endDate))
+                  : '${localizations.expiresOn}: ${AppDates.full(context, endDate)}',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onTertiaryContainer),
             ),

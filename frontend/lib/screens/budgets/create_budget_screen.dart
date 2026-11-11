@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/transaction.dart' hide formatter;
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
@@ -14,7 +15,6 @@ import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 import 'ai_budget_suggestion_screen.dart';
@@ -670,7 +670,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                 Expanded(
                   child: _dateCard(
                     label: localizations.startDate,
-                    value: DateFormat('MMM d, yyyy').format(_startDate),
+                    value: AppDates.full(context, _startDate),
                     onTap: _selectStartDate,
                     enabled: true,
                   ),
@@ -680,7 +680,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                   child: _dateCard(
                     label: localizations.endDateNoOp,
                     value: _endDate != null
-                        ? DateFormat('MMM d, yyyy').format(_endDate!)
+                        ? AppDates.full(context, _endDate!)
                         : localizations.auto,
                     onTap: _selectEndDate,
                     enabled: _selectedPeriod == BudgetPeriod.custom,

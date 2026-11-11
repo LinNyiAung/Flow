@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/utils/date_locale.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
@@ -441,7 +441,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            targetDate == null ? localizations.selectTargetDate : DateFormat('MMM dd, yyyy').format(targetDate!),
+                            targetDate == null ? localizations.selectTargetDate : AppDates.full(context, targetDate!),
                             style: TextStyle(
                               fontSize: 14,
                               color: targetDate == null ? AppTheme.hintFor(context) : null,
@@ -704,9 +704,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     const SizedBox(height: 2),
                     Text(
                       _currentGoal.isOverdue
-                          ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: dateLocaleOf(context)))}'
+                          ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.goalOverdueWasDue(AppDates.compactDay(context, _currentGoal.targetDate!))}'
                           : _currentGoal.targetDate != null
-                              ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy', dateLocaleOf(context)).format(_currentGoal.targetDate!)}'
+                              ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.dueDatePrefix} ${AppDates.full(context, _currentGoal.targetDate!)}'
                               : localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase(),
                       style: TextStyle(
                         fontSize: 12,
@@ -791,9 +791,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       _infoRow(localizations.currentAmount, _currentGoal.displayCurrentAmount),
       _infoRow(localizations.remaining, _currentGoal.displayRemainingAmount),
       _infoRow(localizations.currency, _currentGoal.currency.displayName, muted: true),
-      _infoRow(localizations.created, DateFormat('MMMM dd, yyyy').format(_currentGoal.createdAt), muted: true),
+      _infoRow(localizations.created, AppDates.full(context, _currentGoal.createdAt), muted: true),
       if (_currentGoal.achievedAt != null)
-        _infoRow(localizations.achieved, DateFormat('MMMM dd, yyyy').format(_currentGoal.achievedAt!), muted: true),
+        _infoRow(localizations.achieved, AppDates.full(context, _currentGoal.achievedAt!), muted: true),
     ];
 
     return Card(
@@ -868,7 +868,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: dateLocaleOf(context))),
+                  localizations.goalOverdueWasDue(AppDates.compactDay(context, _currentGoal.targetDate!)),
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onErrorContainer),
                 ),
                 const SizedBox(height: 2),

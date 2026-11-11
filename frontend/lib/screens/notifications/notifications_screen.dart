@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/screens/budgets/budget_detail_screen.dart';
 import 'package:frontend/screens/insights/custom_insight_report_screen.dart';
@@ -7,7 +8,6 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/notification.dart';
 import '../../providers/notification_provider.dart';
 import '../../providers/goal_provider.dart';
@@ -392,7 +392,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } else if (difference.inDays < 7) {
       return '${difference.inDays}${localizations.daysAgoSuffix}';
     } else {
-      return DateFormat('MMM dd, yyyy').format(timestamp);
+      return AppDates.full(context, timestamp);
     }
   }
 

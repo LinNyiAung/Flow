@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/utils/date_locale.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/notification_provider.dart';
@@ -12,7 +12,6 @@ import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/stat_tile.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 import '../../widgets/app_drawer.dart';
@@ -500,7 +499,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                   Icon(Icons.calendar_today_rounded, size: 16, color: AppTheme.infoFor(context)),
                   const SizedBox(width: 6),
                   Text(
-                    '${localizations.startsOnPrefix} ${DateFormat('MMM dd, yyyy', dateLocaleOf(context)).format(budget.startDate)}',
+                    '${localizations.startsOnPrefix} ${AppDates.full(context, budget.startDate)}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

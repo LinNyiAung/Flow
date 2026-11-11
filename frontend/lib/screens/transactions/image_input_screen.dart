@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/providers/plan_provider.dart';
@@ -516,7 +517,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           _dataRow(localizations.dataLabelType, data.type.name.toUpperCase()),
           _dataRow(localizations.currency, data.currency.displayName),
           _dataRow(localizations.dataLabelCategory, '${data.mainCategory} > ${data.subCategory}'),
-          _dataRow(localizations.dataLabelDate, DateFormat('yyyy-MM-dd').format(data.date)),
+          _dataRow(localizations.dataLabelDate, AppDates.full(context, data.date)),
           if (data.description != null) _dataRow(localizations.dataLabelDescription, data.description!),
           if (data.reasoning != null) ...[
             SizedBox(height: 8),

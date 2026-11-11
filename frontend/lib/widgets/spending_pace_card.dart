@@ -5,6 +5,7 @@ import '../models/transaction.dart';
 import '../models/user.dart';
 import '../services/localization_service.dart';
 import '../services/responsive_helper.dart';
+import '../utils/date_locale.dart';
 import '../utils/spending_pace.dart';
 
 final _amountFormat = NumberFormat("#,##0.00", "en_US");
@@ -51,12 +52,8 @@ class _SpendingPaceCardState extends State<SpendingPaceCard> {
 
   String _dayLabel(BuildContext context, DateTime day, bool isToday) {
     if (isToday) return AppLocalizations.of(context).todayLabel;
-    final localeName = Localizations.localeOf(context).toLanguageTag();
-    try {
-      return DateFormat('EEE, d MMM', localeName).format(day);
-    } catch (_) {
-      return DateFormat('EEE, d MMM').format(day);
-    }
+    // The app's "10 Nov" day, with the weekday in front.
+    return DateFormat('EEE, d MMM', dateLocaleOf(context)).format(day);
   }
 
   void _select(int index) {

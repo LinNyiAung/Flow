@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_save_button.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/recurring_transaction.dart';
@@ -258,13 +259,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String _dateRowLabel() {
     final now = DateTime.now();
     final isToday = _selectedDate.year == now.year && _selectedDate.month == now.month && _selectedDate.day == now.day;
-    final localeName = Localizations.localeOf(context).toLanguageTag();
-    String formatted;
-    try {
-      formatted = DateFormat('d MMM yyyy', localeName).format(_selectedDate);
-    } catch (_) {
-      formatted = DateFormat('d MMM yyyy').format(_selectedDate);
-    }
+    final formatted = AppDates.full(context, _selectedDate);
     return isToday ? '${AppLocalizations.of(context).todayLabel}, $formatted' : formatted;
   }
 

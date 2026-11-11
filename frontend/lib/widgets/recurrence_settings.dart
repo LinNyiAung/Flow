@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:frontend/utils/date_format.dart';
 import '../models/recurring_transaction.dart';
 import 'package:frontend/services/localization_service.dart';
 import '../services/api_service.dart';
@@ -253,7 +253,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                   Expanded(
                     child: Text(
                       _endDate != null
-                          ? DateFormat('MMM dd, yyyy').format(_endDate!)
+                          ? AppDates.full(context, _endDate!)
                           : localizations.neverEnds,
                       style: TextStyle(
                         fontSize: responsive.fs14,
@@ -326,7 +326,7 @@ class _RecurrenceSettingsState extends State<RecurrenceSettings> {
                           Icon(Icons.circle, size: 8, color: scheme.onPrimaryContainer),
                           SizedBox(width: responsive.sp8),
                           Text(
-                            DateFormat('MMM dd, yyyy').format(date),
+                            AppDates.full(context, date),
                             style: TextStyle(fontSize: responsive.fs13, color: scheme.onPrimaryContainer),
                           ),
                         ],

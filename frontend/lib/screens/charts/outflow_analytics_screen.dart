@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/chart_buckets.dart';
+import 'package:frontend/utils/date_format.dart';
+import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -55,10 +58,12 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
   // while interacting with the charts.
   Map<String, double> _categoryData = {};
   Map<String, double> _timeSeriesData = {};
+  ChartBucket _timeSeriesBucket = ChartBucket.monthOfYear;
   double _totalSpending = 0;
 
   void _recomputeDerivedData() {
     _categoryData = _getCategoryData();
+    _timeSeriesBucket = _bucketForPeriod;
     _timeSeriesData = _getTimeSeriesData();
     _totalSpending = _categoryData.values.fold(0.0, (sum, amount) => sum + amount);
   }
@@ -175,92 +180,33 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     return Map.fromEntries(sortedEntries);
   }
 
-  Map<String, double> _getTimeSeriesData() {
-    Map<String, double> timeSeries = {};
-
-    for (var transaction in _filteredTransactions) {
-      String key = '';
-
-      switch (_selectedPeriod) {
-        case TimePeriod.daily:
-          DateTime localDate = transaction.date.toLocal();
-          String dayName = DateFormat('EEEE').format(localDate);
-          String dateStr = DateFormat('MMM d').format(localDate);
-          key = '$dayName ($dateStr)';
-          break;
-        case TimePeriod.monthly:
-          key = DateFormat('MMMM').format(transaction.date.toLocal());
-          break;
-        case TimePeriod.yearly:
-          key = DateFormat('yyyy').format(transaction.date.toLocal());
-          break;
-        case TimePeriod.custom:
-          if (_customStartDate == null || _customEndDate == null) {
-            key = DateFormat('MMM d, yyyy').format(transaction.date.toLocal());
-            break;
-          }
-          int daysDiff = _customEndDate!.difference(_customStartDate!).inDays;
-          if (daysDiff <= 7) {
-            key = DateFormat('EEE, MMM d').format(transaction.date.toLocal());
-          } else if (daysDiff <= 31) {
-            key = DateFormat('MMM d').format(transaction.date.toLocal());
-          } else if (daysDiff <= 365) {
-            key = DateFormat('MMM yyyy').format(transaction.date.toLocal());
-          } else {
-            key = DateFormat('yyyy').format(transaction.date.toLocal());
-          }
-          break;
-      }
-
-      if (key.isNotEmpty) {
-        timeSeries[key] = (timeSeries[key] ?? 0) + transaction.amount;
-      }
-    }
-
-    return _sortTimeSeriesData(timeSeries);
-  }
-
-  Map<String, double> _sortTimeSeriesData(Map<String, double> data) {
-    List<MapEntry<String, double>> entries = data.entries.toList();
-    final localizations = AppLocalizations.of(context);
-
+  /// How the bar chart groups transactions for the selected period.
+  ChartBucket get _bucketForPeriod {
     switch (_selectedPeriod) {
       case TimePeriod.daily:
-        entries.sort((a, b) {
-          RegExp datePattern = RegExp(r'\(([^)]+)\)');
-          String? dateStrA = datePattern.firstMatch(a.key)?.group(1);
-          String? dateStrB = datePattern.firstMatch(b.key)?.group(1);
-
-          if (dateStrA != null && dateStrB != null) {
-            try {
-              DateTime dateA = DateFormat('MMM d').parse('$dateStrA, ${DateTime.now().year}');
-              DateTime dateB = DateFormat('MMM d').parse('$dateStrB, ${DateTime.now().year}');
-              return dateA.compareTo(dateB);
-            } catch (e) {
-              return 0;
-            }
-          }
-          return 0;
-        });
-        break;
+        return ChartBucket.dayWithWeekday;
       case TimePeriod.monthly:
-        final monthOrder = [
-          localizations.monthJanuary, localizations.monthFebruary, localizations.monthMarch,
-          localizations.monthApril, localizations.monthMay, localizations.monthJune,
-          localizations.monthJuly, localizations.monthAugust, localizations.monthSeptember,
-          localizations.monthOctober, localizations.monthNovember, localizations.monthDecember,
-        ];
-        entries.sort((a, b) => monthOrder.indexOf(a.key).compareTo(monthOrder.indexOf(b.key)));
-        break;
+        return ChartBucket.monthOfYear;
       case TimePeriod.yearly:
-        entries.sort((a, b) => a.key.compareTo(b.key));
-        break;
+        return ChartBucket.year;
       case TimePeriod.custom:
-        break;
+        if (_customStartDate == null || _customEndDate == null) return ChartBucket.day;
+        final daysDiff = _customEndDate!.difference(_customStartDate!).inDays;
+        if (daysDiff <= 7) return ChartBucket.dayWithWeekday;
+        if (daysDiff <= 31) return ChartBucket.day;
+        if (daysDiff <= 365) return ChartBucket.month;
+        return ChartBucket.year;
     }
-
-    return Map.fromEntries(entries);
   }
+
+  /// Keys are [ChartBuckets] keys (in time order); labels are made from them
+  /// at display time, in the app's language.
+  Map<String, double> _getTimeSeriesData() => ChartBuckets.group(
+        _filteredTransactions,
+        _timeSeriesBucket,
+        dateOfItem: (t) => t.date.toLocal(),
+        amountOf: (t) => t.amount,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -499,7 +445,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                   touchTooltipData: BarTouchTooltipData(
                                     getTooltipColor: (group) => scheme.primary,
                                     getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                                      String label = timeSeriesData.keys.toList()[group.x.toInt()];
+                                      final label = ChartBuckets.tooltipLabel(timeSeriesData.keys.toList()[group.x.toInt()], _timeSeriesBucket, locale: dateLocaleOf(context));
                                       return BarTooltipItem(
                                         '$label\n${_selectedCurrency?.symbol ?? '\$'}${formatter.format(rod.toY)}',
                                         AppTheme.money(12, weight: FontWeight.w700, color: scheme.onPrimary),
@@ -513,35 +459,20 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                     sideTitles: SideTitles(
                                       showTitles: true,
                                       getTitlesWidget: (value, meta) {
-                                        List<String> keys = timeSeriesData.keys.toList();
+                                        final keys = timeSeriesData.keys.toList();
                                         if (value.toInt() >= 0 && value.toInt() < keys.length) {
-                                          String label = keys[value.toInt()];
-                                          if (_selectedPeriod == TimePeriod.daily) {
-                                            RegExp pattern = RegExp(r'(\w+)\s+\(([^)]+)\)');
-                                            Match? match = pattern.firstMatch(label);
-                                            if (match != null) {
-                                              String dayName = match.group(1)!.substring(0, 3);
-                                              String date = match.group(2)!;
-                                              return Padding(
-                                                padding: const EdgeInsets.only(top: 8.0),
-                                                child: Text(
-                                                  '$dayName\n$date',
-                                                  style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
-                                                  textAlign: TextAlign.center,
-                                                ),
-                                              );
-                                            }
-                                          } else if (_selectedPeriod == TimePeriod.monthly) {
-                                            label = label.substring(0, 3);
-                                          }
                                           return Padding(
                                             padding: const EdgeInsets.only(top: 8.0),
-                                            child: Text(label, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+                                            child: Text(
+                                              ChartBuckets.axisLabel(keys[value.toInt()], _timeSeriesBucket, locale: dateLocaleOf(context)),
+                                              style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+                                              textAlign: TextAlign.center,
+                                            ),
                                           );
                                         }
                                         return const Text('');
                                       },
-                                      reservedSize: _selectedPeriod == TimePeriod.daily ? 40 : 30,
+                                      reservedSize: _timeSeriesBucket == ChartBucket.dayWithWeekday ? 40 : 30,
                                     ),
                                   ),
                                   leftTitles: AxisTitles(
@@ -833,7 +764,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
               Text(label, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
               const SizedBox(height: 4),
               Text(
-                date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
+                date != null ? AppDates.full(context, date) : localizations.select,
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ],
@@ -946,7 +877,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
         return localizations.byYear;
       case TimePeriod.custom:
         if (_customStartDate != null && _customEndDate != null) {
-          return '${DateFormat('MMM d').format(_customStartDate!)} - ${DateFormat('MMM d, yyyy').format(_customEndDate!)}';
+          return AppDates.range(context, _customStartDate!, _customEndDate!);
         }
         return localizations.customPeriod;
     }

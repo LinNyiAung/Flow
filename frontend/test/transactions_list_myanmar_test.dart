@@ -7,6 +7,7 @@ import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -51,9 +52,12 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   final my = AppLocalizations(const Locale('my'));
 
-  testWidgets('English: the date chip reads as before', (tester) async {
+  testWidgets('English: the date chip uses the app date format', (tester) async {
     await _pump(tester, const Locale('en'));
-    expect(find.text('Nov 10 - Nov 10'), findsOneWidget);
+    // "10 Nov", plus the year once 2026 is over.
+    final day = AppDates.compactDayIn(DateTime(2026, 11, 10));
+    expect(day, startsWith('10 Nov'));
+    expect(find.text('$day – $day'), findsOneWidget);
   });
 
   testWidgets('Myanmar 360: all three filters are on screen', (tester) async {
@@ -69,7 +73,9 @@ void main() {
   testWidgets('Myanmar 360: the date chip uses Myanmar month names', (tester) async {
     await _pump(tester, const Locale('my'));
     expect(find.textContaining('Nov'), findsNothing);
-    expect(find.text('နို ၁၀ - နို ၁၀'), findsOneWidget);
+    final day = AppDates.compactDayIn(DateTime(2026, 11, 10), locale: 'my');
+    expect(day, startsWith('၁၀ နို'));
+    expect(find.text('$day – $day'), findsOneWidget);
   });
 
   testWidgets('Myanmar 360: the count line is not cut short', (tester) async {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_save_button.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/recurring_transaction.dart';
@@ -220,7 +221,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   }
 
   String _dateRowLabel() {
-    return DateFormat('d MMM yyyy').format(_selectedDate);
+    return AppDates.full(context, _selectedDate);
   }
 
   Future<void> _editNote() async {

@@ -64,7 +64,7 @@ void main() {
 
   testWidgets('English: hero labels read as before', (tester) async {
     await _pump(tester, const Locale('en'));
-    expect(find.text('Net · Nov 1 – Nov 30, 2026'), findsOneWidget);
+    expect(find.text('Net · 1 Nov – 30 Nov 2026'), findsOneWidget);
     for (final label in ['Saved', 'Entries', 'Per day', 'Days covered']) {
       expect(find.text(label), findsOneWidget, reason: label);
     }

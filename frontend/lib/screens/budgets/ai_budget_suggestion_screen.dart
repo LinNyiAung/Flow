@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 
@@ -434,7 +434,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               _buildInfoRow(
                 Icons.date_range_rounded,
                 localizations.duration,
-                '${DateFormat('MMM d').format(_suggestion!.startDate)} - ${DateFormat('MMM d, yyyy').format(_suggestion!.endDate)}',
+                '${AppDates.range(context, _suggestion!.startDate, _suggestion!.endDate)}',
               ),
               _buildInfoRow(Icons.attach_money_rounded, localizations.currency, _suggestion!.currency.displayName),
               _buildInfoRow(

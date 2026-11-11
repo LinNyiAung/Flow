@@ -12,6 +12,7 @@ import 'package:frontend/screens/transactions/add_transaction_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/pending_fcm_unregister.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -139,8 +140,8 @@ void main() {
     });
 
     test('due date label adds the year only when it differs', () {
-      expect(formatOverdueDueDate(DateTime(2026, 10, 7), now: now), 'Oct 07');
-      expect(formatOverdueDueDate(DateTime(2025, 12, 20), now: now), 'Dec 20, 2025');
+      expect(AppDates.compactDayIn(DateTime(2026, 10, 7), now: now), '7 Oct');
+      expect(AppDates.compactDayIn(DateTime(2025, 12, 20), now: now), '20 Dec 2025');
     });
 
     testWidgets('detail shows the overdue state and the edit date picker opens', (tester) async {

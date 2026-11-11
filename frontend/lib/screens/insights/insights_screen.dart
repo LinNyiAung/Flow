@@ -1,8 +1,8 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:frontend/models/budget.dart';
@@ -277,7 +277,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
         Align(
           alignment: Alignment.centerRight,
           child: Text(
-            DateFormat('MMM d, h:mm a').format(insight.generatedAt),
+            AppDates.dateTime(context, insight.generatedAt),
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
           ),
         ),

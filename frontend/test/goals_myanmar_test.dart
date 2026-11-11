@@ -11,6 +11,7 @@ import 'package:frontend/providers/transaction_provider.dart';
 import 'package:frontend/screens/goals/goal_detail_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -112,7 +113,7 @@ void main() {
     await _pump(tester, const Locale('en'));
     expect(find.text('LARGE PURCHASE'), findsOneWidget);
     expect(find.text(r'of $5,800.00 · 2 Goals'), findsOneWidget);
-    expect(find.text('Overdue · was due ${formatOverdueDueDate(_overdueDate)}'), findsOneWidget);
+    expect(find.text('Overdue · was due ${AppDates.compactDayIn(_overdueDate)}'), findsOneWidget);
   });
 
   testWidgets('Myanmar 360: goal type, due date and hero are in Myanmar', (tester) async {
@@ -124,7 +125,7 @@ void main() {
     expect(find.textContaining(RegExp(r'^of ')), findsNothing);
     expect(find.text('${my.ofAmount(r'$5,800.00')} · 2 ${my.goals}'), findsOneWidget);
 
-    final overdue = find.text(my.goalOverdueWasDue(formatOverdueDueDate(_overdueDate, locale: 'my')));
+    final overdue = find.text(my.goalOverdueWasDue(AppDates.compactDayIn(_overdueDate, locale: 'my')));
     expect(overdue, findsOneWidget);
     expect(find.textContaining(RegExp(r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec')), findsNothing);
     // The overdue line wraps rather than ending in "…".

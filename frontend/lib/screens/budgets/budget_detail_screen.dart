@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/screens/budgets/edit_budget_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
@@ -6,7 +7,6 @@ import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 
@@ -527,7 +527,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 background: AppTheme.infoContainerFor(context),
                 titleColor: AppTheme.infoFor(context),
                 title:
-                    '${localizations.budgetWillStartOnPrefix} ${DateFormat('MMMM dd, yyyy').format(_budget.startDate)}${localizations.noSpendingTrackedYetSuffix}',
+                    '${localizations.budgetWillStartOnPrefix} ${AppDates.full(context, _budget.startDate)}${localizations.noSpendingTrackedYetSuffix}',
                 body: null,
               ),
             ] else if (!_budget.isActive &&
@@ -538,7 +538,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 iconColor: scheme.onSurfaceVariant,
                 background: scheme.secondaryContainer,
                 titleColor: scheme.onSurface,
-                title: '${localizations.budgetEndedOnPrefix} ${DateFormat('MMMM dd, yyyy').format(_budget.endDate)}',
+                title: '${localizations.budgetEndedOnPrefix} ${AppDates.full(context, _budget.endDate)}',
                 body: null,
               ),
             ],
@@ -559,13 +559,13 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                   _buildInfoRow(
                     Icons.event_available_rounded,
                     localizations.startDate,
-                    DateFormat('MMMM dd, yyyy').format(_budget.startDate),
+                    AppDates.full(context, _budget.startDate),
                   ),
                   const Divider(height: 1, indent: 52),
                   _buildInfoRow(
                     Icons.event_busy_rounded,
                     localizations.endDateNoOp,
-                    DateFormat('MMMM dd, yyyy').format(_budget.endDate),
+                    AppDates.full(context, _budget.endDate),
                   ),
                   const Divider(height: 1, indent: 52),
                   _buildInfoRow(

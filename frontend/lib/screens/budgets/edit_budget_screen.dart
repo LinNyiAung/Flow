@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/transaction.dart' hide formatter;
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -6,7 +7,6 @@ import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 
@@ -323,7 +323,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       Expanded(
                         child: _lockedField(
                           localizations.duration,
-                          '${DateFormat('MMM d').format(widget.budget.startDate)} - ${DateFormat('MMM d, yyyy').format(widget.budget.endDate)}',
+                          '${AppDates.range(context, widget.budget.startDate, widget.budget.endDate)}',
                         ),
                       ),
                     ],

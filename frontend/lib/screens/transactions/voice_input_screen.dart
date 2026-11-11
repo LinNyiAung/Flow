@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
@@ -747,7 +748,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
                         child: Text(
-                          t.reasoning ?? DateFormat('yyyy-MM-dd').format(t.date),
+                          t.reasoning ?? AppDates.full(context, t.date),
                           style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.4),
                         ),
                       ),
