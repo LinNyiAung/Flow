@@ -1253,6 +1253,7 @@ class AppLocalizations {
       'askAboutYourFinances': 'Ask me anything about your finances.',
       'heldForGoals': '{amount} held for goals',
       'nothingHeld': 'Nothing held',
+      'amountToGo': '{amount} to go',
     },
     'my': {
       // Home Screen
@@ -2406,6 +2407,7 @@ class AppLocalizations {
       'askAboutYourFinances': 'သင့်ငွေကြေးအကြောင်း ဘာမဆို မေးပါ။',
       'heldForGoals': 'ရည်မှန်းချက်များအတွက် {amount} ထားရှိသည်',
       'nothingHeld': 'ထားရှိထားခြင်း မရှိပါ',
+      'amountToGo': '{amount} ကျန်သေးသည်',
     }
   };
 
@@ -3625,6 +3627,8 @@ class AppLocalizations {
   String get askAboutYourFinances => translate('askAboutYourFinances');
   String heldForGoals(String amount) => translate('heldForGoals').replaceAll('{amount}', amount);
   String get nothingHeld => translate('nothingHeld');
+  /// "$1,200.00 to go" (still to save towards a goal).
+  String amountToGo(String amount) => translate('amountToGo').replaceAll('{amount}', amount);
 
   static const List<String> _monthKeys = [
     'monthJanuary', 'monthFebruary', 'monthMarch', 'monthApril', 'monthMay', 'monthJune',

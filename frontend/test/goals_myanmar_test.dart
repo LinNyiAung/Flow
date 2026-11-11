@@ -8,6 +8,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/transaction_provider.dart';
+import 'package:frontend/screens/goals/goal_detail_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:provider/provider.dart';
@@ -72,7 +73,7 @@ Goal _goal(String id, String name, {DateTime? targetDate}) => Goal(
       currency: Currency.usd,
     );
 
-Future<void> _pump(WidgetTester tester, Locale locale) async {
+Future<void> _pump(WidgetTester tester, Locale locale, {Widget? home}) async {
   tester.view.physicalSize = const Size(360 * 3, 1400 * 3);
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
@@ -97,7 +98,7 @@ Future<void> _pump(WidgetTester tester, Locale locale) async {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('en'), Locale('my')],
-      home: GoalsScreen(),
+      home: home ?? GoalsScreen(),
     ),
   ));
   await tester.pumpAndSettle();
@@ -137,5 +138,16 @@ void main() {
       expect(rect.left, greaterThanOrEqualTo(0), reason: label);
       expect(rect.right, lessThanOrEqualTo(360), reason: label);
     }
+  });
+
+  testWidgets('Myanmar 360: goal detail hero and type label are in Myanmar', (tester) async {
+    await _pump(tester, const Locale('my'), home: GoalDetailScreen(goal: _goal('g1', 'Laptop', targetDate: _overdueDate)));
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining(RegExp(r'^of ')), findsNothing);
+    expect(find.text(my.ofAmount(r'$2,900.00')), findsOneWidget);
+    expect(find.textContaining('LARGE PURCHASE'), findsNothing);
+    expect(find.textContaining(my.goalTypeLabel(GoalType.large_purchase)), findsOneWidget);
+    expect(find.textContaining(' to go'), findsNothing);
+    expect(find.text(my.amountToGo(r'$2,150.00')), findsOneWidget);
   });
 }

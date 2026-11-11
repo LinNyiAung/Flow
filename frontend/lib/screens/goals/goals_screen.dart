@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -498,7 +499,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // (see _refreshData), so a per-card currency tag is no longer needed
     // either. Fall back to the goal type when there's no target date.
     // Active goals past their target date say so ("Overdue · was due …").
-    final localeName = Localizations.localeOf(context).toLanguageTag();
+    final localeName = dateLocaleOf(context);
     final subtitle = overdue
         ? localizations.goalOverdueWasDue(formatOverdueDueDate(goal.targetDate!, locale: localeName))
         : goal.targetDate != null

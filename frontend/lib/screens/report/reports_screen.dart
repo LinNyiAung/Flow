@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
@@ -49,7 +50,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   /// For month names in the app's language.
-  String get _localeName => Localizations.localeOf(context).toLanguageTag();
+  String? get _localeName => dateLocaleOf(context);
   ReportPeriod _selectedPeriod = ReportPeriod.month;
   Currency? _selectedCurrency;
   DateTime? _customStartDate;

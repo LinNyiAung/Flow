@@ -156,7 +156,7 @@ void main() {
       'againstCurrentCap', 'netLabel', 'savedLabel', 'entriesLabel', 'perDayLabel', 'daysCoveredLabel',
       'oneEntry', 'entriesCount', 'weekdayInitials', 'goalTypeSavings', 'goalTypeDebtReduction',
       'goalTypeLargePurchase', 'goalTypeSavingsHint', 'goalTypeDebtReductionHint', 'goalTypeLargePurchaseHint',
-      'continueChatting', 'askAboutYourFinances', 'heldForGoals', 'nothingHeld',
+      'continueChatting', 'askAboutYourFinances', 'heldForGoals', 'nothingHeld', 'amountToGo',
     ];
     for (final k in keys) {
       expect(en.translate(k), isNot(k), reason: 'EN $k');

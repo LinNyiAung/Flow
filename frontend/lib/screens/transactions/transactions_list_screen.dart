@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
@@ -622,7 +623,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   Widget _dateChip() {
     final localizations = AppLocalizations.of(context);
     final hasDate = _selectedStartDate != null && _selectedEndDate != null;
-    final dayFormat = DateFormat('MMM dd', Localizations.localeOf(context).toLanguageTag());
+    final dayFormat = DateFormat('MMM dd', dateLocaleOf(context));
     final label = hasDate
         ? '${dayFormat.format(_selectedStartDate!)} - ${dayFormat.format(_selectedEndDate!)}'
         : localizations.selectDateRangeButton;
@@ -767,7 +768,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             ),
             SizedBox(height: 2),
             Text(
-              DateFormat('MMM dd', Localizations.localeOf(context).toLanguageTag()).format(transaction.date),
+              DateFormat('MMM dd', dateLocaleOf(context)).format(transaction.date),
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
             ),
           ],

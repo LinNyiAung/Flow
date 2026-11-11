@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
@@ -703,9 +704,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                     const SizedBox(height: 2),
                     Text(
                       _currentGoal.isOverdue
-                          ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: Localizations.localeOf(context).toLanguageTag()))}'
+                          ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: dateLocaleOf(context)))}'
                           : _currentGoal.targetDate != null
-                              ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy', Localizations.localeOf(context).toLanguageTag()).format(_currentGoal.targetDate!)}'
+                              ? '${localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase()} · ${localizations.dueDatePrefix} ${DateFormat('MMM dd, yyyy', dateLocaleOf(context)).format(_currentGoal.targetDate!)}'
                               : localizations.goalTypeLabel(_currentGoal.goalType).toUpperCase(),
                       style: TextStyle(
                         fontSize: 12,
@@ -741,7 +742,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Text(
-                  'of ${_currentGoal.displayTargetAmount}',
+                  localizations.ofAmount(_currentGoal.displayTargetAmount),
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: onHeroMuted),
                 ),
               ),
@@ -750,16 +751,24 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           const SizedBox(height: 12),
           ProgressMeter(value: _currentGoal.progressPercentage / 100, height: 8, onHero: true, overrideColor: accent),
           const SizedBox(height: 8),
+          // Flexible: in Myanmar the two halves don't fit one line at 360 px.
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${_currentGoal.progressPercentage.toStringAsFixed(1)}% ${localizations.completed}',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: onHeroMuted),
+              Flexible(
+                child: Text(
+                  '${_currentGoal.progressPercentage.toStringAsFixed(1)}% ${localizations.completed}',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: onHeroMuted),
+                ),
               ),
-              Text(
-                '${_currentGoal.displayRemainingAmount} to go',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: onHeroMuted),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  localizations.amountToGo(_currentGoal.displayRemainingAmount),
+                  textAlign: TextAlign.end,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: onHeroMuted),
+                ),
               ),
             ],
           ),
@@ -859,7 +868,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: Localizations.localeOf(context).toLanguageTag())),
+                  localizations.goalOverdueWasDue(formatOverdueDueDate(_currentGoal.targetDate!, locale: dateLocaleOf(context))),
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onErrorContainer),
                 ),
                 const SizedBox(height: 2),
