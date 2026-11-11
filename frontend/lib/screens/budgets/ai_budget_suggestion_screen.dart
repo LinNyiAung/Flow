@@ -430,7 +430,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               Text(localizations.suggestedBudgetPlan, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               _buildInfoRow(Icons.label_outline_rounded, localizations.name, _suggestion!.suggestedName),
-              _buildInfoRow(Icons.calendar_today_rounded, localizations.period, widget.period.name.toUpperCase()),
+              _buildInfoRow(Icons.calendar_today_rounded, localizations.period, localizations.budgetPeriodLabel(widget.period).toUpperCase()),
               _buildInfoRow(
                 Icons.date_range_rounded,
                 localizations.duration,

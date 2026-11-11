@@ -316,7 +316,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       Expanded(
                         child: _lockedField(
                           localizations.period,
-                          widget.budget.period.name.toUpperCase(),
+                          localizations.budgetPeriodLabel(widget.budget.period).toUpperCase(),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -529,7 +529,8 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            '${totalBudget > widget.budget.totalBudget ? '+' : '-'}${widget.budget.currency.symbol}${formatter.format((totalBudget - widget.budget.totalBudget).abs())} against the current cap',
+                            localizations.againstCurrentCap(
+                                '${totalBudget > widget.budget.totalBudget ? '+' : '-'}${widget.budget.currency.symbol}${formatter.format((totalBudget - widget.budget.totalBudget).abs())}'),
                             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer),
                           ),
                         ),

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/budget.dart' show BudgetPeriod, BudgetStatus;
+import 'package:frontend/models/goal.dart' show GoalType;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalizationService {
@@ -1223,6 +1225,34 @@ class AppLocalizations {
       'weekdayFriday': 'Friday',
       'weekdaySaturday': 'Saturday',
       'weekdaySunday': 'Sunday',
+
+      // UI audit, batch B: text that used to be English-only
+      'overShort': 'Over',
+      'ofAmount': 'of {amount}',
+      'amountOfTotal': '{amount} of {total}',
+      'daysCount': '{n} days',
+      'daysAgoCount': '{n} days ago',
+      'approachingBudgetBody': 'You\'ve used {percent}% of your budget. Track your spending carefully.',
+      'againstCurrentCap': '{amount} against the current cap',
+      'netLabel': 'Net',
+      'savedLabel': 'Saved',
+      'entriesLabel': 'Entries',
+      'perDayLabel': 'Per day',
+      'daysCoveredLabel': 'Days covered',
+      'oneEntry': '1 entry',
+      'entriesCount': '{n} entries',
+      // Monday first, as DateTime.weekday counts.
+      'weekdayInitials': 'M,T,W,T,F,S,S',
+      'goalTypeSavings': 'Savings',
+      'goalTypeDebtReduction': 'Debt reduction',
+      'goalTypeLargePurchase': 'Large purchase',
+      'goalTypeSavingsHint': 'Put money aside for later',
+      'goalTypeDebtReductionHint': 'Clear something you owe',
+      'goalTypeLargePurchaseHint': 'Save towards one thing',
+      'continueChatting': 'Continue chatting',
+      'askAboutYourFinances': 'Ask me anything about your finances.',
+      'heldForGoals': '{amount} held for goals',
+      'nothingHeld': 'Nothing held',
     },
     'my': {
       // Home Screen
@@ -2347,6 +2377,35 @@ class AppLocalizations {
       'weekdayFriday': 'သောကြာနေ့',
       'weekdaySaturday': 'စနေနေ့',
       'weekdaySunday': 'တနင်္ဂနွေနေ့',
+
+      // UI audit, batch B: text that used to be English-only
+      'overShort': 'ကျော်လွန်',
+      'ofAmount': '{amount} အနက်',
+      'amountOfTotal': '{total} အနက် {amount}',
+      'daysCount': '{n} ရက်',
+      'daysAgoCount': '{n} ရက်က',
+      'approachingBudgetBody': 'ဘတ်ဂျက်၏ {percent}% ကို သုံးပြီးပါပြီ။ သုံးစွဲမှုကို ဂရုတစိုက် စောင့်ကြည့်ပါ။',
+      'againstCurrentCap': 'လက်ရှိ ကန့်သတ်ပမာဏနှင့် ယှဉ်လျှင် {amount}',
+      'netLabel': 'အသားတင်',
+      'savedLabel': 'စုမိ',
+      'entriesLabel': 'စာရင်းများ',
+      'perDayLabel': 'တစ်ရက်လျှင်',
+      'daysCoveredLabel': 'ရက်အရေအတွက်',
+      'oneEntry': 'စာရင်း 1 ခု',
+      'entriesCount': 'စာရင်း {n} ခု',
+      // Monday first: the last syllable of each day's name, as on Myanmar
+      // calendars (the CLDR one-letter forms repeat "တ" for Sunday and Monday).
+      'weekdayInitials': 'လာ,ဂါ,ဟူး,တေး,ကြာ,နေ,နွေ',
+      'goalTypeSavings': 'ငွေစု',
+      'goalTypeDebtReduction': 'အကြွေး လျှော့ချ',
+      'goalTypeLargePurchase': 'ပစ္စည်းကြီး ဝယ်ယူ',
+      'goalTypeSavingsHint': 'နောင်အတွက် ငွေဖယ်ထားရန်',
+      'goalTypeDebtReductionHint': 'ပေးရန်ရှိသော အကြွေး ဆပ်ရန်',
+      'goalTypeLargePurchaseHint': 'တစ်ခုခု ဝယ်ရန် ငွေစုရန်',
+      'continueChatting': 'ဆက်လက် စကားပြောရန်',
+      'askAboutYourFinances': 'သင့်ငွေကြေးအကြောင်း ဘာမဆို မေးပါ။',
+      'heldForGoals': 'ရည်မှန်းချက်များအတွက် {amount} ထားရှိသည်',
+      'nothingHeld': 'ထားရှိထားခြင်း မရှိပါ',
     }
   };
 
@@ -3514,6 +3573,58 @@ class AppLocalizations {
   String get customInsightDeleteConfirm => translate('customInsightDeleteConfirm');
   String get customInsightEmptyList => translate('customInsightEmptyList');
   String get customInsightLoadMore => translate('customInsightLoadMore');
+
+  // UI audit, batch B
+  String get overShort => translate('overShort');
+  /// "of $1,500.00" after a big spent/saved figure.
+  String ofAmount(String amount) => translate('ofAmount').replaceAll('{amount}', amount);
+  /// "$188.50 of $1,500.00".
+  String amountOfTotal(String amount, String total) =>
+      translate('amountOfTotal').replaceAll('{amount}', amount).replaceAll('{total}', total);
+  String daysCount(int n) => translate('daysCount').replaceAll('{n}', '$n');
+  String daysAgoCount(int n) => translate('daysAgoCount').replaceAll('{n}', '$n');
+  /// "19 days remaining".
+  String daysRemainingCount(int n) => '$n ${translate('daysRemainingSuffix')}';
+  String approachingBudgetBody(String percent) =>
+      translate('approachingBudgetBody').replaceAll('{percent}', percent);
+  /// [amount] is signed, e.g. "+$50.00".
+  String againstCurrentCap(String amount) => translate('againstCurrentCap').replaceAll('{amount}', amount);
+  String get netLabel => translate('netLabel');
+  String get savedLabel => translate('savedLabel');
+  String get entriesLabel => translate('entriesLabel');
+  String get perDayLabel => translate('perDayLabel');
+  String get daysCoveredLabel => translate('daysCoveredLabel');
+  String entriesCount(int n) => n == 1 ? translate('oneEntry') : translate('entriesCount').replaceAll('{n}', '$n');
+  /// Shortest readable weekday label under a chart bar; [weekday] as in
+  /// [DateTime.weekday] (1 = Monday).
+  String weekdayInitial(int weekday) => translate('weekdayInitials').split(',')[weekday - 1];
+  String goalTypeLabel(GoalType type) => switch (type) {
+        GoalType.savings => translate('goalTypeSavings'),
+        GoalType.debt_reduction => translate('goalTypeDebtReduction'),
+        GoalType.large_purchase => translate('goalTypeLargePurchase'),
+      };
+  String goalTypeHint(GoalType type) => switch (type) {
+        GoalType.savings => translate('goalTypeSavingsHint'),
+        GoalType.debt_reduction => translate('goalTypeDebtReductionHint'),
+        GoalType.large_purchase => translate('goalTypeLargePurchaseHint'),
+      };
+  String budgetPeriodLabel(BudgetPeriod period) => switch (period) {
+        BudgetPeriod.weekly => translate('weekly'),
+        BudgetPeriod.monthly => translate('monthly'),
+        BudgetPeriod.yearly => translate('yearly'),
+        BudgetPeriod.custom => translate('custom'),
+      };
+  /// Badge text ("ACTIVE", "EXCEEDED", ...).
+  String budgetStatusBadge(BudgetStatus status) => switch (status) {
+        BudgetStatus.active => translate('activeCap'),
+        BudgetStatus.exceeded => translate('exceededCap'),
+        BudgetStatus.completed => translate('completed'),
+        BudgetStatus.upcoming => translate('upcoming'),
+      };
+  String get continueChatting => translate('continueChatting');
+  String get askAboutYourFinances => translate('askAboutYourFinances');
+  String heldForGoals(String amount) => translate('heldForGoals').replaceAll('{amount}', amount);
+  String get nothingHeld => translate('nothingHeld');
 
   static const List<String> _monthKeys = [
     'monthJanuary', 'monthFebruary', 'monthMarch', 'monthApril', 'monthMay', 'monthJune',

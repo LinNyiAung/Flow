@@ -198,13 +198,15 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final startDate = _budget.startDate;
     final endDate = _budget.endDate;
 
+    final localizations = AppLocalizations.of(context);
+
     if (now.isBefore(startDate)) {
-      return '${startDate.difference(now).inDays} days';
+      return localizations.daysCount(startDate.difference(now).inDays);
     }
     if (now.isAfter(endDate)) {
-      return '${now.difference(endDate).inDays} days ago';
+      return localizations.daysAgoCount(now.difference(endDate).inDays);
     }
-    return '${endDate.difference(now).inDays} days';
+    return localizations.daysCount(endDate.difference(now).inDays);
   }
 
   String _getBudgetStatusLabel() {
@@ -261,7 +263,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
       return localizations.categoriesOverBadge(_budget.categoriesOver.length);
     }
 
-    return _budget.status.name.toUpperCase();
+    return localizations.budgetStatusBadge(_budget.status);
   }
 
   @override
@@ -359,7 +361,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${_budget.period.name.toUpperCase()} · ${_calculateDaysRemaining()}',
+                              '${localizations.budgetPeriodLabel(_budget.period).toUpperCase()} · ${_calculateDaysRemaining()}',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
@@ -401,7 +403,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                       // overflowing at phone widths.
                       Flexible(
                         child: Text(
-                          'of ${_budget.displayTotalBudget}',
+                          localizations.ofAmount(_budget.displayTotalBudget),
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -490,8 +492,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 background: scheme.tertiaryContainer,
                 titleColor: scheme.onTertiaryContainer,
                 title: localizations.approachingBudgetLimit,
-                body:
-                    'You\'ve used ${_budget.percentageUsed.toStringAsFixed(0)}% of your budget. Track your spending carefully.',
+                body: localizations.approachingBudgetBody(_budget.percentageUsed.toStringAsFixed(0)),
               ),
             ],
 

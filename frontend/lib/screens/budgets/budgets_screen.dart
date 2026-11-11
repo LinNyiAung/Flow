@@ -206,7 +206,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         // stat tiles don't have room for it and it truncates to "Exceed…";
         // the same key is fine as the full-width status pill elsewhere.
         icon: Icons.warning_amber_rounded,
-        label: 'Over',
+        label: localizations.overShort,
         value: '${multi?.exceededBudgets ?? 0}',
         iconColor: Theme.of(context).colorScheme.error,
       ),
@@ -467,7 +467,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${budget.period.name.toUpperCase()} · ${budget.currency.name.toUpperCase()}',
+                        '${localizations.budgetPeriodLabel(budget.period).toUpperCase()} · ${budget.currency.name.toUpperCase()}',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
@@ -486,7 +486,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                   Icon(Icons.calendar_today_rounded, size: 16, color: AppTheme.infoFor(context)),
                   const SizedBox(width: 6),
                   Text(
-                    '${localizations.startsOnPrefix} ${DateFormat('MMM dd, yyyy').format(budget.startDate)}',
+                    '${localizations.startsOnPrefix} ${DateFormat('MMM dd, yyyy', Localizations.localeOf(context).toLanguageTag()).format(budget.startDate)}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
