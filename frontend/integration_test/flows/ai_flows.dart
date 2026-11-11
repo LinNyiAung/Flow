@@ -409,7 +409,7 @@ void chatFlows() {
           : (find.byKey(const Key('plan-limit-body')).evaluate().first.widget as Text).data ?? '';
       check(limitBody.startsWith(L.planLimitReachedBody(L.planFeatureName('chat'))) &&
               RegExp(r'\d{1,2} [A-Z][a-z]+ \d{4}\.$').hasMatch(limitBody),
-          'Limit sheet text should be "${L.planLimitReachedBody(L.planFeatureName('chat'))} It resets on 1 December 2026." (app wording, long date), was "$limitBody"');
+          'Limit sheet text should be "${L.planLimitReachedBody(L.planFeatureName('chat'))} It resets on 1 Dec 2026." (app wording, app date format), was "$limitBody"');
       final box = (find.byType(TextField).last.evaluate().first.widget as TextField).controller;
       check(box?.text == 'E2E free question 6',
           'Free chat: the refused question did not come back into the input box (was "${box?.text}")');

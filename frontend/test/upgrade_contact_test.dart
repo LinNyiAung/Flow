@@ -697,7 +697,7 @@ void main() {
       expect(sent.single, (Plan.plus, '', '+959123456789'));
       expect(find.text('Thanks! We\'ll contact you soon.'), findsOneWidget);
       expect(
-        find.text('Requested on 3 November 2026. We\'ll contact you on Viber at +959123456789.'),
+        find.text('Requested on 3 Nov 2026. We\'ll contact you on Viber at +959123456789.'),
         findsOneWidget,
       );
     });
@@ -722,7 +722,7 @@ void main() {
 
       expect(find.text('Thanks! We\'ll contact you soon.'), findsOneWidget);
       expect(
-        find.text('Requested on 3 November 2026. We\'ll contact you by email at me@example.com.'),
+        find.text('Requested on 3 Nov 2026. We\'ll contact you by email at me@example.com.'),
         findsOneWidget,
       );
     });
@@ -739,7 +739,7 @@ void main() {
           return UpgradeRequest(plan: plan, note: note, viberNumber: viber, createdAt: DateTime(2026, 11, 4, 12));
         },
       );
-      expect(find.text('Requested on 3 November 2026. We\'ll contact you on Viber at +959123456789.'), findsOneWidget);
+      expect(find.text('Requested on 3 Nov 2026. We\'ll contact you on Viber at +959123456789.'), findsOneWidget);
 
       await tester.ensureVisible(find.byKey(const Key('request-pro')));
       await tester.tap(find.byKey(const Key('request-pro')));
@@ -759,7 +759,8 @@ void main() {
       );
       final viberText = tester.widget<Text>(find.byKey(const Key('upgrade-requested-plus'))).data!;
       expect(viberText, contains('+959123456789'));
-      expect(viberText, contains('3 နိုဝင်ဘာ 2026'));
+      expect(viberText, contains('၂၀၂၆')); // Myanmar digits
+      expect(viberText, isNot(contains('Nov')));
       expect(viberText, contains('Viber'));
 
       await tester.pumpWidget(const SizedBox());

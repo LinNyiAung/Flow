@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/budget.dart' show BudgetPeriod, BudgetStatus;
 import 'package:frontend/models/goal.dart' show GoalType;
+import 'package:frontend/utils/date_format.dart';
+import 'package:frontend/utils/date_locale.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalizationService {
@@ -1217,7 +1220,6 @@ class AppLocalizations {
       'customInsightEmptyList': 'No custom insights yet.',
       'customInsightLoadMore': 'Load more',
       'insightNextOn': 'Next insight: {date}',
-      'dateWithWeekday': '{weekday}, {day} {month}',
       'weekdayMonday': 'Monday',
       'weekdayTuesday': 'Tuesday',
       'weekdayWednesday': 'Wednesday',
@@ -2370,7 +2372,6 @@ class AppLocalizations {
       'customInsightEmptyList': 'စိတ်ကြိုက် သုံးသပ်ချက် မရှိသေးပါ။',
       'customInsightLoadMore': 'ထပ်မံ တင်ရန်',
       'insightNextOn': 'နောက်သုံးသပ်ချက်: {date}',
-      'dateWithWeekday': '{weekday}၊ {day} {month}',
       'weekdayMonday': 'တနင်္လာနေ့',
       'weekdayTuesday': 'အင်္ဂါနေ့',
       'weekdayWednesday': 'ဗုဒ္ဓဟူးနေ့',
@@ -3630,32 +3631,21 @@ class AppLocalizations {
   /// "$1,200.00 to go" (still to save towards a goal).
   String amountToGo(String amount) => translate('amountToGo').replaceAll('{amount}', amount);
 
-  static const List<String> _monthKeys = [
-    'monthJanuary', 'monthFebruary', 'monthMarch', 'monthApril', 'monthMay', 'monthJune',
-    'monthJuly', 'monthAugust', 'monthSeptember', 'monthOctober', 'monthNovember', 'monthDecember',
-  ];
-  static const List<String> _weekdayKeys = [
-    'weekdayMonday', 'weekdayTuesday', 'weekdayWednesday', 'weekdayThursday', 'weekdayFriday',
-    'weekdaySaturday', 'weekdaySunday',
-  ];
+  /// A plan date (when an allowance resets, when a request was made) in the
+  /// device's local time: [AppDates.full] in this app language ("1 Dec 2026";
+  /// Myanmar month names and digits in Myanmar).
+  String formatPlanDate(DateTime when) => AppDates.fullIn(when.toLocal(), locale: dateLocaleFor(locale));
 
-  /// "1 December 2026" (English) or "1 ဒီဇင်ဘာ 2026" (Myanmar): the one way the app writes a plan date
-  /// (when an allowance resets, when a request was made), in the app's UI language, in the device's
-  /// local time.
-  String formatPlanDate(DateTime when) {
-    final local = when.toLocal();
-    return '${local.day} ${translate(_monthKeys[local.month - 1])} ${local.year}';
-  }
+  /// [AppDates.range] in this app language ("1 Oct – 31 Oct 2026"), in the
+  /// device's local time.
+  String formatPlanRange(DateTime start, DateTime end) =>
+      AppDates.rangeIn(start.toLocal(), end.toLocal(), locale: dateLocaleFor(locale));
 
-  /// "Monday, 10 November" (English) or "တနင်္လာနေ့၊ 10 နိုဝင်ဘာ" (Myanmar), for a date within the
-  /// next few weeks (the year is left out).
-  String formatPlanDay(DateTime when) {
-    final local = when.toLocal();
-    return translate('dateWithWeekday')
-        .replaceAll('{weekday}', translate(_weekdayKeys[local.weekday - 1]))
-        .replaceAll('{day}', '${local.day}')
-        .replaceAll('{month}', translate(_monthKeys[local.month - 1]));
-  }
+  /// "Monday, 10 November", in this app language (Myanmar weekday and month
+  /// names and digits in Myanmar), for a date within the next few weeks (the
+  /// year is left out).
+  String formatPlanDay(DateTime when) =>
+      DateFormat('EEEE, d MMMM', dateLocaleFor(locale)).format(when.toLocal());
 
   /// Display name of a quota feature key (`chat`, `entry`, ...) as the server reports it.
   String planFeatureName(String feature) => translate('planFeature_$feature');

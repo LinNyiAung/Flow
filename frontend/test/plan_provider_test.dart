@@ -462,7 +462,7 @@ void main() {
 
       expect(sent, [(Plan.plus, 'Please upgrade me')]);
       expect(find.byKey(const Key('upgrade-requested-plus')), findsOneWidget);
-      expect(find.text('Requested on 3 November 2026. We\'ll be in touch.'), findsOneWidget);
+      expect(find.text('Requested on 3 Nov 2026. We\'ll be in touch.'), findsOneWidget);
       expect(find.text('Upgrade to Plus'), findsNothing);
       expect(find.text('Upgrade to Pro'), findsOneWidget);
 
@@ -655,7 +655,7 @@ void main() {
 
       expect(find.byKey(const Key('upgrade-requested-plus')), findsOneWidget);
       expect(find.textContaining('တောင်းဆိုထားပါသည်'), findsOneWidget);
-      expect(find.textContaining('3 နိုဝင်ဘာ 2026'), findsOneWidget); // Burmese month name
+      expect(find.textContaining('၂၀၂၆'), findsOneWidget); // Myanmar date, Myanmar digits
       expect(find.textContaining('Nov'), findsNothing);
       expect(find.byKey(const Key('request-pro')), findsOneWidget);
       expect(find.text('Upgrade to Pro'), findsNothing);

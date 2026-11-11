@@ -97,7 +97,9 @@ void main() {
       await _pump(tester, NextInsightLine(nextAt: DateTime(2026, 12, 1, 6), now: DateTime(2026, 11, 3)),
           locale: const Locale('my'));
       final text = tester.widget<Text>(find.byKey(const ValueKey('insight-next'))).data!;
-      expect(text, contains('အင်္ဂါနေ့၊ 1 ဒီဇင်ဘာ'));
+      expect(text, contains('ဒီဇင်ဘာ')); // December
+      expect(text, contains('၁')); // the 1st, in Myanmar digits
+      expect(text, isNot(matches(RegExp(r'Tue|Dec'))));
       expect(text, isNot(contains('Next')));
     });
 

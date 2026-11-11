@@ -643,7 +643,7 @@ void main() {
       expect(find.byKey(const Key('custom-report-body')), findsOneWidget);
       expect(find.byType(MarkdownBody), findsOneWidget);
       expect(find.text('Why so much on food?'), findsOneWidget);
-      expect(find.text('1 October 2026 – 31 October 2026'), findsOneWidget);
+      expect(find.text('1 Oct – 31 Oct 2026'), findsOneWidget);
       // English first, nothing translated on open.
       expect(fake.translateCalls, 0);
     });

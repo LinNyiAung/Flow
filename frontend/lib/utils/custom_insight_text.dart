@@ -33,9 +33,8 @@ String customInsightTitle(AppLocalizations l, CustomInsight report) {
   return text.isEmpty ? l.customInsightFullInsight : text;
 }
 
-/// "1 October 2026 – 31 October 2026".
-String customRangeText(AppLocalizations l, DateTime start, DateTime end) =>
-    '${l.formatPlanDate(start)} – ${l.formatPlanDate(end)}';
+/// "1 Oct – 31 Oct 2026" ([AppLocalizations.formatPlanRange]).
+String customRangeText(AppLocalizations l, DateTime start, DateTime end) => l.formatPlanRange(start, end);
 
 String customRangeProblemText(AppLocalizations l, CustomRangeProblem problem) {
   switch (problem) {

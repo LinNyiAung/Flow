@@ -6,11 +6,13 @@ import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/plan_limit_text.dart';
 import 'package:frontend/widgets/insight_notes.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 final _resets = DateTime(2026, 12, 1, 6);
 
 void main() {
   group('planLimitText', () {
+    setUpAll(() => initializeDateFormatting('my'));
     final en = AppLocalizations(const Locale('en'));
     final my = AppLocalizations(const Locale('my'));
 
@@ -30,7 +32,8 @@ void main() {
           resetsAt: _resets,
           fallbackMessage: 'It resets on Dec 1, 2026.');
       expect(burmese, contains(my.planLimitResetsOn(my.formatPlanDate(_resets))));
-      expect(burmese, contains('ဒီဇင်ဘာ'));
+      expect(burmese, contains('၂၀၂၆')); // Myanmar digits
+      expect(burmese, isNot(contains('Dec')));
       expect(burmese, isNot(contains('It resets')));
     });
 
@@ -107,7 +110,8 @@ void main() {
     testWidgets('Myanmar, even though the server message is English', (tester) async {
       await pumpNote(tester, note, const Locale('my'));
       final text = tester.widget<Text>(find.byKey(const ValueKey('insight-translation-note'))).data!;
-      expect(text, contains('ဒီဇင်ဘာ'));
+      expect(text, contains('၂၀၂၆'));
+      expect(text, isNot(contains('Dec')));
       expect(text, isNot(contains('The server says')));
     });
   });

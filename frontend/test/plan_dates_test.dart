@@ -3,7 +3,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
 const _en = Locale('en');
 const _my = Locale('my');
@@ -35,41 +38,60 @@ PlanLimitException _error({
 
 void main() {
   group('plan date formatter', () {
-    test('English: day, full month name, year', () {
+    // In the app GlobalMaterialLocalizations loads intl's Myanmar date data.
+    setUpAll(() => initializeDateFormatting('my'));
+
+    test('English: the app date format (AppDates.full)', () {
       final l = AppLocalizations(_en);
-      expect(l.formatPlanDate(DateTime(2026, 12, 1)), '1 December 2026');
-      expect(l.formatPlanDate(DateTime(2027, 1, 31, 23, 59)), '31 January 2027');
+      expect(l.formatPlanDate(DateTime(2026, 12, 1)), '1 Dec 2026');
+      expect(l.formatPlanDate(DateTime(2027, 1, 31, 23, 59)), '31 Jan 2027');
+      expect(l.formatPlanDate(DateTime(2026, 12, 1)), AppDates.fullIn(DateTime(2026, 12, 1)));
     });
 
-    test('Myanmar: Burmese month names, the same order', () {
+    test('Myanmar: Myanmar month names and Myanmar digits', () {
       final l = AppLocalizations(_my);
-      expect(l.formatPlanDate(DateTime(2026, 12, 1)), '1 ဒီဇင်ဘာ 2026');
-      expect(l.formatPlanDate(DateTime(2026, 8, 15)), '15 သြဂုတ် 2026');
+      final text = l.formatPlanDate(DateTime(2026, 12, 1));
+      expect(text, AppDates.fullIn(DateTime(2026, 12, 1), locale: 'my'));
+      expect(text, contains('၂၀၂၆'));
+      expect(text, isNot(contains('2026')));
+      expect(text, isNot(contains('Dec')));
     });
 
-    test('all twelve months, both languages, follow the app\'s own month names', () {
+    test('all twelve months, both languages, match AppDates', () {
       for (var m = 1; m <= 12; m++) {
         final date = DateTime(2026, m, 5);
-        expect(AppLocalizations(_en).formatPlanDate(date), '5 ${_monthsEn[m - 1]} 2026');
-        expect(AppLocalizations(_my).formatPlanDate(date), '5 ${_monthsMy[m - 1]} 2026');
-        expect(_monthsMy[m - 1], AppLocalizations(_my).translate('month${_monthsEn[m - 1]}'));
+        expect(AppLocalizations(_en).formatPlanDate(date), AppDates.fullIn(date));
+        expect(AppLocalizations(_en).formatPlanDate(date), startsWith('5 ${_monthsEn[m - 1].substring(0, 3)}'));
+        expect(AppLocalizations(_my).formatPlanDate(date), AppDates.fullIn(date, locale: 'my'));
+        expect(AppLocalizations(_my).formatPlanDate(date), isNot(contains(_monthsEn[m - 1].substring(0, 3))));
       }
     });
 
     test('an instant is written in the device\'s local time', () {
       final instant = DateTime.utc(2026, 11, 9, 17, 30);
-      final local = instant.toLocal();
-      expect(AppLocalizations(_en).formatPlanDate(instant),
-          '${local.day} ${_monthsEn[local.month - 1]} ${local.year}');
+      expect(AppLocalizations(_en).formatPlanDate(instant), AppDates.fullIn(instant.toLocal()));
+    });
+
+    test('a range goes through AppDates.range, both languages', () {
+      final start = DateTime(2026, 10, 1);
+      final end = DateTime(2026, 10, 31);
+      expect(AppLocalizations(_en).formatPlanRange(start, end), '1 Oct – 31 Oct 2026');
+      final my = AppLocalizations(_my).formatPlanRange(start, end);
+      expect(my, AppDates.rangeIn(start, end, locale: 'my'));
+      expect(my, isNot(contains('Oct')));
+      expect(my, isNot(contains('2026')));
     });
 
     test('weekday form, both languages', () {
       final monday = DateTime(2026, 11, 9); // a Monday
       expect(AppLocalizations(_en).formatPlanDay(monday), 'Monday, 9 November');
-      expect(AppLocalizations(_my).formatPlanDay(monday), 'တနင်္လာနေ့၊ 9 နိုဝင်ဘာ');
       expect(AppLocalizations(_en).formatPlanDay(DateTime(2026, 12, 1)), 'Tuesday, 1 December');
       expect(AppLocalizations(_en).formatPlanDay(DateTime(2026, 11, 15)), 'Sunday, 15 November');
-      expect(AppLocalizations(_my).formatPlanDay(DateTime(2026, 11, 15)), 'တနင်္ဂနွေနေ့၊ 15 နိုဝင်ဘာ');
+      final my = AppLocalizations(_my).formatPlanDay(monday);
+      expect(my, DateFormat('EEEE, d MMMM', 'my').format(monday));
+      expect(my, contains(_monthsMy[10]));
+      expect(my, contains('၉'));
+      expect(my, isNot(contains('9')));
     });
 
     test('every weekday has a name in both languages', () {
@@ -79,6 +101,8 @@ void main() {
           expect(text.contains('weekday'), isFalse, reason: text);
           expect(text.contains('{'), isFalse, reason: text);
         }
+        expect(AppLocalizations(_my).formatPlanDay(DateTime(2026, 11, d)),
+            isNot(matches(RegExp(r'day|Mon|Tue|Wed|Thu|Fri|Sat|Sun'))));
       }
     });
 
@@ -119,7 +143,7 @@ void main() {
 
     testWidgets('limit reached, English: feature name from the app, reset date in words', (tester) async {
       await open(tester, _error(resetsAt: reset), _en);
-      expect(body(tester), "You've used all of your AI chat. It resets on 1 December 2026.");
+      expect(body(tester), "You've used all of your AI chat. It resets on 1 Dec 2026.");
       expect(find.textContaining('SERVER MESSAGE'), findsNothing);
     });
 
@@ -127,8 +151,8 @@ void main() {
       await open(tester, _error(resetsAt: reset), _my);
       final l = AppLocalizations(_my);
       expect(body(tester), '${l.planLimitReachedBody(l.planFeatureName('chat'))} '
-          '${l.planLimitResetsOn('1 ဒီဇင်ဘာ 2026')}');
-      expect(body(tester), contains('ဒီဇင်ဘာ'));
+          '${l.planLimitResetsOn(AppDates.fullIn(reset, locale: 'my'))}');
+      expect(body(tester), contains('၂၀၂၆'));
       expect(body(tester), isNot(contains('Dec')));
       expect(body(tester), isNot(contains('2026-12')));
     });
@@ -136,11 +160,11 @@ void main() {
     testWidgets('cost cap: the monthly AI limit and when it resets', (tester) async {
       final error = _error(code: PlanLimitException.codeCostCap, feature: null, resetsAt: reset);
       await open(tester, error, _en);
-      expect(body(tester), "You've reached this month's AI limit. It resets on 1 December 2026.");
+      expect(body(tester), "You've reached this month's AI limit. It resets on 1 Dec 2026.");
 
       await open(tester, error, _my);
       final l = AppLocalizations(_my);
-      expect(body(tester), '${l.planCostCapBody} ${l.planLimitResetsOn('1 ဒီဇင်ဘာ 2026')}');
+      expect(body(tester), '${l.planCostCapBody} ${l.planLimitResetsOn(AppDates.fullIn(reset, locale: 'my'))}');
     });
 
     testWidgets('cost cap without a date', (tester) async {
