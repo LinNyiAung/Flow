@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -10,7 +11,9 @@ import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/safe_markdown.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/insight_markdown.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../providers/chat_provider.dart';
@@ -581,15 +584,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Flexible(
-                              child: Text(
-                                message.content,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.5,
-                                  color: isUser ? scheme.onPrimary : scheme.onSurface,
-                                ),
-                              ),
+                              child: _messageText(message.content, isUser: isUser),
                             ),
                             if (isStreamingMessage) ...[
                               const SizedBox(width: 3),
@@ -611,12 +606,45 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
   }
 
+  /// A user's message is shown exactly as typed. An assistant reply is
+  /// Markdown (the chat prompt asks for bullet lists): headings, lists and
+  /// bold render with the bubble's own text style, links are not tappable, and
+  /// anything bigger (a table, code, HTML, an image) falls back to plain text,
+  /// the same safe setup as the insight reports. Partially streamed text
+  /// renders the same way; an unclosed `**` simply shows until it closes.
+  Widget _messageText(String content, {required bool isUser}) {
+    final scheme = Theme.of(context).colorScheme;
+    final style = TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w500,
+      height: 1.5,
+      color: isUser ? scheme.onPrimary : scheme.onSurface,
+    );
+    if (isUser) return Text(content, style: style);
+    if (hasDisallowedMarkdown(content)) {
+      return Text(markdownToPlainText(content), style: style);
+    }
+    return MarkdownBody(
+      data: content,
+      styleSheet: insightMarkdownStyle(scheme.onSurface, scheme.onSurface).copyWith(
+        blockSpacing: 8,
+        p: style,
+        listBullet: style,
+        h1: style.copyWith(fontSize: 17, fontWeight: FontWeight.w800),
+        h2: style.copyWith(fontSize: 16, fontWeight: FontWeight.w800),
+        h3: style.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+        strong: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+
   Widget _busyDots() {
     return AnimatedBuilder(
       animation: _typingAnimationController,
       builder: (context, child) {
         final colors = AppTheme.chartRampFor(context);
         return Row(
+          key: const Key('chat-busy-dots'),
           mainAxisSize: MainAxisSize.min,
           children: List.generate(3, (index) {
             final delay = index * 0.2;
