@@ -201,6 +201,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         icon: Icons.trending_up_rounded,
         label: localizations.active,
         value: '${multi?.activeBudgets ?? 0}',
+        stacked: true,
       ),
       StatTile(
         // Not `localizations.exceeded` ("Exceeded") here — three equal-width
@@ -210,11 +211,13 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         label: localizations.overShort,
         value: '${multi?.exceededBudgets ?? 0}',
         iconColor: Theme.of(context).colorScheme.error,
+        stacked: true,
       ),
       StatTile(
         icon: Icons.dashboard_rounded,
         label: localizations.total,
         value: '${multi?.totalBudgets ?? 0}',
+        stacked: true,
       ),
     ];
 
@@ -249,22 +252,25 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
 
   Widget _buildFilterRow(AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+    // Wraps onto a second line when the chips don't fit (e.g. Myanmar at
+    // 360 px), so the currency filter is never clipped off the edge.
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           _filterChip(localizations.active, _activeOnly, () {
             setState(() => _activeOnly = true);
             _refreshData();
           }),
-          const SizedBox(width: 8),
           _filterChip(localizations.filterChipAll, !_activeOnly, () {
             setState(() => _activeOnly = false);
             _refreshData();
           }),
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 10),
+            margin: const EdgeInsets.symmetric(horizontal: 2),
             width: 1,
             height: 20,
             color: scheme.outlineVariant,
@@ -298,7 +304,10 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
           children: [
             Icon(Icons.currency_exchange_rounded, size: 16, color: scheme.onSurfaceVariant),
             const SizedBox(width: 6),
-            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            // Flexible: a label longer than the row wraps inside the chip.
+            Flexible(
+              child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            ),
             const SizedBox(width: 2),
             Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurfaceVariant),
           ],
@@ -440,12 +449,15 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Two lines, so the status badge doesn't squeeze
+                          // the name down to "Monthly ess…".
                           Expanded(
                             child: Text(
                               budget.name,
                               style: Theme.of(context).textTheme.titleMedium,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),

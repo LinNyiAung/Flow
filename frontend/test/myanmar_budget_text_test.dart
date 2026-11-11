@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/models/budget.dart';
@@ -8,6 +9,7 @@ import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/screens/budgets/budget_detail_screen.dart';
 import 'package:frontend/screens/budgets/budgets_screen.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/widgets/stat_tile.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -112,6 +114,39 @@ void main() {
     expect(find.textContaining('ACTIVE'), findsNothing);
     expect(find.text(my.activeCap), findsOneWidget);
     expect(find.textContaining('MONTHLY'), findsNothing);
+  });
+
+  testWidgets('Myanmar 360: tiles, filters and card name all fit', (tester) async {
+    tester.view.physicalSize = const Size(360 * 3, 1200 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_app(BudgetsScreen(), [_nearLimit()]));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    void shownInFull(Finder f, String what) {
+      expect(f, findsOneWidget, reason: what);
+      expect(tester.renderObject<RenderParagraph>(f).didExceedMaxLines, isFalse, reason: '$what is cut off');
+      final rect = tester.getRect(f);
+      expect(rect.left, greaterThanOrEqualTo(0), reason: what);
+      expect(rect.right, lessThanOrEqualTo(360), reason: what);
+    }
+
+    // The three summary tiles.
+    shownInFull(find.descendant(of: find.byType(StatTile), matching: find.text(my.active)), 'Active tile');
+    shownInFull(find.text(my.overShort), 'Over tile');
+    shownInFull(find.descendant(of: find.byType(StatTile), matching: find.text(my.total)), 'Total tile');
+    // Card name next to the % and the status badge: wraps onto a second line
+    // instead of ending in "…" after the first. (The test font's square
+    // glyphs are much wider than real ones, so only the wrapping is checked.)
+    final name = tester.renderObject<RenderParagraph>(find.text('Monthly essentials'));
+    expect(name.size.height, greaterThanOrEqualTo(2 * 16));
+    // Currency filter.
+    final currency = tester.getRect(
+      find.ancestor(of: find.byIcon(Icons.currency_exchange_rounded), matching: find.byType(InkWell)).first,
+    );
+    expect(currency.left, greaterThanOrEqualTo(0));
+    expect(currency.right, lessThanOrEqualTo(360));
   });
 
   test('every new batch-B key has an English and a Myanmar text', () {
