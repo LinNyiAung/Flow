@@ -24,6 +24,26 @@ import 'voice_extraction.dart';
 import 'voice_retry_hint.dart';
 import 'package:intl/intl.dart';
 
+/// The "Selected total" line: inflows minus outflows of [selected].
+///
+/// In one currency it's the app's money format ("-K5,700", "+$15.50").
+/// Mixed currencies can't share a symbol, so it's the plain number
+/// ("+15.50"), with no sign once it rounds to zero ("0.00", not "-0.00").
+String voiceSelectedTotal(List<ExtractedTransactionData> selected) {
+  double total = 0;
+  for (final t in selected) {
+    total += t.type == TransactionType.inflow ? t.amount : -t.amount;
+  }
+  final currencies = selected.map((t) => t.currency).toSet();
+  if (currencies.length == 1) return formatMoney(total, currencies.first, showPlus: true);
+
+  final number = _mixedTotalFormat.format(total.abs());
+  if (number == _mixedTotalFormat.format(0)) return number;
+  return '${total < 0 ? '-' : '+'}$number';
+}
+
+final _mixedTotalFormat = NumberFormat('#,##0.00', 'en_US');
+
 class VoiceInputScreen extends StatefulWidget {
   @override
   _VoiceInputScreenState createState() => _VoiceInputScreenState();
@@ -50,7 +70,6 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
   /// Spoken language picked by the user: null = Auto (backend detects),
   /// 'en' or 'my'. Deliberately independent of the UI language.
   String? _spokenLanguage;
-  final formatter = NumberFormat("#,##0.00", "en_US");
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -566,13 +585,6 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     final data = _extractedData!;
     final selectedCount = _selected.where((s) => s).length;
     final missingAmount = _selectedTransactions.any((t) => t.needsAmount);
-    double selectedTotal = 0;
-    for (var i = 0; i < data.transactions.length; i++) {
-      if (i < _selected.length && _selected[i]) {
-        final t = data.transactions[i];
-        selectedTotal += t.type == TransactionType.inflow ? t.amount : -t.amount;
-      }
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -778,7 +790,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
               ),
               SizedBox(width: 8),
               Text(
-                '${selectedTotal >= 0 ? '+' : '-'}${formatter.format(selectedTotal.abs())}',
+                voiceSelectedTotal(_selectedTransactions),
                 style: AppTheme.money(18, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
               ),
             ],
