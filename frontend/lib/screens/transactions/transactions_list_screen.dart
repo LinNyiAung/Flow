@@ -402,7 +402,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
               child: _isLoading
                   ? Center(child: CircularProgressIndicator())
                   : transactions.isEmpty
-                      ? _buildEmptyState(localizations)
+                      ? _buildEmptyState(localizations, filtered: hasActiveFilters)
                       : ListView(
                           controller: _scrollController,
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -703,7 +703,10 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     );
   }
 
-  Widget _buildEmptyState(AppLocalizations localizations) {
+  /// With no filter on, the list is simply empty: say so like the dashboard
+  /// does ("No transactions yet" · tap + to add). The "adjust your filters"
+  /// wording is only for when a filter is on.
+  Widget _buildEmptyState(AppLocalizations localizations, {required bool filtered}) {
     final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
@@ -717,10 +720,14 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
               child: Icon(Icons.receipt_long_rounded, size: 48, color: scheme.primary),
             ),
             SizedBox(height: 24),
-            Text(localizations.emptyStateTitle, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              filtered ? localizations.emptyStateTitle : localizations.noTransactions,
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
             SizedBox(height: 8),
             Text(
-              localizations.emptyStateSubtitle,
+              filtered ? localizations.emptyStateSubtitle : localizations.tapToAddFirst,
               style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),

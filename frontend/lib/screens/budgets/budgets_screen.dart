@@ -230,9 +230,11 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
     }
 
     if (summary == null) {
+      // No big number: a bare "0" (with no currency) said nothing that
+      // "No budgets yet" doesn't.
       return HeroCard(
         label: localizations.budgetSummary,
-        value: '${multi?.totalBudgets ?? 0}',
+        value: null,
         supporting: localizations.noBudgetsYet,
         stats: stats,
       );

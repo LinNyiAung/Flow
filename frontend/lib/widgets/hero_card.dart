@@ -18,7 +18,10 @@ class HeroCard extends StatelessWidget {
   });
 
   final String label;
-  final String value;
+
+  /// The big figure. Null for an empty state: then [supporting] (e.g. "No
+  /// budgets yet") becomes the main line instead of a bare "0".
+  final String? value;
   final Widget? labelTrailing;
   final String? supporting;
   final List<Widget>? stats;
@@ -62,11 +65,17 @@ class HeroCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Text(
-            value,
-            style: AppTheme.money(40, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
-          ),
-          if (supporting != null) ...[
+          if (value != null)
+            Text(
+              value!,
+              style: AppTheme.money(40, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
+            )
+          else if (supporting != null)
+            Text(
+              supporting!,
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer),
+            ),
+          if (value != null && supporting != null) ...[
             const SizedBox(height: 6),
             Text(
               supporting!,
