@@ -47,6 +47,9 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// For month names in the app's language.
+  String get _localeName => Localizations.localeOf(context).toLanguageTag();
   ReportPeriod _selectedPeriod = ReportPeriod.month;
   Currency? _selectedCurrency;
   DateTime? _customStartDate;
@@ -338,8 +341,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
             const SizedBox(height: 4),
             if (report != null)
               Text(
-                '${DateFormat('MMM d').format(report.startDate)} – ${DateFormat('MMM d, yyyy').format(report.endDate)} · '
-                '${report.currency.name.toUpperCase()} · ${report.totalTransactions} entries',
+                '${DateFormat('MMM d', _localeName).format(report.startDate)} – ${DateFormat('MMM d, yyyy', _localeName).format(report.endDate)} · '
+                '${report.currency.name.toUpperCase()} · ${localizations.entriesCount(report.totalTransactions)}',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
               ),
             const SizedBox(height: 18),
@@ -617,7 +620,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               Text(label, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
               const SizedBox(height: 4),
               Text(
-                date != null ? DateFormat('MMM d, yyyy').format(date) : localizations.select,
+                date != null ? DateFormat('MMM d, yyyy', _localeName).format(date) : localizations.select,
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ],
@@ -644,16 +647,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
       children: [
         HeroCard(
           label:
-              'Net · ${DateFormat('MMM d').format(report.startDate)} – ${DateFormat('MMM d, yyyy').format(report.endDate)}',
+              '${localizations.netLabel} · ${DateFormat('MMM d', _localeName).format(report.startDate)} – ${DateFormat('MMM d, yyyy', _localeName).format(report.endDate)}',
           value: '${report.netBalance >= 0 ? '+' : ''}${report.currency.symbol}${formatter.format(report.netBalance)}',
           labelTrailing: _currencyHeroChip(),
           onLabelTap: _pickCurrencyFilter,
           stats: [
-            StatTile(icon: Icons.savings_rounded, label: 'Saved', value: '${savedPct.toStringAsFixed(0)}%'),
-            StatTile(icon: Icons.receipt_long_rounded, label: 'Entries', value: '${report.totalTransactions}'),
+            StatTile(icon: Icons.savings_rounded, label: localizations.savedLabel, value: '${savedPct.toStringAsFixed(0)}%', stacked: true),
+            StatTile(icon: Icons.receipt_long_rounded, label: localizations.entriesLabel, value: '${report.totalTransactions}', stacked: true),
             StatTile(
               icon: Icons.calendar_today_rounded,
-              label: 'Per day',
+              label: localizations.perDayLabel,
+              stacked: true,
               // Same figure and format as "Average Daily Expenses" below, so
               // the two never read as different numbers ($13 vs $12.91).
               value: '${report.currency.symbol}${formatter.format(report.averageDailyOutflow)}',
@@ -677,7 +681,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             Expanded(child: _infoCard(localizations.goalsAllocated, '${report.currency.symbol}${formatter.format(report.totalAllocatedToGoals)}', Icons.flag_rounded)),
             const SizedBox(width: 12),
-            Expanded(child: _infoCard('Days covered', '$days', Icons.event_note_rounded)),
+            Expanded(child: _infoCard(localizations.daysCoveredLabel, '$days', Icons.event_note_rounded)),
           ],
         ),
         const SizedBox(height: 20),
@@ -856,7 +860,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '${DateFormat('MMM d').format(report.startDate)} – ${DateFormat('MMM d, yyyy').format(report.endDate)} · '
+                '${DateFormat('MMM d', _localeName).format(report.startDate)} – ${DateFormat('MMM d, yyyy', _localeName).format(report.endDate)} · '
                 '${report.totalTransactions} ${localizations.transactions.toLowerCase()} · '
                 '${report.currencyReports.length} ${localizations.currencies.toLowerCase()}',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
