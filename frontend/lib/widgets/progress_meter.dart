@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/theme/app_theme.dart';
 
 /// Linear progress bar used on budget/goal cards. Height 6dp on cards, 8dp
 /// inside hero tonal containers; radius is always half the height. The fill
@@ -23,10 +24,14 @@ class ProgressMeter extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final clamped = value.clamp(0.0, 1.0);
     final over = value > 1.0;
+    // On a hero (primaryContainer) the track is a faint tint of it and the
+    // fill the accent: dark's `primary` is almost the hero's own green, so a
+    // primary fill on a 25% track was barely visible (about 1:1).
     final track = onHero
-        ? scheme.onPrimaryContainer.withValues(alpha: 0.25)
+        ? scheme.onPrimaryContainer.withValues(alpha: 0.12)
         : scheme.outlineVariant;
-    final fill = overrideColor ?? (over ? scheme.error : scheme.primary);
+    final fill = overrideColor ??
+        (over ? scheme.error : (onHero ? AppTheme.accentFor(context) : scheme.primary));
     return ClipRRect(
       borderRadius: BorderRadius.circular(height / 2),
       child: LinearProgressIndicator(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
+import '../../theme/app_theme.dart';
 
 class RegisterScreen extends StatefulWidget {
   @override
@@ -200,7 +201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.verified_user_rounded, size: 20, color: scheme.primary),
+                Icon(Icons.verified_user_rounded, size: 20, color: AppTheme.accentFor(context)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: GestureDetector(
@@ -212,13 +213,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextSpan(text: localizations.byContinuingAcceptPrefix),
                           TextSpan(
                             text: localizations.termsLinkText,
-                            style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary),
+                            style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.accentFor(context)),
                             recognizer: _tapGesture(_showTermsAndConditions),
                           ),
                           TextSpan(text: localizations.andConnector),
                           TextSpan(
                             text: localizations.privacyPolicyLinkText,
-                            style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary),
+                            style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.accentFor(context)),
                             recognizer: _tapGesture(_showPrivacyPolicy),
                           ),
                           TextSpan(text: localizations.neverSellDataSuffix),

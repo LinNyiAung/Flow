@@ -259,7 +259,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 label: Text(localizations.markAllRead, style: const TextStyle(fontSize: 12)),
                 style: TextButton.styleFrom(
                   backgroundColor: scheme.secondaryContainer,
-                  foregroundColor: scheme.primary,
+                  foregroundColor: scheme.onSecondaryContainer,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 ),

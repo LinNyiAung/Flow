@@ -595,7 +595,10 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed: _navigateToAISuggestion,
-                      style: FilledButton.styleFrom(backgroundColor: scheme.tertiary),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: scheme.tertiary,
+                        foregroundColor: scheme.onTertiary,
+                      ),
                       icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                       label: Text(localizations.generateAiBudget),
                     ),

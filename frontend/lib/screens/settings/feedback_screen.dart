@@ -152,7 +152,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                     labelStyle: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? Colors.white : scheme.primary,
+                      color: isSelected ? scheme.onPrimary : scheme.onSecondaryContainer,
                     ),
                     side: BorderSide.none,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

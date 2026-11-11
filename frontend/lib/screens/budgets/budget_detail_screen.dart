@@ -249,7 +249,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
       case BudgetStatus.upcoming:
         return AppTheme.infoFor(context);
       default:
-        return scheme.primary;
+        // Not scheme.primary: in dark that's a button fill, nearly the hero's
+        // own colour, so the progress bar and icon vanished.
+        return AppTheme.accentFor(context);
     }
   }
 

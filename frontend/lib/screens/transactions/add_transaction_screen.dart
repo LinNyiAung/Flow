@@ -932,7 +932,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
-          child: Icon(icon, size: 22, color: scheme.primary),
+          child: Icon(icon, size: 22, color: scheme.onSecondaryContainer),
         ),
       ),
     );

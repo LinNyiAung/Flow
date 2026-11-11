@@ -66,6 +66,10 @@ class AppTheme {
   /// mint tone in dark mode — the light-mode distinction between the two
   /// doesn't need a second dark value.
   static Color jadeLabel2For(BuildContext context) => _isDark(context) ? darkJadeLabel : jadeLabel2;
+  /// Accent for text, links and icons on a surface or card: jade in light,
+  /// mint in dark. Dark's `primary` is a button fill (white ink goes on it)
+  /// and reads as disabled when used as text on the dark surfaces.
+  static Color accentFor(BuildContext context) => _isDark(context) ? darkAccent : jade;
 
   /// Series ramp for pies and stacked bars, light mode.
   static const chartRamp = <Color>[
@@ -158,27 +162,30 @@ class AppTheme {
     );
   }
 
+  static const lightScheme = ColorScheme.light(
+    primary: jade,
+    onPrimary: Colors.white,
+    primaryContainer: jadeContainer,
+    onPrimaryContainer: jadeOnContainer,
+    secondaryContainer: secondaryContainer,
+    onSecondaryContainer: jade,
+    tertiary: gold,
+    onTertiary: Colors.white,
+    tertiaryContainer: goldContainer,
+    onTertiaryContainer: onGoldContainer,
+    error: danger,
+    onError: Colors.white,
+    errorContainer: dangerContainer,
+    onErrorContainer: onDangerContainer,
+    surface: surface,
+    onSurface: ink,
+    onSurfaceVariant: inkMuted2,
+    outline: outline,
+    outlineVariant: divider,
+  );
+
   static ThemeData get light {
-    const scheme = ColorScheme.light(
-      primary: jade,
-      onPrimary: Colors.white,
-      primaryContainer: jadeContainer,
-      onPrimaryContainer: jadeOnContainer,
-      secondaryContainer: secondaryContainer,
-      tertiary: gold,
-      onTertiary: Colors.white,
-      tertiaryContainer: goldContainer,
-      onTertiaryContainer: onGoldContainer,
-      error: danger,
-      onError: Colors.white,
-      errorContainer: dangerContainer,
-      onErrorContainer: onDangerContainer,
-      surface: surface,
-      onSurface: ink,
-      onSurfaceVariant: inkMuted2,
-      outline: outline,
-      outlineVariant: divider,
-    );
+    const scheme = lightScheme;
 
     final text = _textThemeFor(ink: ink, inkMuted: inkMuted2);
 
@@ -324,29 +331,32 @@ class AppTheme {
 
   /// Dark mode reuses every shape, size and spacing value above — only the
   /// scheme changes. See "Toe Pwar Prototype Dark.dc.html".
+  static const darkScheme = ColorScheme.dark(
+    primary: darkPrimary,
+    onPrimary: Colors.white,
+    primaryContainer: darkPrimaryContainer,
+    onPrimaryContainer: darkOnPrimaryContainer,
+    secondary: darkAccent,
+    onSecondary: Color(0xFF00382C),
+    secondaryContainer: darkPrimaryContainer,
+    onSecondaryContainer: darkOnPrimaryContainer,
+    tertiary: darkGold,
+    onTertiary: Color(0xFF3A3213),
+    tertiaryContainer: darkGoldContainer,
+    onTertiaryContainer: darkOnGoldContainer,
+    error: darkError,
+    onError: Color(0xFF601410),
+    errorContainer: darkErrorContainer,
+    onErrorContainer: darkError,
+    surface: darkSurface,
+    onSurface: darkInk,
+    onSurfaceVariant: darkInkMuted,
+    outline: darkOutline,
+    outlineVariant: darkDivider,
+  );
+
   static ThemeData get dark {
-    const scheme = ColorScheme.dark(
-      primary: darkPrimary,
-      onPrimary: Colors.white,
-      primaryContainer: darkPrimaryContainer,
-      onPrimaryContainer: darkOnPrimaryContainer,
-      secondary: darkAccent,
-      onSecondary: Color(0xFF00382C),
-      secondaryContainer: darkPrimaryContainer,
-      tertiary: darkGold,
-      onTertiary: Color(0xFF3A3213),
-      tertiaryContainer: darkGoldContainer,
-      onTertiaryContainer: darkOnGoldContainer,
-      error: darkError,
-      onError: Color(0xFF601410),
-      errorContainer: darkErrorContainer,
-      onErrorContainer: darkError,
-      surface: darkSurface,
-      onSurface: darkInk,
-      onSurfaceVariant: darkInkMuted,
-      outline: darkOutline,
-      outlineVariant: darkDivider,
-    );
+    const scheme = darkScheme;
 
     final base = light;
     final darkText = _textThemeFor(ink: darkInk, inkMuted: darkInkMuted);
@@ -389,6 +399,12 @@ class AppTheme {
           foregroundColor: darkAccent,
           textStyle: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600),
         ),
+      ),
+      // Material's default outlined-button ink is `primary`, a button fill in
+      // dark that reads as disabled on the surface. Disabled is left unset, so
+      // a disabled button keeps Material's own dimmed colour.
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(foregroundColor: darkAccent),
       ),
       floatingActionButtonTheme: base.floatingActionButtonTheme.copyWith(
         backgroundColor: darkPrimary,

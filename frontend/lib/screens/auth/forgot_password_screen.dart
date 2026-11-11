@@ -407,7 +407,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
-                child: Icon(Icons.check_circle_rounded, color: scheme.primary, size: 40),
+                child: Icon(Icons.check_circle_rounded, color: scheme.onPrimaryContainer, size: 40),
               ),
               const SizedBox(height: 16),
               Text(
@@ -597,7 +597,7 @@ class _StepHeader extends StatelessWidget {
           width: 64,
           height: 64,
           decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(20)),
-          child: Icon(icon, size: 30, color: scheme.primary),
+          child: Icon(icon, size: 30, color: scheme.onPrimaryContainer),
         ),
         const SizedBox(height: 16),
         Text(
