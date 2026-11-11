@@ -153,8 +153,10 @@ async def get_goals_summary(
     total_goals = len(goals)
     active_goals = len([g for g in goals if g["status"] == "active"])
     achieved_goals = len([g for g in goals if g["status"] == "achieved"])
-    total_allocated = sum(g["current_amount"] for g in goals if g["status"] == "active")
-    total_target = sum(g["target_amount"] for g in goals if g["status"] == "active")
+    # Every goal holding money (active AND achieved), the same set as the dashboard's
+    # "set aside for goals" (allocated_by_currency sums current_amount over all goals).
+    total_allocated = sum(g["current_amount"] for g in goals)
+    total_target = sum(g["target_amount"] for g in goals)
     overall_progress = (total_allocated / total_target * 100) if total_target > 0 else 0
 
     return GoalsSummary(
@@ -442,8 +444,10 @@ async def get_multi_currency_goals_summary(
         active = [g for g in goals if g["status"] == "active"]
         achieved = [g for g in goals if g["status"] == "achieved"]
 
-        total_allocated = sum(g["current_amount"] for g in active)
-        total_target = sum(g["target_amount"] for g in active)
+        # Active AND achieved goals, matching the goal count the app shows and the
+        # dashboard's "set aside for goals" (which sums every goal's current_amount).
+        total_allocated = sum(g["current_amount"] for g in goals)
+        total_target = sum(g["target_amount"] for g in goals)
         overall_progress = (total_allocated / total_target * 100) if total_target > 0 else 0
 
         currency_summaries.append(CurrencySummary(
