@@ -33,6 +33,14 @@ void main() {
     expect(formatMoney(0, Currency.usd, showPlus: true), r'$0.00');
   });
 
+  test('showPlus adds no plus when the amount rounds to zero', () {
+    expect(formatMoney(0.004, Currency.usd, showPlus: true), r'$0.00');
+    expect(formatMoney(0.3, Currency.mmk, showPlus: true), 'K0');
+    expect(formatMoney(-0.3, Currency.mmk, showPlus: true), 'K0');
+    expect(formatMoney(-0.000001, Currency.usd, showPlus: true), r'$0.00');
+    expect(formatMoney(0.6, Currency.mmk, showPlus: true), '+K1');
+  });
+
   test('the number alone, for layouts that draw the symbol', () {
     expect(formatMoneyNumber(1300, Currency.usd), '1,300.00');
     expect(formatMoneyNumber(90150.26, Currency.mmk), '90,150');

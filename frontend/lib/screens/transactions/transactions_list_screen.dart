@@ -20,6 +20,17 @@ import '../../widgets/app_drawer.dart';
 import '../transactions/edit_transaction_screen.dart';
 import '../transactions/add_transaction_screen.dart'; // Make sure to import this
 
+/// The count line's net total ("+$29.50", "-K9,999") for the entries in
+/// [currency]. An amount that rounds to zero shows no sign ("K0").
+String transactionsNetTotal(List<Transaction> transactions, Currency currency) {
+  double net = 0;
+  for (final t in transactions) {
+    if (t.currency != currency) continue;
+    net += t.type == TransactionType.inflow ? t.amount : -t.amount;
+  }
+  return formatMoney(net, currency, showPlus: true);
+}
+
 class TransactionsListScreen extends StatefulWidget {
   const TransactionsListScreen({
     super.key,
@@ -673,13 +684,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
 
     String totalLabel;
     if (totalCurrency != null) {
-      double net = 0;
-      for (final t in transactions) {
-        if (t.currency != totalCurrency) continue;
-        net += t.type == TransactionType.inflow ? t.amount : -t.amount;
-      }
-      final sign = net >= 0 ? '+' : '-';
-      totalLabel = '$sign${formatMoney(net.abs(), totalCurrency)}';
+      totalLabel = transactionsNetTotal(transactions, totalCurrency);
     } else {
       totalLabel = count == 0 ? '' : localizations.mixedCurrenciesLabel;
     }
