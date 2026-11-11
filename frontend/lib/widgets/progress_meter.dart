@@ -26,12 +26,13 @@ class ProgressMeter extends StatelessWidget {
     final over = value > 1.0;
     // On a hero (primaryContainer) the track is a faint tint of it and the
     // fill the accent: dark's `primary` is almost the hero's own green, so a
-    // primary fill on a 25% track was barely visible (about 1:1).
+    // primary fill on a 25% track was barely visible (about 1:1). Off the
+    // hero too: dark primary on the outlineVariant track was about 2.2:1.
     final track = onHero
         ? scheme.onPrimaryContainer.withValues(alpha: 0.12)
         : scheme.outlineVariant;
     final fill = overrideColor ??
-        (over ? scheme.error : (onHero ? AppTheme.accentFor(context) : scheme.primary));
+        (over ? scheme.error : AppTheme.accentFor(context));
     return ClipRRect(
       borderRadius: BorderRadius.circular(height / 2),
       child: LinearProgressIndicator(

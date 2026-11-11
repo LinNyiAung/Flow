@@ -682,7 +682,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
-                        child: Icon(Icons.category_rounded, color: scheme.primary),
+                        child: Icon(Icons.category_rounded, color: scheme.onSecondaryContainer),
                       ),
                       SizedBox(width: 14),
                       Expanded(

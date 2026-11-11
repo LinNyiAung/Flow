@@ -699,7 +699,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
               height: 36,
               alignment: Alignment.center,
               decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
-              child: Icon(iconForCategoryName(catBudget.mainCategory), color: scheme.primary, size: 20),
+              child: Icon(iconForCategoryName(catBudget.mainCategory), color: scheme.onSecondaryContainer, size: 20),
             ),
             const SizedBox(width: 12),
             // Name gets its own full-width line instead of sharing one with

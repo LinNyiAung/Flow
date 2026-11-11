@@ -717,7 +717,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         ? scheme.error
         : catBudget.percentageUsed > 80
         ? scheme.tertiary
-        : scheme.primary;
+        // Not scheme.primary: in dark it's 1.8:1 on the icon's
+        // secondaryContainer and 3.2:1 as text on the card.
+        : AppTheme.accentFor(context);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),

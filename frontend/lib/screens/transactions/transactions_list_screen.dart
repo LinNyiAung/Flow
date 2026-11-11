@@ -729,7 +729,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(20)),
-              child: Icon(Icons.receipt_long_rounded, size: 48, color: scheme.primary),
+              child: Icon(Icons.receipt_long_rounded, size: 48, color: AppTheme.accentFor(context)),
             ),
             SizedBox(height: 24),
             Text(

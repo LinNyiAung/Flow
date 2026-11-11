@@ -941,7 +941,7 @@ class _HomeScreenState extends State<HomeScreen> {
               height: 44,
               alignment: Alignment.center,
               decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
-              child: Icon(icon, size: responsive.iconSize(mobile: 22), color: scheme.primary),
+              child: Icon(icon, size: responsive.iconSize(mobile: 22), color: scheme.onSecondaryContainer),
             ),
             SizedBox(height: responsive.sp6),
             // Up to three lines: a long Myanmar word that doesn't fit one

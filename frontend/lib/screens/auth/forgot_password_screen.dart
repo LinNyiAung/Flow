@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
 import '../../services/api_service.dart';
 import '../../services/localization_service.dart';
+import '../../theme/app_theme.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({Key? key}) : super(key: key);
@@ -334,7 +335,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                             onTap: _resend,
                             child: Text(
                               localizations.sendNewCodeButton,
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.primary),
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.accentFor(context)),
                             ),
                           ),
               ],

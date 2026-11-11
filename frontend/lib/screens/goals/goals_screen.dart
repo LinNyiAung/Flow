@@ -455,7 +455,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       labelStyle: TextStyle(
         fontSize: 13,
         fontWeight: FontWeight.w600,
-        color: isSelected ? Colors.white : scheme.primary,
+        color: isSelected ? Colors.white : AppTheme.accentFor(context),
       ),
       selectedColor: scheme.primary,
       backgroundColor: scheme.surface,

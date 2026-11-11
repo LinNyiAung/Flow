@@ -407,7 +407,8 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
       default:
         return _StatusMeta(
           tint: scheme.primaryContainer,
-          ink: scheme.primary,
+          // Not scheme.primary: in dark that's 1.8:1 on primaryContainer.
+          ink: AppTheme.accentFor(context),
           label: localizations.activeCap,
         );
     }
