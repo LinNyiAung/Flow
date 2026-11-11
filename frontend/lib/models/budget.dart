@@ -148,6 +148,22 @@ class Budget {
   }
 }
 
+/// Which cap a budget is over, for wording its status. The backend reports a
+/// budget as `exceeded` both when its total is over and when only one of its
+/// categories is; those read very differently ("16% used" yet "EXCEEDED").
+extension BudgetOverState on Budget {
+  /// Total spent above the total budget (to the cent, as the backend checks).
+  bool get isTotalOver => (totalSpent * 100).round() > (totalBudget * 100).round();
+
+  /// The categories over their own cap.
+  List<CategoryBudget> get categoriesOver =>
+      categoryBudgets.where((c) => c.isExceeded).toList();
+
+  /// Exceeded only because of its categories: the total is still within cap.
+  bool get onlyCategoriesOver =>
+      status == BudgetStatus.exceeded && !isTotalOver && categoriesOver.isNotEmpty;
+}
+
 class BudgetSummary {
   final int totalBudgets;
   final int activeBudgets;

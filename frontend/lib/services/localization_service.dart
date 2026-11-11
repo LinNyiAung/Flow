@@ -402,6 +402,13 @@ class AppLocalizations {
       'nextBudgetWillUseSameAmounts': 'Next budget will use the same category amounts',
       'budgetExceeded': 'Budget Exceeded',
       'budgetExceededAlert': 'You\'ve spent more than your allocated budget. Consider reducing spending in exceeded categories.',
+      'oneCategoryOverBadge': '1 CATEGORY OVER',
+      'categoriesOverBadge': '{n} CATEGORIES OVER',
+      'oneCategoryOverTitle': 'A category is over its cap',
+      'categoriesOverTitle': '{n} categories are over their caps',
+      'oneCategoryOverBody': '{names} is over its cap. Move money to it from another category, or spend less there.',
+      'categoriesOverBody': '{names} are over their caps. Move money between categories, or spend less there.',
+      'overByAmount': 'Over by {amount}',
       'approachingBudgetLimit': 'Approaching Budget Limit',
       'used': 'Used',
       'categories': 'categories',
@@ -1528,6 +1535,13 @@ class AppLocalizations {
       'nextBudgetWillUseSameAmounts': 'နောက်ဘတ်ဂျက်တွင် တူညီသော အမျိုးအစား ပမာဏများကို အသုံးပြုမည်',
       'budgetExceeded': 'ဘတ်ဂျက် ကျော်လွန်သွားသည်',
       'budgetExceededAlert': 'သင်သည် ခွဲဝေထားသော ဘတ်ဂျက်ထက် ပိုမို သုံးစွဲခဲ့သည် ကျော်လွန်သွားသော အမျိုးအစားများတွင် သုံးစွဲမှုကို လျှော့ချရန် စဉ်းစားပါ',
+      'oneCategoryOverBadge': 'အမျိုးအစား 1 ခု ကျော်',
+      'categoriesOverBadge': 'အမျိုးအစား {n} ခု ကျော်',
+      'oneCategoryOverTitle': 'အမျိုးအစားတစ်ခု ကန့်သတ်ပမာဏ ကျော်နေသည်',
+      'categoriesOverTitle': 'အမျိုးအစား {n} ခု ကန့်သတ်ပမာဏ ကျော်နေသည်',
+      'oneCategoryOverBody': '{names} သည် ကန့်သတ်ပမာဏ ကျော်နေပါသည်။ အခြားအမျိုးအစားမှ ငွေရွှေ့ပါ သို့မဟုတ် ထိုအမျိုးအစားတွင် သုံးစွဲမှု လျှော့ပါ။',
+      'categoriesOverBody': '{names} တို့သည် ကန့်သတ်ပမာဏ ကျော်နေပါသည်။ အမျိုးအစားများကြား ငွေရွှေ့ပါ သို့မဟုတ် ထိုအမျိုးအစားများတွင် သုံးစွဲမှု လျှော့ပါ။',
+      'overByAmount': '{amount} ကျော်နေသည်',
       'approachingBudgetLimit': 'ဘတ်ဂျက် ကန့်သတ်ချက်သို့ နီးကပ်လာသည်',
       'used': 'အသုံးပြုပြီး',
       'categories': 'အမျိုးအစား',
@@ -2671,6 +2685,15 @@ class AppLocalizations {
   String get nextBudgetWillUseSameAmounts => translate('nextBudgetWillUseSameAmounts');
   String get budgetExceeded => translate('budgetExceeded');
   String get budgetExceededAlert => translate('budgetExceededAlert');
+  /// Badge for a budget whose total is within its cap but [n] categories aren't.
+  String categoriesOverBadge(int n) =>
+      n == 1 ? translate('oneCategoryOverBadge') : translate('categoriesOverBadge').replaceAll('{n}', '$n');
+  String categoriesOverTitle(int n) =>
+      n == 1 ? translate('oneCategoryOverTitle') : translate('categoriesOverTitle').replaceAll('{n}', '$n');
+  /// [names] is the comma-separated list of the categories over their caps.
+  String categoriesOverBody(int n, String names) =>
+      (n == 1 ? translate('oneCategoryOverBody') : translate('categoriesOverBody')).replaceAll('{names}', names);
+  String overByAmount(String amount) => translate('overByAmount').replaceAll('{amount}', amount);
   String get approachingBudgetLimit => translate('approachingBudgetLimit');
   String get used => translate('used');
   String get categories => translate('categories');

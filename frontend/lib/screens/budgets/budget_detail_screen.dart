@@ -256,6 +256,10 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     if (_budget.isUpcoming) {
       return localizations.upcoming;
     }
+    // Same wording as the Budgets list badge when only categories are over.
+    if (_budget.onlyCategoriesOver) {
+      return localizations.categoriesOverBadge(_budget.categoriesOver.length);
+    }
 
     return _budget.status.name.toUpperCase();
   }
@@ -393,12 +397,16 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                         style: AppTheme.money(32, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        'of ${_budget.displayTotalBudget}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onPrimaryContainer.withValues(alpha: 0.82),
+                      // Flexible: large amounts (e.g. MMK) wrap instead of
+                      // overflowing at phone widths.
+                      Flexible(
+                        child: Text(
+                          'of ${_budget.displayTotalBudget}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onPrimaryContainer.withValues(alpha: 0.82),
+                          ),
                         ),
                       ),
                     ],
@@ -429,11 +437,14 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          '${localizations.remaining}: ${_budget.displayRemainingBudget}',
+                          _budget.isTotalOver
+                              ? localizations.overByAmount(
+                                  '${_budget.currency.symbol}${formatter.format(_budget.totalSpent - _budget.totalBudget)}')
+                              : '${localizations.remaining}: ${_budget.displayRemainingBudget}',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: scheme.onPrimaryContainer,
+                            color: _budget.isTotalOver ? scheme.error : scheme.onPrimaryContainer,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -446,8 +457,22 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               ),
             ),
 
-            // Over-limit / near-limit banners
-            if (_budget.status == BudgetStatus.exceeded) ...[
+            // Over-limit / near-limit banners. "Exceeded" because of some
+            // categories only (total within cap) names those categories.
+            if (_budget.onlyCategoriesOver) ...[
+              const SizedBox(height: 16),
+              _buildBanner(
+                icon: Icons.warning_rounded,
+                iconColor: scheme.error,
+                background: scheme.errorContainer,
+                titleColor: scheme.onErrorContainer,
+                title: localizations.categoriesOverTitle(_budget.categoriesOver.length),
+                body: localizations.categoriesOverBody(
+                  _budget.categoriesOver.length,
+                  _budget.categoriesOver.map((c) => c.mainCategory).join(', '),
+                ),
+              ),
+            ] else if (_budget.status == BudgetStatus.exceeded) ...[
               const SizedBox(height: 16),
               _buildBanner(
                 icon: Icons.warning_rounded,
@@ -685,6 +710,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         : catBudget.percentageUsed > 80
         ? scheme.tertiary
         : scheme.primary;
+    // Spent above the cap (to the cent): "Over by $X" in the error colour
+    // instead of a negative "Remaining".
+    final overCap = (catBudget.spentAmount * 100).round() > (catBudget.allocatedAmount * 100).round();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -756,8 +784,15 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
-                  '${localizations.remaining}: ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount - catBudget.spentAmount)}',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: statusColor),
+                  overCap
+                      ? localizations.overByAmount(
+                          '${_budget.currency.symbol}${formatter.format(catBudget.spentAmount - catBudget.allocatedAmount)}')
+                      : '${localizations.remaining}: ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount - catBudget.spentAmount)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: overCap ? scheme.error : statusColor,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.right,

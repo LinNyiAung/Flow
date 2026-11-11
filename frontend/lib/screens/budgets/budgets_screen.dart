@@ -379,7 +379,11 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         return _StatusMeta(
           tint: scheme.errorContainer,
           ink: scheme.error,
-          label: localizations.exceededCap,
+          // Only some categories over (the total isn't): say so, rather than
+          // "EXCEEDED" next to e.g. "16%".
+          label: budget.onlyCategoriesOver
+              ? localizations.categoriesOverBadge(budget.categoriesOver.length)
+              : localizations.exceededCap,
         );
       case BudgetStatus.completed:
         return _StatusMeta(
@@ -452,7 +456,13 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                             ),
                           ],
                           const SizedBox(width: 8),
-                          StatusPill(label: meta.label, background: meta.tint, foreground: meta.ink),
+                          // Capped so a long label (e.g. "2 CATEGORIES OVER"
+                          // in Myanmar) wraps inside the pill instead of
+                          // pushing the row past the card at 360 px.
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 120),
+                            child: StatusPill(label: meta.label, background: meta.tint, foreground: meta.ink),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 2),
@@ -502,11 +512,16 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                   const SizedBox(width: 8),
                   Flexible(
                     child: Text(
-                      '${localizations.remaining} ${budget.displayRemainingBudget}',
+                      budget.isTotalOver
+                          ? localizations.overByAmount(
+                              '${budget.currency.symbol}${formatter.format(budget.totalSpent - budget.totalBudget)}')
+                          : '${localizations.remaining} ${budget.displayRemainingBudget}',
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: budget.isTotalOver ? FontWeight.w700 : FontWeight.w500,
+                        color: budget.isTotalOver
+                            ? Theme.of(context).colorScheme.error
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
