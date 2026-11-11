@@ -118,7 +118,9 @@ void main() {
         _tx(DateTime(2026, 11, 3), 12500),
       ]);
 
-      expect(find.textContaining('Today · K45,000.00'), findsOneWidget);
+      expect(find.textContaining('Today · K45,000'), findsOneWidget);
+      // Kyat is whole kyat.
+      expect(find.textContaining('K45,000.'), findsNothing);
       expect(find.text('See transactions'), findsOneWidget);
     });
 
@@ -131,7 +133,7 @@ void main() {
       await _tapBar(tester, 4); // Tue 3 Nov
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Tue, 3 Nov · K12,500.00'), findsOneWidget);
+      expect(find.textContaining('Tue, 3 Nov · K12,500'), findsOneWidget);
       expect(find.textContaining('Today'), findsNothing);
     });
 
@@ -159,7 +161,7 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Sun, 1 Nov · K800.00'), findsOneWidget);
+      expect(find.textContaining('Sun, 1 Nov · K800'), findsOneWidget);
     });
 
     testWidgets('See transactions opens the selected day in the shown currency', (tester) async {
@@ -182,7 +184,7 @@ void main() {
       ]);
 
       // Not added together: 45000 + 7 would be 45,007.
-      expect(find.textContaining('Today · K45,000.00'), findsOneWidget);
+      expect(find.textContaining('Today · K45,000'), findsOneWidget);
       expect(find.byKey(const ValueKey('spending-pace-currency-mmk')), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('spending-pace-currency-usd')));
@@ -226,7 +228,7 @@ void main() {
 
       await tester.pumpWidget(card([_tx(DateTime(2026, 11, 3), 12500), _tx(DateTime(2026, 11, 5), 10)]));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Today · K10.00'), findsOneWidget);
+      expect(find.textContaining('Today · K10'), findsOneWidget);
     });
 
     testWidgets('each bar is a selectable button for screen readers', (tester) async {
@@ -235,13 +237,13 @@ void main() {
 
       final bar = tester.getSemantics(_bar(4));
       expect(bar.label, contains('Tue, 3 Nov'));
-      expect(bar.label, contains('K12,500.00'));
+      expect(bar.label, contains('K12,500'));
       expect(bar.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
       expect(tester.getSemantics(_bar(6)).getSemanticsData().hasFlag(SemanticsFlag.isSelected), isTrue);
 
       tester.semantics.tap(find.semantics.byLabel(RegExp('Tue, 3 Nov')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Tue, 3 Nov · K12,500.00'), findsOneWidget);
+      expect(find.textContaining('Tue, 3 Nov · K12,500'), findsOneWidget);
       handle.dispose();
     });
 

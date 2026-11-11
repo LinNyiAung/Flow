@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
@@ -19,7 +20,6 @@ import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/transaction.dart';
 import '../../models/voice_image_models.dart';
-import 'package:intl/intl.dart';
 
 class ImageInputScreen extends StatefulWidget {
   @override
@@ -34,7 +34,6 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
   bool _isSaving = false;
   ExtractedTransactionData? _extractedData;
   String? _error;
-  final formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
   void initState() {
@@ -504,7 +503,7 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
                     children: [
                       Flexible(
                         child: Text(
-                          '${data.currency.symbol}${formatter.format(data.amount)}',
+                          formatMoney(data.amount, data.currency),
                           style: AppTheme.money(28, weight: FontWeight.w800, color: amountColor),
                         ),
                       ),

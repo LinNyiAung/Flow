@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'dart:typed_data';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
@@ -708,7 +709,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                                         dense: true,
                                       )
                                     : Text(
-                                        '${t.currency.symbol}${formatter.format(t.amount)}',
+                                        formatMoney(t.amount, t.currency),
                                         style: AppTheme.money(15, weight: FontWeight.w800, color: amountColor),
                                       ),
                               ),

@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/user.dart';
 
@@ -104,7 +105,7 @@ class FinancialReport {
 
   // NEW - Helper method to format amount with currency
   String formatAmount(double amount) {
-    return '${currency.symbol}${amount.toStringAsFixed(2)}';
+    return formatMoney(amount, currency);
   }
 
   /// Calendar days the report covers, both ends included (Nov 1 – Nov 30 is

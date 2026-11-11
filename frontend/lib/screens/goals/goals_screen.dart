@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
@@ -12,7 +13,6 @@ import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
@@ -38,7 +38,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   GoalStatus? _filterStatus;
   Currency _selectedCurrency = Currency.usd;
-  final _formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
   void initState() {
@@ -227,27 +226,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             ],
                           ),
                           const SizedBox(height: 6),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                _selectedCurrency.symbol,
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                currencySummary != null ? _formatter.format(currencySummary.totalAllocated) : '0.00',
-                                style: AppTheme.money(32, weight: FontWeight.w800, color: scheme.onSurface),
-                              ),
-                            ],
+                          // One run like every other hero amount ("$1,300.00"),
+                          // not a separately styled symbol.
+                          Text(
+                            formatMoney(currencySummary?.totalAllocated ?? 0, _selectedCurrency),
+                            style: AppTheme.money(32, weight: FontWeight.w800, color: scheme.onSurface),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             currencySummary != null
-                                ? '${localizations.ofAmount('${_selectedCurrency.symbol}${_formatter.format(currencySummary.totalTarget)}')}'
+                                ? '${localizations.ofAmount(formatMoney(currencySummary.totalTarget, _selectedCurrency))}'
                                     ' · ${currencySummary.activeGoals + currencySummary.achievedGoals} ${localizations.goals}'
-                                : localizations.ofAmount('${_selectedCurrency.symbol}0.00'),
+                                : localizations.ofAmount(formatMoney(0, _selectedCurrency)),
                             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
                           ),
                           const SizedBox(height: 14),
@@ -399,7 +389,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           Text(localizations.availableForGoals, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
                           const SizedBox(height: 2),
                           Text(
-                            '${currency.symbol}${_formatter.format(balance.availableBalance)}',
+                            formatMoney(balance.availableBalance, currency),
                             style: AppTheme.money(22, weight: FontWeight.w800, color: scheme.onSurface),
                           ),
                           const SizedBox(height: 12),
@@ -420,7 +410,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                 children: [
                                   Text(localizations.allocatedToGoals, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
                                   Text(
-                                    '${currency.symbol}${_formatter.format(balance.allocatedToGoals)}',
+                                    formatMoney(balance.allocatedToGoals, currency),
                                     style: AppTheme.money(14, weight: FontWeight.w700, color: scheme.tertiary),
                                   ),
                                 ],

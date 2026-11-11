@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/user.dart';
@@ -122,12 +123,12 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               ),
               _buildSummaryItem(
                 localizations.avgMonthlyIncome,
-                '${_suggestion!.currency.symbol}${formatter.format(_suggestion!.analysisSummary['average_monthly_income'])}',
+                formatMoney(_suggestion!.analysisSummary['average_monthly_income'], _suggestion!.currency),
                 Icons.trending_up_rounded,
               ),
               _buildSummaryItem(
                 localizations.avgMonthlyExpenses,
-                '${_suggestion!.currency.symbol}${formatter.format(_suggestion!.analysisSummary['average_monthly_expenses'])}',
+                formatMoney(_suggestion!.analysisSummary['average_monthly_expenses'], _suggestion!.currency),
                 Icons.trending_down_rounded,
               ),
               _buildSummaryItem(
@@ -434,13 +435,13 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
               _buildInfoRow(
                 Icons.date_range_rounded,
                 localizations.duration,
-                '${AppDates.range(context, _suggestion!.startDate, _suggestion!.endDate)}',
+                AppDates.range(context, _suggestion!.startDate, _suggestion!.endDate),
               ),
               _buildInfoRow(Icons.attach_money_rounded, localizations.currency, _suggestion!.currency.displayName),
               _buildInfoRow(
                 Icons.attach_money_rounded,
                 localizations.totalBudget,
-                '${_suggestion!.currency.symbol}${formatter.format(_suggestion!.totalBudget)}',
+                formatMoney(_suggestion!.totalBudget, _suggestion!.currency),
               ),
             ],
           ),
@@ -508,7 +509,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '${_suggestion!.currency.symbol}${formatter.format(catBudget.allocatedAmount)}',
+                      formatMoney(catBudget.allocatedAmount, _suggestion!.currency),
                       style: AppTheme.money(16, weight: FontWeight.w700),
                     ),
                   ],

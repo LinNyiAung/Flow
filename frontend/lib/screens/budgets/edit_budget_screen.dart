@@ -1,6 +1,7 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
-import 'package:frontend/models/transaction.dart' hide formatter;
+import 'package:frontend/models/transaction.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
@@ -323,7 +324,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       Expanded(
                         child: _lockedField(
                           localizations.duration,
-                          '${AppDates.range(context, widget.budget.startDate, widget.budget.endDate)}',
+                          AppDates.range(context, widget.budget.startDate, widget.budget.endDate),
                         ),
                       ),
                     ],
@@ -503,7 +504,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       spacing: 12,
                       children: [
                         Text(
-                          '${widget.budget.currency.symbol}${formatter.format(widget.budget.totalBudget)}',
+                          formatMoney(widget.budget.totalBudget, widget.budget.currency),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -513,7 +514,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                         ),
                         Icon(Icons.arrow_forward_rounded, size: 20, color: scheme.onPrimaryContainer),
                         Text(
-                          '${widget.budget.currency.symbol}${formatter.format(totalBudget)}',
+                          formatMoney(totalBudget, widget.budget.currency),
                           style: AppTheme.money(24, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
                         ),
                       ],
@@ -530,7 +531,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                         Expanded(
                           child: Text(
                             localizations.againstCurrentCap(
-                                '${totalBudget > widget.budget.totalBudget ? '+' : '-'}${widget.budget.currency.symbol}${formatter.format((totalBudget - widget.budget.totalBudget).abs())}'),
+                                formatMoney(totalBudget - widget.budget.totalBudget, widget.budget.currency, showPlus: true)),
                             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer),
                           ),
                         ),
@@ -543,7 +544,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
               const SizedBox(height: 12),
               HeroCard(
                 label: localizations.currentTotal,
-                value: '${widget.budget.currency.symbol}${formatter.format(totalBudget)}',
+                value: formatMoney(totalBudget, widget.budget.currency),
               ),
             ],
           ],
@@ -717,7 +718,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${widget.budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}',
+                    formatMoney(catBudget.allocatedAmount, widget.budget.currency),
                     style: AppTheme.money(14, weight: FontWeight.w700, color: scheme.primary),
                   ),
                 ],

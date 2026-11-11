@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
@@ -13,7 +14,6 @@ import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/transaction.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_drawer.dart';
@@ -65,7 +65,6 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   /// Bumped for every new (filtered) load; older responses are dropped.
   int _requestId = 0;
 
-  final formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
   void initState() {
@@ -680,7 +679,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
         net += t.type == TransactionType.inflow ? t.amount : -t.amount;
       }
       final sign = net >= 0 ? '+' : '-';
-      totalLabel = '$sign${totalCurrency.symbol}${formatter.format(net.abs())}';
+      totalLabel = '$sign${formatMoney(net.abs(), totalCurrency)}';
     } else {
       totalLabel = count == 0 ? '' : localizations.mixedCurrenciesLabel;
     }
@@ -762,7 +761,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${isInflow ? '+' : '-'}${transaction.currency.symbol}${formatter.format(transaction.amount)}',
+              '${isInflow ? '+' : '-'}${formatMoney(transaction.amount, transaction.currency)}',
               style: AppTheme.money(15, weight: FontWeight.w700, color: moneyColor),
             ),
             SizedBox(height: 2),

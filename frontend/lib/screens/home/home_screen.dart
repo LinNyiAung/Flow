@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -27,7 +28,6 @@ import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/spending_pace_card.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:frontend/widgets/stat_tile.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transaction_provider.dart';
@@ -40,7 +40,6 @@ import '../transactions/edit_transaction_screen.dart'; // Import for editing
 import '../../widgets/app_drawer.dart'; // Import the drawer widget
 import 'package:frontend/services/responsive_helper.dart';
 
-final formatter = NumberFormat("#,##0.00", "en_US");
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -515,7 +514,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final scheme = Theme.of(context).colorScheme;
     final balance = transactionProvider.balance;
     final currency = balance?.currency ?? authProvider.defaultCurrency;
-    final symbol = currency.symbol;
     final available = balance?.availableBalance ?? 0.0;
     final total = balance?.balance ?? 0.0;
     final allocated = balance?.allocatedToGoals ?? 0.0;
@@ -524,14 +522,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final localizations = AppLocalizations.of(context);
     final totalText = localizations.amountTotal
-        .replaceAll('{amount}', '$symbol${formatter.format(total)}');
+        .replaceAll('{amount}', formatMoney(total, currency));
     final supporting = allocated > 0
-        ? '${localizations.amountSetAsideForGoals.replaceAll('{amount}', '$symbol${formatter.format(allocated)}')} · $totalText'
+        ? '${localizations.amountSetAsideForGoals.replaceAll('{amount}', formatMoney(allocated, currency))} · $totalText'
         : totalText;
 
     return HeroCard(
       label: localizations.availableToSpend,
-      value: '$symbol${formatter.format(available)}',
+      value: formatMoney(available, currency),
       supporting: supporting,
       labelTrailing: Container(
         padding: EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -563,13 +561,13 @@ class _HomeScreenState extends State<HomeScreen> {
         StatTile(
           icon: Icons.arrow_upward_rounded,
           label: AppLocalizations.of(context).inflow,
-          value: '$symbol${formatter.format(inflow)}',
+          value: formatMoney(inflow, currency),
           iconColor: scheme.primary,
         ),
         StatTile(
           icon: Icons.arrow_downward_rounded,
           label: AppLocalizations.of(context).outflow,
-          value: '$symbol${formatter.format(outflow)}',
+          value: formatMoney(outflow, currency),
           iconColor: scheme.error,
         ),
       ],
@@ -1295,7 +1293,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     fit: BoxFit.scaleDown,
                     alignment: AlignmentDirectional.centerEnd,
                     child: Text(
-                      '${isInflow ? '+' : '-'}${transaction.currency.symbol}${formatter.format(transaction.amount)}',
+                      '${isInflow ? '+' : '-'}${formatMoney(transaction.amount, transaction.currency)}',
                       style: AppTheme.money(15, weight: FontWeight.w700, color: moneyColor),
                       maxLines: 1,
                       softWrap: false,
@@ -1368,7 +1366,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (balance == null) return SizedBox.shrink();
                 final isDefault = currency == defaultCurrency;
                 final heldText = balance.allocatedToGoals > 0
-                    ? localizations.heldForGoals('${currency.symbol}${formatter.format(balance.allocatedToGoals)}')
+                    ? localizations.heldForGoals(formatMoney(balance.allocatedToGoals, currency))
                     : localizations.nothingHeld;
 
                 return Container(
@@ -1490,7 +1488,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               Text(
-                                '${currency.symbol}${formatter.format(balance.availableBalance)}',
+                                formatMoney(balance.availableBalance, currency),
                                 style: AppTheme.money(15, weight: FontWeight.w600, color: scheme.onSurface),
                               ),
                             ],
@@ -1510,7 +1508,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               Text(
-                                '${currency.symbol}${formatter.format(balance.allocatedToGoals)}',
+                                formatMoney(balance.allocatedToGoals, currency),
                                 style: AppTheme.money(
                                   15,
                                   weight: FontWeight.w600,
@@ -1537,7 +1535,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               SizedBox(width: 4),
                               Text(
-                                '${currency.symbol}${formatter.format(balance.totalInflow)}',
+                                formatMoney(balance.totalInflow, currency),
                                 style: TextStyle(
                                   fontSize: responsive.fs13,
                                   color: scheme.primary,
@@ -1555,7 +1553,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               SizedBox(width: 4),
                               Text(
-                                '${currency.symbol}${formatter.format(balance.totalOutflow)}',
+                                formatMoney(balance.totalOutflow, currency),
                                 style: TextStyle(
                                   fontSize: responsive.fs13,
                                   color: scheme.error,

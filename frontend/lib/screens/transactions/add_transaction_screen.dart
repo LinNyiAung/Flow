@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/utils/money.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_save_button.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
@@ -1063,7 +1064,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                             Text(localizations.preview, style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.jadeLabelFor(context))),
                             SizedBox(height: 4),
                             Text(
-                              '${_selectedCurrency.symbol}${(_parsedAmount() ?? 0).toStringAsFixed(2)} → ${targetCurrency!.symbol}${((_parsedAmount() ?? 0) * (double.tryParse(rateController.text) ?? 1)).toStringAsFixed(2)}',
+                              '${formatMoney(_parsedAmount() ?? 0, _selectedCurrency)} → ${formatMoney((_parsedAmount() ?? 0) * (double.tryParse(rateController.text) ?? 1), targetCurrency!)}',
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                           ],
@@ -1118,7 +1119,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${localizations.currencyConvertedMessage} ${targetCurrency.symbol}${convertedAmount.toStringAsFixed(2)}')),
+      SnackBar(content: Text('${localizations.currencyConvertedMessage} ${formatMoney(convertedAmount, targetCurrency)}')),
     );
   }
 

@@ -210,7 +210,7 @@ void main() {
 
   testWidgets('Myanmar 360: a recent amount is shown in full', (tester) async {
     await _pumpHome(tester, locale: const Locale('my'));
-    _expectShownInFull(tester, find.text('+K1,800,000.00'));
+    _expectShownInFull(tester, find.text('+K1,800,000'));
   });
 
   testWidgets('Myanmar 360: quick link labels are shown in full', (tester) async {

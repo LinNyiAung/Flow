@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/user.dart';
@@ -6,7 +7,6 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
@@ -34,7 +34,6 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
   bool _isLoading = false;
 
   Currency _selectedCurrency = Currency.usd;
-  final _formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
   void initState() {
@@ -198,13 +197,13 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${_selectedCurrency.symbol}${_formatter.format(availableBalance)}',
+                      formatMoney(availableBalance, _selectedCurrency),
                       style: AppTheme.money(26, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
                     ),
                     if (enteredInitial > 0) ...[
                       const SizedBox(height: 4),
                       Text(
-                        '${_selectedCurrency.symbol}${_formatter.format(remainingAfterInitial)} left after this goal',
+                        '${formatMoney(remainingAfterInitial, _selectedCurrency)} left after this goal',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onHeroMuted),
                       ),
                     ],

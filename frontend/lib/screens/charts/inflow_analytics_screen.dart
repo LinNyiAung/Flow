@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/chart_buckets.dart';
 import 'package:frontend/utils/date_format.dart';
@@ -42,7 +43,6 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
   List<Transaction> _filteredTransactions = [];
   int _touchedBarIndex = -1;
   bool _isLoading = false;
-  final formatter = NumberFormat("#,##0.00", "en_US");
 
   Currency? _selectedCurrency;
 
@@ -299,7 +299,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
               else ...[
                 HeroCard(
                   label: '${localizations.moneyInLabel} ${_getPeriodLabel()}',
-                  value: '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalIncome)}',
+                  value: formatMoney(totalIncome, _selectedCurrency ?? Currency.usd),
                   stats: [
                     StatTile(
                       icon: Icons.receipt_long_rounded,
@@ -310,7 +310,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                       icon: Icons.calculate_rounded,
                       label: localizations.avgPerEntry,
                       value:
-                          '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(_filteredTransactions.isEmpty ? 0 : totalIncome / _filteredTransactions.length)}',
+                          formatMoney(_filteredTransactions.isEmpty ? 0 : totalIncome / _filteredTransactions.length, _selectedCurrency ?? Currency.usd),
                     ),
                   ],
                 ),
@@ -374,7 +374,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                                     getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                       final label = ChartBuckets.tooltipLabel(timeSeriesData.keys.toList()[group.x.toInt()], _timeSeriesBucket, locale: dateLocaleOf(context));
                                       return BarTooltipItem(
-                                        '$label\n${_selectedCurrency?.symbol ?? '\$'}${formatter.format(rod.toY)}',
+                                        '$label\n${formatMoney(rod.toY, _selectedCurrency ?? Currency.usd)}',
                                         AppTheme.money(12, weight: FontWeight.w700, color: scheme.onPrimary),
                                       );
                                     },
@@ -514,7 +514,7 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(amount)}',
+                      formatMoney(amount, _selectedCurrency ?? Currency.usd),
                       style: AppTheme.money(14, weight: FontWeight.w700, color: scheme.onSurface),
                     ),
                     const SizedBox(height: 2),

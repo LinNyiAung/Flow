@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/screens/budgets/edit_budget_screen.dart';
@@ -443,7 +444,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                         child: Text(
                           _budget.isTotalOver
                               ? localizations.overByAmount(
-                                  '${_budget.currency.symbol}${formatter.format(_budget.totalSpent - _budget.totalBudget)}')
+                                  formatMoney(_budget.totalSpent - _budget.totalBudget, _budget.currency))
                               : '${localizations.remaining}: ${_budget.displayRemainingBudget}',
                           style: TextStyle(
                             fontSize: 12,
@@ -774,7 +775,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
             children: [
               Flexible(
                 child: Text(
-                  '${_budget.currency.symbol}${formatter.format(catBudget.spentAmount)} / ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount)}',
+                  '${formatMoney(catBudget.spentAmount, _budget.currency)} / ${formatMoney(catBudget.allocatedAmount, _budget.currency)}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -789,8 +790,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 child: Text(
                   overCap
                       ? localizations.overByAmount(
-                          '${_budget.currency.symbol}${formatter.format(catBudget.spentAmount - catBudget.allocatedAmount)}')
-                      : '${localizations.remaining}: ${_budget.currency.symbol}${formatter.format(catBudget.allocatedAmount - catBudget.spentAmount)}',
+                          formatMoney(catBudget.spentAmount - catBudget.allocatedAmount, _budget.currency))
+                      : '${localizations.remaining}: ${formatMoney(catBudget.allocatedAmount - catBudget.spentAmount, _budget.currency)}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

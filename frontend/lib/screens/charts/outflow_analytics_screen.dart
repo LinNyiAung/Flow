@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/chart_buckets.dart';
 import 'package:frontend/utils/date_format.dart';
@@ -45,7 +46,6 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
   int _touchedPieIndex = -1;
   int _touchedBarIndex = -1;
   bool _isLoading = false;
-  final formatter = NumberFormat("#,##0.00", "en_US");
 
   Currency? _selectedCurrency;
 
@@ -294,7 +294,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
               else ...[
                 HeroCard(
                   label: '${localizations.moneyOutLabel} ${_getPeriodLabel()}',
-                  value: '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(totalSpending)}',
+                  value: formatMoney(totalSpending, _selectedCurrency ?? Currency.usd),
                   stats: [
                     StatTile(
                       icon: Icons.receipt_long_rounded,
@@ -305,7 +305,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                       icon: Icons.calculate_rounded,
                       label: localizations.avgPerEntry,
                       value:
-                          '${_selectedCurrency?.symbol ?? '\$'}${formatter.format(_filteredTransactions.isEmpty ? 0 : totalSpending / _filteredTransactions.length)}',
+                          formatMoney(_filteredTransactions.isEmpty ? 0 : totalSpending / _filteredTransactions.length, _selectedCurrency ?? Currency.usd),
                     ),
                   ],
                 ),
@@ -447,7 +447,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
                                     getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                       final label = ChartBuckets.tooltipLabel(timeSeriesData.keys.toList()[group.x.toInt()], _timeSeriesBucket, locale: dateLocaleOf(context));
                                       return BarTooltipItem(
-                                        '$label\n${_selectedCurrency?.symbol ?? '\$'}${formatter.format(rod.toY)}',
+                                        '$label\n${formatMoney(rod.toY, _selectedCurrency ?? Currency.usd)}',
                                         AppTheme.money(12, weight: FontWeight.w700, color: scheme.onPrimary),
                                       );
                                     },

@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
@@ -13,7 +14,6 @@ import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/stat_tile.dart';
-import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 import '../../models/report.dart';
@@ -57,7 +57,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
   bool _isLoading = false;
   bool _isDownloading = false;
   String? _error;
-  final formatter = NumberFormat("#,##0.00", "en_US");
 
   @override
   void initState() {
@@ -646,7 +645,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         HeroCard(
           label:
               '${localizations.netLabel} · ${AppDates.range(context, report.startDate, report.endDate)}',
-          value: '${report.netBalance >= 0 ? '+' : ''}${report.currency.symbol}${formatter.format(report.netBalance)}',
+          value: formatMoney(report.netBalance, report.currency, showPlus: true),
           labelTrailing: _currencyHeroChip(),
           onLabelTap: _pickCurrencyFilter,
           stats: [
@@ -658,7 +657,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               stacked: true,
               // Same figure and format as "Average Daily Expenses" below, so
               // the two never read as different numbers ($13 vs $12.91).
-              value: '${report.currency.symbol}${formatter.format(report.averageDailyOutflow)}',
+              value: formatMoney(report.averageDailyOutflow, report.currency),
             ),
           ],
         ),
@@ -677,7 +676,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: _infoCard(localizations.goalsAllocated, '${report.currency.symbol}${formatter.format(report.totalAllocatedToGoals)}', Icons.flag_rounded)),
+            Expanded(child: _infoCard(localizations.goalsAllocated, formatMoney(report.totalAllocatedToGoals, report.currency), Icons.flag_rounded)),
             const SizedBox(width: 12),
             Expanded(child: _infoCard(localizations.daysCoveredLabel, '$days', Icons.event_note_rounded)),
           ],
@@ -750,7 +749,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              '${currency.symbol}${formatter.format(amount)}',
+              formatMoney(amount, currency),
               style: AppTheme.money(17, weight: FontWeight.w700, color: color),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -799,7 +798,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(width: 8),
         Text(
-          '${currency.symbol}${formatter.format(amount)}',
+          formatMoney(amount, currency),
           style: AppTheme.money(15, weight: FontWeight.w700, color: color),
         ),
       ],
@@ -826,7 +825,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                '${currency.symbol}${formatter.format(cat.amount)}',
+                formatMoney(cat.amount, currency),
                 style: AppTheme.money(13, weight: FontWeight.w700, color: color),
               ),
             ],
@@ -930,7 +929,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '${currency.symbol}${formatter.format(netBalance)}',
+                    formatMoney(netBalance, currency),
                     style: AppTheme.money(19, weight: FontWeight.w700, color: balanceColor),
                   ),
                 ],
@@ -1012,7 +1011,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         Text(label, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
         const SizedBox(height: 4),
         Text(
-          '${currency.symbol}${formatter.format(amount)}',
+          formatMoney(amount, currency),
           style: AppTheme.money(16, weight: FontWeight.w700, color: color),
         ),
         Text('$count ${localizations.transactions}', style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
@@ -1035,7 +1034,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(width: 8),
         Text(
-          '${currency.symbol}${formatter.format(amount)}',
+          formatMoney(amount, currency),
           style: AppTheme.money(13, weight: FontWeight.w600, color: color),
         ),
       ],
@@ -1058,7 +1057,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           const SizedBox(width: 8),
           Text(
-            '${currency.symbol}${formatter.format(cat.amount)}',
+            formatMoney(cat.amount, currency),
             style: AppTheme.money(13, weight: FontWeight.w600, color: color),
           ),
         ],

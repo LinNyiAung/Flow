@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -7,7 +8,6 @@ import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
@@ -30,7 +30,6 @@ class GoalDetailScreen extends StatefulWidget {
 
 class _GoalDetailScreenState extends State<GoalDetailScreen> {
   final _contributionController = TextEditingController();
-  final _formatter = NumberFormat("#,##0.00", "en_US");
   bool _isLoading = false;
   bool _isContributionLoading = false; // NEW: Separate loading state for contribution dialog
   late Goal _currentGoal;
@@ -181,7 +180,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               Text(localizations.manageFunds, style: Theme.of(sheetContext).textTheme.titleLarge),
               const SizedBox(height: 4),
               Text(
-                '${localizations.available}: ${_currentGoal.currency.symbol}${_formatter.format(availableBalance)}',
+                '${localizations.available}: ${formatMoney(availableBalance, _currentGoal.currency)}',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
               ),
               if (canAdd && canWithdraw) ...[

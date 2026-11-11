@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
@@ -527,7 +528,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                     child: Text(
                       budget.isTotalOver
                           ? localizations.overByAmount(
-                              '${budget.currency.symbol}${formatter.format(budget.totalSpent - budget.totalBudget)}')
+                              formatMoney(budget.totalSpent - budget.totalBudget, budget.currency))
                           : '${localizations.remaining} ${budget.displayRemainingBudget}',
                       style: TextStyle(
                         fontSize: 12,

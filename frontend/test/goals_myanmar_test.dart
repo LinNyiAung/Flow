@@ -113,6 +113,8 @@ void main() {
     await _pump(tester, const Locale('en'));
     expect(find.text('LARGE PURCHASE'), findsOneWidget);
     expect(find.text(r'of $5,800.00 · 2 Goals'), findsOneWidget);
+    // The hero amount is one run, like the other heroes: "$1,500.00".
+    expect(find.text(r'$1,500.00'), findsOneWidget);
     expect(find.text('Overdue · was due ${AppDates.compactDayIn(_overdueDate)}'), findsOneWidget);
   });
 

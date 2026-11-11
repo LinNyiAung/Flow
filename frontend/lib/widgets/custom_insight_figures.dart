@@ -4,19 +4,20 @@ import 'package:intl/intl.dart';
 import 'package:frontend/models/custom_insight.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/money.dart';
 
 /// The most top-spending categories a card lists.
 const int customInsightMaxTopCategories = 5;
 
 final NumberFormat _amountFormat = NumberFormat('#,##0.00', 'en_US');
 
-/// "$1,250.00", "-K500.00": the amount with its currency symbol (the code for
-/// a currency the app has no symbol for).
+/// "$1,250.00", "-K500": the amount as [formatMoney] shows it (the code and
+/// two decimals for a currency the app doesn't know).
 String customInsightMoney(String currency, double amount) {
   final code = currency.toLowerCase();
   final known = Currency.values.where((c) => c.name == code).firstOrNull;
-  final symbol = known?.symbol ?? '${currency.toUpperCase()} ';
-  final text = '$symbol${_amountFormat.format(amount.abs())}';
+  if (known != null) return formatMoney(amount, known);
+  final text = '${currency.toUpperCase()} ${_amountFormat.format(amount.abs())}';
   return amount < 0 ? '-$text' : text;
 }
 

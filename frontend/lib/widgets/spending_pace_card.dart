@@ -1,3 +1,4 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -8,7 +9,6 @@ import '../services/responsive_helper.dart';
 import '../utils/date_locale.dart';
 import '../utils/spending_pace.dart';
 
-final _amountFormat = NumberFormat("#,##0.00", "en_US");
 
 /// Home's "Spending pace" card: last-7-days spending as 7 bars, one currency
 /// at a time. Tapping or dragging across the bars selects a day; the line
@@ -76,7 +76,7 @@ class _SpendingPaceCardState extends State<SpendingPaceCard> {
     final maxTotal = totals.fold<double>(0, (max, v) => v > max ? v : max);
 
     String amountText(double total) => total > 0
-        ? '${currency.symbol}${_amountFormat.format(total)}'
+        ? formatMoney(total, currency)
         : localizations.nothingSpent;
 
     final selectedDay = pace.days[_selected];

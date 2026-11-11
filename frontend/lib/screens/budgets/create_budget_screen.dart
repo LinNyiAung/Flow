@@ -1,6 +1,7 @@
+import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
-import 'package:frontend/models/transaction.dart' hide formatter;
+import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -755,7 +756,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                 ),
               ),
               const SizedBox(height: 10),
-              HeroCard(label: localizations.totalBudget, value: '${_selectedCurrency.symbol}${formatter.format(totalBudget)}'),
+              HeroCard(label: localizations.totalBudget, value: formatMoney(totalBudget, _selectedCurrency)),
             ],
           ],
         ),
@@ -986,7 +987,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_selectedCurrency.symbol}${formatter.format(catBudget.allocatedAmount)}',
+                    formatMoney(catBudget.allocatedAmount, _selectedCurrency),
                     style: AppTheme.money(14, weight: FontWeight.w700, color: scheme.primary),
                   ),
                 ],
