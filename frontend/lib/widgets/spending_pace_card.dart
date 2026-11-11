@@ -91,7 +91,12 @@ class _SpendingPaceCardState extends State<SpendingPaceCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
+            // Full width, so spaceBetween can push the chips to the right
+            // edge (a bare Wrap is only as wide as its content); they still
+            // wrap under the title when the row is too narrow.
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
               alignment: WrapAlignment.spaceBetween,
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: responsive.sp8,
@@ -122,6 +127,7 @@ class _SpendingPaceCardState extends State<SpendingPaceCard> {
                     ],
                   ),
               ],
+              ),
             ),
             SizedBox(height: responsive.sp8),
             Wrap(
@@ -205,7 +211,7 @@ class _SpendingPaceCardState extends State<SpendingPaceCard> {
                     .map(
                       (d) => Expanded(
                         child: Text(
-                          DateFormat('E').format(d).substring(0, 1),
+                          localizations.weekdayInitial(d.weekday),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: responsive.fs11,

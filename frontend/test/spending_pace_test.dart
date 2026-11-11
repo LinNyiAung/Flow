@@ -250,5 +250,51 @@ void main() {
       expect(find.textContaining('ယနေ့'), findsOneWidget);
       expect(find.text('See transactions'), findsNothing);
     });
+
+    // Fri 30 Oct .. Thu 5 Nov.
+    List<String> weekdayLabels(WidgetTester tester) => [
+          for (var i = 0; i < 7; i++)
+            tester
+                .widgetList<Text>(find.byType(Text))
+                .where((t) => t.textAlign == TextAlign.center)
+                .elementAt(i)
+                .data!,
+        ];
+
+    testWidgets('weekday letters under the bars', (tester) async {
+      await _pumpCard(tester, [_tx(DateTime(2026, 11, 5), 45000)]);
+      expect(weekdayLabels(tester), ['F', 'S', 'S', 'M', 'T', 'W', 'T']);
+    });
+
+    testWidgets('Myanmar weekday labels under the bars', (tester) async {
+      await _pumpCard(tester, [_tx(DateTime(2026, 11, 5), 45000)], locale: const Locale('my'));
+      expect(weekdayLabels(tester), ['ကြာ', 'နေ', 'နွေ', 'လာ', 'ဂါ', 'ဟူး', 'တေး']);
+    });
+
+    testWidgets('currency chips sit at the right edge of the card', (tester) async {
+      await _pumpCard(tester, [
+        _tx(DateTime(2026, 11, 5), 45000),
+        _tx(DateTime(2026, 11, 5), 7, currency: Currency.usd),
+      ]);
+      final card = tester.getRect(find.byType(Card));
+      final lastChip = tester.getRect(find.byKey(const ValueKey('spending-pace-currency-usd')));
+      // The card's own 4 px margin, then its 18 px padding.
+      expect(lastChip.right, closeTo(card.right - 4 - 18, 1));
+    });
+
+    testWidgets('Myanmar 360: the chips wrap under the title without overflow', (tester) async {
+      tester.view.physicalSize = const Size(360 * 3, 780 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await _pumpCard(
+        tester,
+        [_tx(DateTime(2026, 11, 5), 45000), _tx(DateTime(2026, 11, 5), 7, currency: Currency.usd)],
+        locale: const Locale('my'),
+      );
+      expect(tester.takeException(), isNull);
+      final card = tester.getRect(find.byType(Card));
+      final lastChip = tester.getRect(find.byKey(const ValueKey('spending-pace-currency-usd')));
+      expect(lastChip.right, lessThanOrEqualTo(card.right));
+    });
   });
 }
