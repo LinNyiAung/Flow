@@ -1147,6 +1147,8 @@ class AppLocalizations {
       'upgradeBillingYearly': 'Yearly · {price}',
       'upgradeRequestPriceChanged': 'The price has changed. Please check it and try again.',
       'ownerContactTitle': 'Contact us directly',
+      'acceptedPaymentsTitle': 'We accept',
+      'acceptedPaymentsSemantics': 'We accept KPay and WavePay',
       'ownerContactEmail': 'Email',
       'ownerContactViber': 'Viber',
       'ownerContactEmailFailed': 'Couldn\'t open your email app. The address was copied: {email}',
@@ -2262,6 +2264,8 @@ class AppLocalizations {
       'upgradeBillingYearly': 'နှစ်စဉ် · {price}',
       'upgradeRequestPriceChanged': 'စျေးနှုန်း ပြောင်းလဲသွားပါသည်။ ပြန်စစ်ဆေးပြီး ထပ်ကြိုးစားပါ။',
       'ownerContactTitle': 'ကျွန်ုပ်တို့ကို တိုက်ရိုက်ဆက်သွယ်ပါ',
+      'acceptedPaymentsTitle': 'လက်ခံသော ငွေပေးချေမှု',
+      'acceptedPaymentsSemantics': 'KPay နှင့် WavePay ဖြင့် ငွေပေးချေနိုင်ပါသည်',
       'ownerContactEmail': 'အီးမေးလ်',
       'ownerContactViber': 'Viber',
       'ownerContactEmailFailed': 'အီးမေးလ်အက်ပ်ကို မဖွင့်နိုင်ပါ။ လိပ်စာကို ကူးယူထားပါသည်- {email}',
@@ -3409,6 +3413,8 @@ class AppLocalizations {
   String get upgradeRequestContactLineNoEmail => translate('upgradeRequestContactLineNoEmail');
   String get upgradeRequestThanks => translate('upgradeRequestThanks');
   String get ownerContactTitle => translate('ownerContactTitle');
+  String get acceptedPaymentsTitle => translate('acceptedPaymentsTitle');
+  String get acceptedPaymentsSemantics => translate('acceptedPaymentsSemantics');
   String get ownerContactEmail => translate('ownerContactEmail');
   String get ownerContactViber => translate('ownerContactViber');
   String get ownerContactTelegram => translate('ownerContactTelegram');

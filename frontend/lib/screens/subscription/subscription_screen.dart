@@ -5,6 +5,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/utils/contact_details.dart';
+import 'package:frontend/widgets/accepted_payments.dart';
 import 'package:frontend/widgets/owner_contact_block.dart';
 import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
@@ -233,6 +234,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                               hasEndDate,
                               localizations,
                             ),
+                            // ── How to pay: KPay / WavePay (information only) ──
+                            const SizedBox(height: 8),
+                            const Center(child: AcceptedPayments(centered: true)),
                           ],
 
                           // ── Upgrade contact ──
@@ -625,7 +629,7 @@ class UpgradeRequestInput {
 /// [accountEmail] is where the owner emails the user when they leave the
 /// number empty. [initialViber] prefills the field (the number of the user's
 /// pending request). [ownerContact] shows "Contact us directly" under the
-/// fields. [price] is the plan's price: with a monthly price the user picks
+/// fields, and "We accept" KPay / WavePay comes last. [price] is the plan's price: with a monthly price the user picks
 /// Monthly (the default) or, when there is one, Yearly.
 class UpgradeRequestDialog extends StatefulWidget {
   const UpgradeRequestDialog({
@@ -790,6 +794,8 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
               const SizedBox(height: 12),
               OwnerContactBlock(contact: widget.ownerContact),
             ],
+            const SizedBox(height: 16),
+            const AcceptedPayments(compact: true),
           ],
         ),
       ),
