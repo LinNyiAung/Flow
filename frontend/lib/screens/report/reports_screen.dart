@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/platform/file_saver.dart';
@@ -195,7 +196,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       drawer: AppDrawer(),
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: Text(localizations.financialReports),
+        title: AppBarTitle(localizations.financialReports),
         leading: IconButton(
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
