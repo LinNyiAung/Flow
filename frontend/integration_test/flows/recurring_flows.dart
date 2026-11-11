@@ -90,8 +90,7 @@ void recurringFlows() {
       await tap(find.descendant(of: find.byType(BottomSheet), matching: find.text(L.doneLabel)));
       check(hasTextContaining('Every '), 'Repeat row not updated after choosing weekly');
       step('update');
-      await scrollTo(find.text(L.updateTransactionButton));
-      await tap(find.text(L.updateTransactionButton));
+      await tap(find.descendant(of: find.byType(AppBar), matching: find.text(L.save)));
       await expectSoon(find.byType(TransactionsListScreen), 'Updating the recurring rent did not return to the list');
       final api = (await apiTransactions(plus, limit: 300))
           .where((x) => x['description'] == 'Apartment rent' && x['parent_transaction_id'] == null)

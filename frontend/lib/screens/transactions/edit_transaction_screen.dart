@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/widgets/app_bar_save_button.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -427,13 +429,23 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        // Laid out like New entry: back is the cancel, Save sits in the bar
+        // (it used to be a button below the keypad, off-screen on phones).
         leading: IconButton(icon: Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context)),
-        title: Text(localizations.editTransactionTitle, style: TextStyle(fontSize: 18)),
+        titleSpacing: 0,
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < AppBarTitle.minWidth) return const SizedBox.shrink();
+            return AppBarTitle(localizations.editTransactionTitle, style: const TextStyle(fontSize: 18));
+          },
+        ),
         actions: [
           IconButton(
             icon: Icon(Icons.delete_outline_rounded, color: scheme.error),
+            tooltip: localizations.deleteTransactionTitle,
             onPressed: _showDeleteSheet,
           ),
+          AppBarSaveButton(label: localizations.save, saving: _isSaving, onPressed: _updateTransaction),
         ],
       ),
       body: SafeArea(
@@ -807,19 +819,6 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                     }).toList(),
                   );
                 },
-              ),
-
-              SizedBox(height: 20),
-              FilledButton(
-                onPressed: _isSaving ? null : _updateTransaction,
-                child: _isSaving
-                    ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Text(localizations.updateTransactionButton),
-              ),
-              SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(localizations.dialogCancel),
               ),
             ],
           ),

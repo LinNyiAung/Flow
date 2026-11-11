@@ -350,7 +350,7 @@ void transactionFlows() {
       }
       await tap(find.text('OK'));
       step('update');
-      await tap(find.text(L.updateTransactionButton));
+      await tap(find.descendant(of: find.byType(AppBar), matching: find.text(L.save)));
       await expectSoon(find.byType(TransactionsListScreen), 'Update did not return to the list');
       await settle(2500);
       final api = (await apiTransactions(plus)).where((x) => x['description'] == note).toList();
@@ -385,7 +385,7 @@ void transactionFlows() {
       await enter(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), '');
       await tap(find.descendant(of: find.byType(AlertDialog), matching: find.text(L.save)));
       check(!hasText(note), 'Note still shown after clearing it in the dialog');
-      await tap(find.text(L.updateTransactionButton));
+      await tap(find.descendant(of: find.byType(AppBar), matching: find.text(L.save)));
       await waitFor(find.byType(TransactionsListScreen));
       await settle(2000);
       step('verify cleared note');
