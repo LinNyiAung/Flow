@@ -461,24 +461,22 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   }
 
   Widget _buildFilterBar() {
-    return Column(
-      children: [
-        SizedBox(height: 8),
-        SizedBox(
-          height: 36,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: [
-              _typeFilterChip(),
-              SizedBox(width: 8),
-              _dateChip(),
-              SizedBox(width: 8),
-              _currencyFilterChip(),
-            ],
-          ),
+    // Wraps onto a second line when the chips don't fit (e.g. Myanmar at
+    // 360 px), so the currency filter is never off the edge.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: SizedBox(
+        width: double.infinity,
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _typeFilterChip(),
+            _dateChip(),
+            _currencyFilterChip(),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -624,8 +622,9 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   Widget _dateChip() {
     final localizations = AppLocalizations.of(context);
     final hasDate = _selectedStartDate != null && _selectedEndDate != null;
+    final dayFormat = DateFormat('MMM dd', Localizations.localeOf(context).toLanguageTag());
     final label = hasDate
-        ? '${DateFormat('MMM dd').format(_selectedStartDate!)} - ${DateFormat('MMM dd').format(_selectedEndDate!)}'
+        ? '${dayFormat.format(_selectedStartDate!)} - ${dayFormat.format(_selectedEndDate!)}'
         : localizations.selectDateRangeButton;
 
     final scheme = Theme.of(context).colorScheme;
@@ -691,12 +690,11 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Wraps: "50 ငွေစာရင်းသွင်းမှုများ" is long next to a total.
           Expanded(
             child: Text(
               countLabel,
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
           SizedBox(width: 8),
@@ -769,7 +767,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             ),
             SizedBox(height: 2),
             Text(
-              DateFormat('MMM dd').format(transaction.date),
+              DateFormat('MMM dd', Localizations.localeOf(context).toLanguageTag()).format(transaction.date),
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
             ),
           ],
