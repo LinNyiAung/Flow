@@ -38,7 +38,7 @@ CategoryBudget _cat(String name, double cap, double spent) => CategoryBudget(
       isExceeded: spent > cap,
     );
 
-Budget _budget(double total, List<CategoryBudget> cats) {
+Budget _budget(double total, List<CategoryBudget> cats, {Currency currency = Currency.usd}) {
   final now = DateTime.now();
   final spent = cats.fold<double>(0, (s, c) => s + c.spentAmount);
   return Budget(
@@ -57,7 +57,7 @@ Budget _budget(double total, List<CategoryBudget> cats) {
     isActive: true,
     createdAt: now,
     updatedAt: now,
-    currency: Currency.usd,
+    currency: currency,
   );
 }
 
@@ -179,6 +179,41 @@ void main() {
       expect(find.text(r'Over by $46.84'), findsOneWidget);
       expect(find.text(r'Over by $20.00'), findsOneWidget);
     });
+  });
+
+  // Kyat shows whole kyat: an excess that rounds to K0 isn't "over".
+  group('kyat over by less than K0.50', () {
+    Budget kyat(double spent) => _budget(60, [_cat('Food & Dining', 60, spent)], currency: Currency.mmk);
+
+    testWidgets('list card: no "Over by K0", no EXCEEDED', (tester) async {
+      await _pumpList(tester, kyat(60.40));
+      expect(find.textContaining('Over by'), findsNothing);
+      expect(find.text('EXCEEDED'), findsNothing);
+      expect(find.textContaining('CATEGOR'), findsNothing);
+      expect(find.text('ACTIVE'), findsOneWidget);
+      expect(find.text('Remaining K0'), findsOneWidget);
+    });
+
+    testWidgets('detail: no banner, no "Over by K0", no EXCEEDED pill', (tester) async {
+      await _pumpDetail(tester, kyat(60.40));
+      expect(find.textContaining('Over by'), findsNothing);
+      expect(find.text('Budget Exceeded'), findsNothing);
+      expect(find.textContaining('over its cap'), findsNothing);
+      expect(find.text('EXCEEDED'), findsNothing);
+    });
+
+    testWidgets('K0.60 over shows as over by K1', (tester) async {
+      await _pumpDetail(tester, kyat(60.60));
+      expect(find.text('Over by K1'), findsNWidgets(2)); // hero and the category
+      expect(find.text('Budget Exceeded'), findsOneWidget);
+    });
+  });
+
+  test('isTotalOver uses the display precision', () {
+    expect(_budget(60, [_cat('Food', 60, 60.40)], currency: Currency.mmk).isTotalOver, isFalse);
+    expect(_budget(60, [_cat('Food', 60, 60.60)], currency: Currency.mmk).isTotalOver, isTrue);
+    expect(_budget(60, [_cat('Food', 60, 60.01)]).isTotalOver, isTrue);
+    expect(_budget(60, [_cat('Food', 60, 60.004)]).isTotalOver, isFalse);
   });
 
   testWidgets('Myanmar: one category over at 360 px fits', (tester) async {

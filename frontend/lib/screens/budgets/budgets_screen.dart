@@ -387,7 +387,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         label: localizations.upcoming,
       );
     }
-    switch (budget.status) {
+    switch (budget.displayStatus) {
       case BudgetStatus.exceeded:
         return _StatusMeta(
           tint: scheme.errorContainer,

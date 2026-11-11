@@ -150,17 +150,31 @@ class Budget {
 /// Which cap a budget is over, for wording its status. The backend reports a
 /// budget as `exceeded` both when its total is over and when only one of its
 /// categories is; those read very differently ("16% used" yet "EXCEEDED").
+///
+/// "Over" here is at the currency's display precision ([isOverCap]): whole
+/// kyat for MMK, cents otherwise. A kyat budget K0.40 over shows as within
+/// cap ("Remaining K0"), never "Over by K0".
 extension BudgetOverState on Budget {
-  /// Total spent above the total budget (to the cent, as the backend checks).
-  bool get isTotalOver => (totalSpent * 100).round() > (totalBudget * 100).round();
+  /// Total spent above the total budget by an amount that shows.
+  bool get isTotalOver => isOverCap(totalSpent, totalBudget, currency);
 
-  /// The categories over their own cap.
+  /// The categories over their own cap by an amount that shows.
   List<CategoryBudget> get categoriesOver =>
-      categoryBudgets.where((c) => c.isExceeded).toList();
+      categoryBudgets.where((c) => c.isOverIn(currency)).toList();
 
   /// Exceeded only because of its categories: the total is still within cap.
   bool get onlyCategoriesOver =>
       status == BudgetStatus.exceeded && !isTotalOver && categoriesOver.isNotEmpty;
+
+  /// The status to show (badge, banner): `exceeded` reads as `active` when
+  /// nothing is over by an amount that shows.
+  BudgetStatus get displayStatus =>
+      status == BudgetStatus.exceeded && !isTotalOver && categoriesOver.isEmpty ? BudgetStatus.active : status;
+}
+
+extension CategoryOverState on CategoryBudget {
+  /// Spent above this category's cap by an amount that shows in [currency].
+  bool isOverIn(Currency currency) => isOverCap(spentAmount, allocatedAmount, currency);
 }
 
 class BudgetSummary {

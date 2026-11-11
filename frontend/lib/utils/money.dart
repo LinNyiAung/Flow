@@ -30,6 +30,11 @@ String formatMoneyNumber(num amount, Currency currency) => _formatFor(currency).
 bool roundsToZero(num amount, Currency currency) =>
     _formatFor(currency).format(amount.abs()) == _formatFor(currency).format(0);
 
+/// Whether [spent] is over [cap] by an amount that shows: at least a whole
+/// kyat for MMK, a cent otherwise. So "Over by K0" never appears; a smaller
+/// excess reads as "Remaining K0".
+bool isOverCap(num spent, num cap, Currency currency) => spent > cap && !roundsToZero(spent - cap, currency);
+
 final _wholeFormat = NumberFormat('#,##0', 'en_US');
 final _centsFormat = NumberFormat('#,##0.00', 'en_US');
 

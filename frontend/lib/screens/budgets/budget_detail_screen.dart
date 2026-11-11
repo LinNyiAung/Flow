@@ -242,7 +242,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     }
 
     final scheme = Theme.of(context).colorScheme;
-    switch (_budget.status) {
+    switch (_budget.displayStatus) {
       case BudgetStatus.exceeded:
         return scheme.error;
       case BudgetStatus.completed:
@@ -266,7 +266,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
       return localizations.categoriesOverBadge(_budget.categoriesOver.length);
     }
 
-    return localizations.budgetStatusBadge(_budget.status);
+    return localizations.budgetStatusBadge(_budget.displayStatus);
   }
 
   @override
@@ -477,7 +477,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                   _budget.categoriesOver.map((c) => c.mainCategory).join(', '),
                 ),
               ),
-            ] else if (_budget.status == BudgetStatus.exceeded) ...[
+            ] else if (_budget.displayStatus == BudgetStatus.exceeded) ...[
               const SizedBox(height: 16),
               _buildBanner(
                 icon: Icons.warning_rounded,
@@ -709,14 +709,15 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
 
   Widget _buildCategoryCard(CategoryBudget catBudget, AppLocalizations localizations) {
     final scheme = Theme.of(context).colorScheme;
-    final statusColor = catBudget.isExceeded
+    // Spent above the cap by an amount that shows (whole kyat for MMK):
+    // "Over by $X" and EXCEEDED in the error colour instead of a negative
+    // "Remaining", and never "Over by K0".
+    final overCap = catBudget.isOverIn(_budget.currency);
+    final statusColor = overCap
         ? scheme.error
         : catBudget.percentageUsed > 80
         ? scheme.tertiary
         : scheme.primary;
-    // Spent above the cap (to the cent): "Over by $X" in the error colour
-    // instead of a negative "Remaining".
-    final overCap = (catBudget.spentAmount * 100).round() > (catBudget.allocatedAmount * 100).round();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -752,7 +753,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (catBudget.isExceeded) ...[
+              if (overCap) ...[
                 StatusPill(
                   label: localizations.exceeded.toUpperCase(),
                   background: scheme.errorContainer,
