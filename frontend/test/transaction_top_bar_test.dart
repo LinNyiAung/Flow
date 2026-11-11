@@ -83,6 +83,28 @@ class _SlowTransactions extends TransactionProvider {
   }
 }
 
+/// The server turns the new entry down.
+class _RejectingNewEntry extends TransactionProvider {
+  static const message = 'Daily entry limit reached';
+
+  @override
+  String? get writeError => message;
+
+  @override
+  Future<bool> createTransaction({
+    required TransactionType type,
+    required String mainCategory,
+    required String subCategory,
+    required DateTime date,
+    String? description,
+    required double amount,
+    required Currency currency,
+    BuildContext? context,
+    TransactionRecurrence? recurrence,
+  }) async =>
+      false;
+}
+
 Transaction _lunch() {
   final d = DateTime(2026, 11, 10, 12);
   return Transaction(
@@ -264,6 +286,41 @@ void main() {
   });
 
   group('New entry', () {
+    testWidgets('a rejected save says so in a snackbar, not only in the box at the bottom', (tester) async {
+      Object? result = 'not popped';
+      await _pump(
+        tester,
+        (_) => AddTransactionScreen(
+          categoriesLoader: (_) async => [
+            Category(mainCategory: 'Food & Daily Living', subCategories: ['Restaurants']),
+          ],
+        ),
+        locale: const Locale('en'),
+        size: const Size(390, 600),
+        transactions: _RejectingNewEntry(),
+        onResult: (r) => result = r,
+      );
+
+      await tester.tap(find.text('Restaurants'));
+      await tester.pump();
+      for (final key in ['1', '2']) {
+        await tester.ensureVisible(find.byKey(ValueKey('keypad-$key')));
+        await tester.tap(find.byKey(ValueKey('keypad-$key')));
+        await tester.pump();
+      }
+      await tester.tap(_inBar(find.text(en.save)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final snack = find.descendant(of: find.byType(SnackBar), matching: find.text(_RejectingNewEntry.message));
+      expect(snack, findsOneWidget);
+      final r = tester.getRect(snack);
+      expect(r.top, greaterThanOrEqualTo(0));
+      expect(r.bottom, lessThanOrEqualTo(600));
+      expect(result, 'not popped');
+      expect(_inBar(find.text(en.save)), findsOneWidget);
+    });
+
     for (final locale in const [Locale('my'), Locale('en')]) {
       testWidgets('${locale.languageCode} 360: the title never runs under the mic; X and Save stay', (tester) async {
         final l = AppLocalizations(locale);

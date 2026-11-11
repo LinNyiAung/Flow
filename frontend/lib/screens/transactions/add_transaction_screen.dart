@@ -65,6 +65,12 @@ extension FirstWhereOrNullExtension<E> on Iterable<E> {
 }
 
 class AddTransactionScreen extends StatefulWidget {
+  const AddTransactionScreen({super.key, this.categoriesLoader});
+
+  /// Loads the category list for a type; [ApiService.getCategories] unless
+  /// given (tests pass a fixed list).
+  final Future<List<Category>> Function(TransactionType type)? categoriesLoader;
+
   @override
   _AddTransactionScreenState createState() => _AddTransactionScreenState();
 }
@@ -125,7 +131,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     });
 
     try {
-      final categories = await ApiService.getCategories(_selectedType);
+      final categories = await (widget.categoriesLoader ?? ApiService.getCategories)(_selectedType);
       if (!mounted) return;
       setState(() {
         _categories = categories;
@@ -1175,6 +1181,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         _isSaving = false;
         _saveError = transactionProvider.writeError;
       });
+      // Save is in the top bar, and the inline error box sits at the bottom
+      // of the form, often scrolled out of view: say it where the user is
+      // looking too (as Edit transaction does).
+      _showError(_saveError ?? localizations.genericErrorOccurred);
     }
   }
 
