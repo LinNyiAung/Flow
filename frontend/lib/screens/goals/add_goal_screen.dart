@@ -203,7 +203,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                     if (enteredInitial > 0) ...[
                       const SizedBox(height: 4),
                       Text(
-                        '${formatMoney(remainingAfterInitial, _selectedCurrency)} left after this goal',
+                        localizations.leftAfterThisGoal(formatMoney(remainingAfterInitial, _selectedCurrency)),
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: onHeroMuted),
                       ),
                     ],

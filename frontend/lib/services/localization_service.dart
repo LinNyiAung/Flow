@@ -1256,6 +1256,7 @@ class AppLocalizations {
       'heldForGoals': '{amount} held for goals',
       'nothingHeld': 'Nothing held',
       'amountToGo': '{amount} to go',
+      'leftAfterThisGoal': '{amount} left after this goal',
     },
     'my': {
       // Home Screen
@@ -2409,6 +2410,7 @@ class AppLocalizations {
       'heldForGoals': 'ရည်မှန်းချက်များအတွက် {amount} ထားရှိသည်',
       'nothingHeld': 'ထားရှိထားခြင်း မရှိပါ',
       'amountToGo': '{amount} ကျန်သေးသည်',
+      'leftAfterThisGoal': 'ဤရည်မှန်းချက်အတွက် ဖယ်ထားပြီးနောက် {amount} ကျန်မည်',
     }
   };
 
@@ -3630,6 +3632,8 @@ class AppLocalizations {
   String get nothingHeld => translate('nothingHeld');
   /// "$1,200.00 to go" (still to save towards a goal).
   String amountToGo(String amount) => translate('amountToGo').replaceAll('{amount}', amount);
+  /// "$95.00 left after this goal" (New goal: available minus the initial amount).
+  String leftAfterThisGoal(String amount) => translate('leftAfterThisGoal').replaceAll('{amount}', amount);
 
   /// A plan date (when an allowance resets, when a request was made) in the
   /// device's local time: [AppDates.full] in this app language ("1 Dec 2026";
