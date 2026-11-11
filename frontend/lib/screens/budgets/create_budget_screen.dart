@@ -823,21 +823,31 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     required bool enabled,
   }) {
     final scheme = Theme.of(context).colorScheme;
+    // Read-only (e.g. the End Date worked out from the period) is quieter
+    // than an editable box: no fill, a fainter border, muted value. It used
+    // to get a lighter fill, which in dark mode looked more active.
     return GestureDetector(
       onTap: enabled ? onTap : null,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: enabled ? Theme.of(context).cardTheme.color : scheme.outlineVariant,
+          color: enabled ? Theme.of(context).cardTheme.color : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: scheme.outline),
+          border: Border.all(color: enabled ? scheme.outline : scheme.outlineVariant),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
             const SizedBox(height: 4),
-            Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: enabled ? FontWeight.w600 : FontWeight.w500,
+                color: enabled ? scheme.onSurface : scheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       ),

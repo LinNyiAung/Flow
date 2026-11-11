@@ -34,7 +34,7 @@ class ThemeSettingsScreen extends StatelessWidget {
                   subtitle: localizations.themeSystemDesc,
                   onTap: () => themeProvider.setThemeMode(ThemeMode.system),
                 ),
-                const Divider(),
+                const Divider(endIndent: 16),
                 _buildThemeOption(
                   context,
                   mode: ThemeMode.light,
@@ -44,7 +44,7 @@ class ThemeSettingsScreen extends StatelessWidget {
                   subtitle: localizations.themeLightDesc,
                   onTap: () => themeProvider.setThemeMode(ThemeMode.light),
                 ),
-                const Divider(),
+                const Divider(endIndent: 16),
                 _buildThemeOption(
                   context,
                   mode: ThemeMode.dark,

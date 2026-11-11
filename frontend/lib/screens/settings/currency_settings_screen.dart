@@ -60,7 +60,7 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
             child: Column(
               children: [
                 for (final currency in Currency.values) ...[
-                  if (currency != Currency.values.first) const Divider(),
+                  if (currency != Currency.values.first) const Divider(endIndent: 16),
                   _buildCurrencyOption(
                     currency: currency,
                     isSelected: currentCurrency == currency,

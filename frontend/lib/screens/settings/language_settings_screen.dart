@@ -98,7 +98,7 @@ class _LanguageSettingsScreenState extends State<LanguageSettingsScreen> {
                   languageName: 'English',
                   nativeName: 'English',
                 ),
-                const Divider(),
+                const Divider(endIndent: 16),
                 _buildLanguageOption(
                   languageCode: 'my',
                   languageName: 'Myanmar',
