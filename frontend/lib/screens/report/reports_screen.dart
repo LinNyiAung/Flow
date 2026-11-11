@@ -18,7 +18,28 @@ import '../../models/report.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_drawer.dart';
 
+/// Fetches a single-currency report (tests pass a fake).
+typedef ReportLoader = Future<FinancialReport> Function({
+  required ReportPeriod period,
+  DateTime? startDate,
+  DateTime? endDate,
+  Currency? currency,
+});
+
 class ReportsScreen extends StatefulWidget {
+  const ReportsScreen({super.key, ReportLoader? reportLoader})
+      : reportLoader = reportLoader ?? _apiReport;
+
+  final ReportLoader reportLoader;
+
+  static Future<FinancialReport> _apiReport({
+    required ReportPeriod period,
+    DateTime? startDate,
+    DateTime? endDate,
+    Currency? currency,
+  }) =>
+      ApiService.generateReport(period: period, startDate: startDate, endDate: endDate, currency: currency);
+
   @override
   _ReportsScreenState createState() => _ReportsScreenState();
 }
@@ -35,7 +56,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
   bool _isDownloading = false;
   String? _error;
   final formatter = NumberFormat("#,##0.00", "en_US");
-  final formatterWhole = NumberFormat("#,##0", "en_US");
 
   @override
   void initState() {
@@ -79,7 +99,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           _isLoading = false;
         });
       } else {
-        final report = await ApiService.generateReport(
+        final report = await widget.reportLoader(
           period: _selectedPeriod,
           startDate: _customStartDate,
           endDate: _customEndDate,
@@ -611,7 +631,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _buildReportContent(FinancialReport report) {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final days = report.endDate.difference(report.startDate).inDays.clamp(1, 1 << 30);
+    // Inclusive calendar days: the same divisor the backend uses for the
+    // daily averages below (and the "Per day" tile).
+    final days = report.daysCovered;
     final savedPct = report.totalInflow > 0
         ? ((report.totalInflow - report.totalOutflow) / report.totalInflow * 100)
         : 0.0;
@@ -631,7 +653,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             StatTile(
               icon: Icons.calendar_today_rounded,
               label: 'Per day',
-              value: '${report.currency.symbol}${formatterWhole.format(report.averageDailyOutflow)}',
+              // Same figure and format as "Average Daily Expenses" below, so
+              // the two never read as different numbers ($13 vs $12.91).
+              value: '${report.currency.symbol}${formatter.format(report.averageDailyOutflow)}',
             ),
           ],
         ),

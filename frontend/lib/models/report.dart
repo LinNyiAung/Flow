@@ -106,6 +106,20 @@ class FinancialReport {
   String formatAmount(double amount) {
     return '${currency.symbol}${amount.toStringAsFixed(2)}';
   }
+
+  /// Calendar days the report covers, both ends included (Nov 1 – Nov 30 is
+  /// 30). The backend divides by the same count for the daily averages.
+  int get daysCovered => inclusiveCalendarDays(startDate, endDate);
+}
+
+/// Number of calendar days from [start]'s date to [end]'s date, both
+/// included; at least 1. Times of day are ignored (a report ends at 23:59:59)
+/// and so are DST shifts (dates are compared as UTC calendar dates).
+int inclusiveCalendarDays(DateTime start, DateTime end) {
+  final from = DateTime.utc(start.year, start.month, start.day);
+  final to = DateTime.utc(end.year, end.month, end.day);
+  final days = to.difference(from).inDays + 1;
+  return days < 1 ? 1 : days;
 }
 
 class GoalProgressReport {
