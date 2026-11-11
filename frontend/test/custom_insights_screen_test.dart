@@ -886,6 +886,31 @@ void main() {
       expect(types, isNot(contains('custom')));
     });
 
+    testWidgets('report sections expand left-aligned without border lines; the selected tab is a filled pill',
+        (tester) async {
+      await _pump(tester, InsightsScreen(), fake: FakeCustomInsightClient(), insights: recordingInsights([]));
+
+      final tile = tester.widget<ExpansionTile>(find.byType(ExpansionTile).first);
+      expect(tile.expandedAlignment, Alignment.centerLeft);
+      expect(tile.expandedCrossAxisAlignment, CrossAxisAlignment.start);
+      expect(tile.shape, const Border());
+      expect(tile.collapsedShape, const Border());
+
+      await tester.tap(find.text('Summary'));
+      await tester.pumpAndSettle();
+      final body = tester.getRect(find.text('English text'));
+      final card = tester.getRect(find.ancestor(of: find.byType(ExpansionTile).first, matching: find.byType(Card)));
+      expect(body.left - card.left, lessThan(30), reason: 'expanded text is not left-aligned');
+
+      BoxDecoration pill(String type) => tester
+          .widget<AnimatedContainer>(
+              find.descendant(of: find.byKey(Key('insight-type-$type')), matching: find.byType(AnimatedContainer)))
+          .decoration! as BoxDecoration;
+      final scheme = Theme.of(tester.element(find.byType(ExpansionTile).first)).colorScheme;
+      expect(pill('monthly').color, scheme.primary);
+      expect(pill('weekly').color, Colors.transparent);
+    });
+
     for (final weekly in ['locked', 'included']) {
       testWidgets('without the custom argument a remembered Custom type falls back (weekly insight $weekly)', (tester) async {
         final types = <String>[];

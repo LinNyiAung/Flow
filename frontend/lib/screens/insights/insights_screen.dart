@@ -13,6 +13,7 @@ import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/insight_errors.dart';
 import 'package:frontend/utils/plan_limit_text.dart';
 import 'package:frontend/screens/insights/custom_insights_tab.dart';
@@ -470,6 +471,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
         title: Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+        // Left-aligned like the rest of the screen (ExpansionTile centres
+        // its children by default), and no border lines when expanded.
+        expandedAlignment: Alignment.centerLeft,
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        shape: const Border(),
+        collapsedShape: const Border(),
         childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
         children: [
           MarkdownBody(
@@ -620,8 +627,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             padding: const EdgeInsets.symmetric(vertical: 9),
+            // The selected tab is a filled pill, like the app's other
+            // segmented controls (e.g. Create Budget's period).
             decoration: BoxDecoration(
-              color: selected ? scheme.surface : Colors.transparent,
+              color: selected ? scheme.primary : Colors.transparent,
               borderRadius: BorderRadius.circular(9),
             ),
             child: Text(
@@ -629,8 +638,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
               ),
             ),
           ),
@@ -641,7 +650,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
+        color: AppTheme.trackFor(context),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
