@@ -516,7 +516,10 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
           children: [
             Icon(Icons.swap_vert_rounded, size: 16, color: scheme.onSurfaceVariant),
             SizedBox(width: 6),
-            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            // Flexible: a label longer than the row wraps inside the chip.
+            Flexible(
+              child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+            ),
             SizedBox(width: 2),
             Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurfaceVariant),
           ],
@@ -583,9 +586,11 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
           children: [
             Icon(Icons.currency_exchange_rounded, size: 16, color: scheme.onSurfaceVariant),
             SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface),
+              ),
             ),
             SizedBox(width: 2),
             Icon(Icons.expand_more_rounded, size: 16, color: scheme.onSurfaceVariant),
@@ -652,9 +657,11 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
           children: [
             Icon(Icons.event_rounded, size: 16, color: scheme.onSurfaceVariant),
             SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface),
+              ),
             ),
             if (hasDate) ...[
               SizedBox(width: 4),

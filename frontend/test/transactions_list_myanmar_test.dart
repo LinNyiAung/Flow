@@ -18,8 +18,8 @@ class _FakeNotifications extends NotificationProvider {
 
 /// No server here: the list loads empty (the request fails), which is enough
 /// for the filter bar and the count line.
-Future<void> _pump(WidgetTester tester, Locale locale) async {
-  tester.view.physicalSize = const Size(360 * 3, 780 * 3);
+Future<void> _pump(WidgetTester tester, Locale locale, {double width = 360, double height = 780}) async {
+  tester.view.physicalSize = Size(width * 3, height * 3);
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MultiProvider(
@@ -83,5 +83,17 @@ void main() {
     final count = find.text('0 ${my.transactionsCountSuffix}');
     expect(count, findsOneWidget);
     expect(tester.renderObject<RenderParagraph>(count).didExceedMaxLines, isFalse);
+  });
+  testWidgets('Myanmar, large text: a long filter label wraps inside its chip', (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    // Tall, so only the filter bar is under test (not the empty state).
+    await _pump(tester, const Locale('my'), width: 320, height: 1400);
+    expect(tester.takeException(), isNull);
+    for (final icon in [Icons.swap_vert_rounded, Icons.event_rounded, Icons.currency_exchange_rounded]) {
+      final rect = tester.getRect(_chipWithIcon(icon));
+      expect(rect.left, greaterThanOrEqualTo(0), reason: '$icon');
+      expect(rect.right, lessThanOrEqualTo(320), reason: '$icon');
+    }
   });
 }
