@@ -12,10 +12,17 @@ import '../../providers/budget_provider.dart';
 
 import '../../services/localization_service.dart';
 
+/// Loads the categories offered in the add/edit cap sheet.
+typedef CategoriesLoader = Future<List<Category>> Function(TransactionType type);
+
 class EditBudgetScreen extends StatefulWidget {
   final Budget budget;
 
-  EditBudgetScreen({required this.budget});
+  /// Where the cap sheet gets its categories (tests pass a fake).
+  final CategoriesLoader categoriesLoader;
+
+  EditBudgetScreen({required this.budget, CategoriesLoader? categoriesLoader})
+      : categoriesLoader = categoriesLoader ?? ApiService.getCategories;
 
   @override
   _EditBudgetScreenState createState() => _EditBudgetScreenState();
@@ -85,11 +92,26 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     return null;
   }
 
+  /// The total the budget will be saved with. The stored total is the user's
+  /// own value and may be larger than the sum of the category caps, so it is
+  /// never recomputed from the caps on open: it only moves by however much
+  /// the caps' sum moved in this session, and never ends below that sum.
   double _calculateTotalBudget() {
+    final original = widget.budget.totalBudget;
+    final sumNow = _sumOfCaps(_categoryBudgets);
+    final delta = sumNow - _sumOfCaps(widget.budget.categoryBudgets);
+    if (delta.abs() < 0.005) return original;
+    final edited = original + delta;
+    return edited < sumNow ? sumNow : edited;
+  }
+
+  /// Sum of the caps, counting a "Main - Sub" cap only when "Main" itself
+  /// has no cap (the backend's rule for a total computed from categories).
+  static double _sumOfCaps(List<CategoryBudget> categoryBudgets) {
     Set<String> mainCategories = {};
     List<MapEntry<String, double>> subCategories = [];
 
-    for (var cat in _categoryBudgets) {
+    for (var cat in categoryBudgets) {
       if (cat.mainCategory.contains(' - ')) {
         final parts = cat.mainCategory.split(' - ');
         subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
@@ -100,7 +122,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 
     double total = 0.0;
 
-    for (var cat in _categoryBudgets) {
+    for (var cat in categoryBudgets) {
       if (!cat.mainCategory.contains(' - ')) {
         total += cat.allocatedAmount;
       }
@@ -115,8 +137,10 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     return total;
   }
 
-  /// Category caps whose newly-entered allocation is below what has already
-  /// been spent against that same category on the live budget.
+  /// Category caps the user added or changed in this session whose new cap is
+  /// below what has already been spent against that same category on the live
+  /// budget. A category that was already over its (unchanged) cap before the
+  /// edit is not listed: the user hasn't done anything to warn about.
   List<CategoryBudget> get _categoriesBelowSpent {
     final result = <CategoryBudget>[];
     for (final cat in _categoryBudgets) {
@@ -127,7 +151,9 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
           break;
         }
       }
-      if (original != null && cat.allocatedAmount < original.spentAmount) {
+      if (original == null) continue; // brand new: nothing spent against it yet
+      final changed = (cat.allocatedAmount - original.allocatedAmount).abs() >= 0.005;
+      if (changed && cat.allocatedAmount < original.spentAmount) {
         result.add(cat);
       }
     }
@@ -139,6 +165,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       context: context,
       builder: (context) => _CategoryCapSheet(
         title: AppLocalizations.of(context).addCategoryBudget,
+        loadCategories: widget.categoriesLoader,
         validateDuplicate: (main, sub) => _validateDuplicateCategory(main, sub),
         onSave: (categoryBudget) {
           setState(() {
@@ -154,6 +181,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
       context: context,
       builder: (context) => _CategoryCapSheet(
         title: AppLocalizations.of(context).editCategoryBudget,
+        loadCategories: widget.categoriesLoader,
         initialCategory: _categoryBudgets[index],
         validateDuplicate: (main, sub) =>
             _validateDuplicateCategory(main, sub, excludeIndex: index),
@@ -468,7 +496,11 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer.withValues(alpha: 0.8)),
                     ),
                     const SizedBox(height: 10),
-                    Row(
+                    // Wrap, not Row: large totals (e.g. in MMK) don't fit
+                    // side by side at phone widths.
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
                       children: [
                         Text(
                           '${widget.budget.currency.symbol}${formatter.format(widget.budget.totalBudget)}',
@@ -479,9 +511,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                             decoration: TextDecoration.lineThrough,
                           ),
                         ),
-                        const SizedBox(width: 12),
                         Icon(Icons.arrow_forward_rounded, size: 20, color: scheme.onPrimaryContainer),
-                        const SizedBox(width: 12),
                         Text(
                           '${widget.budget.currency.symbol}${formatter.format(totalBudget)}',
                           style: AppTheme.money(24, weight: FontWeight.w800, color: scheme.onPrimaryContainer),
@@ -497,9 +527,11 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           color: scheme.onPrimaryContainer,
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          '${totalBudget > widget.budget.totalBudget ? '+' : ''}${widget.budget.currency.symbol}${formatter.format(totalBudget - widget.budget.totalBudget)} against the current cap',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer),
+                        Expanded(
+                          child: Text(
+                            '${totalBudget > widget.budget.totalBudget ? '+' : '-'}${widget.budget.currency.symbol}${formatter.format((totalBudget - widget.budget.totalBudget).abs())} against the current cap',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onPrimaryContainer),
+                          ),
                         ),
                       ],
                     ),
@@ -708,12 +740,14 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
 /// Bottom sheet for adding or editing a single category cap.
 class _CategoryCapSheet extends StatefulWidget {
   final String title;
+  final CategoriesLoader loadCategories;
   final CategoryBudget? initialCategory;
   final String? Function(String mainCategory, String? subCategory) validateDuplicate;
   final void Function(CategoryBudget) onSave;
 
   const _CategoryCapSheet({
     required this.title,
+    required this.loadCategories,
     this.initialCategory,
     required this.validateDuplicate,
     required this.onSave,
@@ -744,7 +778,8 @@ class _CategoryCapSheetState extends State<_CategoryCapSheet> {
     setState(() => _isLoadingCategories = true);
 
     try {
-      final categories = await ApiService.getCategories(TransactionType.outflow);
+      final categories = await widget.loadCategories(TransactionType.outflow);
+      if (!mounted) return;
 
       setState(() {
         _categories = categories;
