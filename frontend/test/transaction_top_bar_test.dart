@@ -33,6 +33,29 @@ class _FakeTransactions extends TransactionProvider {
   }
 }
 
+/// The server turns the edit down.
+class _RejectingTransactions extends TransactionProvider {
+  static const message = 'Amount exceeds the allowed limit';
+
+  @override
+  String? get writeError => message;
+
+  @override
+  Future<bool> updateTransaction({
+    required String transactionId,
+    TransactionType? type,
+    String? mainCategory,
+    String? subCategory,
+    DateTime? date,
+    String? description,
+    double? amount,
+    Currency? currency,
+    BuildContext? context,
+    TransactionRecurrence? recurrence,
+  }) async =>
+      false;
+}
+
 Transaction _lunch() {
   final d = DateTime(2026, 11, 10, 12);
   return Transaction(
@@ -140,6 +163,32 @@ void main() {
       await tester.pumpAndSettle();
       expect(transactions.updates, [12.5]);
       expect(result, true);
+    });
+
+    testWidgets('a rejected save says so in a snackbar, not only in the box at the bottom', (tester) async {
+      Object? result = 'not popped';
+      await _pump(
+        tester,
+        (_) => EditTransactionScreen(transaction: _lunch()),
+        locale: const Locale('en'),
+        size: const Size(390, 600),
+        transactions: _RejectingTransactions(),
+        onResult: (r) => result = r,
+      );
+
+      await tester.tap(_inBar(find.text(en.save)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final snack = find.descendant(of: find.byType(SnackBar), matching: find.text(_RejectingTransactions.message));
+      expect(snack, findsOneWidget);
+      // On screen, where the user is looking.
+      final r = tester.getRect(snack);
+      expect(r.top, greaterThanOrEqualTo(0));
+      expect(r.bottom, lessThanOrEqualTo(600));
+      // Still on the edit screen; Save works again.
+      expect(result, 'not popped');
+      expect(_inBar(find.text(en.save)), findsOneWidget);
     });
 
     testWidgets('Myanmar 360: title, delete and Save fit the bar', (tester) async {

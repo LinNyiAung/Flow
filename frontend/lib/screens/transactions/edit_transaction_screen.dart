@@ -1196,6 +1196,10 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
         _isSaving = false;
         _saveError = transactionProvider.writeError;
       });
+      // Save is in the top bar now, and the inline error box sits at the
+      // bottom of the form, often scrolled out of view: say it where the
+      // user is looking too (the same snackbar New entry uses for errors).
+      _showError(_saveError ?? localizations.genericErrorOccurred);
     }
   }
 
