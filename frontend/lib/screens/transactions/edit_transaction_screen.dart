@@ -443,9 +443,12 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.delete_outline_rounded, color: scheme.error),
+            // The colour on the button, not the Icon, so it greys out when disabled.
+            icon: const Icon(Icons.delete_outline_rounded),
+            color: scheme.error,
             tooltip: localizations.deleteTransactionTitle,
-            onPressed: _showDeleteSheet,
+            // Not while a save is in flight: deleting under it races the update.
+            onPressed: _isSaving ? null : _showDeleteSheet,
           ),
           AppBarSaveButton(label: localizations.save, saving: _isSaving, onPressed: _updateTransaction),
         ],
@@ -1126,6 +1129,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
 
   // Function to handle the update transaction logic
   void _updateTransaction() async {
+    if (_isSaving) return;
     final localizations = AppLocalizations.of(context);
 
     if (_amountText.isEmpty) {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,7 @@ import 'package:frontend/providers/transaction_provider.dart';
 import 'package:frontend/screens/transactions/add_transaction_screen.dart';
 import 'package:frontend/screens/transactions/edit_transaction_screen.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/widgets/app_bar_save_button.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -54,6 +57,30 @@ class _RejectingTransactions extends TransactionProvider {
     TransactionRecurrence? recurrence,
   }) async =>
       false;
+}
+
+/// The server takes its time: the save stays in flight until [finish].
+class _SlowTransactions extends TransactionProvider {
+  final pending = Completer<bool>();
+  int calls = 0;
+  void finish() => pending.complete(true);
+
+  @override
+  Future<bool> updateTransaction({
+    required String transactionId,
+    TransactionType? type,
+    String? mainCategory,
+    String? subCategory,
+    DateTime? date,
+    String? description,
+    double? amount,
+    Currency? currency,
+    BuildContext? context,
+    TransactionRecurrence? recurrence,
+  }) {
+    calls++;
+    return pending.future;
+  }
 }
 
 Transaction _lunch() {
@@ -189,6 +216,38 @@ void main() {
       // Still on the edit screen; Save works again.
       expect(result, 'not popped');
       expect(_inBar(find.text(en.save)), findsOneWidget);
+    });
+
+    testWidgets('while saving, delete is disabled and Save does not send twice', (tester) async {
+      final transactions = _SlowTransactions();
+      await _pump(
+        tester,
+        (_) => EditTransactionScreen(transaction: _lunch()),
+        locale: const Locale('en'),
+        size: const Size(390, 844),
+        transactions: transactions,
+      );
+      final delete = find.ancestor(
+          of: _inBar(find.byIcon(Icons.delete_outline_rounded)), matching: find.byType(IconButton));
+      expect(tester.widget<IconButton>(delete).onPressed, isNotNull);
+
+      await tester.tap(_inBar(find.text(en.save)));
+      await tester.pump();
+      expect(transactions.calls, 1);
+      expect(tester.widget<IconButton>(delete).onPressed, isNull);
+
+      // Tapping delete does nothing: no delete sheet.
+      await tester.tap(delete, warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byIcon(Icons.delete_rounded), findsNothing);
+
+      // Nor does tapping Save again.
+      await tester.tap(_inBar(find.byType(AppBarSaveButton)), warnIfMissed: false);
+      await tester.pump();
+      expect(transactions.calls, 1);
+
+      transactions.finish();
+      await tester.pumpAndSettle();
     });
 
     testWidgets('Myanmar 360: title, delete and Save fit the bar', (tester) async {
