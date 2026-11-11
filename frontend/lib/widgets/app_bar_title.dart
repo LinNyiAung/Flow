@@ -13,6 +13,10 @@ class AppBarTitle extends StatelessWidget {
   /// Merged over the bar's title style.
   final TextStyle? style;
 
+  /// Narrower than this, a title can't be read at any size; screens with a
+  /// crowded bar (New entry, Edit transaction) drop it instead.
+  static const double minWidth = 64;
+
   /// Size of the two-line form, relative to the bar's title size.
   static const double wrappedScale = 0.75;
 

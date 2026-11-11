@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/widgets/app_bar_save_button.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -498,47 +500,20 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       appBar: AppBar(
         leading: IconButton(icon: Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
         titleSpacing: 0,
-        // Shrinks to fit rather than truncating to "ငွေ…"; dropped entirely
-        // when the actions leave no meaningful room.
+        // Same top-bar title as the other screens (one line, or two smaller
+        // lines), so it never runs under the mic; dropped when the actions
+        // leave no room for a legible title. X and Save always stay.
         title: LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth < 56) return const SizedBox.shrink();
-            return FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: AlignmentDirectional.centerStart,
-              child: Text(
-                localizations.addTransactionTitle,
-                maxLines: 1,
-                style: const TextStyle(fontSize: 18),
-              ),
-            );
+            if (constraints.maxWidth < AppBarTitle.minWidth) return const SizedBox.shrink();
+            return AppBarTitle(localizations.addTransactionTitle, style: const TextStyle(fontSize: 18));
           },
         ),
         actions: [
           _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: localizations.speakItTooltip, onTap: _goVoice),
           const SizedBox(width: 6),
           _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: localizations.scanReceipt, onTap: _goScan),
-          Padding(
-            padding: const EdgeInsets.only(left: 8, right: 12),
-            child: Center(
-              child: GestureDetector(
-                onTap: _isSaving ? null : _addTransaction,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                  decoration: BoxDecoration(
-                    color: _isSaving ? scheme.outline : scheme.primary,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: _isSaving
-                      ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : Text(
-                          localizations.save,
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-                        ),
-                ),
-              ),
-            ),
-          ),
+          AppBarSaveButton(label: localizations.save, saving: _isSaving, onPressed: _addTransaction),
         ],
       ),
       // No inline text fields here (note / conversion use dialogs, which
