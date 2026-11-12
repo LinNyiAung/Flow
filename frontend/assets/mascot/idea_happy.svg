@@ -1,0 +1,433 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 400 500" role="img" aria-label="Ko Toe Pwar, a chubby elephant mascot wearing an orange gaung baung, a cream taikpon jacket and a green checked paso, with thanaka on his cheeks" xmlns="http://www.w3.org/2000/svg" width="400" height="500">
+
+<ellipse cx="200" cy="484" rx="112" ry="12" fill="#2B2140" opacity="0.08"></ellipse>
+
+
+
+
+
+
+
+
+
+<rect x="140" y="436" width="52" height="44" rx="20" fill="#C9C3DA" stroke="#A39BBB" stroke-width="3"></rect>
+<rect x="208" y="436" width="52" height="44" rx="20" fill="#C9C3DA" stroke="#A39BBB" stroke-width="3"></rect>
+<g fill="#EDE9F3">
+<ellipse cx="154" cy="472" rx="5" ry="4"></ellipse>
+<ellipse cx="166" cy="474" rx="5" ry="4"></ellipse>
+<ellipse cx="178" cy="472" rx="5" ry="4"></ellipse>
+<ellipse cx="222" cy="472" rx="5" ry="4"></ellipse>
+<ellipse cx="234" cy="474" rx="5" ry="4"></ellipse>
+<ellipse cx="246" cy="472" rx="5" ry="4"></ellipse>
+</g>
+
+<path d="M136,356 L264,356 L274,448 Q200,460 126,448 Z" fill="#2E7D6B"></path>
+<g stroke="#4FA88F" stroke-width="7" opacity="0.7">
+<path d="M133,388 L267,388 M130,418 L270,418"></path>
+<path d="M168,356 L166,452 M200,356 L200,454 M232,356 L234,452"></path>
+</g>
+<path d="M186,360 Q200,394 214,360 Z" fill="#225E50"></path>
+
+<path d="M132,286 Q200,262 268,286 L276,366 Q200,382 124,366 Z" fill="#FFF8EC" stroke="#E3D3B8" stroke-width="3" stroke-linejoin="round"></path>
+<path d="M200,280 L200,374" stroke="#E3D3B8" stroke-width="4" stroke-linecap="round"></path>
+<g fill="#E3D3B8">
+<circle cx="200" cy="314" r="5"></circle>
+<circle cx="200" cy="336" r="5"></circle>
+<circle cx="200" cy="358" r="5"></circle>
+</g>
+
+<circle cx="92" cy="168" r="70" fill="#B7B0CB" stroke="#A39BBB" stroke-width="3"></circle>
+<circle cx="98" cy="174" r="46" fill="#FFB6C1"></circle>
+<circle cx="308" cy="168" r="70" fill="#B7B0CB" stroke="#A39BBB" stroke-width="3"></circle>
+<circle cx="302" cy="174" r="46" fill="#FFB6C1"></circle>
+
+<ellipse cx="200" cy="172" rx="110" ry="98" fill="#C9C3DA" stroke="#A39BBB" stroke-width="3"></ellipse>
+
+<path d="M104,140 C100,86 146,58 200,58 C254,58 300,86 296,140 C252,124 148,124 104,140 Z" fill="#FF9442"></path>
+<path d="M114,118 C160,102 240,102 286,118 M132,90 C170,78 230,78 268,90" fill="none" stroke="#E6762A" stroke-width="6" stroke-linecap="round"></path>
+<path d="M294,108 C324,78 358,80 366,96 C350,110 326,122 298,132 Z" fill="#FFAE66"></path>
+<circle cx="290" cy="118" r="16" fill="#E6762A"></circle>
+
+<path d="M148,150 q14,-9 28,-3 M224,147 q14,-6 28,3" fill="none" stroke="#8E85A8" stroke-width="5" stroke-linecap="round"></path>
+
+<circle cx="128" cy="212" r="22" fill="#F7D77F"></circle>
+<circle cx="272" cy="212" r="22" fill="#F7D77F"></circle>
+
+<path d="M147,176 a15,19 0 1,0 30,0 a15,19 0 1,0 -30,0" fill="#2B2140" stroke="#2B2140" stroke-width="5" stroke-linecap="round"></path>
+<path d="M223,176 a15,19 0 1,0 30,0 a15,19 0 1,0 -30,0" fill="#2B2140" stroke="#2B2140" stroke-width="5" stroke-linecap="round"></path>
+<g fill="#FFFFFF" opacity="1">
+<circle cx="167" cy="169" r="5.5"></circle>
+<circle cx="158" cy="184" r="2.2"></circle>
+</g>
+<g fill="#FFFFFF" opacity="1">
+<circle cx="243" cy="169" r="5.5"></circle>
+<circle cx="234" cy="184" r="2.2"></circle>
+</g>
+
+<g opacity="1">
+<path d="M150,222 C152,256 176,270 200,262 L200,224 Z" fill="#3A2346"></path>
+<path d="M162,252 C172,266 192,268 200,262 L200,250 C186,245 172,245 162,252 Z" fill="#FF8A9A"></path>
+</g>
+
+
+<path d="M200,214 C200,240 204,262 232,262 C248,262 256,250 252,236" fill="none" stroke="#A39BBB" stroke-width="50" stroke-linecap="round"></path>
+<path d="M200,196 C200,236 204,262 232,262 C248,262 256,250 252,236" fill="none" stroke="#C9C3DA" stroke-width="44" stroke-linecap="round"></path>
+<path d="M183,224 q17,6 34,0 M184,242 q17,6 34,0" fill="none" stroke="#A39BBB" stroke-width="4" stroke-linecap="round"></path>
+
+<path d="M138,306 Q102,292 96,250" fill="none" stroke="#E3D3B8" stroke-width="42" stroke-linecap="round"></path>
+<path d="M138,306 Q102,292 96,250" fill="none" stroke="#FFF8EC" stroke-width="36" stroke-linecap="round"></path>
+<path d="M262,306 Q282,330 280,362" fill="none" stroke="#E3D3B8" stroke-width="42" stroke-linecap="round"></path>
+<path d="M262,306 Q282,330 280,362" fill="none" stroke="#FFF8EC" stroke-width="36" stroke-linecap="round"></path>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g opacity="1">
+<path d="M56,4 v-0 M18,40 h-10 M94,40 h10 M28,14 l-7,-7 M84,14 l7,-7" fill="none" stroke="#E6A21F" stroke-width="4" stroke-linecap="round"></path>
+<circle cx="56" cy="38" r="25" fill="#FFD13B" stroke="#E6A21F" stroke-width="3"></circle>
+<path d="M48,44 l3,-9 l5,9 l5,-9 l3,9" fill="none" stroke="#E6A21F" stroke-width="2.5" stroke-linejoin="round"></path>
+<rect x="45" y="60" width="22" height="14" rx="4" fill="#A3AABA"></rect>
+<path d="M45,66 h22" stroke="#8B92A3" stroke-width="2"></path>
+</g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<circle cx="94" cy="234" r="19" fill="#C9C3DA" stroke="#A39BBB" stroke-width="3"></circle>
+<circle cx="282" cy="376" r="19" fill="#C9C3DA" stroke="#A39BBB" stroke-width="3"></circle>
+
+
+
+
+
+
+
+
+
+
+
+
+
+</svg>
