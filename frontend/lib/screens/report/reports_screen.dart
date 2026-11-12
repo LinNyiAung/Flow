@@ -662,7 +662,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        Row(
+        // Labels wrap (long in Myanmar); both tiles in a row keep one height.
+        IntrinsicHeight(child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
               child: _smallSummaryCard(localizations.income, report.totalInflow, scheme.primary, Icons.arrow_upward_rounded, report.currency),
@@ -672,15 +674,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: _smallSummaryCard(localizations.expenses, report.totalOutflow, scheme.error, Icons.arrow_downward_rounded, report.currency),
             ),
           ],
-        ),
+        )),
         const SizedBox(height: 12),
-        Row(
+        IntrinsicHeight(child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: _infoCard(localizations.goalsAllocated, formatMoney(report.totalAllocatedToGoals, report.currency), Icons.flag_rounded)),
             const SizedBox(width: 12),
             Expanded(child: _infoCard(localizations.daysCoveredLabel, '$days', Icons.event_note_rounded)),
           ],
-        ),
+        )),
         const SizedBox(height: 20),
         Text(localizations.dailyAverages, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
@@ -744,8 +747,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Text(
               label,
               style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             Text(
@@ -773,8 +774,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Text(
               label,
               style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             Text(

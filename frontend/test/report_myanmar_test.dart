@@ -85,4 +85,16 @@ void main() {
     }
     expect(find.text(my.daysCoveredLabel), findsOneWidget);
   });
+
+  testWidgets('Myanmar 360: the summary tile labels wrap instead of "…"', (tester) async {
+    await _pump(tester, const Locale('my'));
+    expect(tester.takeException(), isNull);
+    for (final label in [my.income, my.expenses, my.goalsAllocated, my.daysCoveredLabel]) {
+      final f = find.text(label);
+      expect(f, findsWidgets, reason: label);
+      for (final p in tester.renderObjectList<RenderParagraph>(f)) {
+        expect(p.didExceedMaxLines, isFalse, reason: '$label is cut off');
+      }
+    }
+  });
 }
