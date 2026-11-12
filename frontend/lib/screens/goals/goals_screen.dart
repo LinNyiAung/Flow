@@ -284,7 +284,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                 ),
               )
             else if (goalProvider.goals.isEmpty)
-              SliverToBoxAdapter(child: _buildEmptyState())
+              SliverToBoxAdapter(child: _buildEmptyState(goalProvider))
             else
               SliverList(
                 delegate: SliverChildBuilderDelegate(
@@ -614,16 +614,27 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
+  /// True when the user has no goals at all, in any currency or state — not
+  /// just none for the chosen currency or status chip. The all-currencies
+  /// summary counts every goal; until it has loaded, fall back to the chip.
+  bool _hasNoGoalsAtAll(GoalProvider goalProvider) {
+    final multi = goalProvider.multiCurrencySummary;
+    if (multi != null) return multi.totalGoals == 0;
+    return _filterStatus == null;
+  }
+
+  Widget _buildEmptyState(GoalProvider goalProvider) {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
+    // Ko Toe Pwar and "No goals yet" only for a user with no goals; when the
+    // currency or the Active / Achieved chip hides them, say that instead.
+    final none = _hasNoGoalsAtAll(goalProvider);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Only for "no goals at all", not for the Active / Achieved filter.
-          if (_filterStatus == null)
+          if (none)
             const Mascot(MascotPose.goalJoy, size: 120)
           else
             Container(
@@ -632,15 +643,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
               decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
               child: Icon(Icons.flag_rounded, size: 40, color: scheme.onPrimaryContainer),
             ),
-          SizedBox(height: _filterStatus == null ? 16 : 20),
+          SizedBox(height: none ? 16 : 20),
           Text(
-            localizations.noGoalsYet,
+            none ? localizations.noGoalsYet : localizations.noGoalsToShow,
             style: Theme.of(context).textTheme.titleMedium,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
-            localizations.createGoalGetStarted,
+            none ? localizations.createGoalGetStarted : localizations.goalsFilterHint,
             style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
             textAlign: TextAlign.center,
           ),

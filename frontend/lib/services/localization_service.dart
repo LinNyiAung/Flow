@@ -272,6 +272,8 @@ class AppLocalizations {
       'goalDeletedSuccessfully': 'Goal deleted successfully!',
       'noGoalsYet': 'No goals yet',
       'createGoalGetStarted': 'Create your first financial goal to get started!',
+      'noGoalsToShow': 'No goals to show',
+      'goalsFilterHint': 'Try another filter or currency.',
 
 
       //Add goal screen
@@ -329,6 +331,9 @@ class AppLocalizations {
       'auto': 'AUTO',
       'noBudgetsYet': 'No budgets yet',
       'createYourFirstBudget': 'Create your first budget to track spending!',
+      'noActiveBudgets': 'No active budgets',
+      'noBudgetsInCurrency': 'No budgets in this currency',
+      'budgetsFilterHint': 'Try “All” or another currency.',
 
       //create budget screen
       'categoryAlreadyExists':'This category already exists',
@@ -1439,6 +1444,8 @@ class AppLocalizations {
       'goalCreatedSuccessfully': 'ရည်မှန်းချက် အောင်မြင်စွာ ဖန်တီးပြီးပါပြီ',
       'goalDeletedSuccessfully': 'ရည်မှန်းချက် အောင်မြင်စွာ ဖျက်ပြီးပါပြီ',
       'noGoalsYet': 'ရည်မှန်းချက် မရှိသေးပါ',
+      'noGoalsToShow': 'ပြသရန် ရည်မှန်းချက် မရှိပါ',
+      'goalsFilterHint': 'အခြား စစ်ထုတ်မှု သို့မဟုတ် ငွေကြေးကို ရွေးကြည့်ပါ',
       'createGoalGetStarted': 'စတင်ရန် သင်၏ ပထမဆုံး ငွေကြေး ရည်မှန်းချက်ကို ဖန်တီးပါ!',
 
       //Add goal screen
@@ -1493,6 +1500,9 @@ class AppLocalizations {
       'activeCap': 'ဆောင်ရွက်ဆဲ',
       'auto': 'အလိုအလျောက်',
       'noBudgetsYet': 'ဘတ်ဂျက် မရှိသေးပါ',
+      'noActiveBudgets': 'ဆောင်ရွက်ဆဲ ဘတ်ဂျက် မရှိပါ',
+      'noBudgetsInCurrency': 'ဤငွေကြေးဖြင့် ဘတ်ဂျက် မရှိပါ',
+      'budgetsFilterHint': '“အားလုံး” သို့မဟုတ် အခြား ငွေကြေးကို ရွေးကြည့်ပါ',
       'createYourFirstBudget': 'သုံးစွဲမှုကို ခြေရာခံရန် သင်၏ ပထမဆုံး ဘတ်ဂျက်ကို ဖန်တီးပါ!',
 
       //create budget screen
@@ -2608,6 +2618,8 @@ class AppLocalizations {
   String get goalCreatedSuccessfully => translate('goalCreatedSuccessfully');
   String get goalDeletedSuccessfully => translate('goalDeletedSuccessfully');
   String get noGoalsYet => translate('noGoalsYet');
+  String get noGoalsToShow => translate('noGoalsToShow');
+  String get goalsFilterHint => translate('goalsFilterHint');
   String get createGoalGetStarted => translate('createGoalGetStarted');
 
 
@@ -2667,6 +2679,9 @@ class AppLocalizations {
   String get activeCap => translate('activeCap');
   String get auto => translate('auto');
   String get noBudgetsYet => translate('noBudgetsYet');
+  String get noActiveBudgets => translate('noActiveBudgets');
+  String get noBudgetsInCurrency => translate('noBudgetsInCurrency');
+  String get budgetsFilterHint => translate('budgetsFilterHint');
   String get createYourFirstBudget => translate('createYourFirstBudget');
 
 

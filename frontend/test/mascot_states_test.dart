@@ -21,22 +21,73 @@ import 'package:frontend/widgets/mascot.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// The list is always empty (whatever the chips); [total] budgets exist in
+/// all, all of them in USD and none of them active.
 class _NoBudgets extends BudgetProvider {
+  _NoBudgets({this.total = 0});
+
+  final int total;
+
   @override
   List<Budget> get budgets => const [];
   @override
   bool get isLoading => false;
+  @override
+  MultiCurrencyBudgetSummary get multiCurrencySummary => MultiCurrencyBudgetSummary(
+        totalBudgets: total,
+        activeBudgets: 0,
+        completedBudgets: total,
+        exceededBudgets: 0,
+        upcomingBudgets: 0,
+        currencySummaries: [
+          if (total > 0)
+            CurrencyBudgetSummary(
+              currency: Currency.usd,
+              totalBudgets: total,
+              activeBudgets: 0,
+              completedBudgets: total,
+              exceededBudgets: 0,
+              upcomingBudgets: 0,
+              totalAllocated: 0,
+              totalSpent: 0,
+              overallRemaining: 0,
+            ),
+        ],
+      );
   @override
   Future<void> fetchBudgets({bool activeOnly = false, BudgetPeriod? period, Currency? currency}) async {}
   @override
   Future<void> fetchMultiCurrencySummary() async {}
 }
 
+/// The list is always empty (whatever the chips and currency); [total] goals
+/// exist in all, all of them in THB.
 class _NoGoals extends GoalProvider {
+  _NoGoals({this.total = 0});
+
+  final int total;
+
   @override
   List<Goal> get goals => const [];
   @override
   bool get isLoading => false;
+  @override
+  MultiCurrencyGoalsSummary get multiCurrencySummary => MultiCurrencyGoalsSummary(
+        totalGoals: total,
+        activeGoals: total,
+        achievedGoals: 0,
+        currencySummaries: [
+          if (total > 0)
+            CurrencySummary(
+              currency: Currency.thb,
+              activeGoals: total,
+              achievedGoals: 0,
+              totalAllocated: 0,
+              totalTarget: 100,
+              overallProgress: 0,
+            ),
+        ],
+      );
   @override
   Future<void> fetchGoals({GoalStatus? statusFilter, Currency? currency}) async {}
   @override
@@ -73,6 +124,7 @@ Future<void> _pump(
   double width = 390,
   double height = 900,
   BudgetProvider? budgets,
+  GoalProvider? goals,
   AuthProvider? auth,
 }) async {
   SharedPreferences.setMockInitialValues({});
@@ -84,7 +136,7 @@ Future<void> _pump(
       ChangeNotifierProvider<AuthProvider>(create: (_) => auth ?? AuthProvider()),
       ChangeNotifierProvider<AppVersionProvider>(create: (_) => AppVersionProvider()),
       ChangeNotifierProvider<BudgetProvider>(create: (_) => budgets ?? _NoBudgets()),
-      ChangeNotifierProvider<GoalProvider>(create: (_) => _NoGoals()),
+      ChangeNotifierProvider<GoalProvider>(create: (_) => goals ?? _NoGoals()),
       ChangeNotifierProvider<TransactionProvider>(create: (_) => _Transactions()),
       ChangeNotifierProvider<NotificationProvider>(create: (_) => _NoNotifications()),
       ChangeNotifierProvider<PlanProvider>(create: (_) => PlanProvider()),
@@ -128,28 +180,73 @@ void main() {
       expect(_anyMascot, findsNothing);
     });
 
-    testWidgets('Budgets, none: budgetpie_happy', (tester) async {
+    testWidgets('Budgets, none at all: budgetpie_happy', (tester) async {
       await _pump(tester, BudgetsScreen());
       // "No budgets yet" is also the hero's line; the empty state's is the last.
       expect(_pose(MascotPose.budgetpieHappy), findsOneWidget);
       expect(tester.getSize(_pose(MascotPose.budgetpieHappy)).height, inInclusiveRange(110, 140));
+      expect(find.text(en.noBudgetsYet), findsWidgets);
       expect(find.text(en.createYourFirstBudget), findsOneWidget);
       expect(tester.getBottomLeft(_pose(MascotPose.budgetpieHappy)).dy,
           lessThanOrEqualTo(tester.getTopLeft(find.text(en.createYourFirstBudget)).dy));
       expect(find.byIcon(Icons.savings_rounded), findsNothing);
     });
 
-    testWidgets('Goals, none: goal_joy', (tester) async {
+    testWidgets('Budgets, all ended (the default "Active" chip hides them): no mascot', (tester) async {
+      await _pump(tester, BudgetsScreen(), budgets: _NoBudgets(total: 3));
+      expect(find.text(en.noActiveBudgets), findsOneWidget);
+      expect(find.text(en.budgetsFilterHint), findsOneWidget);
+      expect(find.text(en.noBudgetsYet), findsNothing);
+      expect(find.text(en.createYourFirstBudget), findsNothing);
+      expect(_anyMascot, findsNothing);
+    });
+
+    testWidgets('Budgets, "All" and a currency with none: no mascot', (tester) async {
+      await _pump(tester, BudgetsScreen(), budgets: _NoBudgets(total: 3));
+      await tester.tap(find.text(en.filterChipAll));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(en.allCurrencies));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('MMK ·'));
+      await tester.pumpAndSettle();
+      // The hero (no MMK summary) says the same, rather than "No budgets yet".
+      expect(find.text(en.noBudgetsInCurrency), findsWidgets);
+      expect(find.text(en.budgetsFilterHint), findsOneWidget);
+      expect(find.text(en.noActiveBudgets), findsNothing);
+      expect(find.text(en.noBudgetsYet), findsNothing);
+      expect(_anyMascot, findsNothing);
+    });
+
+    testWidgets('Goals, none at all: goal_joy', (tester) async {
       await _pump(tester, GoalsScreen());
       _expectAbove(tester, MascotPose.goalJoy, en.noGoalsYet);
       expect(find.text(en.createGoalGetStarted), findsOneWidget);
     });
 
-    testWidgets('Goals, "Achieved" filter with none: no mascot', (tester) async {
+    testWidgets('Goals, none at all with the "Achieved" chip: still goal_joy', (tester) async {
       await _pump(tester, GoalsScreen());
       await tester.tap(find.text(en.achieved).first);
       await tester.pumpAndSettle();
-      expect(find.text(en.noGoalsYet), findsOneWidget);
+      _expectAbove(tester, MascotPose.goalJoy, en.noGoalsYet);
+    });
+
+    testWidgets('Goals, some but none "Achieved": no mascot', (tester) async {
+      await _pump(tester, GoalsScreen(), goals: _NoGoals(total: 2));
+      await tester.tap(find.text(en.achieved).first);
+      await tester.pumpAndSettle();
+      expect(find.text(en.noGoalsToShow), findsOneWidget);
+      expect(find.text(en.goalsFilterHint), findsOneWidget);
+      expect(find.text(en.noGoalsYet), findsNothing);
+      expect(_anyMascot, findsNothing);
+    });
+
+    testWidgets('Goals, some in another currency only: no mascot', (tester) async {
+      // The user's currency is USD; their goals are in THB.
+      await _pump(tester, GoalsScreen(), goals: _NoGoals(total: 2));
+      expect(find.text(en.noGoalsToShow), findsOneWidget);
+      expect(find.text(en.goalsFilterHint), findsOneWidget);
+      expect(find.text(en.noGoalsYet), findsNothing);
+      expect(find.text(en.createGoalGetStarted), findsNothing);
       expect(_anyMascot, findsNothing);
     });
 
@@ -167,6 +264,15 @@ void main() {
           expect(tester.takeException(), isNull, reason: '${screen.runtimeType}');
           expect(_anyMascot, findsOneWidget, reason: '${screen.runtimeType}');
         }
+      });
+
+      testWidgets('$lang 360 px: the filter-style empty Budgets and Goals do not overflow', (tester) async {
+        await _pump(tester, BudgetsScreen(), lang: lang, width: 360, height: 640, budgets: _NoBudgets(total: 3));
+        expect(tester.takeException(), isNull);
+        expect(find.text(AppLocalizations(Locale(lang)).noActiveBudgets), findsOneWidget);
+        await _pump(tester, GoalsScreen(), lang: lang, width: 360, height: 640, goals: _NoGoals(total: 2));
+        expect(tester.takeException(), isNull);
+        expect(find.text(AppLocalizations(Locale(lang)).noGoalsToShow), findsOneWidget);
       });
     }
   });

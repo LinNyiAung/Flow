@@ -169,7 +169,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                 ),
               )
             else if (budgetProvider.budgets.isEmpty)
-              SliverToBoxAdapter(child: _buildEmptyState(localizations))
+              SliverToBoxAdapter(child: _buildEmptyState(localizations, budgetProvider))
             else
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
@@ -232,11 +232,12 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
 
     if (summary == null) {
       // No big number: a bare "0" (with no currency) said nothing that
-      // "No budgets yet" doesn't.
+      // "No budgets yet" doesn't. A user with budgets in other currencies
+      // only has none in the one picked.
       return HeroCard(
         label: localizations.budgetSummary,
         value: null,
-        supporting: localizations.noBudgetsYet,
+        supporting: (multi?.totalBudgets ?? 0) > 0 ? localizations.noBudgetsInCurrency : localizations.noBudgetsYet,
         stats: stats,
       );
     }
@@ -555,17 +556,28 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
     );
   }
 
-  Widget _buildEmptyState(AppLocalizations localizations) {
+  /// True when the user has no budgets at all, in any currency or state —
+  /// not just none that pass the Active chip or the currency filter. The
+  /// all-currencies summary counts every budget; until it has loaded, only an
+  /// unfiltered empty list says so.
+  bool _hasNoBudgetsAtAll(BudgetProvider budgetProvider) {
+    final multi = budgetProvider.multiCurrencySummary;
+    if (multi != null) return multi.totalBudgets == 0;
+    return !_activeOnly && _selectedCurrency == null;
+  }
+
+  Widget _buildEmptyState(AppLocalizations localizations, BudgetProvider budgetProvider) {
     final scheme = Theme.of(context).colorScheme;
+    // Ko Toe Pwar and "No budgets yet" only for a user with no budgets; when
+    // the Active chip or the currency hides them, say that instead.
+    final none = _hasNoBudgetsAtAll(budgetProvider);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Only for "no budgets at all", not for a currency filter that
-            // hides them.
-            if (_selectedCurrency == null)
+            if (none)
               const Mascot(MascotPose.budgetpieHappy, size: 120)
             else
               Container(
@@ -576,15 +588,17 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                 ),
                 child: Icon(Icons.savings_rounded, size: 40, color: scheme.primary),
               ),
-            SizedBox(height: _selectedCurrency == null ? 16 : 20),
+            SizedBox(height: none ? 16 : 20),
             Text(
-              localizations.noBudgetsYet,
+              none
+                  ? localizations.noBudgetsYet
+                  : (_activeOnly ? localizations.noActiveBudgets : localizations.noBudgetsInCurrency),
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface),
             ),
             const SizedBox(height: 8),
             Text(
-              localizations.createYourFirstBudget,
+              none ? localizations.createYourFirstBudget : localizations.budgetsFilterHint,
               style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
