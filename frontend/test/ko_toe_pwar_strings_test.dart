@@ -27,7 +27,6 @@ void main() {
     'aiIsTyping': (l) => l.aiIsTyping,
     'aiIsResponding': (l) => l.aiIsResponding,
     'askAi': (l) => l.askAi,
-    'chatWithAiAssistant': (l) => l.chatWithAiAssistant,
     'aiFinancialAssistant': (l) => l.aiFinancialAssistant,
     'aiFinancialAssistantDes': (l) => l.aiFinancialAssistantDes,
     'clearChatConsequence': (l) => l.clearChatConsequence,

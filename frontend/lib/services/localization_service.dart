@@ -735,7 +735,6 @@ class AppLocalizations {
       'badgeThreeNew': '3 NEW',
       'badgeFreeMonth': 'FREE MONTH',
       'askAi': 'Ask Ko Toe Pwar',
-      'chatWithAiAssistant': 'Chat with Ko Toe Pwar',
       'noUpcomingOccurrences': 'No upcoming occurrences',
       'repeatOn': 'Repeat On',
       'dayLabel': 'Day',
@@ -1895,7 +1894,6 @@ class AppLocalizations {
       'badgeThreeNew': 'အသစ် ၃ ခု',
       'badgeFreeMonth': 'အခမဲ့ တစ်လ',
       'askAi': 'ကိုတိုးပွားကို မေးပါ',
-      'chatWithAiAssistant': 'ကိုတိုးပွားနှင့် စကားပြောပါ',
       'noUpcomingOccurrences': 'လာမည့် အကြိမ်များ မရှိပါ',
       'repeatOn': 'ထပ်တလဲလဲ ပြုလုပ်မည့်နေ့',
       'dayLabel': 'ရက်',
@@ -3109,7 +3107,6 @@ class AppLocalizations {
   String get badgeThreeNew => translate('badgeThreeNew');
   String get badgeFreeMonth => translate('badgeFreeMonth');
   String get askAi => translate('askAi');
-  String get chatWithAiAssistant => translate('chatWithAiAssistant');
   String get noUpcomingOccurrences => translate('noUpcomingOccurrences');
   String get repeatOn => translate('repeatOn');
   String get dayLabel => translate('dayLabel');

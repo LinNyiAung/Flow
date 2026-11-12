@@ -15,7 +15,6 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/providers/transaction_provider.dart';
 import 'package:frontend/screens/home/home_screen.dart';
 import 'package:frontend/services/localization_service.dart';
-import 'package:frontend/widgets/ai_chat_fab.dart';
 import 'package:frontend/widgets/mascot.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -138,14 +137,4 @@ void main() {
       expect(_pose(MascotPose.quickaddJoy), findsOneWidget);
     });
   }
-
-  testWidgets('chat button: his face, named after him', (tester) async {
-    await tester.pumpWidget(_app(const Scaffold(floatingActionButton: AiChatFab())));
-    await tester.pumpAndSettle();
-    expect(find.descendant(of: find.byType(AiChatFab), matching: _pose(MascotPose.face)), findsOneWidget);
-    expect(find.text('Ask Ko Toe Pwar'), findsOneWidget);
-    expect(find.byIcon(Icons.smart_toy), findsNothing);
-    final fab = tester.widget<FloatingActionButton>(find.byType(FloatingActionButton));
-    expect(fab.tooltip, 'Chat with Ko Toe Pwar');
-  });
 }
