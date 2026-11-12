@@ -8,6 +8,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/notifications_top_bar.dart';
 import '../../models/notification.dart';
 import '../../providers/notification_provider.dart';
@@ -388,32 +389,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final scheme = Theme.of(context).colorScheme;
     final localizations = AppLocalizations.of(context);
     final textTheme = Theme.of(context).textTheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(20),
+    // Scrolls (and so still pulls to refresh) when the screen is too short.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Mascot(MascotPose.mailHappy, size: 120),
+                  const SizedBox(height: 16),
+                  Text(
+                    localizations.noNotificationsYet,
+                    style: textTheme.titleMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    localizations.notifyGoalsProgress,
+                    style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
-              child: Icon(Icons.notifications_none_rounded, size: 48, color: scheme.onPrimaryContainer),
             ),
-            const SizedBox(height: 24),
-            Text(
-              localizations.noNotificationsYet,
-              style: textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              localizations.notifyGoalsProgress,
-              style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-          ],
+          ),
         ),
       ),
     );

@@ -10,6 +10,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/blocking_progress.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
@@ -621,14 +622,22 @@ class _GoalsScreenState extends State<GoalsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 88,
-            height: 88,
-            decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
-            child: Icon(Icons.flag_rounded, size: 40, color: scheme.onPrimaryContainer),
+          // Only for "no goals at all", not for the Active / Achieved filter.
+          if (_filterStatus == null)
+            const Mascot(MascotPose.goalJoy, size: 120)
+          else
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
+              child: Icon(Icons.flag_rounded, size: 40, color: scheme.onPrimaryContainer),
+            ),
+          SizedBox(height: _filterStatus == null ? 16 : 20),
+          Text(
+            localizations.noGoalsYet,
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 20),
-          Text(localizations.noGoalsYet, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(
             localizations.createGoalGetStarted,

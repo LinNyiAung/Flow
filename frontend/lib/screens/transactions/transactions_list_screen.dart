@@ -13,6 +13,7 @@ import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:provider/provider.dart';
 import '../../models/transaction.dart';
 import '../../services/api_service.dart';
@@ -718,33 +719,49 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
   /// With no filter on, the list is simply empty: say so like the dashboard
   /// does ("No transactions yet" · tap + to add). The "adjust your filters"
   /// wording is only for when a filter is on.
+  /// Ko Toe Pwar only shows when the list is truly empty, not when a filter
+  /// hides everything. Scrolls (and so still pulls to refresh) when the
+  /// screen is too short for it.
   Widget _buildEmptyState(AppLocalizations localizations, {required bool filtered}) {
     final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(child: _emptyStateContent(localizations, scheme, filtered: filtered)),
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyStateContent(AppLocalizations localizations, ColorScheme scheme, {required bool filtered}) {
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (filtered)
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(20)),
               child: Icon(Icons.receipt_long_rounded, size: 48, color: AppTheme.accentFor(context)),
-            ),
-            SizedBox(height: 24),
-            Text(
-              filtered ? localizations.emptyStateTitle : localizations.noTransactions,
-              style: Theme.of(context).textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 8),
-            Text(
-              filtered ? localizations.emptyStateSubtitle : localizations.tapToAddFirst,
-              style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+            )
+          else
+            const Mascot(MascotPose.quickaddJoy, size: 120),
+          SizedBox(height: filtered ? 24 : 16),
+          Text(
+            filtered ? localizations.emptyStateTitle : localizations.noTransactions,
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
+          SizedBox(height: 8),
+          Text(
+            filtered ? localizations.emptyStateSubtitle : localizations.tapToAddFirst,
+            style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

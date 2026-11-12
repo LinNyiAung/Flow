@@ -9,6 +9,7 @@ import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/stat_tile.dart';
 import 'package:frontend/widgets/status_pill.dart';
@@ -562,17 +563,23 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                shape: BoxShape.circle,
+            // Only for "no budgets at all", not for a currency filter that
+            // hides them.
+            if (_selectedCurrency == null)
+              const Mascot(MascotPose.budgetpieHappy, size: 120)
+            else
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.savings_rounded, size: 40, color: scheme.primary),
               ),
-              child: Icon(Icons.savings_rounded, size: 40, color: scheme.primary),
-            ),
-            const SizedBox(height: 20),
+            SizedBox(height: _selectedCurrency == null ? 16 : 20),
             Text(
               localizations.noBudgetsYet,
+              textAlign: TextAlign.center,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface),
             ),
             const SizedBox(height: 8),
