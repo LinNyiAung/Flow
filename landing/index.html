@@ -72,7 +72,7 @@
 
 <!-- Phone mockup: the app's Home screen -->
 <div class="rise" style="--d: .2s; flex: 1 1 340px; min-width: 0; display: flex; justify-content: center">
-<div style="position: relative; width: 100%; max-width: 420px; display: flex; justify-content: center; padding: 44px 0 52px">
+<div class="hero-phone" style="position: relative; width: 100%; max-width: 420px; display: flex; justify-content: center; padding: 44px 0 52px">
 <div aria-hidden="true" style="position: absolute; top: 6%; bottom: 4%; left: 10%; right: 10%; border-radius: 56px; background: #B9E9D8; transform: rotate(-7deg)"></div>
 <div aria-hidden="true" style="position: absolute; top: 2%; right: 4%; width: 120px; height: 120px; border-radius: 50%; background: #8FD5BE"></div>
 <div aria-hidden="true" style="position: absolute; bottom: 6%; left: 6%; width: 72px; height: 72px; border-radius: 50%; background: #FBF3DE; border: 2px solid #F6DE9C"></div>
@@ -168,6 +168,9 @@
 <span style="width: 34px; height: 34px; border-radius: 11px; background: #FBF3DE; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M8 9h8"></path><path d="M8 13h8"></path><path d="M8 17h5"></path></svg></span>
 <span style="display: flex; flex-direction: column; min-width: 0"><span style="font-size: 11px; font-weight: 700; color: #3F4A45; line-height: var(--lh-mock)" data-i18n="chipScanLabel">Scan receipt</span><span style="font-size: 13px; font-weight: 700; color: #101815; line-height: var(--lh-mock)" data-i18n="chipScanText">Details filled in</span></span>
 </div>
+
+<!-- Ko Toe Pwar, the mascot, waving at the phone's lower left (decorative; the hero image, so not lazy) -->
+<img class="hero-mascot" src="assets/mascot/ko-toe-pwar_wave_happy.svg" alt="" width="128" height="160">
 </div>
 </div>
 </div>
@@ -182,12 +185,16 @@
 </div>
 
 <div class="on-jade reveal" style="background: #0B6B54; border-radius: 32px; padding: clamp(24px, 4vw, 48px); display: flex; flex-direction: column; gap: clamp(24px, 3vw, 36px)">
-<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 680px">
+<div class="ai-intro" style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px">
+<!-- Meet Ko Toe Pwar: the AI helper's face on the page, so a real alt -->
+<img class="ai-mascot" src="assets/mascot/ko-toe-pwar_aibuddy_happy.svg" alt="Ko Toe Pwar, the Toe Pwar money helper: a smiling baby elephant in Myanmar dress" width="128" height="160" loading="lazy" data-i18n-attr="alt:mascotAlt">
+<div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 680px">
 <span style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: #B9E9D8; color: #05261E; font-size: 13px; font-weight: 800; line-height: 1.5">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9z"></path><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"></path></svg>
 <span data-i18n="aiEyebrow">Powered by AI</span></span>
-<h3 style="margin: 0; font-size: var(--h2-size); font-weight: 800; line-height: var(--lh-head); letter-spacing: var(--ls-head); color: #FFFFFF" data-i18n="groupAI">Track less. Understand more.</h3>
-<p style="margin: 0; font-size: 17px; font-weight: 500; color: #DCEFE8" data-i18n="aiSub">Add money by voice or photo, then let AI explain where it went.</p>
+<h3 style="margin: 0; font-size: var(--h2-size); font-weight: 800; line-height: var(--lh-head); letter-spacing: var(--ls-head); color: #FFFFFF" data-i18n="groupAI">Meet Ko Toe Pwar</h3>
+<p style="margin: 0; font-size: 17px; font-weight: 500; color: #DCEFE8" data-i18n="aiSub">Your money helper. Add money by voice or photo, then ask Ko Toe Pwar where it went.</p>
+</div>
 </div>
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 16px">
@@ -257,7 +264,7 @@
 </div>
 <div style="display: flex; flex-direction: column; gap: 8px; padding: 0 12px">
 <h4 style="margin: 0; font-size: 20px; font-weight: 700; line-height: var(--lh-head); color: #101815" data-i18n="f3t">Ask about your money</h4>
-<p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="f3d">Chat with the AI assistant about your own spending and get clear answers.</p>
+<p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="f3d">Chat with Ko Toe Pwar about your own spending and get clear answers.</p>
 </div>
 </article>
 
@@ -272,7 +279,7 @@
 </div>
 <div style="display: flex; flex-direction: column; gap: 8px; padding: 0 12px">
 <h4 style="margin: 0; font-size: 20px; font-weight: 700; line-height: var(--lh-head); color: #101815" data-i18n="f7t">Budgets suggested for you</h4>
-<p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="f7d">AI looks at how you spend and suggests budgets you can stick to.</p>
+<p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="f7d">Ko Toe Pwar looks at how you spend and suggests budgets you can stick to.</p>
 </div>
 </article>
 
@@ -291,7 +298,7 @@
 </div>
 <div style="display: flex; flex-direction: column; gap: 8px; padding: 0 12px">
 <h4 style="margin: 0; font-size: 20px; font-weight: 700; line-height: var(--lh-head); color: #101815" data-i18n="f8t">Insights on your spending</h4>
-<p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="f8d">Get weekly and monthly AI insights on where your money went and what changed.</p>
+<p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="f8d">Get Ko Toe Pwar's weekly and monthly insights on where your money went and what changed.</p>
 </div>
 </article>
 
@@ -352,16 +359,19 @@
 <h2 id="how-title" style="margin: 0; font-size: var(--h2-size); font-weight: 800; line-height: var(--lh-head); letter-spacing: var(--ls-head); max-width: 720px" data-i18n="howTitle">Up and running in three steps</h2>
 <ol class="reveal" style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px">
 <li style="background: #FFFFFF; border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 3px rgba(16,24,21,0.08)">
+<img class="step-mascot" src="assets/mascot/ko-toe-pwar_signin_happy.svg" alt="" width="72" height="90" loading="lazy">
 <span aria-hidden="true" style="width: 44px; height: 44px; border-radius: 50%; background: #0B6B54; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; line-height: 1" data-i18n="n1">1</span>
 <h3 style="margin: 0; font-size: 18px; font-weight: 700; line-height: var(--lh-head)" data-i18n="s1t">Sign up</h3>
 <p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="s1d">Create a free account in the web app or the Android app.</p>
 </li>
 <li style="background: #FFFFFF; border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 3px rgba(16,24,21,0.08)">
+<img class="step-mascot" src="assets/mascot/ko-toe-pwar_quickadd_joy.svg" alt="" width="72" height="90" loading="lazy">
 <span aria-hidden="true" style="width: 44px; height: 44px; border-radius: 50%; background: #0B6B54; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; line-height: 1" data-i18n="n2">2</span>
 <h3 style="margin: 0; font-size: 18px; font-weight: 700; line-height: var(--lh-head)" data-i18n="s2t">Add your money in and out</h3>
 <p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="s2d">Type it, say it or scan a receipt — whichever is quickest.</p>
 </li>
 <li style="background: #FFFFFF; border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 3px rgba(16,24,21,0.08)">
+<img class="step-mascot" src="assets/mascot/ko-toe-pwar_chart_happy.svg" alt="" width="72" height="90" loading="lazy">
 <span aria-hidden="true" style="width: 44px; height: 44px; border-radius: 50%; background: #0B6B54; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; line-height: 1" data-i18n="n3">3</span>
 <h3 style="margin: 0; font-size: 18px; font-weight: 700; line-height: var(--lh-head)" data-i18n="s3t">See where it goes</h3>
 <p style="margin: 0; font-size: 15px; font-weight: 500; color: #3F4A45" data-i18n="s3d">Check your balance, budgets, charts and insights whenever you like.</p>
@@ -391,10 +401,10 @@
 </div>
 <ul data-i18n-list="freeItems" style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto">
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B6B54" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Income, spending, budgets, goals and charts</span></li>
-<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B6B54" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Limited AI chat</span></li>
+<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B6B54" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Limited Ko Toe Pwar chat</span></li>
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B6B54" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Limited voice and receipt entry</span></li>
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B6B54" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Monthly insight</span></li>
-<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B6B54" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>AI budget suggestions</span></li>
+<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B6B54" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Ko Toe Pwar budget ideas</span></li>
 </ul>
 <a href="https://toepwarapp.onrender.com/" data-app-link class="btn-fill" style="display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 20px; border-radius: 20px; background: #0B6B54; color: #FFFFFF; text-decoration: none; font-size: 16px; font-weight: 700; line-height: 1.3" data-i18n="startFree">Start free</a>
 </article>
@@ -415,11 +425,11 @@
 </div>
 <ul data-i18n-list="plusItems" style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto">
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Everything in Free</span></li>
-<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>More AI chat and AI entry</span></li>
+<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>More Ko Toe Pwar chat and AI entry</span></li>
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Weekly insights</span></li>
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Insight translation</span></li>
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>PDF reports</span></li>
-<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>More AI budget suggestions</span></li>
+<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>More Ko Toe Pwar budget ideas</span></li>
 </ul>
 </article>
 
@@ -439,10 +449,10 @@
 </div>
 <ul data-i18n-list="proItems" style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto">
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Everything in Plus</span></li>
-<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>The most AI chat and AI entry</span></li>
+<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>The most Ko Toe Pwar chat and AI entry</span></li>
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Advanced chat</span></li>
 <li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>Custom insight reports</span></li>
-<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>The most AI budget suggestions</span></li>
+<li style="display: flex; gap: 10px; align-items: flex-start; font-size: 15px; font-weight: 500"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6E5411" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span data-item>The most Ko Toe Pwar budget ideas</span></li>
 </ul>
 </article>
 </div>
@@ -454,6 +464,8 @@
 <section aria-labelledby="cta-title" style="padding: clamp(56px, 7vw, 104px) 0">
 <div style="max-width: 1160px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 40px)">
 <div class="on-jade reveal" style="background: #0B6B54; border-radius: 32px; padding: clamp(36px, 5vw, 64px) clamp(24px, 5vw, 64px); display: flex; flex-wrap: wrap; align-items: center; gap: 28px">
+<!-- Ko Toe Pwar celebrating, beside the text (above it under 720px) -->
+<div class="cta-mascot"><img src="assets/mascot/ko-toe-pwar_celebrate_joy.svg" alt="" width="120" height="150" loading="lazy"></div>
 <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
 <h2 id="cta-title" style="margin: 0; font-size: var(--h2-size); font-weight: 800; line-height: var(--lh-head); letter-spacing: var(--ls-head); color: #FFFFFF" data-i18n="ctaTitle">Start keeping track today.</h2>
 <p style="margin: 0; font-size: 17px; font-weight: 500; color: #DCEFE8" data-i18n="ctaSub">Free to start. Use it in your browser or on your Android phone.</p>

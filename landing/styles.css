@@ -74,3 +74,15 @@ a{color:#0B6B54}a:hover{color:#095A47}
 /* small phones: tighten the top row so Myanmar's longer 'Go to app' fits (the design overflowed by a few px at 360px) */
 @media (max-width:419px){.tp header>div{gap:8px !important}.tp header .btn-fill{padding:0 12px !important}.tp .lang-btn{padding:0 10px !important}}
 @media (max-width:359px){.tp header .btn-fill,.tp .lang-btn{font-size:13px !important}.tp .lang-btn{padding:0 8px !important}}
+
+/* ---- Ko Toe Pwar, the mascot (SVG <img>s; assets/mascot/) ---- */
+/* hero: at the phone's lower left, overlapping it a little */
+.tp .hero-mascot{position:absolute;left:-64px;bottom:16px;z-index:3;width:auto;height:clamp(130px, 3vw + 120px, 164px);pointer-events:none;filter:drop-shadow(0 10px 12px rgba(16,24,21,0.16))}
+/* phones: smaller, in room made under the phone, so he covers neither the buttons nor the phone's screen */
+@media (max-width:599px){.tp .hero-phone{padding-bottom:124px !important}.tp .hero-mascot{left:4px;bottom:2px;height:104px}}
+.tp .ai-mascot{display:block;flex:0 0 auto;width:auto;height:clamp(120px, 4vw + 104px, 164px)}
+.tp .step-mascot{display:block;align-self:flex-start;width:auto;height:90px}
+.tp .cta-mascot{flex:0 0 auto;display:flex}
+.tp .cta-mascot img{display:block;width:auto;height:150px}
+/* under 720px: above the text, smaller */
+@media (max-width:719px){.tp .cta-mascot{flex-basis:100%}.tp .cta-mascot img{height:110px}}

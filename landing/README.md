@@ -13,6 +13,7 @@ The design is `docs/landing/toepwar-landing.design.html`; `docs/landing/HANDOFF.
 | `i18n.js` | Every string in English and Myanmar (`TP_COPY`), taken from the design's copy table. |
 | `main.js` | The language switch, prices, contact links and the Android download. |
 | `favicon.svg`, `apple-touch-icon.png` | The app icon (`frontend/assets/icon/`). |
+| `assets/mascot/` | Ko Toe Pwar, the mascot: the six SVG poses the page shows (hero, "Meet Ko Toe Pwar", the three steps, the final call to action). |
 
 ## What comes from the backend
 
