@@ -10,3 +10,7 @@ __pycache__/
 
 # Brainstorming mockups (local only)
 .superpowers/
+
+# Source art and design exports (the mascot pack is about 31 MB). Only the files the
+# app and landing page use are copied into frontend/assets/ and landing/assets/.
+Claude outputs/
