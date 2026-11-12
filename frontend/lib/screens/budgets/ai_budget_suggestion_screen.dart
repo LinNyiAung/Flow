@@ -4,6 +4,7 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:provider/provider.dart';
@@ -192,7 +193,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
     final localizations = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(localizations.aiBudgetSuggestion),
+        title: AppBarTitle(localizations.aiBudgetSuggestion),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),

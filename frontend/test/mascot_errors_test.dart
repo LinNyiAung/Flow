@@ -15,6 +15,7 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/providers/transaction_provider.dart';
 import 'package:frontend/screens/budgets/ai_budget_suggestion_screen.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/mascot.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -164,6 +165,13 @@ void main() {
       _expectAbove(tester, MascotPose.offlineSad, en.sessionRestoreFailedTitle);
       expect(find.byIcon(Icons.cloud_off_rounded), findsNothing);
       await tester.pumpWidget(const SizedBox()); // stops the auto-retry timer
+    });
+
+    testWidgets('Myanmar 360 px: "ကိုတိုးပွား၏ ဘတ်ဂျက် အကြံပြုချက်" title is never cut to "…"', (tester) async {
+      final my = AppLocalizations(const Locale('my'));
+      await _pump(tester, _suggestion(),
+          lang: 'my', width: 360, budgets: _NoBudgets(suggestionError: 'Failed (500)'));
+      expect(find.widgetWithText(AppBarTitle, my.aiBudgetSuggestion), findsOneWidget);
     });
 
     for (final lang in ['en', 'my']) {

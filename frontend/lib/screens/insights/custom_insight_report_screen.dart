@@ -10,6 +10,7 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_text.dart';
 import 'package:frontend/utils/safe_markdown.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/custom_insight_figures.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
 import 'package:frontend/widgets/mascot.dart';
@@ -147,7 +148,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l.aiInsights),
+        title: AppBarTitle(l.aiInsights),
         actions: [
           if (report != null && !report.isPending)
             IconButton(

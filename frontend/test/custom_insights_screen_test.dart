@@ -19,6 +19,7 @@ import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_push.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/mascot.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1101,6 +1102,17 @@ void main() {
       await tester.tap(find.byKey(const Key('custom-report-retry')));
       await tester.pumpAndSettle();
       expect(pose(MascotPose.offlineSad), findsOneWidget);
+    });
+
+    testWidgets('"Ko Toe Pwar\'s insights" titles use the never-"…" top-bar title', (tester) async {
+      final my = AppLocalizations(const Locale('my'));
+      await _pump(tester, InsightsScreen(),
+          fake: FakeCustomInsightClient(), plan: _plan(weekly: 'included'), locale: const Locale('my'));
+      expect(find.widgetWithText(AppBarTitle, my.aiInsights), findsOneWidget);
+
+      final fake = FakeCustomInsightClient()..getError = ApiException('Server error', statusCode: 500);
+      await _pump(tester, const CustomInsightReportScreen(reportId: 'r1'), fake: fake, locale: const Locale('my'));
+      expect(find.widgetWithText(AppBarTitle, my.aiInsights), findsOneWidget);
     });
 
     testWidgets('a deleted report keeps its plain icon (not an error)', (tester) async {
