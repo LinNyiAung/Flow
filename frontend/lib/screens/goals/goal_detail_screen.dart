@@ -5,6 +5,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
@@ -682,6 +683,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The goal is reached: Ko Toe Pwar with the trophy, above the
+          // ACHIEVED header.
+          if (achieved) ...[
+            const Center(child: Mascot(MascotPose.trophyJoy, size: 110)),
+            const SizedBox(height: 12),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
