@@ -45,7 +45,22 @@ PlanStatus _status() => PlanStatus(
       },
     );
 
-Future<void> _pump(WidgetTester tester, Widget home, {String lang = 'en', double width = 390}) async {
+/// A Plus user until a date: the page shows "Your plan".
+class _PlusUser extends AuthProvider {
+  @override
+  bool get isPaid => true;
+  @override
+  Plan get plan => Plan.plus;
+  @override
+  bool get isTrial => false;
+  @override
+  bool get hasClaimedFreeTrial => true;
+  @override
+  DateTime? get subscriptionExpiresAt => _now.add(const Duration(days: 20));
+}
+
+Future<void> _pump(WidgetTester tester, Widget home,
+    {String lang = 'en', double width = 390, AuthProvider? auth}) async {
   // A token, so the plan (and the upgrade buttons and KPay/WavePay row) loads.
   SharedPreferences.setMockInitialValues({'access_token': 'tok'});
   tester.view.physicalSize = Size(width * 3, 1600 * 3);
@@ -53,7 +68,7 @@ Future<void> _pump(WidgetTester tester, Widget home, {String lang = 'en', double
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MultiProvider(
     providers: [
-      ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
+      ChangeNotifierProvider<AuthProvider>(create: (_) => auth ?? AuthProvider()),
       ChangeNotifierProvider(create: (_) => PlanProvider(loader: () async => _status())),
       ChangeNotifierProvider(create: (_) => GoalProvider()),
       ChangeNotifierProvider(create: (_) => TransactionProvider()),
@@ -86,6 +101,12 @@ void main() {
     expect(tester.getBottomLeft(_pose(MascotPose.upgradeJoy)).dy,
         lessThanOrEqualTo(tester.getTopLeft(find.text(en.comparePlans)).dy));
     expect(find.byType(AcceptedPayments), findsOneWidget);
+  });
+
+  testWidgets('"Your plan" for a paid user: no upgrade_joy', (tester) async {
+    await _pump(tester, SubscriptionScreen(), auth: _PlusUser());
+    expect(find.text(en.yourPlanTitle), findsOneWidget);
+    expect(find.byType(Mascot), findsNothing);
   });
 
   testWidgets('an achieved goal: trophy_joy in the goal detail header', (tester) async {

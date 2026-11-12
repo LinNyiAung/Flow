@@ -204,9 +204,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // ── Ko Toe Pwar, cheering on the upgrade ───────
-                          const Center(child: Mascot(MascotPose.upgradeJoy, size: 112)),
-                          const SizedBox(height: 12),
+                          // ── Ko Toe Pwar, cheering on the upgrade (Free
+                          // users only, not on a paid user's "Your plan") ──
+                          if (!isPaid) ...[
+                            const Center(child: Mascot(MascotPose.upgradeJoy, size: 112)),
+                            const SizedBox(height: 12),
+                          ],
 
                           // ── Current plan card ─────────────────────────
                           if (isPaid) ...[
