@@ -572,8 +572,9 @@ class _SessionRestoreRetryScreenState extends State<_SessionRestoreRetryScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // "Can't reach the server": always a connection problem here.
-                const Mascot(MascotPose.offlineSad, size: 120),
+                // A timeout / no connection gets offline_sad; a server error
+                // (5xx) that also lands here gets oops_sad.
+                Mascot(MascotPose.forError(details), size: 120),
                 const SizedBox(height: 16),
                 Text(
                   localizations.sessionRestoreFailedTitle,

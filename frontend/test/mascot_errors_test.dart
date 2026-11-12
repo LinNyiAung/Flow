@@ -75,8 +75,14 @@ class _NoNotifications extends NotificationProvider {
   Future<void> fetchUnreadCount() async {}
 }
 
-/// A saved session that could not be restored: the server was unreachable.
+/// A saved session that could not be restored, with [error] (by default: the
+/// server was unreachable).
 class _Unreachable extends AuthProvider {
+  _Unreachable([String? restoreError])
+      : restoreError = restoreError ?? AppLocalizations(const Locale('en')).errorNetworkUnreachable;
+
+  final String restoreError;
+
   @override
   bool get isAuthenticated => false;
   @override
@@ -84,7 +90,7 @@ class _Unreachable extends AuthProvider {
   @override
   bool get isAuthChecking => false;
   @override
-  String? get sessionRestoreError => AppLocalizations(const Locale('en')).errorNetworkUnreachable;
+  String? get sessionRestoreError => restoreError;
   @override
   Future<void> checkAuthStatus() async {}
 }
@@ -165,6 +171,19 @@ void main() {
       _expectAbove(tester, MascotPose.offlineSad, en.sessionRestoreFailedTitle);
       expect(find.byIcon(Icons.cloud_off_rounded), findsNothing);
       await tester.pumpWidget(const SizedBox()); // stops the auto-retry timer
+    });
+
+    testWidgets('session restore, server error (500): oops_sad', (tester) async {
+      await _pump(tester, const AuthWrapper(), auth: _Unreachable('Failed to get user (500)'));
+      _expectAbove(tester, MascotPose.oopsSad, en.sessionRestoreFailedTitle);
+      expect(_pose(MascotPose.offlineSad), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('session restore, timed out: offline_sad', (tester) async {
+      await _pump(tester, const AuthWrapper(), auth: _Unreachable(en.errorRequestTimedOut));
+      _expectAbove(tester, MascotPose.offlineSad, en.sessionRestoreFailedTitle);
+      await tester.pumpWidget(const SizedBox());
     });
 
     testWidgets('Myanmar 360 px: "ကိုတိုးပွား၏ ဘတ်ဂျက် အကြံပြုချက်" title is never cut to "…"', (tester) async {
