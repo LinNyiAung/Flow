@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/app_version_provider.dart';
@@ -63,6 +64,12 @@ Route<void> authWrapperRoute() => MaterialPageRoute<void>(
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // The bundled Noto Sans Myanmar font (SIL OFL) on the licences page.
+  LicenseRegistry.addLicense(() async* {
+    final ofl = await rootBundle.loadString('assets/fonts/NotoSansMyanmar-OFL.txt');
+    yield LicenseEntryWithLineBreaks(const ['NotoSansMyanmar'], ofl);
+  });
 
   // Load the saved locale before the first frame so Myanmar users don't see
   // an English flash.

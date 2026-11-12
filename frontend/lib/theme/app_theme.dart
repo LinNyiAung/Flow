@@ -107,12 +107,36 @@ class AppTheme {
     Color(0xFF124A3C),
   ];
 
+  /// Fallback for glyphs Manrope lacks: the bundled Noto Sans Myanmar
+  /// (pubspec `fonts:`). Without it the web build shows empty boxes for
+  /// Myanmar text until the engine downloads a fallback font.
+  static const myanmarFallback = <String>['NotoSansMyanmar'];
+
+  /// Manrope with the Myanmar fallback; every theme text style goes through
+  /// this, because component themes (buttons, chips, inputs, snackbars) don't
+  /// inherit ThemeData.fontFamilyFallback.
+  static TextStyle _manrope({
+    double? fontSize,
+    FontWeight? fontWeight,
+    Color? color,
+    double? letterSpacing,
+    double? height,
+    List<FontFeature>? fontFeatures,
+  }) => GoogleFonts.manrope(
+    fontSize: fontSize,
+    fontWeight: fontWeight,
+    color: color,
+    letterSpacing: letterSpacing,
+    height: height,
+    fontFeatures: fontFeatures,
+  ).copyWith(fontFamilyFallback: myanmarFallback);
+
   /// Amounts only — keeps digits in vertical columns.
   static TextStyle money(
     double size, {
     FontWeight weight = FontWeight.w700,
     Color? color,
-  }) => GoogleFonts.manrope(
+  }) => _manrope(
     fontSize: size,
     fontWeight: weight,
     color: color ?? ink,
@@ -124,36 +148,36 @@ class AppTheme {
   /// this with their own ink colors so headings/body text never fall back to
   /// the light-mode near-black default on a dark surface.
   static TextTheme _textThemeFor({required Color ink, required Color inkMuted}) {
-    return GoogleFonts.manropeTextTheme().apply(bodyColor: ink, displayColor: ink).copyWith(
+    return GoogleFonts.manropeTextTheme().apply(bodyColor: ink, displayColor: ink, fontFamilyFallback: myanmarFallback).copyWith(
       displaySmall: money(40, weight: FontWeight.w800, color: ink),
       headlineMedium: money(32, weight: FontWeight.w800, color: ink),
-      titleLarge: GoogleFonts.manrope(
+      titleLarge: _manrope(
         fontSize: 22,
         fontWeight: FontWeight.w600,
         letterSpacing: -0.22,
         color: ink,
       ),
-      titleMedium: GoogleFonts.manrope(
+      titleMedium: _manrope(
         fontSize: 16,
         fontWeight: FontWeight.w700,
         color: ink,
       ),
-      bodyLarge: GoogleFonts.manrope(
+      bodyLarge: _manrope(
         fontSize: 15,
         fontWeight: FontWeight.w600,
         color: ink,
       ),
-      bodyMedium: GoogleFonts.manrope(
+      bodyMedium: _manrope(
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: ink,
       ),
-      labelMedium: GoogleFonts.manrope(
+      labelMedium: _manrope(
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: inkMuted,
       ),
-      labelSmall: GoogleFonts.manrope(
+      labelSmall: _manrope(
         fontSize: 11,
         fontWeight: FontWeight.w800,
         letterSpacing: 0.22,
@@ -191,6 +215,7 @@ class AppTheme {
 
     return ThemeData(
       useMaterial3: true,
+      fontFamilyFallback: myanmarFallback,
       brightness: Brightness.light,
       colorScheme: scheme,
       scaffoldBackgroundColor: surface,
@@ -224,7 +249,7 @@ class AppTheme {
           backgroundColor: jade,
           foregroundColor: Colors.white,
           minimumSize: const Size.fromHeight(52),
-          textStyle: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: _manrope(fontSize: 15, fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
       ),
@@ -234,28 +259,28 @@ class AppTheme {
           foregroundColor: Colors.white,
           elevation: 0,
           minimumSize: const Size.fromHeight(52),
-          textStyle: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: _manrope(fontSize: 15, fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: jade,
-          textStyle: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: _manrope(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: jade,
         foregroundColor: Colors.white,
         elevation: 3,
-        extendedTextStyle: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w600),
+        extendedTextStyle: _manrope(fontSize: 15, fontWeight: FontWeight.w600),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: surface,
         selectedColor: jade,
         side: const BorderSide(color: outline),
-        labelStyle: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600, color: ink),
+        labelStyle: _manrope(fontSize: 13, fontWeight: FontWeight.w600, color: ink),
         secondarySelectedColor: jade,
         showCheckmark: false,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -281,7 +306,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: danger),
         ),
-        hintStyle: GoogleFonts.manrope(fontSize: 15, color: hint),
+        hintStyle: _manrope(fontSize: 15, color: hint),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: jade,
@@ -298,7 +323,7 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: snack,
-        contentTextStyle: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w500, color: onSnack),
+        contentTextStyle: _manrope(fontSize: 14, fontWeight: FontWeight.w500, color: onSnack),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -380,7 +405,7 @@ class AppTheme {
           backgroundColor: darkPrimary,
           foregroundColor: Colors.white,
           minimumSize: const Size.fromHeight(52),
-          textStyle: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: _manrope(fontSize: 15, fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
       ),
@@ -390,14 +415,14 @@ class AppTheme {
           foregroundColor: Colors.white,
           elevation: 0,
           minimumSize: const Size.fromHeight(52),
-          textStyle: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: _manrope(fontSize: 15, fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: darkAccent,
-          textStyle: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: _manrope(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
       // Material's default outlined-button ink is `primary`, a button fill in
@@ -414,7 +439,7 @@ class AppTheme {
         selectedColor: darkPrimary,
         secondarySelectedColor: darkPrimary,
         side: const BorderSide(color: darkOutline),
-        labelStyle: GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600, color: darkInk),
+        labelStyle: _manrope(fontSize: 13, fontWeight: FontWeight.w600, color: darkInk),
       ),
       inputDecorationTheme: base.inputDecorationTheme.copyWith(
         fillColor: darkCard,

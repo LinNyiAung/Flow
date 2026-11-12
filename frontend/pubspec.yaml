@@ -101,6 +101,18 @@ flutter:
   assets:
     - assets/icon/toepwar.png
     - assets/payments/
+    - assets/fonts/NotoSansMyanmar-OFL.txt
+
+  # Myanmar glyphs ship with the app (SIL Open Font License, see
+  # assets/fonts/NotoSansMyanmar-OFL.txt) so the web build doesn't show
+  # empty boxes while a fallback font downloads. AppTheme lists it as the
+  # fallback after Manrope.
+  fonts:
+    - family: NotoSansMyanmar
+      fonts:
+        - asset: assets/fonts/NotoSansMyanmar-Regular.ttf
+        - asset: assets/fonts/NotoSansMyanmar-Bold.ttf
+          weight: 700
 
   # To add assets to your application, add an assets section, like this:
   # assets:
