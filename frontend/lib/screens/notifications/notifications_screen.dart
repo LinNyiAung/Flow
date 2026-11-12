@@ -8,6 +8,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
+import 'package:frontend/widgets/notifications_top_bar.dart';
 import '../../models/notification.dart';
 import '../../providers/notification_provider.dart';
 import '../../providers/goal_provider.dart';
@@ -242,30 +243,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final localizations = AppLocalizations.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(localizations.notifications),
-        actions: [
-          if (notificationProvider.unreadCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: TextButton.icon(
-                onPressed: () async {
-                  await notificationProvider.markAllAsRead();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(localizations.markedAsRead)),
-                  );
-                },
-                icon: const Icon(Icons.done_all_rounded, size: 18),
-                label: Text(localizations.markAllRead, style: const TextStyle(fontSize: 12)),
-                style: TextButton.styleFrom(
-                  backgroundColor: scheme.secondaryContainer,
-                  foregroundColor: scheme.onSecondaryContainer,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                ),
-              ),
-            ),
-        ],
+      appBar: NotificationsTopBar(
+        title: localizations.notifications,
+        markAllReadLabel: localizations.markAllRead,
+        showMarkAllRead: notificationProvider.unreadCount > 0,
+        onMarkAllRead: () async {
+          await notificationProvider.markAllAsRead();
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(localizations.markedAsRead)),
+          );
+        },
       ),
       body: RefreshIndicator(
         onRefresh: _refreshNotifications,
