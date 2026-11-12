@@ -378,15 +378,17 @@ class FinancialDataProcessor:
                 active_goals = [g for g in curr_goals if g["status"] == "active"]
                 achieved_goals = [g for g in curr_goals if g["status"] == "achieved"]
 
-                total_allocated = sum(g["current_amount"] for g in active_goals)
-                total_target = sum(g["target_amount"] for g in active_goals)
+                # Money held for goals counts every goal (active and achieved), as the app's
+                # dashboard and goals summary do (goals_db.allocated_by_currency).
+                total_allocated = sum(g["current_amount"] for g in curr_goals)
+                total_target = sum(g["target_amount"] for g in curr_goals)
 
                 goals_text += f"💰 {currency_name} GOALS:\n"
                 goals_text += f"  • Total Goals: {len(curr_goals)}\n"
                 goals_text += f"  • Active Goals: {len(active_goals)}\n"
                 goals_text += f"  • Achieved Goals: {len(achieved_goals)}\n"
                 goals_text += f"  • Total Allocated: {currency_symbol}{total_allocated:,.2f}\n"
-                goals_text += f"  • Total Target (Active): {currency_symbol}{total_target:,.2f}\n"
+                goals_text += f"  • Total Target: {currency_symbol}{total_target:,.2f}\n"
                 goals_text += f"  • Overall Progress: {(total_allocated / total_target * 100) if total_target > 0 else 0:.1f}%\n\n"
 
                 if active_goals:
@@ -569,7 +571,7 @@ class FinancialDataProcessor:
                 summary_text += f"Current Balance: {currency_symbol}{data.get('balance', 0):,.2f}\n"
 
                 # Add goals impact if exists
-                curr_goals = [g for g in goals if g.get("currency", "usd") == currency and g["status"] == "active"]
+                curr_goals = [g for g in goals if g.get("currency", "usd") == currency]
                 if curr_goals:
                     total_allocated = sum(g["current_amount"] for g in curr_goals)
                     available_balance = data.get('balance', 0) - total_allocated
@@ -1097,7 +1099,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 if goals_summary:
                     curr_goals = [g for g in goals_summary.get('goals_by_currency', {}).get(currency, [])]
                     if curr_goals:
-                        allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
+                        allocated = sum(g.get('current_amount', 0) for g in curr_goals)
                         prompt += f"  💎 Allocated to Goals: {currency_symbol}{allocated:,.2f}\n"
                         prompt += f"  ✨ Available Balance: {currency_symbol}{data.get('balance', 0) - allocated:,.2f}\n"
 
@@ -1124,7 +1126,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 if goals_summary:
                     curr_goals = [g for g in goals_summary.get('goals_by_currency', {}).get(currency, [])]
                     if curr_goals:
-                        allocated = sum(g.get('current_amount', 0) for g in curr_goals if g.get('status') == 'active')
+                        allocated = sum(g.get('current_amount', 0) for g in curr_goals)
                         available -= allocated
 
                 prompt += f"  ✨ Available Balance: {currency_symbol}{available:,.2f}\n"
@@ -1208,7 +1210,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             if goals:                  
                 active_goals = [g for g in goals if g["status"] == "active"]
                 achieved_goals = [g for g in goals if g["status"] == "achieved"]
-                total_allocated = sum(g["current_amount"] for g in active_goals)
+                total_allocated = sum(g["current_amount"] for g in goals)
 
                 # Group goals by currency
                 goals_by_currency = {}

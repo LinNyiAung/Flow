@@ -65,5 +65,37 @@ check(usd.get("active_goals", 0) + usd.get("achieved_goals", 0) == 3, "all-curre
 check(abs((usd.get("overall_progress") or 0) - 2800 / 7300 * 100) < 0.01, "all-currencies USD progress", usd)
 check(usd.get("total_allocated") == set_aside, "all-currencies agrees with the dashboard", usd)
 
+# The AI assistant is told the same totals (in-process, against the same database).
+import asyncio  # noqa: E402
+import base64  # noqa: E402
+import json  # noqa: E402
+
+
+def _uid(token):
+    payload = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["uid"]
+
+
+async def _ai_context(uid):
+    from ai_chatbot import FinancialDataProcessor, financial_chatbot
+    proc = FinancialDataProcessor(uid)
+    docs = await proc.create_financial_documents()
+    texts = {d.metadata.get("type"): d.page_content for d in docs}
+    goals_list = await proc.get_user_goals()
+    summary = await proc.get_financial_summary()
+    prompt = financial_chatbot._build_user_prompt(
+        {"name": "GS"}, summary, {"goals_by_currency": {"usd": goals_list}}, None, "", "", "hi", "today")
+    return texts, prompt
+
+
+texts, prompt = asyncio.run(_ai_context(_uid(tok)))
+overview = texts.get("goals_overview", "")
+check("Total Allocated: $2,800.00" in overview and "Total Target: $7,300.00" in overview,
+      "AI goals overview: $2,800 of $7,300", overview[:600])
+summaries = "\n".join(t for k, t in texts.items() if k != "goals_overview")
+check("Allocated to Goals: $2,800.00" in summaries, "AI financial summary sets aside $2,800", summaries[:800])
+check("Allocated to Goals: $2,800.00" in prompt and "Available Balance: $2,200.00" in prompt,
+      "AI prompt: $2,800 for goals, $2,200 available", prompt[:800])
+
 print(f"\n{'ALL PASS' if failures == 0 else f'{failures} FAILED'}")
 sys.exit(1 if failures else 0)
