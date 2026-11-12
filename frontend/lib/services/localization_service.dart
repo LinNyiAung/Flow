@@ -434,6 +434,7 @@ class AppLocalizations {
       'activeGoals': 'Active Goals',
       'close': 'Close',
       'aiBudgetSuggestion': 'Budget ideas from Ko Toe Pwar',
+      'budgetIdeasFailed': "Ko Toe Pwar couldn't get your budget ideas. Please try again.",
       'analysisDetails': 'Analysis Details',
       'failedToGenerateSuggestion': 'Failed to Generate Suggestion',
       'tryAgain': 'Try Again',
@@ -1602,6 +1603,7 @@ class AppLocalizations {
       'activeGoals': 'ဆောင်ရွက်ဆဲ ရည်မှန်းချက်များ',
       'close': 'ပိတ်ရန်',
       'aiBudgetSuggestion': 'ကိုတိုးပွား၏ ဘတ်ဂျက် အကြံပြုချက်',
+      'budgetIdeasFailed': 'ကိုတိုးပွား၏ ဘတ်ဂျက် အကြံပြုချက်များကို ရယူ၍ မရပါ။ ထပ်ကြိုးစားပါ။',
       'analysisDetails': 'ခွဲခြမ်းစိတ်ဖြာချက် အသေးစိတ်',
       'failedToGenerateSuggestion': 'အကြံပြုချက် ထုတ်လုပ်ရန် မအောင်မြင်ပါ',
       'tryAgain': 'ထပ်ကြိုးစားပါ',
@@ -2793,6 +2795,7 @@ class AppLocalizations {
   String get activeGoals => translate('activeGoals');
   String get close => translate('close');
   String get aiBudgetSuggestion => translate('aiBudgetSuggestion');
+  String get budgetIdeasFailed => translate('budgetIdeasFailed');
   String get analysisDetails => translate('analysisDetails');
   String get failedToGenerateSuggestion => translate('failedToGenerateSuggestion');
   String get tryAgain => translate('tryAgain');

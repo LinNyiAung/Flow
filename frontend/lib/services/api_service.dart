@@ -2116,7 +2116,9 @@ class ApiService {
       _notifyPlanUsage();
       return AIBudgetSuggestion.fromJson(jsonDecode(response.body));
     } else {
-      throw apiError(response, 'Failed to get AI budget suggestions');
+      // Shown on the budget-ideas error screen: in the app language, naming
+      // Ko Toe Pwar (the server's own message wins when there is one).
+      throw apiError(response, _strings.budgetIdeasFailed);
     }
   }
 
