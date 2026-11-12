@@ -50,7 +50,7 @@ void main() {
 
   group('Mascot', () {
     testWidgets('a full-body pose is drawn at the given height, 4:5', (tester) async {
-      await _pump(tester, const Mascot(MascotPose.waveHappy, size: 120));
+      await _pump(tester, const Mascot(MascotPose.goalJoy, size: 120));
       expect(find.byType(SvgPicture), findsOneWidget);
       expect(tester.getSize(find.byType(Mascot)), const Size(96, 120));
     });

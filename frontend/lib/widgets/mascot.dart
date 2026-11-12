@@ -16,7 +16,6 @@ enum MascotPose {
   ideaHappy('idea_happy'),
   offlineSad('offline_sad'),
   oopsSad('oops_sad'),
-  waveHappy('wave_happy'),
   upgradeJoy('upgrade_joy'),
   trophyJoy('trophy_joy');
 

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/mascot.dart';
 
 class RegisterScreen extends StatefulWidget {
   @override
@@ -55,9 +54,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Scaffold(
         body: SafeArea(
           child: SingleChildScrollView(
-            // The form step's top row holds Ko Toe Pwar: less top padding
-            // there (was 62 for both steps), so the form keeps its height.
-            padding: EdgeInsets.fromLTRB(24, _showVerify ? 62 : 16, 24, 40),
+            padding: const EdgeInsets.fromLTRB(24, 62, 24, 40),
             child: _showVerify ? _buildVerifyStep(context) : _buildFormStep(context),
           ),
         ),
@@ -82,22 +79,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Back on the left, Ko Toe Pwar waving on the right, above the
-          // heading and the form.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              IconButton(
-                onPressed: () => Navigator.pop(context),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-              const Spacer(),
-              const Mascot(MascotPose.waveHappy, size: 88),
-            ],
+          IconButton(
+            onPressed: () => Navigator.pop(context),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            icon: const Icon(Icons.arrow_back_rounded),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           Text(localizations.createAnAccount, style: headingStyle),
           const SizedBox(height: 6),
           Text(
