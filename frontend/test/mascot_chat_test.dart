@@ -95,9 +95,28 @@ void main() {
     // Beside the reply, to its left.
     final reply = find.textContaining('on food.');
     expect(tester.getTopRight(faces).dx, lessThanOrEqualTo(tester.getTopLeft(reply).dx));
-    // The user's bubble has none: its row holds no Mascot.
-    final userRow = find.ancestor(of: find.text('How much did I spend on food?'), matching: find.byType(Row)).first;
+    // Each message's bubble row (the outermost Row of its list item, the
+    // one the face would go in): his reply's holds his face, the user's none.
+    Finder bubbleRow(Finder text) =>
+        find.ancestor(of: text, matching: find.descendant(of: list, matching: find.byType(Row))).last;
+    final replyRow = bubbleRow(reply);
+    final userRow = bubbleRow(find.text('How much did I spend on food?'));
+    expect(tester.widget<Row>(replyRow).mainAxisAlignment, MainAxisAlignment.start);
+    expect(tester.widget<Row>(userRow).mainAxisAlignment, MainAxisAlignment.end);
+    expect(find.descendant(of: replyRow, matching: find.byType(Mascot)), findsOneWidget);
     expect(find.descendant(of: userRow, matching: find.byType(Mascot)), findsNothing);
+  });
+
+  testWidgets('faces across the list: one per reply, none per user message', (tester) async {
+    final chat = await _answered(tester);
+    await chat.sendMessage('And on transport?');
+    await tester.pump(const Duration(milliseconds: 50));
+    await _open(tester, chat);
+    final list = find.byType(ListView);
+    expect(chat.messages.where((m) => m.role == MessageRole.user).length, 2);
+    expect(chat.messages.where((m) => m.role == MessageRole.assistant).length, 2);
+    expect(find.descendant(of: list, matching: find.byType(Mascot)), findsNWidgets(2));
+    expect(find.descendant(of: list, matching: _pose(MascotPose.face)), findsNWidgets(2));
   });
 
   for (final lang in ['en', 'my']) {
