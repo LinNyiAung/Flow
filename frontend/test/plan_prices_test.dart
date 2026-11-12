@@ -182,7 +182,7 @@ void main() {
       expect(text(tester, 'plan-price-plus'), 'K15,000');
       expect(find.byKey(const Key('plan-price-pro')), findsNothing); // Pro has no price: the dash
       // The Price row comes before the first feature row.
-      expect(tester.getTopLeft(find.text('Price')).dy, lessThan(tester.getTopLeft(find.text('AI chat')).dy));
+      expect(tester.getTopLeft(find.text('Price')).dy, lessThan(tester.getTopLeft(find.text('Ko Toe Pwar chat')).dy));
       // Its period uses the table's own "per month" (Plus price + Plus and Pro chat).
       expect(find.text('per month'), findsNWidgets(3));
     });

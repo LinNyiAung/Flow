@@ -143,7 +143,7 @@ void main() {
 
     testWidgets('limit reached, English: feature name from the app, reset date in words', (tester) async {
       await open(tester, _error(resetsAt: reset), _en);
-      expect(body(tester), "You've used all of your AI chat. It resets on 1 Dec 2026.");
+      expect(body(tester), "You've used all of your Ko Toe Pwar chat. It resets on 1 Dec 2026.");
       expect(find.textContaining('SERVER MESSAGE'), findsNothing);
     });
 
