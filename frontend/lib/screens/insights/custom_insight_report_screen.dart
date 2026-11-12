@@ -12,6 +12,7 @@ import 'package:frontend/utils/custom_insight_text.dart';
 import 'package:frontend/utils/safe_markdown.dart';
 import 'package:frontend/widgets/custom_insight_figures.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 
 /// One saved custom insight: what was asked, the figures of the range and the
@@ -175,6 +176,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
         final provider = context.read<CustomInsightProvider>();
         return _message(
           icon: Icons.error_outline_rounded,
+          pose: MascotPose.forError(provider.lastError),
           text: customErrorText(l, provider.lastErrorCode, provider.lastError ?? ''),
           action: FilledButton.icon(
             key: const Key('custom-report-retry'),
@@ -282,16 +284,18 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
     );
   }
 
-  Widget _message({required IconData icon, required String text, Key? key, Widget? action}) {
+  /// A full-page message. With [pose] (a failure with a retry) Ko Toe Pwar
+  /// stands in for the [icon].
+  Widget _message({required IconData icon, required String text, Key? key, Widget? action, MascotPose? pose}) {
     final scheme = Theme.of(context).colorScheme;
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           key: key,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 48, color: scheme.onSurfaceVariant),
+            if (pose != null) Mascot(pose, size: 120) else Icon(icon, size: 48, color: scheme.onSurfaceVariant),
             const SizedBox(height: 16),
             Text(
               text,

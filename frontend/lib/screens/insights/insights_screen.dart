@@ -19,6 +19,7 @@ import 'package:frontend/utils/plan_limit_text.dart';
 import 'package:frontend/screens/insights/custom_insights_tab.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
 import 'package:frontend/widgets/insight_notes.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../models/insight.dart';
@@ -711,8 +712,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 32),
       children: [
-        Center(child: Icon(Icons.error_outline_rounded, size: 48, color: scheme.error)),
-        const SizedBox(height: 20),
+        Center(child: Mascot(MascotPose.forError(insightProvider.error), size: 120)),
+        const SizedBox(height: 16),
         Center(
           child: Text(
             localizations.failedToLoadInsights,
@@ -757,8 +758,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 32),
       children: [
-        Center(child: Icon(Icons.lightbulb_outline_rounded, size: 48, color: scheme.primary)),
-        const SizedBox(height: 20),
+        const Center(child: Mascot(MascotPose.ideaHappy, size: 120)),
+        const SizedBox(height: 16),
         Center(
           child: Text(
             localizations.noInsightsAvailable,

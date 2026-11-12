@@ -9,6 +9,7 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/insights/custom_insight_form.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_text.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 
 /// The Custom tab of the Insights screen: the user's saved custom reports and,
@@ -113,13 +114,19 @@ class _CustomInsightsTabState extends State<CustomInsightsTab> {
           else if (provider.error != null)
             _loadError(provider, l, scheme)
           else if (!locked)
+            // None yet: Ko Toe Pwar with his idea, above the existing line.
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32),
-              child: Center(
-                child: Text(
-                  l.customInsightEmptyList,
-                  style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
-                ),
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Column(
+                children: [
+                  const Mascot(MascotPose.ideaHappy, size: 120),
+                  const SizedBox(height: 12),
+                  Text(
+                    l.customInsightEmptyList,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+                  ),
+                ],
               ),
             ),
         ],

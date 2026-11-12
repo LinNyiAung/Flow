@@ -19,6 +19,7 @@ import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_push.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -1051,6 +1052,89 @@ void main() {
       expect(myanmar, isNot(english), reason: english);
     }
     expect(en.customStatusRefused, _refusal);
+  });
+
+  group('Ko Toe Pwar', () {
+    Finder pose(MascotPose p) =>
+        find.byWidgetPredicate((w) => w is Mascot && w.pose == p, description: 'Mascot(${p.name})');
+    final en = AppLocalizations(const Locale('en'));
+
+    InsightProvider failing(Object error) =>
+        InsightProvider(fetcher: ({required String language, required String insightType}) async => throw error);
+
+    testWidgets('insight failed on the server: oops_sad above the message, with the retry', (tester) async {
+      await _pump(tester, InsightsScreen(),
+          fake: FakeCustomInsightClient(),
+          insights: failing(ApiException('Server error', statusCode: 500)),
+          plan: _plan(weekly: 'included'));
+      expect(pose(MascotPose.oopsSad), findsOneWidget);
+      expect(find.text(en.failedToLoadInsights), findsOneWidget);
+      expect(tester.getBottomLeft(pose(MascotPose.oopsSad)).dy,
+          lessThanOrEqualTo(tester.getTopLeft(find.text(en.failedToLoadInsights)).dy));
+      expect(find.text(en.tryAgain), findsOneWidget);
+      expect(find.byIcon(Icons.error_outline_rounded), findsNothing);
+    });
+
+    testWidgets('insight could not reach the server: offline_sad', (tester) async {
+      await _pump(tester, InsightsScreen(),
+          fake: FakeCustomInsightClient(),
+          insights: failing(ApiException(en.errorNetworkUnreachable)),
+          plan: _plan(weekly: 'included'));
+      expect(pose(MascotPose.offlineSad), findsOneWidget);
+      expect(pose(MascotPose.oopsSad), findsNothing);
+    });
+
+    testWidgets('no custom insights yet: idea_happy above the empty line', (tester) async {
+      await _pump(tester, const Scaffold(body: CustomInsightsTab()), fake: FakeCustomInsightClient());
+      expect(pose(MascotPose.ideaHappy), findsOneWidget);
+      expect(tester.getSize(pose(MascotPose.ideaHappy)).height, inInclusiveRange(110, 140));
+      expect(find.text(en.customInsightEmptyList), findsOneWidget);
+    });
+
+    testWidgets('custom report failed to load: oops_sad; offline: offline_sad', (tester) async {
+      final fake = FakeCustomInsightClient()..getError = ApiException('Server error', statusCode: 500);
+      await _pump(tester, const CustomInsightReportScreen(reportId: 'r1'), fake: fake);
+      expect(pose(MascotPose.oopsSad), findsOneWidget);
+      expect(find.byKey(const Key('custom-report-retry')), findsOneWidget);
+
+      fake.getError = ApiException(en.errorRequestTimedOut);
+      await tester.tap(find.byKey(const Key('custom-report-retry')));
+      await tester.pumpAndSettle();
+      expect(pose(MascotPose.offlineSad), findsOneWidget);
+    });
+
+    testWidgets('a deleted report keeps its plain icon (not an error)', (tester) async {
+      final fake = FakeCustomInsightClient()..getError = ApiException('Not found', statusCode: 404);
+      await _pump(tester, const CustomInsightReportScreen(reportId: 'r1'), fake: fake);
+      expect(find.byKey(const Key('custom-report-deleted')), findsOneWidget);
+      expect(find.byType(Mascot), findsNothing);
+    });
+
+    for (final lang in ['en', 'my']) {
+      testWidgets('$lang 360 px: the error and empty states fit', (tester) async {
+        tester.view.physicalSize = const Size(360 * 3, 640 * 3);
+        tester.view.devicePixelRatio = 3;
+        addTearDown(tester.view.reset);
+        Future<void> pumpSmall(Widget home, {InsightProvider? insights, FakeCustomInsightClient? fake}) async {
+          await _pump(tester, home,
+              fake: fake ?? FakeCustomInsightClient(),
+              insights: insights,
+              plan: _plan(weekly: 'included'),
+              locale: Locale(lang));
+          // _pump sets its own big screen: shrink it back to the phone.
+          tester.view.physicalSize = const Size(360 * 3, 640 * 3);
+          tester.view.devicePixelRatio = 3;
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          expect(find.byType(Mascot), findsOneWidget);
+        }
+
+        await pumpSmall(InsightsScreen(), insights: failing(ApiException('Server error', statusCode: 500)));
+        await pumpSmall(const Scaffold(body: CustomInsightsTab()));
+        await pumpSmall(const CustomInsightReportScreen(reportId: 'r1'),
+            fake: FakeCustomInsightClient()..getError = ApiException('Server error', statusCode: 500));
+      });
+    }
   });
 }
 
