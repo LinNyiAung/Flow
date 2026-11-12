@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
 import '../../widgets/android_download_link.dart';
 import '../../widgets/app_logo.dart';
+import '../../widgets/mascot.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -40,7 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 56, 24, 40),
+            // Top padding trimmed (was 56) to make room for Ko Toe Pwar, so
+            // the form still fits a 390 × 844 phone without scrolling.
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
             child: Form(
               key: _formKey,
               child: Column(
@@ -56,7 +59,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
                   ),
-                  const SizedBox(height: 34),
+                  const SizedBox(height: 16),
+                  const Mascot(MascotPose.waveHappy, size: 100),
+                  const SizedBox(height: 12),
 
                   // Email field
                   TextFormField(
