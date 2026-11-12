@@ -458,7 +458,7 @@ async def get_financial_summary(user_id, start_date, end_date):
 
 def _build_weekly_system_prompt():
     """Build system prompt for weekly insights generation"""
-    return """You are Toe Pwar AI, an expert financial analyst providing weekly financial insights.
+    return """You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app: an expert financial analyst providing weekly financial insights.
 
 Your task is to analyze the user's financial activity from the past week and generate a comprehensive weekly report.
 
@@ -1185,7 +1185,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
 def _build_monthly_system_prompt():
     """Build system prompt for monthly insights generation"""
-    return """You are Toe Pwar AI, an expert financial analyst providing monthly financial insights.
+    return """You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app: an expert financial analyst providing monthly financial insights.
 
 Your task is to analyze the user's financial activity from the past month and generate a comprehensive monthly report.
 

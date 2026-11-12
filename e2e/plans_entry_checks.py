@@ -324,7 +324,7 @@ async def run(t):
             r, calls = calls_of(lambda: c.post("/api/budgets/ai-suggest", headers=gh, json=SUGGEST))
         finally:
             reset_ai()
-        check(r.status_code == 200 and calls and "temporarily unavailable" in " ".join(r.json().get("warnings") or [])
+        check(r.status_code == 200 and calls and "Ko Toe Pwar can't answer" in " ".join(r.json().get("warnings") or [])
               and used(gid, "budget_suggestion") == 0,
               "budget_suggest_limit: every provider down -> the basic suggestions with a warning, and nothing is used",
               f"{r.status_code} {r.text[:200]} used {used(gid, 'budget_suggestion')}")
@@ -398,7 +398,7 @@ async def run(t):
             alloc = next((x["allocated_amount"] for x in (child or {}).get("category_budgets", [])
                           if x["main_category"] == "Food & Daily Living"), None)
             note = db.notifications.find_one({"user_id": uid, "type": "budget_auto_created"})
-            ai_wording = ("AI optimization" in (note.get("message") or "")) if note else None  # None: no notification
+            ai_wording = ("Ko Toe Pwar" in (note.get("message") or "")) if note else None  # None: no notification
             return (len(calls), alloc, used(uid, "budget_suggestion"),
                     child is not None and child.get("parent_budget_id") == parent_id, ai_wording)
 

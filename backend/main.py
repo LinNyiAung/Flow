@@ -70,7 +70,7 @@ from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
 from plans import periods, quota
 from plans import store as plan_store
-from plans.access import COST_CAP, LIMIT_REACHED, PlanError, effective_plan
+from plans.access import COST_CAP, LIMIT_REACHED, PlanError, effective_plan, user_language
 from tz_utils import as_utc
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
@@ -409,10 +409,10 @@ async def stream_chat_with_ai(
                             progress["first_sent"] = True  # resumed only once that chunk was sent
                             await asyncio.sleep(0.01)
             except ChatServiceError as e:
-                error_message = e.user_message
+                error_message = e.message_for(user_language(current_user))
             except Exception as e:
                 print(f"❌ Chat stream error for user {user_id}: {type(e).__name__}: {redact(str(e))}")
-                error_message = ChatServiceError.DEFAULT_MESSAGE
+                error_message = ChatServiceError.default_message(user_language(current_user))
 
             if error_message:
                 # A failed AI request, before or after the first chunk: nothing saved, the use given back.

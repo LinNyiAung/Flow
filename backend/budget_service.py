@@ -6,7 +6,7 @@ from collections import defaultdict
 import statistics
 import uuid
 
-from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once
+from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once, translate
 from tz_utils import app_wall_clock_now
 from plans import quota
 from plans.access import effective_plan
@@ -161,8 +161,10 @@ def _parse_budget_answer(categories_structure: List[Dict]):
 class BudgetAnalyzer:
     """Analyzes user's financial data for AI budget suggestions"""
 
-    def __init__(self, user_id: str):
+    def __init__(self, user_id: str, language: str = "en"):
         self.user_id = user_id
+        # The user's app language ("en" / "my"), for the Ko Toe Pwar warning on the suggestions.
+        self.language = language
         # True once generate_ai_suggestions returned the AI's answer; False for the rule-based suggestions that
         # replace it (the AI failed, or there was too little data to ask it).
         self.used_ai = False
@@ -326,7 +328,7 @@ class BudgetAnalyzer:
             except AllProvidersFailed as e:
                 logger.warning(f"AI budget suggestion unavailable for user {self.user_id}: {e}")
                 if any(f.kind != "not_configured" for f in e.failures):
-                    warnings.append("AI is temporarily unavailable, so these suggestions use simple rules instead.")
+                    warnings.append(translate("budget_ai_rules_fallback_msg", self.language))
         if suggestions is None:
             suggestions = self._generate_basic_suggestions(
                 analysis, days_in_period, include_categories, currency

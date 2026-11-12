@@ -3315,6 +3315,17 @@ async def chat_checks():
               "chat_all_fail_error_frame_no_history: the meta frame, then one error frame", f"{r.status_code} {called} {fr}")
         check(await n_messages() == m0 and len(await usage()) == u0,
               "chat_all_fail_error_frame_no_history: no history, no usage row", (m0, u0))
+        check(last.get("error") == "Ko Toe Pwar can't answer right now. Please try again in a moment.",
+              "chat_all_fail: the error frame names Ko Toe Pwar (English user)", last.get("error"))
+        r = c.put("/api/auth/language", headers=U, json={"language": "my"})
+        try:
+            r, fr, called = chat({"message": "hi"})
+            last = fr[-1] if fr else {}
+            check(r.status_code == 200 and last.get("done") is True
+                  and last.get("error") == "ကိုတိုးပွား ယခု မဖြေနိုင်သေးပါ။ ခဏအကြာတွင် ထပ်ကြိုးစားပါ။",
+                  "chat_all_fail: a Myanmar user gets the error frame in Myanmar", f"{r.status_code} {fr}")
+        finally:
+            c.put("/api/auth/language", headers=U, json={"language": "en"})
         admin_reset(c, AD)
 
         # --- the provider fails after the first chunk: chunks, then the error frame; nothing saved
@@ -3439,8 +3450,14 @@ async def _chat_inprocess_checks(uid):
                 err = None
             except Exception as e:  # noqa: BLE001
                 err = e
-            check(isinstance(err, ChatServiceError) and err.user_message == ChatServiceError.DEFAULT_MESSAGE,
-                  "chat: AllProvidersFailed becomes ChatServiceError with the default message", repr(err))
+            check(isinstance(err, ChatServiceError) and err.user_message == ChatServiceError.DEFAULT_MESSAGE
+                  and "Ko Toe Pwar" in err.user_message and err.message_for("en") == ChatServiceError.DEFAULT_MESSAGE
+                  and "ကိုတိုးပွား" in err.message_for("my"),
+                  "chat: AllProvidersFailed becomes ChatServiceError with the default message, naming Ko Toe Pwar (EN / MY)",
+                  repr(err))
+            specific = ChatServiceError("We couldn't load your account. Please log in again.")
+            check(specific.message_for("my") == specific.user_message,
+                  "chat: a specific ChatServiceError message is sent as it is", specific.message_for("my"))
         finally:
             runner.run_stream = orig
     finally:
@@ -3690,7 +3707,7 @@ async def _insight_inprocess_checks(uid):
                 else:
                     got = (kw.get("max_tokens"), kw.get("temperature", "absent"), (kw.get("system") or "")[:40])
                 want_temp = "absent" if provider == "claude" else 0.7
-                persona = "You are Toe Pwar AI"  # F9: weekly too (was "Flow Finance AI")
+                persona = "You are Ko Toe Pwar"  # F9: weekly too (was "Flow Finance AI", then "Toe Pwar AI")
                 check(row and row["ai_provider"] == provider and got[0] == limits[provider] and got[1] == want_temp
                       and got[2].startswith(persona) and kw.get("model") == model,
                       f"insights prompt: {feature} on {provider} sends max tokens {limits[provider]}, temperature {want_temp}",
@@ -3698,6 +3715,20 @@ async def _insight_inprocess_checks(uid):
 
         check("Flow Finance AI" not in open(ins.__file__, encoding="utf-8").read(),
               "insights persona: no 'Flow Finance AI' left in insights_service (F9)")
+        import custom_insights_service as cis
+        persona = "You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app: "
+        check(ins._build_weekly_system_prompt().startswith(persona) and ins._build_monthly_system_prompt().startswith(persona)
+              and cis.CUSTOM_SYSTEM_PROMPT.startswith(persona)
+              and "Toe Pwar AI" not in open(ins.__file__, encoding="utf-8").read()
+              and "Toe Pwar AI" not in open(cis.__file__, encoding="utf-8").read(),
+              "insights persona: weekly, monthly and custom insights are written by Ko Toe Pwar",
+              (ins._build_weekly_system_prompt()[:90], cis.CUSTOM_SYSTEM_PROMPT[:90]))
+        from notification_service import translate as _nt
+        keys = ("weekly_insights_msg", "monthly_insights_msg", "budget_auto_created_msg_ai")
+        got = {(k, lang): _nt(k, lang, budget_name="Food") for k in keys for lang in ("en", "my")}
+        check(all(("Ko Toe Pwar" if lang == "en" else "ကိုတိုးပွား") in v and "Toe Pwar AI" not in v
+                  and "AI optimization" not in v and "AI " not in v for (k, lang), v in got.items()),
+              "notifications: the insights-ready and AI auto-created budget messages name Ko Toe Pwar (EN / MY)", got)
 
         # translation: per-provider limits, temperature 0.3 as before, the default model is gemini-2.5-pro
         settings.set_panel_cache({})
@@ -3888,7 +3919,7 @@ async def budget_checks():
         cats = body.get("category_budgets") or []
         rows = await usage(uid, "budget_suggestion")
         check(r.status_code == 200 and calls(before) == ["claude"] and cats and cats[0]["main_category"] == "Food & Daily Living"
-              and cats[0]["allocated_amount"] == 450 and "temporarily unavailable" not in " ".join(body.get("warnings") or []),
+              and cats[0]["allocated_amount"] == 450 and "Ko Toe Pwar can't answer" not in " ".join(body.get("warnings") or []),
               "budget_suggest_on_claude: 200, one claude call, the AI's categories are used",
               f"{r.status_code} {r.text[:300]} {calls(before)}")
         check(len(rows) == 1 and rows[0]["provider"] == "claude" and rows[0]["model_name"] == "claude-sonnet-5-5"
@@ -3922,9 +3953,10 @@ async def budget_checks():
         check(r.status_code in (200, 503) and "The service" not in r.text and calls(before) == ["claude"],
               "budget_all_fail_503: every provider failing is never a 500 and leaks no provider text",
               f"{r.status_code} {r.text[:200]} {calls(before)}")
-        check(r.status_code == 200 and body.get("category_budgets") and "temporarily unavailable" in " ".join(body.get("warnings") or [])
+        check(r.status_code == 200 and body.get("category_budgets")
+              and "Ko Toe Pwar can't answer right now, so these suggestions use simple rules instead." in (body.get("warnings") or [])
               and len(await usage(uid, "budget_suggestion")) == n0,
-              "budget_all_fail: the basic (non-AI) suggestions come back with a warning, no usage row",
+              "budget_all_fail: the basic (non-AI) suggestions come back with a warning naming Ko Toe Pwar, no usage row",
               f"{r.status_code} {r.text[:300]}")
         admin_reset(c, AD)
 
@@ -4083,9 +4115,12 @@ async def _budget_inprocess_checks(uid):
         stubenv.set_fake_ai(claude="server")
         s = await bs.BudgetAnalyzer(uid).generate_ai_suggestions(bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")
         check(s.category_budgets and s.category_budgets[0].allocated_amount != 450
-              and any("temporarily unavailable" in w for w in s.warnings),
-              "budget suggest: every provider failing -> basic suggestions plus a warning",
+              and "Ko Toe Pwar can't answer right now, so these suggestions use simple rules instead." in s.warnings,
+              "budget suggest: every provider failing -> basic suggestions plus a warning naming Ko Toe Pwar",
               ([x.allocated_amount for x in s.category_budgets], s.warnings))
+        s = await bs.BudgetAnalyzer(uid, "my").generate_ai_suggestions(bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")
+        check("ကိုတိုးပွား ယခု မဖြေနိုင်သေးသဖြင့် ဤအကြံပြုချက်များကို ရိုးရှင်းသော စည်းမျဉ်းများဖြင့် တွက်ထားပါသည်။" in s.warnings,
+              "budget suggest: a Myanmar user gets that warning in Myanmar", s.warnings)
         stubenv.clear_fake_ai()
 
         # --- F3: any other exception escaping the runner is logged redacted at error level and becomes a fixed 400
@@ -4122,13 +4157,16 @@ async def _budget_inprocess_checks(uid):
         bs.BudgetAnalyzer.generate_ai_suggestions = boom
         try:
             req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
-            try:
-                await budget_routes.get_ai_budget_suggestions(req, current_user=plus_user)
-                err = None
-            except HTTPException as e:
-                err = e
-            check(err is not None and err.status_code == 503 and err.detail == "AI is temporarily unavailable",
-                  "route: AllProvidersFailed -> 503 'AI is temporarily unavailable'", (err and (err.status_code, err.detail)))
+            for lang, want in (("en", "Ko Toe Pwar can't suggest a budget right now. Please try again in a moment."),
+                               ("my", "ကိုတိုးပွား ယခု ဘတ်ဂျက် အကြံပြု၍ မရသေးပါ။ ခဏအကြာတွင် ထပ်ကြိုးစားပါ။")):
+                try:
+                    await budget_routes.get_ai_budget_suggestions(req, current_user={**plus_user, "language": lang})
+                    err = None
+                except HTTPException as e:
+                    err = e
+                check(err is not None and err.status_code == 503 and err.detail == want,
+                      f"route: AllProvidersFailed -> 503 naming Ko Toe Pwar, in the user's language ({lang})",
+                      (err and (err.status_code, err.detail)))
         finally:
             bs.BudgetAnalyzer.generate_ai_suggestions = orig
         check(not hasattr(bs, "AsyncOpenAI") and "gpt-4o-mini" not in open(bs.__file__, encoding="utf-8").read()

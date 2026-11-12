@@ -172,7 +172,7 @@ async def compute_figures(user_id: str, start: date, end: date) -> dict:
 
 # ---------------------------------------------------------------- prompt and context
 
-CUSTOM_SYSTEM_PROMPT = f"""You are Toe Pwar AI, a financial analyst. You write a custom insight report about one user's own finances for a date range they picked.
+CUSTOM_SYSTEM_PROMPT = f"""You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app: a financial analyst. You write a custom insight report about one user's own finances for a date range they picked.
 
 SCOPE:
 - Answer only about the user's own finances in the given period, using the data you are given.

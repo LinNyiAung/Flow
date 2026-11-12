@@ -25,7 +25,8 @@ from budget_service import (
 )
 
 
-from notification_service import notify_budget_started
+from notification_service import notify_budget_started, translate
+from plans.access import user_language
 
 
 from sql import budgets as budgets_db
@@ -111,7 +112,7 @@ async def get_ai_budget_suggestions(
     AI's answer is what comes back. An error, and the simple rule-based suggestions that replace an AI that could not
     answer (or that had too little data to be asked), give it back.
     """
-    analyzer = BudgetAnalyzer(current_user["_id"])
+    analyzer = BudgetAnalyzer(current_user["_id"], user_language(current_user))
     reservation = await quota.reserve(current_user, "budget_suggestion")
     try:
         suggestions = await _ai_budget_suggestions(request, analyzer)
@@ -144,7 +145,8 @@ async def _ai_budget_suggestions(request: AIBudgetRequest, analyzer: BudgetAnaly
     except AllProvidersFailed as e:
         # Fixed message: the failures' text could carry provider details.
         print(f"AI budget suggestions unavailable: {e}")
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI is temporarily unavailable")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail=translate("budget_ai_unavailable_msg", analyzer.language))
     except AIRequestRejected:
         # Already logged (redacted) by the service; the provider's text never reaches the response.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_AI_BAD_REQUEST)

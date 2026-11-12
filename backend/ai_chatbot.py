@@ -51,15 +51,27 @@ def get_date_only(dt: datetime) -> str:
 class ChatServiceError(Exception):
     """
     Raised by stream_chat when the AI request fails. `user_message` is safe to show to
-    the end user (no raw exception internals); the route sends it as an error frame and
-    does not save the exchange to chat history.
+    the end user (no raw exception internals); the route sends `message_for(<the user's
+    language>)` as an error frame and does not save the exchange to chat history.
     """
 
-    DEFAULT_MESSAGE = "Sorry, the AI assistant is temporarily unavailable. Please try again in a moment."
+    # The default names Ko Toe Pwar, the helper whose face the app shows above the error.
+    DEFAULT_KEY = "chat_unavailable_msg"
+    DEFAULT_MESSAGE = "Ko Toe Pwar can't answer right now. Please try again in a moment."
 
     def __init__(self, user_message: str = None):
+        self.is_default = not user_message
         self.user_message = user_message or self.DEFAULT_MESSAGE
         super().__init__(self.user_message)
+
+    def message_for(self, language: str) -> str:
+        """The default message in `language` ("en" / "my"); a specific message as given."""
+        return self.default_message(language) if self.is_default else self.user_message
+
+    @classmethod
+    def default_message(cls, language: str) -> str:
+        from notification_service import translate  # lazy: keeps this module's imports light
+        return translate(cls.DEFAULT_KEY, language)
 
 
 def _delete_vector_store(store) -> None:
