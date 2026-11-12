@@ -3376,9 +3376,14 @@ async def _chat_inprocess_checks(uid):
                   (cfg.temperature, cfg.max_output_tokens))
         sysmsg = cfg.system_instruction or ""
         user_msg = stubenv.LAST_KWARGS["gemini"]["contents"]
-        check(sysmsg.startswith("You are Toe Pwar AI") and "Flow Finance AI" not in sysmsg
+        check(sysmsg.startswith("You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app")
+              and "Flow Finance AI" not in sysmsg and "Toe Pwar AI" not in sysmsg
               and "How much did I spend?" in user_msg and "Name: T8 Chat" in user_msg,
-              "chat prompt: persona Toe Pwar AI; the user prompt carries the profile and the question", sysmsg[:80])
+              "chat prompt: persona Ko Toe Pwar; the user prompt carries the profile and the question", sysmsg[:80])
+        check("asks who you are" in sysmsg and "I'm Ko Toe Pwar" in sysmsg and "ကျွန်တော် ကိုတိုးပွားပါ" in sysmsg
+              and "LANGUAGE CAPABILITY" in sysmsg and "CRITICAL RULES FOR ACCURACY" in sysmsg,
+              "chat prompt: says his name in the user's language when asked who he is; the rest is kept",
+              sysmsg[:200])
         text = "".join(t for t, u in items if t)
         final = items[-1]
         check(final[0] == "" and final[1] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
