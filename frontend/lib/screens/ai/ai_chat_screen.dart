@@ -14,6 +14,7 @@ import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/safe_markdown.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../providers/chat_provider.dart';
@@ -164,15 +165,9 @@ class _AiChatScreenState extends State<AiChatScreen>
         ),
         title: Row(
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Icon(Icons.forum_rounded, size: 20, color: scheme.onPrimaryContainer),
-            ),
+            // Ko Toe Pwar's face; his name is the text beside it, so the
+            // picture itself stays out of the screen reader.
+            const Mascot.face(size: 36),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -188,7 +183,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                       return Text(
                         chatProvider.isStreaming
                             ? localizations.thinking
-                            : localizations.financialAdvisor,
+                            : localizations.aiMoneyHelper,
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -482,13 +477,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
       child: Column(
         children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(color: scheme.primaryContainer, shape: BoxShape.circle),
-            child: Icon(Icons.forum_rounded, size: 32, color: scheme.onPrimaryContainer),
-          ),
-          const SizedBox(height: 14),
+          const Mascot(MascotPose.aibuddyHappy, size: 120),
+          const SizedBox(height: 10),
           Text(
             localizations.helloAi,
             style: Theme.of(context).textTheme.titleLarge,
@@ -553,19 +543,26 @@ class _AiChatScreenState extends State<AiChatScreen>
     final isUser = message.role == MessageRole.user;
     final showBusy = isStreamingMessage && message.content.isEmpty;
 
-    // The mockup renders chat bubbles alone, flush left/right — no avatar
-    // circles alongside them (see "AI chat" markup's `sc-for` over
-    // `chatMsgs`, lines 1332-1336 of the prototype).
+    // Ko Toe Pwar's face sits beside each of his replies, level with the
+    // bubble's bottom (its small-radius corner); the user's bubbles stand
+    // alone, flush right.
+    const faceSize = 26.0;
+    const faceGap = 8.0;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
-          Flexible(
-            child: Column(
-              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              children: [
-                Container(
+          Row(
+            mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (!isUser) ...[
+                const Mascot.face(size: faceSize),
+                const SizedBox(width: faceGap),
+              ],
+              Flexible(
+                child: Container(
                   constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
@@ -593,12 +590,16 @@ class _AiChatScreenState extends State<AiChatScreen>
                           ],
                         ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  DateFormat('HH:mm').format(message.timestamp),
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
-                ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            // Under the bubble, not under his face.
+            padding: EdgeInsetsDirectional.only(start: isUser ? 0 : faceSize + faceGap),
+            child: Text(
+              DateFormat('HH:mm').format(message.timestamp),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
             ),
           ),
         ],
