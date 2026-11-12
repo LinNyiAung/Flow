@@ -16,7 +16,6 @@ enum MascotPose {
   ideaHappy('idea_happy'),
   offlineSad('offline_sad'),
   oopsSad('oops_sad'),
-  upgradeJoy('upgrade_joy'),
   trophyJoy('trophy_joy');
 
   const MascotPose(this.fileName);

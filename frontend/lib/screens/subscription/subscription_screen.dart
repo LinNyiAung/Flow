@@ -7,7 +7,6 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/utils/contact_details.dart';
 import 'package:frontend/widgets/accepted_payments.dart';
-import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/owner_contact_block.dart';
 import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
@@ -204,13 +203,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // ── Ko Toe Pwar, cheering on the upgrade (Free
-                          // users only, not on a paid user's "Your plan") ──
-                          if (!isPaid) ...[
-                            const Center(child: Mascot(MascotPose.upgradeJoy, size: 112)),
-                            const SizedBox(height: 12),
-                          ],
-
                           // ── Current plan card ─────────────────────────
                           if (isPaid) ...[
                             _buildCurrentPlanCard(context, authProvider, scheme, localizations),

@@ -91,19 +91,15 @@ Future<void> _pump(WidgetTester tester, Widget home,
 void main() {
   final en = AppLocalizations(const Locale('en'));
 
-  testWidgets('Upgrade page: upgrade_joy at the top, KPay/WavePay row unchanged', (tester) async {
+  // The owner doesn't want the mascot on the plans screen.
+  testWidgets('Upgrade page (Free): no mascot; KPay/WavePay row unchanged', (tester) async {
     await _pump(tester, SubscriptionScreen());
-    expect(_pose(MascotPose.upgradeJoy), findsOneWidget);
-    expect(tester.getSize(_pose(MascotPose.upgradeJoy)).height, inInclusiveRange(100, 140));
-    // Above the first card (the free-month offer) and the plan comparison.
-    expect(tester.getBottomLeft(_pose(MascotPose.upgradeJoy)).dy,
-        lessThanOrEqualTo(tester.getTopLeft(find.text(en.oneMonthFreeCaps)).dy));
-    expect(tester.getBottomLeft(_pose(MascotPose.upgradeJoy)).dy,
-        lessThanOrEqualTo(tester.getTopLeft(find.text(en.comparePlans)).dy));
+    expect(find.text(en.comparePlans), findsOneWidget);
+    expect(find.byType(Mascot), findsNothing);
     expect(find.byType(AcceptedPayments), findsOneWidget);
   });
 
-  testWidgets('"Your plan" for a paid user: no upgrade_joy', (tester) async {
+  testWidgets('"Your plan" for a paid user: no mascot', (tester) async {
     await _pump(tester, SubscriptionScreen(), auth: _PlusUser());
     expect(find.text(en.yourPlanTitle), findsOneWidget);
     expect(find.byType(Mascot), findsNothing);
