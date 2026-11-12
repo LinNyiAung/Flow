@@ -4,6 +4,7 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:provider/provider.dart';
 import '../../models/budget.dart';
@@ -255,16 +256,18 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
   Widget _buildErrorState() {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
+    // Scrolls when a long message doesn't fit under him on a short screen.
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline_rounded, size: 64, color: scheme.error),
+            Mascot(MascotPose.forError(_error), size: 120),
             const SizedBox(height: 16),
             Text(
               localizations.failedToGenerateSuggestion,
+              textAlign: TextAlign.center,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.error),
             ),
             const SizedBox(height: 8),

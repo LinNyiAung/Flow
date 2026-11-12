@@ -41,6 +41,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_logo.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/web_phone_frame.dart';
 import 'package:frontend/providers/theme_provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -571,8 +572,9 @@ class _SessionRestoreRetryScreenState extends State<_SessionRestoreRetryScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.cloud_off_rounded, size: 56, color: scheme.primary),
-                const SizedBox(height: 20),
+                // "Can't reach the server": always a connection problem here.
+                const Mascot(MascotPose.offlineSad, size: 120),
+                const SizedBox(height: 16),
                 Text(
                   localizations.sessionRestoreFailedTitle,
                   textAlign: TextAlign.center,
