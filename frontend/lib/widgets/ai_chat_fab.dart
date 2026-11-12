@@ -3,7 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/widgets/mascot.dart';
 
+/// "Ask Ko Toe Pwar": opens the chat, with his face as the icon.
 class AiChatFab extends StatelessWidget {
   final VoidCallback? onPressed;
 
@@ -15,21 +17,7 @@ class AiChatFab extends StatelessWidget {
     return FloatingActionButton.extended(
       onPressed: onPressed ?? () => Navigator.pushNamed(context, '/ai-chat'),
       backgroundColor: Color(0xFF667eea),
-      icon: Container(
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.white.withOpacity(0.3), Colors.white.withOpacity(0.1)],
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          Icons.smart_toy,
-          color: Colors.white,
-          size: 16,
-        ),
-      ),
+      icon: const Mascot.face(size: 28),
       label: Text(
         localizations.askAi,
         style: GoogleFonts.poppins(

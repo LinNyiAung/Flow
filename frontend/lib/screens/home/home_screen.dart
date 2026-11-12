@@ -24,6 +24,7 @@ import 'package:frontend/widgets/app_logo.dart';
 import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/hero_card.dart';
+import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/spending_pace_card.dart';
 import 'package:frontend/widgets/status_pill.dart';
@@ -361,36 +362,32 @@ class _HomeScreenState extends State<HomeScreen> {
                   .transactions
                   .isEmpty) // Show empty state
                 SliverToBoxAdapter(
-                  child: Container(
-                    height: 200, // Placeholder height
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.receipt_long_rounded,
-                            size: responsive.icon64,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                          SizedBox(height: responsive.sp16),
-                          Text(
-                            localizations.noTransactions,
-                            style: Theme.of(context).textTheme.bodyLarge
-                                ?.copyWith(
-                                  fontSize: responsive.fs18,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                          ),
-                          Text(
-                            localizations.tapToAddFirst,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  fontSize: responsive.fs14,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                          ),
-                        ],
-                      ),
+                  child: Padding(
+                    // Grows with the text (it wraps in Myanmar), no fixed height.
+                    padding: responsive.padding(horizontal: 24, vertical: 8),
+                    child: Column(
+                      children: [
+                        const Mascot(MascotPose.quickaddJoy, size: 112),
+                        SizedBox(height: responsive.sp12),
+                        Text(
+                          localizations.noTransactions,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
+                                fontSize: responsive.fs18,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                        ),
+                        Text(
+                          localizations.tapToAddFirst,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                fontSize: responsive.fs14,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
                     ),
                   ),
                 )
@@ -1102,7 +1099,8 @@ class _HomeScreenState extends State<HomeScreen> {
       headline = localizations.continueChatting;
       body = lastMessage.content;
     } else {
-      headline = localizations.aiAssistant;
+      // No chat yet: he introduces himself.
+      headline = localizations.helloAi;
       body = localizations.askAboutYourFinances;
     }
 
@@ -1120,18 +1118,17 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.forum_rounded, size: responsive.icon20, color: scheme.tertiary),
+                const Mascot.face(size: 32),
                 SizedBox(width: responsive.sp8),
+                // Wraps rather than "…": "ကိုတိုးပွားကို မေးပါ" at 360 px.
                 Flexible(
                   child: Text(
-                    localizations.aiAssistant,
+                    localizations.askAi,
                     style: TextStyle(
                       fontSize: responsive.fs13,
                       fontWeight: FontWeight.w700,
                       color: scheme.tertiary,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
