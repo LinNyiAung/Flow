@@ -32,7 +32,7 @@ from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from tz_utils import app_today, as_utc, day_bounds_utc, utc_now
-from utils import get_current_user
+from families.book import Book, get_book
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +120,14 @@ def _not_found() -> HTTPException:
 
 @router.post("")
 async def create_custom_insight(data: CustomInsightCreate, response: Response,
-                                current_user: dict = Depends(get_current_user)):
+                                book: Book = Depends(get_book)):
     """Create a custom insight, or answer 200 with the user's earlier report when nothing has changed since (no use is
-    counted). Otherwise reserve one use, insert a pending report and start writing it: 202."""
-    uid = current_user["_id"]
+    counted). Otherwise reserve one use, insert a pending report and start writing it: 202.
+
+    The report is about, and stored under, the request's book (a family shares its list); the plan check and the use
+    are the person's (counter_keys then name the person, see custom_insights_service._reservation)."""
+    current_user = book.person
+    uid = book.id
     instruction = (data.instruction or "").strip() or None
     if instruction and (data.preset or len(instruction) > cis.MAX_INSTRUCTION_LENGTH):  # a preset OR an instruction
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_instruction")
@@ -169,7 +173,7 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     report_id = str(uuid.uuid4())
     row = {"_id": report_id, "user_id": uid, "start_date": data.start_date, "end_date": data.end_date,
            "preset": data.preset, "instruction": instruction, "instruction_key": key,
-           "counter_keys": [[f, p, d.isoformat()] for f, p, d in reservation.keys], "figures": figures,
+           "counter_keys": cis.counter_keys(reservation, uid), "figures": figures,
            "created_at": utc_now()}
     try:
         inserted = await ci.insert_pending(row)
@@ -198,7 +202,7 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
 
 
 @router.get("")
-async def list_custom_insights(before: Optional[str] = Query(None), current_user: dict = Depends(get_current_user)):
+async def list_custom_insights(before: Optional[str] = Query(None), book: Book = Depends(get_book)):
     """The user's reports, newest first, PAGE_SIZE at a time, without their text. Open to every plan.
 
     `next_before` is null on the last page; otherwise pass it back as `before` for the next (older) page."""
@@ -208,26 +212,27 @@ async def list_custom_insights(before: Optional[str] = Query(None), current_user
             cursor = _parse_cursor(before)
         except ValueError:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid 'before' cursor")
-    rows = await ci.list_summaries(current_user["_id"], limit=PAGE_SIZE + 1, before=cursor)
+    rows = await ci.list_summaries(book.id, limit=PAGE_SIZE + 1, before=cursor)
     more = len(rows) > PAGE_SIZE
     rows = rows[:PAGE_SIZE]
     return {"reports": [_summary(r) for r in rows], "next_before": _cursor(rows[-1]) if more else None}
 
 
 @router.get("/{report_id}")
-async def get_custom_insight(report_id: str, current_user: dict = Depends(get_current_user)):
-    row = await ci.get(report_id, current_user["_id"])
+async def get_custom_insight(report_id: str, book: Book = Depends(get_book)):
+    row = await ci.get(report_id, book.id)
     if row is None:
         raise _not_found()
     return _detail(row)
 
 
 @router.post("/{report_id}/translate")
-async def translate_custom_insight(report_id: str, current_user: dict = Depends(get_current_user)):
+async def translate_custom_insight(report_id: str, book: Book = Depends(get_book)):
     """The Myanmar text of a ready report. A stored translation is returned as it is (nothing reserved, any plan).
     Otherwise one use of insight_translation is reserved (PlanError when the plan locks it, at the cost cap or used up)
-    and given back if the translation fails."""
-    uid = current_user["_id"]
+    and given back if the translation fails. The report is the book's; the use (and the AI cost) the person's."""
+    current_user = book.person
+    uid = book.id
     row = await ci.get(report_id, uid)
     if row is None:
         raise _not_found()
@@ -238,7 +243,8 @@ async def translate_custom_insight(report_id: str, current_user: dict = Depends(
 
     reservation = await quota.reserve(current_user, "insight_translation")
     try:
-        content_mm = await translate_insight_to_myanmar(row["content"], user_id=uid, is_placeholder=False)
+        content_mm = await translate_insight_to_myanmar(row["content"], user_id=current_user["_id"],
+                                                        is_placeholder=False)
         wrote = await ci.set_translation(report_id, content_mm)
         row = await ci.get(report_id, uid)
     except InsightAIError as e:
@@ -266,12 +272,12 @@ async def translate_custom_insight(report_id: str, current_user: dict = Depends(
 
 
 @router.delete("/{report_id}")
-async def delete_custom_insight(report_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_custom_insight(report_id: str, book: Book = Depends(get_book)):
     """Delete a ready report. A failed or refused one is only hidden (it still counts towards the daily attempt limit);
     one still being written cannot be deleted."""
-    outcome = await ci.delete_for_user(report_id, current_user["_id"], utc_now())
+    outcome = await ci.delete_for_user(report_id, book.id, utc_now())
     if outcome in ("deleted", "hidden"):
         return {"deleted": True}
     if outcome == "pending":
-        raise _error(current_user, status.HTTP_409_CONFLICT, "custom_insight_not_ready")
+        raise _error(book.person,status.HTTP_409_CONFLICT, "custom_insight_not_ready")
     raise _not_found()

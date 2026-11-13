@@ -280,10 +280,21 @@ PREVIOUS PERIOD (same length, for comparison): {prev_start.strftime('%B %d, %Y')
 _running_reports: set[asyncio.Task] = set()  # strong references: the event loop only keeps weak ones
 
 
+def counter_keys(reservation: quota.Reservation, row_user_id: str) -> list:
+    """The counter_keys to store for a report owned by `row_user_id`: [feature, period, "YYYY-MM-DD"] lists, each with a
+    fourth item, the counted person's id, when that isn't the row's owner (a family book's report counts against the
+    person who asked for it)."""
+    extra = [reservation.user_id] if reservation.user_id != row_user_id else []
+    return [[f, p, d.isoformat(), *extra] for f, p, d in reservation.keys]
+
+
 def _reservation(row: dict) -> quota.Reservation:
-    """The reservation the report was made with, rebuilt from its stored counter_keys ([feature, period, "YYYY-MM-DD"])."""
-    keys = [(feature, period, date.fromisoformat(day)) for feature, period, day in row.get("counter_keys") or []]
-    return quota.Reservation(row["user_id"], keys)
+    """The reservation the report was made with, rebuilt from its stored counter_keys ([feature, period, "YYYY-MM-DD"],
+    plus the counted person's id when it isn't the row's user_id: see counter_keys)."""
+    stored = row.get("counter_keys") or []
+    keys = [(k[0], k[1], date.fromisoformat(k[2])) for k in stored]
+    counted = next((k[3] for k in stored if len(k) > 3), row["user_id"])
+    return quota.Reservation(counted, keys)
 
 
 async def _give_back(row: dict) -> None:
@@ -295,7 +306,8 @@ async def _give_back(row: dict) -> None:
     if row["status"] == "ready":
         return
     try:
-        await plans_db.decrement_counters(row["user_id"], _reservation(row).keys)
+        reservation = _reservation(row)
+        await plans_db.decrement_counters(reservation.user_id, reservation.keys)
     except Exception:  # noqa: BLE001
         logger.exception("Could not give back the use of custom insight %s", row["_id"])
 
