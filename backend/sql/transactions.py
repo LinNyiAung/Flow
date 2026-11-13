@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, write_returning
 from sql.docs import money, recurrence_columns, transaction_doc, transaction_row
-from sql.tables import transactions as t
+from sql.tables import transactions as t, users
 
 # Dotted document paths the code updates directly -> columns.
 _RECURRENCE_FIELDS = {
@@ -158,7 +158,9 @@ async def latest_created_at(user_id: str) -> Optional[datetime]:
 
 async def active_user_ids(since: datetime) -> List[str]:
     """Users who added a transaction since `since`."""
-    return [r["user_id"] for r in await fetch_all(select(distinct(t.c.user_id).label("user_id")).where(t.c.created_at >= since))]
+    stmt = (select(distinct(t.c.user_id).label("user_id")).join(users, users.c.id == t.c.user_id)
+            .where(t.c.created_at >= since, users.c.kind == "person"))
+    return [r["user_id"] for r in await fetch_all(stmt)]
 
 
 # ------------------------------------------------------------------ aggregates

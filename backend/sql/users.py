@@ -1,8 +1,11 @@
 """User accounts: lookups, updates and the atomic (conditional) updates the auth flows need."""
+import secrets
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 
+from passlib.context import CryptContext
 from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.sql import ColumnElement
 
@@ -12,6 +15,10 @@ from sql.docs import row_to_doc, rows_to_docs
 from sql.tables import users
 
 _COLUMNS = {c.name for c in users.columns}
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Family-book users are hidden rows: every listing, count and all-user job sees people only.
+IS_PERSON = users.c.kind == "person"
 
 
 def _values(fields: Dict[str, Any]) -> Dict[str, Any]:
@@ -63,15 +70,26 @@ async def get_user_by_email(email: Optional[str]) -> Optional[Dict[str, Any]]:
     return row_to_doc(await fetch_one(select(users).where(func.lower(users.c.email) == normalized)))
 
 
+async def get_person(user_id: str) -> Optional[Dict[str, Any]]:
+    """Like get_user, but a family-book user counts as not found (admin screens)."""
+    user = await get_user(user_id)
+    return user if user and user.get("kind", "person") == "person" else None
+
+
+async def is_book_user(user_id: str) -> bool:
+    return bool(await fetch_value(select(func.count()).select_from(users).where(
+        users.c.id == user_id, users.c.kind == "family_book")))
+
+
 async def count_users(*conditions: ColumnElement) -> int:
-    stmt = select(func.count()).select_from(users)
+    stmt = select(func.count()).select_from(users).where(IS_PERSON)
     if conditions:
         stmt = stmt.where(*conditions)
     return await fetch_value(stmt)
 
 
 async def user_ids(*conditions: ColumnElement) -> List[str]:
-    stmt = select(users.c.id).order_by(users.c.created_at)
+    stmt = select(users.c.id).where(IS_PERSON).order_by(users.c.created_at)
     if conditions:
         stmt = stmt.where(*conditions)
     return [r["id"] for r in await fetch_all(stmt)]
@@ -80,7 +98,7 @@ async def user_ids(*conditions: ColumnElement) -> List[str]:
 async def list_fields(columns: Iterable[str], *conditions: ColumnElement) -> List[Dict[str, Any]]:
     """Selected columns of the users matching the conditions, as documents ("_id" + fields)."""
     cols = [users.c.id] + [users.c[c] for c in columns if c != "id"]
-    stmt = select(*cols).order_by(users.c.created_at)
+    stmt = select(*cols).where(IS_PERSON).order_by(users.c.created_at)
     if conditions:
         stmt = stmt.where(*conditions)
     return rows_to_docs(await fetch_all(stmt))
@@ -90,7 +108,7 @@ async def admin_list(search: Optional[str], subscription_type: Optional[str], sk
                      now: Optional[datetime] = None) -> List[Dict[str, Any]]:
     """Users for the admin list. `subscription_type` filters by the plan a user has at `now` (an expired Plus is free)."""
     now = now or datetime.now(timezone.utc)
-    stmt = select(users)
+    stmt = select(users).where(IS_PERSON)
     if search and search.strip():
         # Literal (not pattern) substring match, case-insensitive.
         needle = search.strip().lower()
@@ -106,6 +124,17 @@ async def admin_list(search: Optional[str], subscription_type: Optional[str], sk
 async def insert_user(doc: Dict[str, Any]) -> None:
     """Raises sqlalchemy.exc.IntegrityError if the e-mail is taken (case-insensitively)."""
     await execute(insert(users).values(**_values(doc)))
+
+
+async def create_book_user(family_id: str, *, conn=None) -> str:
+    """Insert the hidden users row that owns a family's data; returns its id. It can never log in: the
+    password hash is of a random secret that is thrown away, and the e-mail is on a reserved domain."""
+    user_id = str(uuid.uuid4())
+    await execute(insert(users).values(
+        id=user_id, name="Family book", email=f"family-{family_id}@book.invalid",
+        password=_pwd_context.hash(secrets.token_urlsafe(32)), kind="family_book", is_verified=True,
+        subscription_type="free", language="en"), conn)
+    return user_id
 
 
 async def update_user(user_id: str, *conditions: ColumnElement, **fields: Any) -> int:

@@ -600,7 +600,7 @@ async def get_user_detail(
     current_admin: dict = Depends(require_moderator_or_above)
 ):
     """Get detailed user information"""
-    user = await users_db.get_user(user_id)
+    user = await users_db.get_person(user_id)
 
     if not user:
         raise HTTPException(
@@ -654,7 +654,7 @@ async def update_user_subscription(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update user subscription and instantly notify their device to refresh"""
-    user = await users_db.get_user(user_id)
+    user = await users_db.get_person(user_id)
 
     if not user:
         raise HTTPException(
@@ -742,7 +742,7 @@ async def get_user_usage(
     Costs are for admins only; users never see them. Spend is measured from the later of the month start and the
     user's last usage reset, the same window the cost cap uses.
     """
-    user = await users_db.get_user(user_id)
+    user = await users_db.get_person(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -778,7 +778,7 @@ async def reset_user_usage(
 
     ai_usage rows are kept (cost reports depend on them).
     """
-    user = await users_db.get_user(user_id)
+    user = await users_db.get_person(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -802,7 +802,7 @@ async def delete_user(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Delete user and all associated data (super admin only)"""
-    user = await users_db.get_user(user_id)
+    user = await users_db.get_person(user_id)
 
     if not user:
         raise HTTPException(

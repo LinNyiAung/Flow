@@ -109,7 +109,9 @@ async def find_user_by_email(email: Optional[str]) -> Optional[dict]:
     the exact match hits first; legacy mixed-case accounts fall back to an anchored,
     escaped case-insensitive regex.
     """
-    return await users_db.get_user_by_email(email)
+    user = await users_db.get_user_by_email(email)
+    # A family-book user is a hidden row: it can't log in, reset a password or verify an e-mail.
+    return None if user and user.get("kind", "person") != "person" else user
 
 
 def build_user_response(user: dict) -> UserResponse:

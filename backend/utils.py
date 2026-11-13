@@ -90,7 +90,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     payload = _decode_user_token(credentials.credentials)
     email = payload["sub"]
     user = await users_db.get_user_by_email(email)
-    if not user:
+    if not user or user.get("kind", "person") != "person":  # a family-book user can never authenticate
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     # Token must belong to this exact account (e.g. not a deleted + re-registered one).

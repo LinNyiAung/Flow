@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import delete, distinct, func, insert, select, update
 
 from sql.db import execute, fetch_all, fetch_value, transaction
-from sql.tables import chat_messages as m, chat_sessions as s
+from sql.tables import chat_messages as m, chat_sessions as s, users
 
 
 async def append_exchange(user_id: str, messages: List[Dict[str, Any]], keep_last: int, now: datetime) -> None:
@@ -58,5 +58,7 @@ async def count_sessions(user_id: Optional[str] = None) -> int:
 
 
 async def active_user_ids(since: datetime) -> List[str]:
-    rows = await fetch_all(select(distinct(s.c.user_id).label("user_id")).where(s.c.updated_at >= since))
+    stmt = (select(distinct(s.c.user_id).label("user_id")).join(users, users.c.id == s.c.user_id)
+            .where(s.c.updated_at >= since, users.c.kind == "person"))
+    rows = await fetch_all(stmt)
     return [r["user_id"] for r in rows]
