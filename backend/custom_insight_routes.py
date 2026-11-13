@@ -32,7 +32,7 @@ from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from tz_utils import app_today, as_utc, day_bounds_utc, utc_now
-from families.book import Book, get_book
+from families.book import Book, get_book, require_admin, require_writable
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,9 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     counted). Otherwise reserve one use, insert a pending report and start writing it: 202.
 
     The report is about, and stored under, the request's book (a family shares its list); the plan check and the use
-    are the person's (counter_keys then name the person, see custom_insights_service._reservation)."""
+    are the person's (counter_keys then name the person, see custom_insights_service._reservation). A family's new
+    report needs a writable family (R10)."""
+    require_writable(book)
     current_user = book.person
     uid = book.id
     instruction = (data.instruction or "").strip() or None
@@ -274,10 +276,13 @@ async def translate_custom_insight(report_id: str, book: Book = Depends(get_book
 @router.delete("/{report_id}")
 async def delete_custom_insight(report_id: str, book: Book = Depends(get_book)):
     """Delete a ready report. A failed or refused one is only hidden (it still counts towards the daily attempt limit);
-    one still being written cannot be deleted."""
+    one still being written cannot be deleted. A family's reports are shared: deleting one needs a writable family and
+    the owner or an admin (R10)."""
+    require_writable(book)
+    require_admin(book)
     outcome = await ci.delete_for_user(report_id, book.id, utc_now())
     if outcome in ("deleted", "hidden"):
         return {"deleted": True}
     if outcome == "pending":
-        raise _error(book.person,status.HTTP_409_CONFLICT, "custom_insight_not_ready")
+        raise _error(book.person, status.HTTP_409_CONFLICT, "custom_insight_not_ready")
     raise _not_found()

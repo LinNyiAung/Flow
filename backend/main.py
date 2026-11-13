@@ -548,16 +548,48 @@ def _is_new_real_insight(insight: Optional[dict]) -> bool:
 
 
 async def _insight_plan_user(book: Book) -> dict:
-    """The user whose plan gates weekly / monthly insights of `book`, and whose allowance generating one uses.
+    """The user whose plan gates the weekly / monthly insights of `book` (and their translation).
 
-    A personal book: the person. A family book: the person asking, with the family owner's effective plan, so the
-    owner's plan decides whether the family's insights are unlocked (and which limits apply) while any use is counted
-    on the person asking (their counters, their AI spend for the cost cap). Translation stays on the person's own plan.
+    A personal book: the person (whose allowance generating or translating one also uses). A family book (ruling R10):
+    the person asking with the family owner's effective plan, used only for the plan gates (the lock, translation,
+    next_insight_at). Family insights never reserve or count against anyone's allowance (_generate_for,
+    _translation_kwargs), are generated only while the owner's plan is paid, and a read-only family only shows what is
+    stored (_read_only_family_insight).
     """
     if not book.is_family:
         return book.person
     return {**book.person, "subscription_type": await owner_plan(book.family["id"]),
             "subscription_expires_at": None}
+
+
+async def _generate_for(book: Book, plan_user: dict, insight_type: str):
+    """One on-demand insight of `book`. A personal book: _generate_counted on the person. A family book: never counted
+    (R10); refused with family_read_only when the owner's plan isn't paid, and plan_feature_locked when the owner's plan
+    locks the insight type. The AI cost is recorded under the book."""
+    if not book.is_family:
+        return await _generate_counted(plan_user, insight_type, book.id)
+    require_writable(book)
+    quota.require_unlocked(plan_user, f"insight_{insight_type}")
+    return await _generate_insight(book.id, insight_type)
+
+
+def _translation_kwargs(book: Book) -> dict:
+    """_ensure_myanmar_translation options for `book`: a family insight's translation is never counted (R10) and its
+    AI cost is recorded under the book."""
+    return {"counted": False, "cost_user_id": book.id} if book.is_family else {}
+
+
+async def _read_only_family_insight(book: Book, insight_type: str, language: Optional[str]) -> InsightResponse:
+    """GET /api/insights for a read-only family (R10): the stored insight (the latest real one rather than a welcome
+    placeholder), never a new one; with nothing stored, family_read_only. English only (the owner's plan has lapsed)."""
+    from insights_service import latest_valid_insight, _latest_real_insight
+
+    insight = await latest_valid_insight(book.id, insight_type)
+    if insight and insight.get("is_placeholder"):
+        insight = await _latest_real_insight(book.id, insight_type) or insight
+    if not _insight_has_content(insight):
+        require_writable(book)  # raises family_read_only
+    return _insight_response(insight, translation_locked=language == "mm", plan_translates=False)
 
 
 async def _generate_counted(user: dict, insight_type: str, data_id: Optional[str] = None):
@@ -598,23 +630,29 @@ def _needs_translation_call(insight: dict) -> bool:
     return not (flag or (flag is None and _is_placeholder_text(insight["content"])))
 
 
-async def _ensure_myanmar_translation(insight: dict, user: dict) -> dict:
+async def _ensure_myanmar_translation(insight: dict, user: dict, *, counted: bool = True,
+                                      cost_user_id: Optional[str] = None) -> dict:
     """Translate (and cache) content_mm if missing. Placeholders never hit the paid API and a stored translation costs
-    nothing; only a real translation call is reserved on the user's plan (the cost cap applies) and counted."""
+    nothing; only a real translation call is reserved on the user's plan (the cost cap applies) and counted.
+
+    counted False (a family insight, R10): nothing is reserved or counted. cost_user_id: whose AI usage the call is
+    recorded as (default: the user)."""
     if not _needs_translation_call(insight):
         if insight.get("content_mm"):
             return insight
         # A welcome placeholder: the canned translation, no AI call and nothing to reserve.
         reservation = None
-    else:
+    elif counted:
         reservation = await quota.reserve(user, "insight_translation")  # PlanError: locked, cost cap, used up
+    else:
+        reservation = None
 
     from insights_service import translate_insight_to_myanmar
 
     try:
         myanmar_content = await translate_insight_to_myanmar(
             insight["content"],
-            user_id=user["_id"],
+            user_id=cost_user_id or user["_id"],
             # None (legacy docs without the flag) falls back to text detection
             is_placeholder=insight.get("is_placeholder"),
         )
@@ -629,12 +667,13 @@ async def _ensure_myanmar_translation(insight: dict, user: dict) -> dict:
     return insight
 
 
-async def _translate_if_possible(insight: dict, user: dict):
+async def _translate_if_possible(insight: dict, user: dict, **options):
     """Myanmar for a Plus/Pro user: (insight, None) when translated or already stored. A plan refusal of the translation
     itself (the hidden cost cap, a used-up counted allowance) must not hide the English insight, which exists and costs
-    nothing to show: it returns (insight, the limit error's detail) and the insight keeps its content_mm empty."""
+    nothing to show: it returns (insight, the limit error's detail) and the insight keeps its content_mm empty.
+    `options`: see _ensure_myanmar_translation (_translation_kwargs)."""
     try:
-        return await _ensure_myanmar_translation(insight, user), None
+        return await _ensure_myanmar_translation(insight, user, **options), None
     except PlanError as e:
         return insight, e.detail()
 
@@ -786,15 +825,18 @@ async def get_insights(
     By plan: weekly insights are locked for Free (403). A Free user's monthly insight is generated on demand, once a
     month (see _free_monthly_insight). `language` is the display language asked for by this request (not the profile's):
     Myanmar is translated once and stored for Plus and Pro; Free is never translated and gets English with
-    translation_locked true. In a family book the owner's plan gates the insight (_insight_plan_user); translation is
-    the person's own plan.
+    translation_locked true.
+
+    A family book (R10): the owner's plan gates the insight and its translation (_insight_plan_user), nothing is ever
+    counted against anyone, and a read-only family only shows what is stored (_read_only_family_insight).
     """
-    current_user = book.person
-    plan_user = await _insight_plan_user(book)
+    if book.read_only:
+        return await _read_only_family_insight(book, insight_type, language)
+    plan_user = await _insight_plan_user(book)  # the person, or (family) the person with the owner's plan
     user_id = book.id
     if insight_type == "weekly":
         quota.require_unlocked(plan_user, "insight_weekly")  # outside the handlers below: a PlanError passes through
-    plan_translates = not _translation_locked(current_user)
+    plan_translates = not _translation_locked(plan_user)
     translation_locked = language == "mm" and not plan_translates
     try:
         from insights_service import latest_valid_insight, user_has_insight_data, _latest_real_insight
@@ -802,7 +844,7 @@ async def get_insights(
         # Legacy insights with content None / "" are treated as missing (skipped here).
         latest_insight = await latest_valid_insight(user_id, insight_type)
 
-        if effective_plan(plan_user) == "free" and insight_type == "monthly":
+        if not book.is_family and effective_plan(plan_user) == "free" and insight_type == "monthly":
             # Free is never translated: English only, whatever language was asked for (no translation call).
             latest_insight = await _free_monthly_insight(plan_user, latest_insight, user_id)
             return _insight_response(latest_insight, translation_locked, plan_translates=False,
@@ -818,7 +860,7 @@ async def get_insights(
                     print(f"🔄 Replacing placeholder {insight_type} insight for user {user_id} (user now has data)")
                     regenerated = None
                     try:
-                        regenerated = await _generate_counted(plan_user, insight_type, user_id)
+                        regenerated = await _generate_for(book, plan_user, insight_type)
                     except Exception as gen_error:
                         # AI down / rate limited / the cost cap reached (a PlanError): something stored is still
                         # worth showing, and nothing was generated.
@@ -842,7 +884,7 @@ async def get_insights(
         if not latest_insight:
             # Nothing stored at all: generation errors are surfaced (429/503/500).
             print(f"🔄 No {insight_type} insight found, generating the first one for user {user_id}")
-            latest_insight = await _generate_counted(plan_user, insight_type, user_id)
+            latest_insight = await _generate_for(book, plan_user, insight_type)
             if not _insight_has_content(latest_insight):
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -851,7 +893,8 @@ async def get_insights(
 
         translation_unavailable = None
         if language == "mm" and plan_translates:
-            latest_insight, translation_unavailable = await _translate_if_possible(latest_insight, current_user)
+            latest_insight, translation_unavailable = await _translate_if_possible(
+                latest_insight, plan_user, **_translation_kwargs(book))
 
         return _insight_response(latest_insight, translation_locked, plan_translates, translation_unavailable,
                                  _next_insight_at(plan_user, insight_type))
@@ -898,18 +941,19 @@ async def regenerate_insights(
 
     Locked for Free (403, whatever the type; the person's own plan): regenerating is a paid-plan action. Plus and Pro
     are refused at the hidden cost cap. `language` is the display language of this request (see GET /api/insights).
-    In a family book the insight type is gated by the owner's plan (_insight_plan_user).
+    A family book (R10): family_read_only while the owner's plan isn't paid; the person asking must still be on Plus or
+    Pro; the owner's plan gates the type and the translation; nothing is counted against anyone.
     """
-    current_user = book.person
-    # Outside the handlers below: a PlanError passes through
-    ensure_paid(current_user)  # feature None: the refusal reads "only on Plus and Pro" (Free does include a monthly insight)
+    # Outside the handlers below: an HTTPException / PlanError passes through
+    require_writable(book)  # a read-only family never generates
+    ensure_paid(book.person)  # feature None: the refusal reads "only on Plus and Pro" (Free does include a monthly insight)
     plan_user = await _insight_plan_user(book)
-    plan_translates = not _translation_locked(current_user)
+    plan_translates = not _translation_locked(plan_user)
     translation_locked = language == "mm" and not plan_translates
     try:
         print(f"🔄 Force regenerating {insight_type} insights for book {book.id}")
 
-        new_insight = await _generate_counted(plan_user, insight_type, book.id)
+        new_insight = await _generate_for(book, plan_user, insight_type)
 
         if not _insight_has_content(new_insight):
             raise HTTPException(
@@ -919,7 +963,8 @@ async def regenerate_insights(
 
         translation_unavailable = None
         if language == "mm" and plan_translates:
-            new_insight, translation_unavailable = await _translate_if_possible(new_insight, current_user)
+            new_insight, translation_unavailable = await _translate_if_possible(
+                new_insight, plan_user, **_translation_kwargs(book))
 
         print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
         return _insight_response(new_insight, translation_locked, plan_translates, translation_unavailable,
@@ -942,13 +987,17 @@ async def translate_insights_to_myanmar(
     """Translate the request's book's latest weekly or monthly insight to Myanmar.
 
     `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is
-    translated on the insight_translation provider chain. Locked for Free (403; the person's own plan); Plus and Pro
-    are refused at the hidden cost cap when a translation call is needed.
+    translated on the insight_translation provider chain. Locked for Free (403); Plus and Pro are refused at the hidden
+    cost cap when a translation call is needed.
+
+    A family book (R10): family_read_only while the owner's plan isn't paid; otherwise the owner's plan decides whether
+    translation is included, and nothing is counted against anyone.
     """
-    current_user = book.person
-    # Outside the handlers below: a PlanError passes through
-    ensure_paid(current_user, "insight_translation")
-    quota.require_unlocked(current_user, "insight_translation")
+    # Outside the handlers below: an HTTPException / PlanError passes through
+    require_writable(book)
+    plan_user = await _insight_plan_user(book)  # the person, or (family) the person with the owner's plan
+    ensure_paid(plan_user, "insight_translation")
+    quota.require_unlocked(plan_user, "insight_translation")
     try:
         from insights_service import latest_valid_insight
 
@@ -962,7 +1011,7 @@ async def translate_insights_to_myanmar(
             return {"message": "Myanmar translation already exists", "already_translated": True}
 
         print(f"🔄 Translating {insight_type} insights to Myanmar for book {book.id}")
-        await _ensure_myanmar_translation(insight, current_user)
+        await _ensure_myanmar_translation(insight, plan_user, **_translation_kwargs(book))
 
         return {"message": "Translation completed successfully", "already_translated": False}
 
@@ -981,12 +1030,14 @@ async def manually_generate_weekly_insights(
 ):
     """Manually trigger weekly insights generation for the request's book (once, on the insight_weekly chain).
 
-    Locked for Free (403; the person's own plan); Plus and Pro are refused at the hidden cost cap. In a family book the
-    owner's plan gates the insight (_insight_plan_user)."""
-    current_user = book.person
-    # Outside the handlers below: a PlanError passes through
-    ensure_paid(current_user, "insight_weekly")
+    Locked for Free (403; the person's own plan); Plus and Pro are refused at the hidden cost cap. A family book (R10):
+    family_read_only while the owner's plan isn't paid; the owner's plan gates the type; nothing is counted."""
+    # Outside the handlers below: an HTTPException / PlanError passes through
+    require_writable(book)
+    ensure_paid(book.person, "insight_weekly")
     plan_user = await _insight_plan_user(book)
+    if book.is_family:
+        quota.require_unlocked(plan_user, "insight_weekly")
     try:
         from insights_service import is_rate_limit_error
 
@@ -994,7 +1045,7 @@ async def manually_generate_weekly_insights(
         # feature's main provider when nothing was generated.
         provider = ai_provider_settings.resolve("insight_weekly").main.provider
         try:
-            insight = await _generate_counted(plan_user, "weekly", book.id)
+            insight = await _generate_for(book, plan_user, "weekly")
             outcome = "success" if insight else "failed"
             provider = (insight or {}).get("ai_provider") or provider
         except PlanError:

@@ -211,7 +211,7 @@ async def update_goal(
 ):
     """Update a goal's details"""
     require_writable(book)
-    goal =await goals_db.get_goal(goal_id, book.id)
+    goal = await goals_db.get_goal(goal_id, book.id)
 
     if not goal:
         raise HTTPException(
@@ -395,7 +395,7 @@ async def delete_goal(
 ):
     """Delete a goal and return its amount to balance"""
     require_writable(book)
-    goal =await goals_db.get_goal(goal_id, book.id)
+    goal = await goals_db.get_goal(goal_id, book.id)
 
     if not goal:
         raise HTTPException(

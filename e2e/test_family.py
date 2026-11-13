@@ -849,6 +849,65 @@ def section_book_scope():
         check(got == (D["id"], 4, D["id"], 3),
               "book scope: a family custom insight's counter_keys name the asker (personal ones are unchanged)", got)
 
+        # ---- R10: family insights never count against anyone ----
+        r = c.get("/api/insights", headers=H(M, True), params={"insight_type": "monthly"})
+        fam_monthly = r.json().get("id") if r.status_code == 200 else None
+        check(r.status_code == 200 and r.json().get("user_id") == book_id, "book scope: a family monthly insight is the book's",
+              f"{r.status_code} {r.text[:200]}")
+
+        def insight_uses(*uids):
+            return db.sql("SELECT coalesce(sum(used), 0) n FROM usage_counters WHERE user_id = ANY(%s) "
+                          "AND feature LIKE 'insight%%'", list(uids))[0]["n"]
+
+        def book_insights(kind=None):
+            return db.sql("SELECT count(*) n FROM insights WHERE user_id = %s AND (%s::text IS NULL OR insight_type = %s)",
+                          book_id, kind, kind)[0]["n"]
+
+        async def family_generation_uncounted():
+            """In-process, with Plus's weekly and monthly insights made counted: a family regenerate (Mum) and a family
+            GET that has to generate (Dad, Free) leave both people's insight counters alone."""
+            import main as backend_main
+            from chat_models import AIProvider
+            from families.book import get_book
+            from plans import store
+            from plans.catalog import Limit
+            from sql import users as users_db
+            calls = []
+
+            async def fake_generate(data_id, insight_type):
+                calls.append(data_id)
+                return {"_id": str(uuid.uuid4()), "user_id": data_id, "content": "## Fake family insight",
+                        "generated_at": datetime.now(UTC), "is_placeholder": False}
+
+            orig_limits, orig_generate = store.limits, backend_main._generate_insight
+
+            def counted_limits(plan):
+                lim = orig_limits(plan)
+                if plan in ("plus", "pro"):
+                    lim["insight_weekly"] = Limit("counted", 50, "week")
+                    lim["insight_monthly"] = Limit("counted", 50, "month")
+                return lim
+            store.limits, backend_main._generate_insight = counted_limits, fake_generate
+            try:
+                mum_book = await get_book(current_user=await users_db.get_user(M["id"]), x_book="family")
+                dad_book = await get_book(current_user=await users_db.get_user(D["id"]), x_book="family")
+                before = insight_uses(M["id"], D["id"])
+                await backend_main.regenerate_insights(language="en", ai_provider=AIProvider.OPENAI,
+                                                       insight_type="weekly", book=mum_book)
+                db.sql("DELETE FROM insights WHERE user_id = %s AND insight_type = 'weekly'", book_id)
+                await backend_main.get_insights(language="en", ai_provider=AIProvider.OPENAI, insight_type="weekly",
+                                                book=dad_book)
+                return before, insight_uses(M["id"], D["id"]), calls
+            finally:
+                store.limits, backend_main._generate_insight = orig_limits, orig_generate
+        try:
+            before, after, calls = _backend_async(family_generation_uncounted)
+        except Exception as e:  # noqa: BLE001
+            before, after, calls = None, repr(e)[:200], []
+        check(before is not None and before == after and calls == [book_id, book_id],
+              "book scope: a family regenerate (Mum) and a generating family GET (Dad) count against neither",
+              (before, after, calls))
+
         # ---- headers ----
         r = c.get("/api/transactions", headers=H(O, True))
         check(_code(r, 409, "no_family"), "book scope: X-Book: family outside a family is 409 no_family", f"{r.status_code} {r.text[:200]}")
@@ -878,8 +937,42 @@ def section_book_scope():
         r = c.get("/api/dashboard/balance", headers=H(M, True))
         check(r.status_code == 200, "book scope: the family balance still reads while read-only", r.status_code)
         check(tx(M).status_code == 200 and tx(D).status_code == 200, "book scope: personal writes still work while the family is read-only")
+
+        # R10: a read-only family shows what is stored and never generates or counts.
+        uses, stored = insight_uses(D["id"]), book_insights()
+        r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
+        check(r.status_code == 200 and r.json().get("id") == fam_monthly and insight_uses(D["id"]) == uses
+              and book_insights() == stored,
+              "book scope: read-only: Dad's family monthly GET shows the stored insight, generates and counts nothing",
+              f"{r.status_code} {r.text[:200]}")
+        db.sql("DELETE FROM insights WHERE user_id = %s AND insight_type = 'monthly'", book_id)
+        stored = book_insights()
+        r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
+        check(_code(r, 403, "family_read_only") and insight_uses(D["id"]) == uses and book_insights() == stored,
+              "book scope: read-only with nothing stored: family monthly GET is family_read_only, nothing generated or counted",
+              (f"{r.status_code} {r.text[:200]}", insight_uses(D["id"]), uses, book_insights(), stored))
+        r = c.post("/api/insights/regenerate", headers=H(M, True), params={"insight_type": "monthly"})
+        check(_code(r, 403, "family_read_only") and book_insights() == stored,
+              "book scope: read-only: a family regenerate is family_read_only", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/custom-insights", headers=H(M, True),
+                   json={"start_date": (now.date() - timedelta(days=7)).isoformat(), "end_date": now.date().isoformat()})
+        check(_code(r, 403, "family_read_only"), "book scope: read-only: creating a family custom insight is family_read_only",
+              f"{r.status_code} {r.text[:200]}")
+
         db.sql("UPDATE users SET subscription_expires_at = now() + interval '30 days' WHERE id = %s", M["id"])
         check(tx(M, True).status_code == 200, "book scope: renewing the owner's plan makes the family writable again")
+
+        # R10: a family custom report is shared, so only an admin deletes it.
+        fam_report = str(uuid.uuid4())
+        db.sql("INSERT INTO custom_insights (id, user_id, start_date, end_date, status, content) "
+               "VALUES (%s, %s, current_date - 7, current_date, 'ready', 'Family report')", fam_report, book_id)
+        r = c.delete(f"/api/custom-insights/{fam_report}", headers=H(D, True))
+        check(_code(r, 403, "not_allowed"), "book scope: a member can't delete a family custom report (not_allowed)",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/custom-insights/{fam_report}", headers=H(M, True))
+        check(r.status_code == 200, "book scope: an admin (the owner) deletes a family custom report", f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/custom-insights/{dad_report}", headers=H(D))
+        check(r.status_code == 200, "book scope: Dad still deletes his own personal custom report", f"{r.status_code} {r.text[:200]}")
 
         # ---- Review Focus 4: Dad is removed while his app is open ----
         r = c.delete(f"/api/family/members/{d_mid}", headers=M["h"])
