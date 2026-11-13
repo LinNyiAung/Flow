@@ -454,6 +454,38 @@ def section_family_rules():
         check(_code(r, 409, "already_in_family"), "family rules: someone in a family can't accept another family's invite",
               f"{r.status_code} {r.text[:200]}")
 
+        # ---- the owner's plan lapses: read-only, but the family can still be repaired ----
+        H = register("Htun")
+        inv_g = invite(X, G["email"]).json()
+        inv_h = invite(X, H["email"]).json()
+        r = c.post(f"/api/family/invites/{inv_g.get('id')}/accept", headers=G["h"])
+        g_mid = (fam(G).json().get("me") or {}).get("member_id")
+        check(r.status_code == 200 and g_mid, "family rules: a member joins the Pro family", f"{r.status_code} {r.text[:200]}")
+        db.sql("UPDATE users SET subscription_expires_at = now() - interval '1 minute' WHERE id = %s", X["id"])
+        vx = fam(X).json()
+        check((vx.get("family") or {}).get("read_only") is True, "family rules: the owner's plan lapsed, so the family is read-only",
+              vx.get("family"))
+        r = invite(X, f"later-{tag}@example.com")
+        check(_code(r, 403, "family_read_only"), "family rules: read-only family: invite is family_read_only", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/family/placeholders", headers=X["h"], json={"display_name": "Grandpa"})
+        check(_code(r, 403, "family_read_only"), "family rules: read-only family: add placeholder is family_read_only",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/family/invites/{inv_h.get('id')}/accept", headers=H["h"])
+        st = db.sql("SELECT status FROM family_invites WHERE id = %s", inv_h.get("id"))
+        check(_code(r, 403, "family_read_only") and st and st[0]["status"] == "pending" and fam(H).json() == {"family": None},
+              "family rules: read-only family: accepting an invite is family_read_only (the invite stays pending)",
+              f"{r.status_code} {r.text[:200]} {st}")
+        r = c.patch("/api/family", headers=X["h"], json={"name": XNAME})
+        check(r.status_code == 200, "family rules: read-only family: renaming still works", r.status_code)
+        r = c.post("/api/family/transfer-ownership", headers=X["h"], json={"member_id": g_mid})
+        check(r.status_code == 200 and (fam(G).json().get("me") or {}).get("role") == "owner",
+              "family rules: read-only family: handing over ownership still works", f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/family/invites/{inv_h.get('id')}", headers=X["h"])
+        check(r.status_code == 200, "family rules: read-only family: an admin can still cancel an invite", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/family/leave", headers=X["h"])
+        check(r.status_code == 200 and fam(X).json() == {"family": None}, "family rules: read-only family: leaving still works",
+              r.status_code)
+
         # ---- leaving and handing over ----
         r = c.post("/api/family/leave", headers=A["h"])
         check(_code(r, 409, "owner_must_hand_over"), "family rules: the owner can't leave (owner_must_hand_over)", r.status_code)

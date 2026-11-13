@@ -4,8 +4,11 @@
 - One active family per person. Creating one needs Plus or Pro (effective_plan); joining is free.
 - Roles: owner (exactly one; makes admins, hands over ownership, deletes the family), admin (invites, removes, adds and
   renames placeholders, renames the family), member.
-- Limits are the owner's plan's (plans.store.family_limits): active account members plus pending, unexpired invites
-  stay <= max_members; active placeholders <= max_placeholders. Counted changes lock the family row first.
+- Read-only: when the owner's effective plan isn't Plus or Pro (family_is_read_only), inviting, joining and adding
+  placeholders answer family_read_only; leaving, removing, renaming, roles, handing over ownership, cancelling invites
+  and deleting still work, so the family can be repaired.
+- Limits are the owner's paid plan's (plans.store.family_limits): active account members plus pending, unexpired
+  invites stay <= max_members; active placeholders <= max_placeholders. Counted changes lock the family row first.
 - Nobody's history is rewritten: a removed or leaving account member becomes `former` (role kept), a placeholder with
   tagged entries becomes former, one without is deleted. Accepting an invite linked to a placeholder or former member,
   or re-joining after leaving, reuses that member row (same id), so its tags carry over.
@@ -43,6 +46,7 @@ STATUS = {
     "owner_must_hand_over": 409,
     "not_allowed": 403,
     "plan_required": 403,
+    "family_read_only": 403,
     "invite_invalid": 400,
     "confirm_mismatch": 400,
 }
@@ -76,8 +80,25 @@ async def owner_plan(family_id: str) -> str:
                            "subscription_expires_at": row["user_subscription_expires_at"]})
 
 
-async def _limits(family_id: str) -> Tuple[int, int]:
-    return store.family_limits(await owner_plan(family_id))
+async def family_is_read_only(family: Mapping[str, Any]) -> bool:
+    """True when the owner's effective plan isn't Plus or Pro (lapsed, or the owner's account is gone).
+
+    A read-only family can be read and repaired (leave, remove, rename, roles, hand over ownership, cancel invites,
+    delete) but nothing can be added to it (invites, joining, placeholders; Task 4: money writes)."""
+    return _read_only_plan(await owner_plan(family["id"]))
+
+
+def _read_only_plan(plan: str) -> bool:
+    return plan not in PAID_PLANS
+
+
+async def _writable_limits(user: Mapping[str, Any], family_id: str) -> Tuple[int, int]:
+    """The owner's (max_members, max_placeholders); family_read_only when the owner's plan isn't paid (the limits
+    are only used on a paid plan)."""
+    plan = await owner_plan(family_id)
+    if _read_only_plan(plan):
+        _fail(user, "family_read_only")
+    return store.family_limits(plan)
 
 
 async def _context(user: Mapping[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -127,7 +148,7 @@ async def overview(user: Mapping[str, Any]) -> Dict[str, Any]:
     members = await fdb.list_members(family["id"])
     invites = await fdb.list_pending_invites(family["id"], now) if _is_admin(me) else []
     return {
-        "family": {"id": family["id"], "name": family["name"], "read_only": plan not in PAID_PLANS},
+        "family": {"id": family["id"], "name": family["name"], "read_only": _read_only_plan(plan)},
         "me": {"member_id": me["id"], "role": me["role"]},
         "members": [_member_json(m, me) for m in members],
         "invites": [_invite_json(i) for i in invites],
@@ -180,7 +201,7 @@ async def add_placeholder(user: Mapping[str, Any], display_name: str) -> Dict[st
     _require_admin(user, me)
     async with transaction():
         await fdb.lock_family(family["id"])
-        _, max_placeholders = await _limits(family["id"])
+        _, max_placeholders = await _writable_limits(user, family["id"])
         if await fdb.count_active(family["id"], "placeholder") >= max_placeholders:
             _fail(user, "placeholders_full")
         await fdb.insert_member(str(uuid.uuid4()), family["id"], display_name, "placeholder", None)
@@ -289,6 +310,7 @@ async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Opt
         invitee = None
     async with transaction():
         await fdb.lock_family(family["id"])
+        max_members, _ = await _writable_limits(user, family["id"])
         await fdb.expire_due(now, family_id=family["id"])
         if link_member_id is not None:
             link = await fdb.get_member(link_member_id, family["id"])
@@ -303,8 +325,7 @@ async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Opt
         existing = await fdb.pending_invite_for(family["id"], email)
         if existing:
             await fdb.set_invite_status(existing["id"], "cancelled")
-        max_members, _ = await _limits(family["id"])
-        taken = await fdb.count_active(family["id"], "account") + await fdb.count_pending_invites(family["id"], now)
+        taken =await fdb.count_active(family["id"], "account") + await fdb.count_pending_invites(family["id"], now)
         if taken + 1 > max_members:
             _fail(user, "family_full")
         invite = await fdb.insert_invite(str(uuid.uuid4()), family["id"], email, me["id"], link_member_id,
@@ -357,9 +378,11 @@ async def accept_invite(user: Mapping[str, Any], invite_id: str) -> Dict[str, An
     try:
         async with transaction():
             family = await fdb.lock_family(family_id)
-            if family is None or not await fdb.set_invite_status(invite_id, "accepted", now=now):
+            if family is None:
                 _fail(user, "invite_invalid")
-            max_members, _ = await _limits(family_id)
+            max_members, _ = await _writable_limits(user, family_id)  # read-only: the invite stays pending
+            if not await fdb.set_invite_status(invite_id, "accepted", now=now):
+                _fail(user, "invite_invalid")
             if await fdb.count_active(family_id, "account") >= max_members:
                 _fail(user, "family_full")
             reuse = None
