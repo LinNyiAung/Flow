@@ -67,7 +67,10 @@ users = Table(
     Column("password_reset_token_expiry", TS),
     Column("fcm_token", Text),
     Column("ai_data_stale", Boolean, nullable=False, server_default=text("false")),
+    # 'family_book' rows are the hidden owner of a family's data (see families); they never log in.
+    Column("kind", Text, nullable=False, server_default="person"),
     Column("created_at", TS, nullable=False, server_default=func.now()),
+    CheckConstraint("kind IN ('person','family_book')", name="kind"),
     CheckConstraint("subscription_type IN ('free','plus','pro')", name="subscription_type"),
     CheckConstraint(f"default_currency IN {CURRENCIES}", name="default_currency"),
     CheckConstraint("language IN ('en','my')", name="language"),
@@ -98,6 +101,9 @@ transactions = Table(
     Column("recurrence_end_date", TS),
     Column("recurrence_last_created_date", TS),
     Column("parent_transaction_id", Text, ForeignKey("transactions.id", ondelete="SET NULL")),
+    # Family book: who recorded it, and the id shared by the two legs of a transfer between books.
+    Column("added_by_member_id", Text, ForeignKey("family_members.id", ondelete="SET NULL")),
+    Column("transfer_id", Text),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("updated_at", TS, nullable=False, server_default=func.now()),
     CheckConstraint("type IN ('inflow','outflow')", name="type"),
@@ -113,6 +119,62 @@ Index("ix_transactions_user_currency", transactions.c.user_id, transactions.c.cu
 Index("ix_transactions_parent_date", transactions.c.parent_transaction_id, transactions.c.date)
 Index("ix_transactions_recurring", transactions.c.recurrence_enabled, postgresql_where=transactions.c.recurrence_enabled)
 Index("ix_transactions_created_at", transactions.c.created_at)
+Index("ix_transactions_transfer_id", transactions.c.transfer_id)
+
+# Family book. Each family owns a hidden users row (kind 'family_book'); its transactions, budgets, goals and insights
+# are stored under that user id. family_members.user_id is SET NULL so deleting a person never deletes family history.
+families = Table(
+    "families", metadata,
+    Column("id", Text, primary_key=True),
+    Column("name", Text, nullable=False),
+    Column("book_user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    Column("updated_at", TS, nullable=False, server_default=func.now()),
+)
+
+family_members = Table(
+    "family_members", metadata,
+    Column("id", Text, primary_key=True),
+    Column("family_id", Text, ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("user_id", Text, ForeignKey("users.id", ondelete="SET NULL")),
+    Column("display_name", Text, nullable=False),
+    Column("kind", Text, nullable=False),
+    Column("role", Text),  # NULL for placeholders
+    Column("status", Text, nullable=False, server_default="active"),
+    Column("joined_at", TS, nullable=False, server_default=func.now()),
+    Column("left_at", TS),
+    CheckConstraint("kind IN ('account','placeholder')", name="kind"),
+    CheckConstraint("role IS NULL OR role IN ('owner','admin','member')", name="role"),
+    CheckConstraint("status IN ('active','former')", name="status"),
+)
+Index("ix_family_members_user_id", family_members.c.user_id)
+# One family per person, and one owner per family.
+Index("uq_family_members_user_active", family_members.c.user_id, unique=True,
+      postgresql_where=text("status = 'active' AND user_id IS NOT NULL"))
+Index("uq_family_members_owner_active", family_members.c.family_id, unique=True,
+      postgresql_where=text("role = 'owner' AND status = 'active'"))
+
+family_invites = Table(
+    "family_invites", metadata,
+    Column("id", Text, primary_key=True),
+    Column("family_id", Text, ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("email", Text, nullable=False),  # stored lowercased
+    Column("invited_by_member_id", Text, ForeignKey("family_members.id", ondelete="SET NULL")),
+    Column("link_member_id", Text, ForeignKey("family_members.id", ondelete="SET NULL")),  # placeholder to take over
+    Column("status", Text, nullable=False, server_default="pending"),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    Column("expires_at", TS, nullable=False),
+    CheckConstraint("status IN ('pending','accepted','declined','cancelled','expired')", name="status"),
+)
+Index("uq_family_invites_pending_email", family_invites.c.family_id, family_invites.c.email, unique=True,
+      postgresql_where=text("status = 'pending'"))
+
+transaction_beneficiaries = Table(
+    "transaction_beneficiaries", metadata,
+    Column("transaction_id", Text, ForeignKey("transactions.id", ondelete="CASCADE"), primary_key=True),
+    Column("member_id", Text, ForeignKey("family_members.id", ondelete="CASCADE"), primary_key=True),
+)
+Index("ix_transaction_beneficiaries_member_id", transaction_beneficiaries.c.member_id)
 
 goals = Table(
     "goals", metadata,
@@ -289,6 +351,7 @@ chat_sessions = Table(
     "chat_sessions", metadata,
     Column("id", Text, primary_key=True),
     _user_fk(),
+    Column("book_id", Text, ForeignKey("users.id", ondelete="CASCADE")),  # the family book chatted about; NULL = personal
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("updated_at", TS, nullable=False, server_default=func.now()),
 )
@@ -381,6 +444,11 @@ plan_settings = Table(
     # What a paid plan costs, in whole kyat; null: the owner has not set it (the app shows no price).
     Column("price_monthly_mmk", Integer),
     Column("price_yearly_mmk", Integer),  # optional, a discount on 12 months
+    # Family limits: account members (owner included) and placeholders. 0: the plan cannot create a family.
+    Column("family_max_members", SmallInteger, nullable=False, server_default="0"),
+    Column("family_max_placeholders", SmallInteger, nullable=False, server_default="0"),
+    CheckConstraint("family_max_members BETWEEN 0 AND 50", name="family_max_members_range"),
+    CheckConstraint("family_max_placeholders BETWEEN 0 AND 50", name="family_max_placeholders_range"),
     CheckConstraint("plan IN ('free','plus','pro')", name="plan"),
     CheckConstraint("cost_cap_usd >= 0", name="cost_cap_non_negative"),
     CheckConstraint("price_monthly_mmk IS NULL OR price_monthly_mmk > 0", name="price_monthly_positive"),
