@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from ai_providers.errors import AllProvidersFailed
 from models import Currency
 from finite_utils import finite_or
-from utils import get_current_user
+from families.book import Book, get_book, require_writable
 from plans import quota
 
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
@@ -104,15 +104,17 @@ def _summarize(budgets: List[dict]) -> dict:
 @router.post("/ai-suggest", response_model=AIBudgetSuggestion)
 async def get_ai_budget_suggestions(
     request: AIBudgetRequest,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Get AI-generated budget suggestions: one "budget_suggestion" use per request that the AI answered.
 
-    The use is reserved before the AI call (a PlanError passes through the handlers below) and kept only when the
-    AI's answer is what comes back. An error, and the simple rule-based suggestions that replace an AI that could not
-    answer (or that had too little data to be asked), give it back.
+    The suggestions are from the request's book; the use is the person's. It is reserved before the AI call (a
+    PlanError passes through the handlers below) and kept only when the AI's answer is what comes back. An error, and
+    the simple rule-based suggestions that replace an AI that could not answer (or that had too little data to be
+    asked), give it back.
     """
-    analyzer = BudgetAnalyzer(current_user["_id"], user_language(current_user))
+    current_user = book.person
+    analyzer = BudgetAnalyzer(book.id, user_language(current_user), ai_user_id=current_user["_id"])
     reservation = await quota.reserve(current_user, "budget_suggestion")
     try:
         suggestions = await _ai_budget_suggestions(request, analyzer)
@@ -165,9 +167,10 @@ async def _ai_budget_suggestions(request: AIBudgetRequest, analyzer: BudgetAnaly
 @router.post("", response_model=BudgetResponse)
 async def create_budget(
     budget_data: BudgetCreate,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Create a new budget (manual or from AI suggestions)"""
+    """Create a new budget (manual or from AI suggestions) in the request's book"""
+    require_writable(book)
     try:
         budget_id = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -175,7 +178,7 @@ async def create_budget(
         # Calculate end date if not provided (custom budgets without end_date are
         # rejected by BudgetCreate validation with 422).
         if budget_data.end_date is None:
-            analyzer = BudgetAnalyzer(current_user["_id"])
+            analyzer = BudgetAnalyzer(book.id)
             try:
                 start_date, end_date = analyzer.calculate_period_dates(
                     budget_data.period,
@@ -203,7 +206,7 @@ async def create_budget(
 
         new_budget = {
             "_id": budget_id,
-            "user_id": current_user["_id"],
+            "user_id": book.id,
             "name": budget_data.name,
             "period": budget_data.period.value,
             "start_date": start_date,
@@ -237,11 +240,11 @@ async def create_budget(
 
         await budgets_db.insert_budget(new_budget)
 
-        await update_budget_spent_amounts(current_user["_id"], budget_id)
+        await update_budget_spent_amounts(book.id, budget_id)
 
         if is_active:
             await notify_budget_started(
-                user_id=current_user["_id"],
+                user_id=book.id,
                 budget_id=budget_id,
                 budget_name=budget_data.name,
                 total_budget=budget_data.total_budget,
@@ -249,10 +252,10 @@ async def create_budget(
             )
 
         # Mark AI data as stale
-        await users_db.mark_ai_data_stale(current_user["_id"])
+        await users_db.mark_ai_data_stale(book.id)
 
         # Get updated budget
-        updated_budget = await budgets_db.get_budget(budget_id)
+        updated_budget = await budgets_db.get_budget(budget_id, book.id)
 
         return _budget_response(updated_budget)
 
@@ -270,15 +273,15 @@ async def create_budget(
 
 @router.get("", response_model=List[BudgetResponse])
 async def get_budgets(
-    current_user: dict = Depends(get_current_user),
+    book: Book = Depends(get_book),
     active_only: bool = Query(default=False),
     period: Optional[BudgetPeriod] = None,
     currency: Optional[Currency] = None
 ):
-    """Get all user budgets"""
+    """Get all budgets of the request's book"""
     try:
         budgets = await budgets_db.list_budgets(
-            current_user["_id"],
+            book.id,
             period=period.value if period else None,
             currency=currency.value if currency else None,
         )
@@ -302,16 +305,16 @@ async def get_budgets(
 
 @router.get("/summary", response_model=BudgetSummary)
 async def get_budgets_summary(
-    current_user: dict = Depends(get_current_user),
+    book: Book = Depends(get_book),
     currency: Optional[Currency] = Query(default=None)
 ):
     """Get summary of budgets for specific currency"""
     try:
-        # If currency not specified, use user's default currency
+        # If currency not specified, use the person's default currency
         if currency is None:
-            currency = Currency(current_user.get("default_currency", "usd"))
+            currency = Currency(book.person.get("default_currency", "usd"))
 
-        budgets = await budgets_db.list_budgets(current_user["_id"], currency=currency.value)
+        budgets = await budgets_db.list_budgets(book.id, currency=currency.value)
 
         return BudgetSummary(**_summarize(budgets), currency=currency)
 
@@ -325,11 +328,11 @@ async def get_budgets_summary(
 
 @router.get("/summary/all-currencies", response_model=MultiCurrencyBudgetSummary)
 async def get_multi_currency_budgets_summary(
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Get summary of all budgets with per-currency breakdown"""
     try:
-        all_budgets = await budgets_db.list_budgets(current_user["_id"])
+        all_budgets = await budgets_db.list_budgets(book.id)
 
         overall = _summarize(all_budgets)
 
@@ -363,11 +366,11 @@ async def get_multi_currency_budgets_summary(
 @router.get("/{budget_id}", response_model=BudgetResponse)
 async def get_budget(
     budget_id: str = Path(...),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Get a specific budget"""
+    """Get a specific budget (404 for any id outside the request's book)"""
     try:
-        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
+        budget = await budgets_db.get_budget(budget_id, book.id)
 
         if not budget:
             raise HTTPException(
@@ -392,7 +395,7 @@ async def get_budget(
 async def update_budget(
     budget_id: str = Path(...),
     budget_data: BudgetUpdate = ...,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """
     Update a budget.
@@ -402,8 +405,9 @@ async def update_budget(
     the total is recomputed from the allocations (a "Main - Sub" allocation is not added
     when "Main" itself is budgeted). Spent-amount recalculation never changes it.
     """
+    require_writable(book)
     try:
-        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
+        budget = await budgets_db.get_budget(budget_id, book.id)
 
         if not budget:
             raise HTTPException(
@@ -465,15 +469,17 @@ async def update_budget(
         if budget_data.auto_create_with_ai is not None:
             update_data["auto_create_with_ai"] = budget_data.auto_create_with_ai
 
-        await budgets_db.update_budget(budget_id, update_data)
+        await budgets_db.update_budget(budget_id, update_data, user_id=book.id)
 
         # Recalculate spent amounts / status (does not touch total_budget)
-        await update_budget_spent_amounts(current_user["_id"], budget_id)
+        await update_budget_spent_amounts(book.id, budget_id)
 
         # Mark AI data as stale
-        await users_db.mark_ai_data_stale(current_user["_id"])
+        await users_db.mark_ai_data_stale(book.id)
 
-        updated_budget = await budgets_db.get_budget(budget_id)
+        updated_budget = await budgets_db.get_budget(budget_id, book.id)
+        if not updated_budget:  # deleted meanwhile
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget not found")
 
         return _budget_response(updated_budget)
 
@@ -492,11 +498,12 @@ async def update_budget(
 @router.delete("/{budget_id}")
 async def delete_budget(
     budget_id: str = Path(...),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Delete a budget"""
+    require_writable(book)
     try:
-        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
+        budget = await budgets_db.get_budget(budget_id, book.id)
 
         if not budget:
             raise HTTPException(
@@ -506,14 +513,14 @@ async def delete_budget(
 
         # Deleting an auto-created child also clears its parent's rolled_over_to (foreign key
         # ON DELETE SET NULL), which re-opens the parent for the nightly rollover job.
-        if await budgets_db.delete_budget(budget_id, current_user["_id"]) == 0:
+        if await budgets_db.delete_budget(budget_id, book.id) == 0:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to delete budget"
             )
 
         # Mark AI data as stale
-        await users_db.mark_ai_data_stale(current_user["_id"])
+        await users_db.mark_ai_data_stale(book.id)
 
         return {"message": "Budget deleted successfully"}
 
@@ -530,11 +537,11 @@ async def delete_budget(
 @router.post("/{budget_id}/refresh")
 async def refresh_budget(
     budget_id: str = Path(...),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Manually refresh a budget's spent amounts"""
+    """Manually refresh a budget's spent amounts (a recompute, not a change: allowed in a read-only family)"""
     try:
-        budget = await budgets_db.get_budget(budget_id, current_user["_id"])
+        budget = await budgets_db.get_budget(budget_id, book.id)
 
         if not budget:
             raise HTTPException(
@@ -542,7 +549,7 @@ async def refresh_budget(
                 detail="Budget not found"
             )
 
-        await update_budget_spent_amounts(current_user["_id"], budget_id)
+        await update_budget_spent_amounts(book.id, budget_id)
 
         return {"message": "Budget refreshed successfully"}
 

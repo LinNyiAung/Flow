@@ -161,8 +161,10 @@ def _parse_budget_answer(categories_structure: List[Dict]):
 class BudgetAnalyzer:
     """Analyzes user's financial data for AI budget suggestions"""
 
-    def __init__(self, user_id: str, language: str = "en"):
-        self.user_id = user_id
+    def __init__(self, user_id: str, language: str = "en", ai_user_id: Optional[str] = None):
+        self.user_id = user_id  # whose data (a person's book, or a family book user)
+        # Whose AI usage the suggestion is recorded as (the person asking, for the cost cap); defaults to user_id.
+        self.ai_user_id = ai_user_id or user_id
         # The user's app language ("en" / "my"), for the Ko Toe Pwar warning on the suggestions.
         self.language = language
         # True once generate_ai_suggestions returned the AI's answer; False for the rule-based suggestions that
@@ -486,7 +488,7 @@ REMEMBER:
 
         try:
             result = await _runner.run(
-                "budget_suggestion", user_id=self.user_id,
+                "budget_suggestion", user_id=self.ai_user_id,
                 call=_budget_call("budget_suggestion", system_prompt, user_prompt),
                 parse=_parse_budget_answer(categories_structure),
             )
