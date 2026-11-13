@@ -54,6 +54,7 @@ from custom_insight_routes import router as custom_insight_router
 from report_routes import router as report_router
 from admin_routes import router as admin_router
 from feedback_routes import router as feedback_router
+from family_routes import router as family_router
 
 # NEW: App version routers
 from app_version_routes import admin_router as app_version_admin_router
@@ -84,6 +85,7 @@ app.include_router(custom_insight_router)
 app.include_router(report_router)
 app.include_router(admin_router)
 app.include_router(feedback_router)
+app.include_router(family_router)
 
 # NEW: Register app version routes
 app.include_router(app_version_admin_router)
