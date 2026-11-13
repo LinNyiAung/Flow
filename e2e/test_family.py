@@ -1182,6 +1182,15 @@ def section_entries_breakdown():
         r = breakdown(D, "usd", family=True)
         check(r.status_code == 200 and r.json() == j, "breakdown: a member (Dad, with X-Book: family) gets the same breakdown",
               f"{r.status_code} {r.text[:200]}")
+        # R11: each entry is split on its own; its leftover cent goes to its first member (join order: Dad, Ma Ma, Ko Ko).
+        d7 = d0 - timedelta(days=7)
+        for _ in range(2):
+            tx(M, amount=10.00, currency="usd", for_whom=[koko, mama, d_mid], date=at(d7))
+        r = breakdown(M, "usd", start=d7, end=d7)
+        check(r.status_code == 200 and r.json().get("total_spent") == 20.0
+              and [(x[0], x[3]) for x in rows(r)] == [(d_mid, 6.68), (mama, 6.66), (koko, 6.66)],
+              "breakdown: two $10.00 entries for three members are 6.68 / 6.66 / 6.66 (the leftover cent per entry "
+              "goes to its first member)", f"{r.status_code} {r.text[:400]}")
         r = breakdown(M, "usd", start=d0 - timedelta(days=5), end=d0 - timedelta(days=4))
         check(r.status_code == 200 and r.json().get("total_spent") == 0 and rows(r) == [],
               "breakdown: an empty window is total 0 with no rows", f"{r.status_code} {r.text[:200]}")
@@ -1210,6 +1219,44 @@ def section_entries_breakdown():
         check(_code(r, 404, "no_family"), "breakdown: Dad, who left, gets no_family", f"{r.status_code} {r.text[:200]}")
     finally:
         _cleanup_people(made)
+
+
+def section_breakdown_rounding():
+    """R11, in-process: families.breakdown.compute splits each entry on its own (floor to the currency's quantum, the
+    leftover to the entry's first member), so no row is negative and the rows sum exactly to total_spent."""
+    backend = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    from families.breakdown import compute
+    members = [{"id": x, "display_name": x, "status": "active"} for x in "ABCD"]
+
+    def run(currency, entries):
+        """entries: [(amount, [member ids in saved order])] -> ({member_id: amount}, total_spent, rows sum)"""
+        shares = [{"id": f"e{i}", "amount": amount, "member_id": m}
+                  for i, (amount, whom) in enumerate(entries) for m in (whom or [None])]
+        out = compute(currency, shares, members)
+        got = {r["member_id"]: r["amount"] for r in out["rows"]}
+        return got, out["total_spent"], round(sum(r["amount"] for r in out["rows"]), 2), out["rows"]
+
+    cases = (
+        ("two $10.00 entries for [A,B,C]", "usd", [(10, ["A", "B", "C"])] * 2,
+         {"A": 6.68, "B": 6.66, "C": 6.66}, 20.0),
+        ("K1 for [A,B] plus K1 for [C,D]", "mmk", [(1, ["A", "B"]), (1, ["C", "D"])],
+         {"A": 1, "B": 0, "C": 1, "D": 0}, 2),
+        ("$0.01 for [A,B] plus $0.01 for [C,D]", "usd", [(0.01, ["A", "B"]), (0.01, ["C", "D"])],
+         {"A": 0.01, "B": 0, "C": 0.01, "D": 0}, 0.02),
+        ("K25,001 for [A,B] plus K25,001 for [C,D]", "mmk", [(25001, ["A", "B"]), (25001, ["C", "D"])],
+         {"A": 12501, "B": 12500, "C": 12501, "D": 12500}, 50002),
+        ("a mix with a Whole family entry", "usd", [(10, ["A", "B", "C"]), (850, None), (0.05, ["D", "B"]), (7.77, ["C"])],
+         {None: 850, "A": 3.34, "C": 3.33 + 7.77, "D": 0.03, "B": 3.33 + 0.02}, 867.82),
+    )
+    for label, currency, entries, want, total in cases:
+        got, spent, rows_sum, rows = run(currency, entries)
+        ok = (set(got) == set(want) and all(abs(got[k] - v) < 1e-9 for k, v in want.items())
+              and abs(spent - total) < 1e-9 and abs(rows_sum - spent) < 1e-9 and all(r["amount"] >= 0 for r in rows)
+              and [r["amount"] for r in rows] == sorted((r["amount"] for r in rows), reverse=True))
+        check(ok, f"breakdown rounding: {label} -> per-entry split, no negatives, rows sum to the total",
+              (got, spent, rows_sum))
 
 
 def section_recurring_children():
@@ -1277,6 +1324,7 @@ def main():
     section_family_rules()
     section_book_scope()
     section_entries_breakdown()
+    section_breakdown_rounding()
     section_recurring_children()
     sys.exit(1 if failures else 0)
 

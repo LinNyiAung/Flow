@@ -7,13 +7,14 @@ Spending is counted by who it was for, never by who added it:
 - an entry for nobody in particular counts on its own "Whole family" row (member_id None), never divided;
 - members who left, and removed placeholders, keep their rows (status "former").
 
-Shares are summed exactly and rounded once per row to the currency's display precision (MMK whole kyat, others cents).
-The rounding remainder goes to the first member row (the largest), so the rows always add up to total_spent.
+Rounding (ruling R11) is per entry, at the currency's display precision (MMK whole kyat, others cents): the entry's
+amount is taken at that precision, each of its n members gets floor(amount / n), and the entry's leftover
+(amount - n * share) goes to its first listed member (the order outflow_shares gives: the family's join order). So no
+row is ever negative, and the rows sum exactly to total_spent (the sum of the entries' amounts).
 Rows are sorted by amount, largest first; ties keep the family's join order, with Whole family first.
 """
 from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal
-from fractions import Fraction
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Mapping, Optional
 
 from sql import families as fdb
@@ -26,36 +27,36 @@ def _quantum(currency: str) -> Decimal:
     return Decimal(1).scaleb(-_DECIMAL_PLACES.get(currency, 2))
 
 
-def _rounded(value: Fraction, quantum: Decimal) -> Decimal:
-    return (Decimal(value.numerator) / Decimal(value.denominator)).quantize(quantum, rounding=ROUND_HALF_UP)
-
-
 def compute(currency: str, shares: List[Mapping[str, Any]], members: List[Mapping[str, Any]]) -> Dict[str, Any]:
-    """The breakdown from outflow_shares rows (id, amount, member_id) and the family's members (join order)."""
+    """The breakdown from outflow_shares rows (id, amount, member_id; an entry's members in their listed order) and the
+    family's members (join order)."""
+    quantum = _quantum(currency)
+    by_id = {m["id"]: m for m in members}
     entries: Dict[str, Dict[str, Any]] = {}
     for row in shares:
-        entry = entries.setdefault(row["id"], {"amount": Fraction(Decimal(str(row["amount"]))), "for": []})
-        if row["member_id"] is not None:
+        entry = entries.setdefault(row["id"], {
+            "amount": Decimal(str(row["amount"])).quantize(quantum, rounding=ROUND_HALF_UP), "for": []})
+        if row["member_id"] is not None and row["member_id"] in by_id:
             entry["for"].append(row["member_id"])
+        elif row["member_id"] is not None:
+            entry.setdefault("unknown", True)  # not a member of this family (can't happen): left out entirely
 
-    exact: Dict[Optional[str], Fraction] = {}
+    amounts: Dict[Optional[str], Decimal] = {}
     for entry in entries.values():
-        whom = entry["for"] or [None]
-        share = entry["amount"] / len(whom)
+        if entry.get("unknown"):
+            continue
+        whom = entry["for"]
+        if not whom:
+            amounts[None] = amounts.get(None, Decimal(0)) + entry["amount"]
+            continue
+        share = (entry["amount"] / len(whom)).quantize(quantum, rounding=ROUND_FLOOR)
         for key in whom:
-            exact[key] = exact.get(key, Fraction(0)) + share
+            amounts[key] = amounts.get(key, Decimal(0)) + share
+        amounts[whom[0]] += entry["amount"] - share * len(whom)
 
-    by_id = {m["id"]: m for m in members}
     position = {m["id"]: i for i, m in enumerate(members)}
-    keys = sorted((k for k in exact if k is None or k in by_id),
-                  key=lambda k: (-exact[k], -1 if k is None else position[k]))
-    quantum = _quantum(currency)
-    total = _rounded(sum(exact.values(), Fraction(0)), quantum)
-    amounts = {k: _rounded(exact[k], quantum) for k in keys}
-    remainder = total - sum(amounts.values(), Decimal(0))
-    if remainder and keys:
-        amounts[next((k for k in keys if k is not None), keys[0])] += remainder
-    keys.sort(key=lambda k: -amounts[k])  # stable: ties keep the order above
+    keys = sorted(amounts, key=lambda k: (-amounts[k], -1 if k is None else position[k]))
+    total = sum(amounts.values(), Decimal(0))
 
     rows = []
     for k in keys:

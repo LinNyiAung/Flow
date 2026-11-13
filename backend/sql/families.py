@@ -153,12 +153,13 @@ async def beneficiaries_for(transaction_ids: List[str]) -> Dict[str, List[str]]:
 
 async def outflow_shares(book_user_id: str, currency: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
     """The book's outflows in `currency` dated within [date_from, date_to], transfers left out: one row per
-    (entry, member it was for) with `id`, `amount` and `member_id` (None for a Whole-family entry)."""
+    (entry, member it was for) with `id`, `amount` and `member_id` (None for a Whole-family entry). An entry's members
+    come in the family's join order (stable: the breakdown gives an entry's leftover to its first member)."""
     stmt = (select(t.c.id, t.c.amount, tb.c.member_id)
-            .select_from(t.outerjoin(tb, tb.c.transaction_id == t.c.id))
+            .select_from(t.outerjoin(tb, tb.c.transaction_id == t.c.id).outerjoin(fm, fm.c.id == tb.c.member_id))
             .where(t.c.user_id == book_user_id, t.c.type == "outflow", t.c.currency == currency,
                    t.c.transfer_id.is_(None), t.c.date >= date_from, t.c.date <= date_to)
-            .order_by(t.c.id))
+            .order_by(t.c.id, fm.c.joined_at, fm.c.id))
     return await fetch_all(stmt)
 
 
