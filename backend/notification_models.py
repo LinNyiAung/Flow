@@ -33,6 +33,9 @@ class NotificationType(str, Enum):
     UPGRADE_REQUEST_DECLINED = "upgrade_request_declined"
     CUSTOM_INSIGHT_READY = "custom_insight_ready"
     CUSTOM_INSIGHT_FAILED = "custom_insight_failed"
+    FAMILY_INVITE = "family_invite"  # goal_id: the invite id, goal_name: the family name
+    FAMILY_INVITE_ACCEPTED = "family_invite_accepted"  # goal_id: the family id
+    FAMILY_REMOVED = "family_removed"  # goal_id: the family id
 
 def parse_notification_type(value) -> NotificationType:
     """
