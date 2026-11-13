@@ -16,7 +16,7 @@ import httpx
 BASE = "http://127.0.0.1:8765"
 MYANMAR = re.compile("[က-႟]")
 STATUS_KEYS = {"plan", "expires_at", "is_trial", "trial_ends_at", "features", "catalog", "prices", "upgrade_contact",
-               "owner_contact", "upgrade_request"}
+               "owner_contact", "upgrade_request", "family"}
 FEATURE_KEYS = {"mode", "limit", "period", "used", "remaining", "resets_at"}
 DETAIL_KEYS = {"code", "feature", "resets_at", "upgrade_available", "message"}
 

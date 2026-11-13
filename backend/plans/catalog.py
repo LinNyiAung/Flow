@@ -5,7 +5,7 @@ admin panel, so the database rows, not these constants, are what the app enforce
 copy of the numbers so it never changes when these do; e2e/test_plans.py checks the two agree.
 """
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 PLANS = ("free", "plus", "pro")
 PAID_PLANS = ("plus", "pro")
@@ -68,3 +68,7 @@ DEFAULT_LIMITS: Dict[str, Dict[str, Limit]] = {
 
 # Monthly AI spend (USD) a user on the plan may cost before further AI requests are refused.
 DEFAULT_COST_CAPS: Dict[str, float] = {"free": 0.10, "plus": 1.00, "pro": 3.00}
+
+# Family limits per plan: (account members including the owner, placeholders). (0, 0): the plan can't create a family.
+# The migration seeds plan_settings.family_max_members / family_max_placeholders with the same numbers.
+DEFAULT_FAMILY_LIMITS: Dict[str, Tuple[int, int]] = {"free": (0, 0), "plus": (6, 20), "pro": (6, 20)}

@@ -21,7 +21,8 @@ _uc = usage_counters.c
 
 
 async def read_all() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, str]]:
-    """(plan_limits rows, plan_settings rows, {app_settings key: value} for the upgrade contact and owner contact keys)."""
+    """(plan_limits rows, plan_settings rows (cost cap, prices and the family_max_members / family_max_placeholders
+    limits), {app_settings key: value} for the upgrade contact and owner contact keys)."""
     limits = await fetch_all(select(plan_limits))
     caps = await fetch_all(select(plan_settings))
     keys = [*CONTACT_KEYS.values(), *OWNER_CONTACT_KEYS.values()]

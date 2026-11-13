@@ -1,5 +1,6 @@
 """The plan limits the app enforces: per plan and feature (locked / included / counted), a monthly AI cost cap per
-plan, each paid plan's price in kyat (monthly, and an optional yearly price), and the upgrade contact texts and the
+plan, each paid plan's price in kyat (monthly, and an optional yearly price), each plan's family limits (members and
+placeholders; read here, edited by the admin Plans page), and the upgrade contact texts and the
 owner's own contact details (email, Viber number, Telegram number or username, Facebook page link and Messenger link).
 The owner edits them in the admin panel; they live in the database
 (sql.plans) and are served from an in-memory cache that is loaded at startup and refreshed every minute, so
@@ -11,13 +12,13 @@ import asyncio
 import logging
 import math
 from collections.abc import Mapping
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sql import plans as plans_db
 
 from .contact import (normalize_email, normalize_facebook_url, normalize_messenger_url, normalize_telegram,
                       normalize_viber)
-from .catalog import DEFAULT_COST_CAPS, DEFAULT_LIMITS, FEATURES, MODES, PERIODS, PLANS, Limit
+from .catalog import DEFAULT_COST_CAPS, DEFAULT_FAMILY_LIMITS, DEFAULT_LIMITS, FEATURES, MODES, PERIODS, PLANS, Limit
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ _caps: Dict[str, float] = dict(DEFAULT_COST_CAPS)
 _prices: Dict[str, Dict[str, Optional[int]]] = {p: {k: None for k in PRICE_KEYS} for p in PLANS}
 _contact: Dict[str, str] = {"en": "", "my": ""}
 _owner: Dict[str, str] = {key: "" for key in OWNER_KEYS}
+_family: Dict[str, Tuple[int, int]] = dict(DEFAULT_FAMILY_LIMITS)
+MAX_FAMILY_LIMIT = 50  # plan_settings.family_max_* are CHECKed BETWEEN 0 AND 50
 
 
 # ---- reading (the cache) ----
@@ -59,6 +62,12 @@ def cost_cap(plan: str) -> float:
 def prices(plan: str) -> Dict[str, Optional[int]]:
     """{"monthly_mmk": int | None, "yearly_mmk": int | None}: the plan's price in kyat (None: not set; Free has none)."""
     return dict(_prices[plan])
+
+
+def family_limits(plan: str) -> Tuple[int, int]:
+    """(max account members including the owner, max placeholders) a family owned by someone on the plan may have;
+    (0, 0): the plan can't create a family."""
+    return _family[plan]
 
 
 def upgrade_contact() -> Dict[str, str]:
@@ -251,9 +260,18 @@ def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None, prices
 # ---- the cache <-> the database ----
 
 def _set_cache(new_limits: Dict[str, Dict[str, Limit]], new_caps: Dict[str, float], new_contact: Dict[str, str],
-               new_owner: Dict[str, str], new_prices: Dict[str, Dict[str, Optional[int]]]) -> None:
-    global _limits, _caps, _contact, _owner, _prices
+               new_owner: Dict[str, str], new_prices: Dict[str, Dict[str, Optional[int]]],
+               new_family: Optional[Dict[str, Tuple[int, int]]] = None) -> None:
+    """Swap in the new values; `new_family` None keeps the family limits (save() doesn't write them)."""
+    global _limits, _caps, _contact, _owner, _prices, _family
     _limits, _caps, _contact, _owner, _prices = new_limits, new_caps, new_contact, new_owner, new_prices
+    if new_family is not None:
+        _family = new_family
+
+
+def _family_limit(value: Any) -> Optional[int]:
+    """A stored family limit if it is a whole number from 0 to MAX_FAMILY_LIMIT, else None."""
+    return value if _is_int(value) and 0 <= value <= MAX_FAMILY_LIMIT else None
 
 
 # Bumped by every save, before the write and after the cache changes. A load whose read overlapped a save may hold
@@ -291,11 +309,19 @@ async def load() -> None:
 
     new_caps = dict(DEFAULT_COST_CAPS)
     new_prices = {p: {k: None for k in PRICE_KEYS} for p in PLANS}
+    new_family = dict(DEFAULT_FAMILY_LIMITS)
     for row in cap_rows:
         plan = row.get("plan")
         if plan in PLANS and row.get("cost_cap_usd") is not None:
             new_caps[plan] = float(row["cost_cap_usd"])
         if plan in PLANS:
+            members = _family_limit(row.get("family_max_members"))
+            placeholders = _family_limit(row.get("family_max_placeholders"))
+            if members is None or placeholders is None:
+                logger.warning("Ignoring the stored family limits of %s: not whole numbers from 0 to %d", plan,
+                               MAX_FAMILY_LIMIT)
+            else:
+                new_family[plan] = (members, placeholders)
             monthly, yearly = row.get("price_monthly_mmk"), row.get("price_yearly_mmk")
             problems = _price_problems(plan, monthly, yearly)
             if problems:
@@ -316,7 +342,7 @@ async def load() -> None:
     if _write_gen != gen:
         logger.debug("Discarding a stale plans snapshot: a save happened while it was being read")
         return
-    _set_cache(new_limits, new_caps, new_contact, new_owner, new_prices)
+    _set_cache(new_limits, new_caps, new_contact, new_owner, new_prices, new_family)
 
 
 async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: str,

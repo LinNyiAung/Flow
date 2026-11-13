@@ -272,6 +272,8 @@ async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dic
                         for f, lim in store.limits(p).items()} for p in PLANS},
         # Every plan's price in kyat ({"monthly_mmk", "yearly_mmk"}, null: not set); the app shows only what is set.
         "prices": {p: store.prices(p) for p in PLANS},
+        # The family a user on this plan may own (0 members: the plan can't create one; joining is free).
+        "family": dict(zip(("max_members", "max_placeholders"), store.family_limits(plan))),
         "upgrade_contact": store.upgrade_contact(),
         "owner_contact": store.owner_contact(),
     }
