@@ -23,6 +23,15 @@ AI_COST_DETAIL = "e5b7c3a9d2f6"  # the ai_usage cost detail migration (AI cost f
 BEFORE_AI_COST_DETAIL = "a9c4f1e7b352"
 
 
+def head_revision():
+    """The newest revision in backend/alembic (read from the scripts, so later migrations don't break the checks)."""
+    import os
+    import stubenv
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    return ScriptDirectory.from_config(Config(os.path.join(stubenv.BACKEND, "alembic.ini"))).get_current_head()
+
+
 def parse(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
 
@@ -116,17 +125,19 @@ async def run(t):
         # ---- ai_usage_cost_detail_migration (e5b7c3a9d2f6): up, down, up (leaves the database at head)
         cost_cols = {"served_model", "cached_input_tokens", "cache_write_tokens", "audio_input_tokens", "audio_seconds",
                      "cost_estimated", "outcome"}
+        head = head_revision()
         with t.connect() as conn:
-            check(cost_cols <= t.column_names(conn, "ai_usage") and t.current_revision(conn) == AI_COST_DETAIL,
-                  "ai_usage_cost_detail_migration: head has the cost detail columns", sorted(t.column_names(conn, "ai_usage")))
+            check(cost_cols <= t.column_names(conn, "ai_usage") and t.current_revision(conn) == head,
+                  "ai_usage_cost_detail_migration: head has the cost detail columns",
+                  (t.current_revision(conn), head, sorted(t.column_names(conn, "ai_usage"))))
             ok, out = t.alembic("downgrade", BEFORE_AI_COST_DETAIL)
             left = t.column_names(conn, "ai_usage")
             check(ok and t.current_revision(conn) == BEFORE_AI_COST_DETAIL and not (cost_cols & left)
                   and {"estimated_cost_usd", "fallback_from", "input_tokens"} <= left,
                   "ai_usage_cost_detail_migration: downgrade drops only the cost detail columns", out)
             ok, out = t.alembic("upgrade", "head")
-            check(ok and cost_cols <= t.column_names(conn, "ai_usage") and t.current_revision(conn) == AI_COST_DETAIL,
-                  "ai_usage_cost_detail_migration: upgrade head adds them again", out)
+            check(ok and cost_cols <= t.column_names(conn, "ai_usage") and t.current_revision(conn) == head,
+                  "ai_usage_cost_detail_migration: upgrade head adds them again", (t.current_revision(conn), head, out))
 
         # ---- trial_sets_plus_and_marker
         uid, h = register("trial")
