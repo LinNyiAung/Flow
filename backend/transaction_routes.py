@@ -8,7 +8,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, UTC, timezone
 from decimal import Decimal
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 import logging
 
 # Added BackgroundTasks to imports
@@ -20,7 +20,7 @@ from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
 from utils import get_current_user, get_user_balance, get_user_money_lock
-from families.book import Book, get_book, require_writable
+from families.book import Book, clean_for_whom, get_book, require_change_entry, require_writable
 from plans import quota, voice_token
 from goal_routes import to_cents
 from recurring_transaction_service import (
@@ -30,16 +30,18 @@ from recurring_transaction_service import (
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
 from budget_service import update_all_user_budgets, update_relevant_budgets
 from models import (
-    Currency, MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction,
+    AddedBy, Currency, MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction,
     TransactionCreate, TransactionResponse, TransactionType,
     TransactionUpdate
 )
 
 from notification_service import check_large_transaction
 
+from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import users as users_db
 from sql.categories import get_categories_doc
+from sql.db import transaction as db_transaction
 
 from category_matching import normalize_type, parse_positive_amount, snap_category
 from tz_utils import app_today
@@ -327,7 +329,27 @@ def _recurrence_obj(doc: dict) -> Optional[TransactionRecurrence]:
         )
 
 
-def _transaction_response(t: dict) -> TransactionResponse:
+# (member id -> display name, transaction id -> [member ids it was for]) of a book's entries; empty for a personal book.
+EntryPeople = Tuple[Dict[str, str], Dict[str, List[str]]]
+_NO_PEOPLE: EntryPeople = ({}, {})
+
+
+async def _entry_people(book: Book, docs: List[dict]) -> EntryPeople:
+    """Who added and who each entry was for, in two queries whatever the number of entries (former members keep
+    their names)."""
+    if not book.is_family or not docs:
+        return _NO_PEOPLE
+    names = {m["id"]: m["display_name"] for m in await families_db.list_members(book.family["id"])}
+    return names, await families_db.beneficiaries_for([d["_id"] for d in docs])
+
+
+async def _respond(book: Book, t: dict) -> TransactionResponse:
+    return _transaction_response(t, await _entry_people(book, [t]))
+
+
+def _transaction_response(t: dict, people: EntryPeople = _NO_PEOPLE) -> TransactionResponse:
+    names, for_whom = people
+    added = t.get("added_by_member_id")
     amount = t.get("amount")
     if not is_finite_number(amount):
         # Legacy NaN/inf amount (can't be JSON-encoded): shown as 0 so the user can still
@@ -347,18 +369,20 @@ def _transaction_response(t: dict) -> TransactionResponse:
         created_at=t["created_at"],
         updated_at=t.get("updated_at", t["created_at"]),
         recurrence=_recurrence_obj(t),
-        parent_transaction_id=(t.get("recurrence") or {}).get("parent_transaction_id")
+        parent_transaction_id=(t.get("recurrence") or {}).get("parent_transaction_id"),
+        added_by=AddedBy(member_id=added, display_name=names[added]) if added in names else None,
+        for_whom=list(for_whom.get(t["_id"], [])),
     )
 
 
-def _transaction_responses(docs: List[dict]) -> List[TransactionResponse]:
+def _transaction_responses(docs: List[dict], people: EntryPeople = _NO_PEOPLE) -> List[TransactionResponse]:
     """Serialize a list; rows with a non-finite amount or otherwise malformed are skipped (logged)."""
     results = []
     for t in docs:
         if finite_amount_or_none(t) is None:
             continue
         try:
-            results.append(_transaction_response(t))
+            results.append(_transaction_response(t, people))
         except Exception as e:
             logger.warning(f"Skipping malformed transaction {t.get('_id')!r}: {e}")
     return results
@@ -427,6 +451,7 @@ async def create_transaction(
     await _validate_categories(
         transaction_data.type.value, transaction_data.main_category, transaction_data.sub_category
     )
+    for_whom = await clean_for_whom(book, transaction_data.for_whom) or []
 
     transaction_id = str(uuid.uuid4())
     now = datetime.now(UTC)
@@ -449,7 +474,10 @@ async def create_transaction(
         **_new_entry_fields(book),
     }
 
-    await transactions_db.insert_transaction(new_transaction)
+    async with db_transaction():
+        await transactions_db.insert_transaction(new_transaction)
+        if for_whom:
+            await families_db.set_beneficiaries(transaction_id, for_whom)
     await users_db.mark_ai_data_stale(book.id)
 
     # Check for large transaction
@@ -480,7 +508,7 @@ async def create_transaction(
         transaction_data.currency.value
     )
 
-    return _transaction_response(new_transaction)
+    return await _respond(book, new_transaction)
 
 
 @router.get("", response_model=List[TransactionResponse])
@@ -514,7 +542,7 @@ async def get_transactions(
         limit=limit,
     )
 
-    return _transaction_responses(transactions)
+    return _transaction_responses(transactions, await _entry_people(book, transactions))
 
 
 @router.post("/{transaction_id}/disable-recurrence")
@@ -532,6 +560,7 @@ async def disable_transaction_recurrence(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
+    require_change_entry(book, transaction)
 
     success = await disable_recurrence_for_transaction(transaction_id, book.id)
 
@@ -561,6 +590,8 @@ async def disable_parent_transaction_recurrence(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
+    # The child carries its parent's added_by (recurring_transaction_service), so this is the parent's check too.
+    require_change_entry(book, transaction)
 
     parent_id = (transaction.get("recurrence") or {}).get("parent_transaction_id")
 
@@ -627,7 +658,7 @@ async def get_transaction(
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
-    return _transaction_response(transaction)
+    return await _respond(book, transaction)
 
 
 @router.put("/{transaction_id}", response_model=TransactionResponse)
@@ -643,6 +674,8 @@ async def update_transaction(
 
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    require_change_entry(book, transaction)
+    for_whom = await clean_for_whom(book, transaction_data.for_whom)  # None: unchanged
 
     update_data = {"updated_at": datetime.now(UTC)}
 
@@ -726,7 +759,10 @@ async def update_transaction(
                 {"type": new_type, "amount": new_amount, "currency": new_currency},
             )
 
-        updated_transaction = await transactions_db.update_transaction(transaction_id, book.id, update_data)
+        async with db_transaction():
+            updated_transaction = await transactions_db.update_transaction(transaction_id, book.id, update_data)
+            if updated_transaction and for_whom is not None:
+                await families_db.set_beneficiaries(transaction_id, for_whom)
         await users_db.mark_ai_data_stale(book.id)
 
     if not updated_transaction:  # deleted meanwhile
@@ -743,7 +779,7 @@ async def update_transaction(
             budget_currency
         )
 
-    return _transaction_response(updated_transaction)
+    return await _respond(book, updated_transaction)
 
 
 @router.delete("/{transaction_id}")
@@ -761,6 +797,7 @@ async def delete_transaction(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
+    require_change_entry(book, transaction)
 
     async with get_user_money_lock(book.id):
         # Deleting an inflow must not leave money "allocated to goals" that no longer exists.
@@ -1084,7 +1121,6 @@ async def batch_create_transactions(
     plan may use it."""
     require_writable(book)
     new_transactions = []
-    response_models = []
 
     now = datetime.now(UTC)
 
@@ -1098,10 +1134,15 @@ async def batch_create_transactions(
             transaction_data.sub_category,
             prefix=f"Transaction #{index}{label}: ",
         )
+    # ... and who each one is for (voice and receipt entries may say per item)
+    for_whom = [await clean_for_whom(book, d.for_whom) or [] for d in transactions_data]
+    tags = []
 
     # 1. Prepare all documents in memory (Fast)
-    for transaction_data in transactions_data:
+    for transaction_data, item_for_whom in zip(transactions_data, for_whom):
         transaction_id = str(uuid.uuid4())
+        if item_for_whom:
+            tags.append((transaction_id, item_for_whom))
         tx_date = _as_utc(transaction_data.date)
 
         doc = {
@@ -1122,17 +1163,21 @@ async def batch_create_transactions(
         }
 
         new_transactions.append(doc)
-        response_models.append(_transaction_response(doc))
+        _transaction_response(doc)  # fail before inserting anything if a document can't be answered
 
-    # 2. One all-or-nothing insert
+    # 2. One all-or-nothing insert (entries and who they are for)
     if new_transactions:
-        await transactions_db.insert_many(new_transactions)
+        async with db_transaction():
+            await transactions_db.insert_many(new_transactions)
+            for transaction_id, item_for_whom in tags:
+                await families_db.set_beneficiaries(transaction_id, item_for_whom)
 
         # 3. Post-processing (budgets in the background, AI data stale)
         background_tasks.add_task(update_all_user_budgets, book.id)
         await users_db.mark_ai_data_stale(book.id)
 
-    return response_models
+    people = await _entry_people(book, new_transactions)
+    return [_transaction_response(doc, people) for doc in new_transactions]
 
 
 # Constants

@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, delete, exists, func, insert, or_, select, update
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
-from sql.tables import families as f, family_invites as fi, family_members as fm, transaction_beneficiaries as tb, users
+from sql.tables import (families as f, family_invites as fi, family_members as fm, transaction_beneficiaries as tb,
+                        transactions as t, users)
 
 ADMIN_ROLES = ("owner", "admin")
 
@@ -124,6 +125,41 @@ async def delete_member(member_id: str) -> int:
 async def has_tags(member_id: str) -> bool:
     """True when some entry was tagged as being for this member."""
     return bool(await fetch_value(select(exists().where(tb.c.member_id == member_id))))
+
+
+# ---- who entries were for (transaction_beneficiaries) ----
+
+async def set_beneficiaries(transaction_id: str, member_ids: List[str]) -> None:
+    """Replace who the entry was for (no rows = Whole family). Call inside transaction() with the entry's own write."""
+    await execute(delete(tb).where(tb.c.transaction_id == transaction_id))
+    if member_ids:
+        await execute(insert(tb).values([{"transaction_id": transaction_id, "member_id": m} for m in member_ids]))
+
+
+async def beneficiaries_for(transaction_ids: List[str]) -> Dict[str, List[str]]:
+    """{transaction_id: [member_id, ...]} in one query, members in join order; entries with none are left out
+    (Whole family)."""
+    if not transaction_ids:
+        return {}
+    rows = await fetch_all(select(tb.c.transaction_id, tb.c.member_id)
+                           .select_from(tb.join(fm, fm.c.id == tb.c.member_id))
+                           .where(tb.c.transaction_id.in_(list(transaction_ids)))
+                           .order_by(tb.c.transaction_id, fm.c.joined_at, fm.c.id))
+    out: Dict[str, List[str]] = {}
+    for r in rows:
+        out.setdefault(r["transaction_id"], []).append(r["member_id"])
+    return out
+
+
+async def outflow_shares(book_user_id: str, currency: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+    """The book's outflows in `currency` dated within [date_from, date_to], transfers left out: one row per
+    (entry, member it was for) with `id`, `amount` and `member_id` (None for a Whole-family entry)."""
+    stmt = (select(t.c.id, t.c.amount, tb.c.member_id)
+            .select_from(t.outerjoin(tb, tb.c.transaction_id == t.c.id))
+            .where(t.c.user_id == book_user_id, t.c.type == "outflow", t.c.currency == currency,
+                   t.c.transfer_id.is_(None), t.c.date >= date_from, t.c.date <= date_to)
+            .order_by(t.c.id))
+    return await fetch_all(stmt)
 
 
 # ---- invites ----

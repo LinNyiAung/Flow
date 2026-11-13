@@ -14,7 +14,7 @@ Refusals are HTTPException(status, {"code", "message"}) with the message in the 
 family_<code>_msg keys of notification_service.NOTIFICATION_TRANSLATIONS), as in families.service.
 """
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
 
 from fastapi import Depends, Header, HTTPException
 
@@ -86,3 +86,26 @@ def can_change_entry(book: Book, entry: Mapping[str, Any]) -> bool:
         return True
     member: Dict[str, Any] = book.member or {}
     return member.get("role") in fdb.ADMIN_ROLES or entry.get("added_by_member_id") == member.get("id")
+
+
+def require_change_entry(book: Book, entry: Mapping[str, Any]) -> None:
+    """403 not_allowed unless can_change_entry (an entry with no recorded adder: admins only)."""
+    if not can_change_entry(book, entry):
+        _fail(book.person, 403, "not_allowed")
+
+
+async def clean_for_whom(book: Book, member_ids: Optional[Iterable[str]]) -> Optional[List[str]]:
+    """Who an entry is for, checked: None stays None (not given), duplicates go (first one kept), [] is Whole family.
+    400 invalid_for_whom for any id in a personal book, or, in a family book, any id that isn't an active member
+    (account or placeholder) of this family."""
+    if member_ids is None:
+        return None
+    ids = list(dict.fromkeys(member_ids))
+    if not ids:
+        return []
+    if not book.is_family:
+        _fail(book.person, 400, "invalid_for_whom")
+    active = {m["id"] for m in await fdb.list_members(book.family["id"]) if m["status"] == "active"}
+    if any(i not in active for i in ids):
+        _fail(book.person, 400, "invalid_for_whom")
+    return ids

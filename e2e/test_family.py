@@ -5,6 +5,8 @@ Sections:
   book users -- hidden, can't log in, left out of admin lists, stats, broadcasts, plan expiry and jobs (Task 2).
   family rules -- creating, inviting, joining, roles, removal, ownership, read-only (Task 3).
   book scope and privacy -- X-Book picks the book; no record is reachable from another book (Task 4).
+  entries and breakdown -- who added an entry, who it was for, who may change it, the per-person breakdown, and
+    recurring children that keep both (Task 5).
 """
 import asyncio
 import os
@@ -988,11 +990,294 @@ def section_book_scope():
         _cleanup_people(made)
 
 
+def section_entries_breakdown():
+    """Who added each family entry, who it was for, who may change it, and the per-person breakdown (Task 5)."""
+    backend = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    today = datetime.now(UTC).date()
+    d0 = today - timedelta(days=10)  # the breakdown window is d0 .. d0 + 1, away from today's recurring children
+
+    def at(day, hour=12, minute=0, second=0):
+        return datetime(day.year, day.month, day.day, hour, minute, second, tzinfo=UTC).isoformat()
+
+    def H(u, family=False):
+        return {**u["h"], **(FAM if family else {})}
+
+    def tx(u, family=True, **kw):
+        body = {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "date": at(d0), "amount": 10, "currency": "usd", "description": "entries"} | kw
+        return c.post("/api/transactions", headers=H(u, family), json=body)
+
+    def breakdown(u, currency, start=d0, end=None, family=False):
+        end = end or d0 + timedelta(days=1)
+        return c.get("/api/family/breakdown", headers=H(u, family),
+                     params={"start_date": start.isoformat(), "end_date": end.isoformat(), "currency": currency})
+
+    def rows(r):
+        j = r.json() if r.status_code == 200 else {}
+        return [(x.get("member_id"), x.get("display_name"), x.get("status"), x.get("amount")) for x in j.get("rows", [])]
+
+    def tagged(tid):
+        return sorted(r["member_id"] for r in db.sql(
+            "SELECT member_id FROM transaction_beneficiaries WHERE transaction_id = %s", tid))
+
+    def placeholder(owner, name):
+        view = c.post("/api/family/placeholders", headers=owner["h"], json={"display_name": name}).json()
+        return next((m["id"] for m in view.get("members", []) if m["display_name"] == name), None)
+
+    try:
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        O = register("Other", "plus")
+        L = register("Loner", "free")
+        r = c.post("/api/family", headers=M["h"], json={"name": f"Entries family {tag}"})
+        m_mid = (r.json().get("me") or {}).get("member_id") if r.status_code == 200 else None
+        c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
+        d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
+        mama, koko, gone = placeholder(M, "Ma Ma"), placeholder(M, "Ko Ko"), placeholder(M, "Gone")
+        c.post("/api/family", headers=O["h"], json={"name": f"Other family {tag}"})
+        stranger = placeholder(O, "Stranger")
+        check(all((m_mid, d_mid, mama, koko, gone, stranger)), "entries: Mum's family with Dad, Ma Ma, Ko Ko and Gone",
+              (m_mid, d_mid, mama, koko, gone, stranger))
+
+        # ---- who added it, who it was for ----
+        r = tx(M, amount=60000, currency="mmk", for_whom=[mama, koko])
+        e1 = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and e1.get("added_by") == {"member_id": m_mid, "display_name": "Mum"}
+              and sorted(e1.get("for_whom") or []) == sorted([mama, koko]),
+              "entries: Mum's family entry for [Ma Ma, Ko Ko] answers added_by Mum and for_whom", f"{r.status_code} {r.text[:300]}")
+        check(tagged(e1.get("id")) == sorted([mama, koko]), "entries: the beneficiaries are stored", tagged(e1.get("id")))
+        r = tx(M, amount=850000, currency="mmk", for_whom=[])
+        e2 = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and e2.get("for_whom") == [], "entries: for_whom [] is Whole family",
+              f"{r.status_code} {r.text[:200]}")
+        r = tx(M, amount=850, currency="thb")
+        check(r.status_code == 200 and r.json().get("for_whom") == [], "entries: no for_whom is Whole family",
+              f"{r.status_code} {r.text[:200]}")
+        r = tx(M, amount=10.00, currency="usd", for_whom=[mama, koko, d_mid])
+        e3 = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200, "entries: $10.00 for three members", f"{r.status_code} {r.text[:200]}")
+        r = tx(D, amount=4, currency="thb", for_whom=[d_mid, d_mid, gone])
+        e4 = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and sorted(e4.get("for_whom") or []) == sorted([d_mid, gone])
+              and e4.get("added_by") == {"member_id": d_mid, "display_name": "Dad"},
+              "entries: Dad's entry records Dad, duplicates in for_whom are removed", f"{r.status_code} {r.text[:300]}")
+        # Not counted: an inflow, a transfer leg, and entries outside the window.
+        tx(M, type="inflow", main_category="Employment Income", sub_category="Salary", amount=1000000, currency="mmk",
+           for_whom=[mama])
+        r = tx(M, amount=5000, currency="mmk", for_whom=[koko])
+        if r.status_code == 200:
+            db.sql("UPDATE transactions SET transfer_id = %s WHERE id = %s", str(uuid.uuid4()), r.json()["id"])
+        tx(M, amount=7000, currency="mmk", for_whom=[mama], date=at(d0 + timedelta(days=1), 23, 30))  # last day: in
+        tx(M, amount=9, currency="mmk", for_whom=[mama], date=at(d0 + timedelta(days=2), 0, 0))  # day after: out
+        tx(M, amount=11, currency="mmk", for_whom=[mama], date=at(d0 - timedelta(days=1), 23, 59, 59))  # day before: out
+
+        r = c.get("/api/transactions", headers=H(M, True), params={"limit": 200})
+        listed = {t["id"]: t for t in r.json()} if r.status_code == 200 else {}
+        check(listed.get(e1.get("id"), {}).get("added_by") == {"member_id": m_mid, "display_name": "Mum"}
+              and sorted(listed.get(e1.get("id"), {}).get("for_whom") or []) == sorted([mama, koko])
+              and listed.get(e4.get("id"), {}).get("added_by", {}).get("display_name") == "Dad",
+              "entries: the family list carries added_by and for_whom", f"{r.status_code} {r.text[:300]}")
+        r = c.get(f"/api/transactions/{e3.get('id')}", headers=H(D, True))
+        check(r.status_code == 200 and sorted(r.json().get("for_whom") or []) == sorted([mama, koko, d_mid])
+              and r.json().get("added_by", {}).get("member_id") == m_mid,
+              "entries: GET one family entry carries added_by and for_whom", f"{r.status_code} {r.text[:300]}")
+
+        # ---- personal books have neither ----
+        r = tx(M, family=False, amount=3)
+        check(r.status_code == 200 and r.json().get("added_by") is None and r.json().get("for_whom") == [],
+              "entries: a personal entry has added_by null and for_whom []", f"{r.status_code} {r.text[:200]}")
+        r = tx(M, family=False, amount=3, for_whom=[])
+        check(r.status_code == 200, "entries: a personal entry accepts for_whom []", f"{r.status_code} {r.text[:200]}")
+        r = tx(M, family=False, amount=3, for_whom=[mama])
+        check(_code(r, 400, "invalid_for_whom"), "entries: for_whom in a personal book is 400 invalid_for_whom",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/transactions", headers=H(M))
+        check(r.status_code == 200 and r.json() and all(t.get("added_by") is None and t.get("for_whom") == [] for t in r.json()),
+              "entries: the personal list has added_by null and for_whom []", r.text[:200])
+
+        # ---- for_whom must be active members of this family ----
+        for label, ids in (("another family's member", [stranger]), ("an unknown id", ["no-such-member"]),
+                           ("a mix with one outsider", [mama, stranger])):
+            r = tx(M, for_whom=ids)
+            check(_code(r, 400, "invalid_for_whom"), f"entries: for_whom with {label} is 400 invalid_for_whom",
+                  f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/transactions/batch-create", headers=H(M, True), json=[
+            {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "date": at(today),
+             "amount": 1, "currency": "usd", "for_whom": [stranger]}])
+        check(_code(r, 400, "invalid_for_whom"), "entries: batch-create refuses an outsider in for_whom", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/transactions/batch-create", headers=H(D, True), json=[
+            {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "date": at(today),
+             "amount": 1, "currency": "usd", "for_whom": [koko]},
+            {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "date": at(today),
+             "amount": 2, "currency": "usd"}])
+        b = r.json() if r.status_code == 200 else []
+        check(r.status_code == 200 and len(b) == 2 and b[0].get("for_whom") == [koko] and b[1].get("for_whom") == []
+              and all(x.get("added_by", {}).get("member_id") == d_mid for x in b) and tagged(b[0]["id"]) == [koko],
+              "entries: batch-create takes for_whom per item and records who added them", f"{r.status_code} {r.text[:300]}")
+
+        # ---- editing for_whom ----
+        r = c.put(f"/api/transactions/{e4.get('id')}", headers=H(D, True), json={"description": "edited"})
+        check(r.status_code == 200 and sorted(r.json().get("for_whom") or []) == sorted([d_mid, gone]),
+              "entries: an edit without for_whom keeps it", f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{b[0]['id'] if b else 'x'}", headers=H(D, True), json={"for_whom": []})
+        check(r.status_code == 200 and r.json().get("for_whom") == [] and tagged(b[0]["id"] if b else "x") == [],
+              "entries: an edit with for_whom [] makes it Whole family", f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{b[1]['id'] if b else 'x'}", headers=H(D, True), json={"for_whom": [mama, mama]})
+        check(r.status_code == 200 and r.json().get("for_whom") == [mama], "entries: an edit sets for_whom",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{b[1]['id'] if b else 'x'}", headers=H(D, True), json={"for_whom": [stranger]})
+        check(_code(r, 400, "invalid_for_whom") and tagged(b[1]["id"] if b else "x") == [mama],
+              "entries: an edit with an outsider in for_whom is 400 and changes nothing", f"{r.status_code} {r.text[:200]}")
+
+        # ---- who may change an entry ----
+        r = c.put(f"/api/transactions/{e1.get('id')}", headers=H(D, True), json={"description": "Dad was here"})
+        check(_code(r, 403, "not_allowed"), "entries: Dad (member) editing Mum's entry is 403 not_allowed",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/transactions/{e1.get('id')}", headers=H(D, True))
+        check(_code(r, 403, "not_allowed"), "entries: Dad deleting Mum's entry is 403 not_allowed", f"{r.status_code} {r.text[:200]}")
+        row = (db.sql("SELECT description FROM transactions WHERE id = %s", e1.get("id")) or [{}])[0]
+        check(row.get("description") == "entries", "entries: Mum's entry is unchanged", row)
+        r = c.put(f"/api/transactions/{e4.get('id')}", headers=H(D, True), json={"description": "mine"})
+        check(r.status_code == 200, "entries: Dad editing his own entry is 200", f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{e4.get('id')}", headers=H(M, True), json={"description": "checked by Mum"})
+        check(r.status_code == 200, "entries: an admin (Mum) editing Dad's entry is 200", f"{r.status_code} {r.text[:200]}")
+        r = tx(D, amount=1, date=at(today))
+        r = c.delete(f"/api/transactions/{r.json().get('id')}", headers=H(D, True))
+        check(r.status_code == 200, "entries: Dad deleting his own entry is 200", f"{r.status_code} {r.text[:200]}")
+        r = tx(D, amount=1, date=at(today))
+        legacy = r.json().get("id")
+        db.sql("UPDATE transactions SET added_by_member_id = NULL WHERE id = %s", legacy)
+        r = c.get(f"/api/transactions/{legacy}", headers=H(D, True))
+        check(r.status_code == 200 and r.json().get("added_by") is None, "entries: an entry with no recorded adder has added_by null",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{legacy}", headers=H(D, True), json={"amount": 2})
+        check(_code(r, 403, "not_allowed"), "entries: an entry with no recorded adder can't be edited by a member",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{legacy}", headers=H(M, True), json={"amount": 2})
+        check(r.status_code == 200, "entries: an entry with no recorded adder can be edited by an admin", f"{r.status_code} {r.text[:200]}")
+
+        # ---- the breakdown ----
+        r = breakdown(M, "mmk")
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j.get("currency") == "mmk" and j.get("total_spent") == 917000
+              and rows(r) == [(None, "Whole family", "active", 850000), (mama, "Ma Ma", "active", 37000),
+                              (koko, "Ko Ko", "active", 30000)],
+              "breakdown: MMK -- Whole family 850,000 on its own row, Ma Ma 30,000 + 7,000, Ko Ko 30,000; inflows, "
+              "transfers and days outside the window are left out", f"{r.status_code} {r.text[:400]}")
+        r = breakdown(M, "usd")
+        j = r.json() if r.status_code == 200 else {}
+        amounts = [x[3] for x in rows(r)]
+        check(r.status_code == 200 and j.get("total_spent") == 10.0 and amounts == [3.34, 3.33, 3.33]
+              and abs(sum(amounts) - 10.0) < 1e-9 and {x[0] for x in rows(r)} == {mama, koko, d_mid},
+              "breakdown: $10.00 for three members is 3.34 / 3.33 / 3.33 and sums to 10.00", f"{r.status_code} {r.text[:400]}")
+        r = breakdown(D, "usd", family=True)
+        check(r.status_code == 200 and r.json() == j, "breakdown: a member (Dad, with X-Book: family) gets the same breakdown",
+              f"{r.status_code} {r.text[:200]}")
+        r = breakdown(M, "usd", start=d0 - timedelta(days=5), end=d0 - timedelta(days=4))
+        check(r.status_code == 200 and r.json().get("total_spent") == 0 and rows(r) == [],
+              "breakdown: an empty window is total 0 with no rows", f"{r.status_code} {r.text[:200]}")
+        r = breakdown(M, "usd", start=d0 + timedelta(days=1), end=d0)
+        check(r.status_code == 400, "breakdown: an end before the start is 400", f"{r.status_code} {r.text[:200]}")
+        r = breakdown(L, "usd")
+        check(_code(r, 404, "no_family"), "breakdown: outside a family is 404 no_family", f"{r.status_code} {r.text[:200]}")
+
+        # ---- a removed placeholder and a member who left stay in the history as former ----
+        r = c.delete(f"/api/family/members/{gone}", headers=M["h"])
+        check(r.status_code == 200, "entries: Mum removes the tagged placeholder Gone", f"{r.status_code} {r.text[:200]}")
+        r = tx(M, for_whom=[gone])
+        check(_code(r, 400, "invalid_for_whom"), "entries: for_whom with a former placeholder is 400", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/family/leave", headers=D["h"])
+        check(r.status_code == 200, "entries: Dad leaves the family", f"{r.status_code} {r.text[:200]}")
+        r = tx(M, for_whom=[d_mid])
+        check(_code(r, 400, "invalid_for_whom"), "entries: for_whom with a former member (Dad) is 400", f"{r.status_code} {r.text[:200]}")
+        r = breakdown(M, "thb")
+        check(r.status_code == 200 and r.json().get("total_spent") == 854
+              and rows(r) == [(None, "Whole family", "active", 850), (d_mid, "Dad", "former", 2), (gone, "Gone", "former", 2)],
+              "breakdown: Dad's and Gone's tagged history still shows, with status former", f"{r.status_code} {r.text[:400]}")
+        r = c.get(f"/api/transactions/{e4.get('id')}", headers=H(M, True))
+        check(r.status_code == 200 and r.json().get("added_by") == {"member_id": d_mid, "display_name": "Dad"},
+              "entries: a former member still shows as the one who added the entry", f"{r.status_code} {r.text[:200]}")
+        r = breakdown(D, "thb")
+        check(_code(r, 404, "no_family"), "breakdown: Dad, who left, gets no_family", f"{r.status_code} {r.text[:200]}")
+    finally:
+        _cleanup_people(made)
+
+
+def section_recurring_children():
+    """R4: children of a family recurring entry keep who added it and who it was for."""
+    backend = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    try:
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        r = c.post("/api/family", headers=M["h"], json={"name": f"Recurring family {tag}"})
+        c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
+        d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
+        view = c.post("/api/family/placeholders", headers=M["h"], json={"display_name": "Ma Ma"}).json()
+        mama = next((m["id"] for m in view.get("members", []) if m["display_name"] == "Ma Ma"), None)
+        start = (datetime.now(UTC) - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
+        r = c.post("/api/transactions", headers={**D["h"], **FAM}, json={
+            "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+            "date": start.isoformat(), "amount": 5, "currency": "usd", "for_whom": [mama],
+            "recurrence": {"enabled": True, "config": {"frequency": "daily"}}})
+        parent = r.json().get("id") if r.status_code == 200 else None
+        check(parent is not None and d_mid and mama, "recurring: Dad adds a daily family entry for Ma Ma",
+              f"{r.status_code} {r.text[:200]}")
+
+        async def run_job():
+            from collections import defaultdict
+            import recurring_transaction_service as rts
+            from sql import transactions as transactions_db
+            doc = await transactions_db.get_transaction(parent)
+            affected = defaultdict(lambda: defaultdict(list))
+            return await rts._process_recurring_transaction(doc, datetime.now(UTC), affected)
+        try:
+            made_n = _backend_async(run_job)
+        except Exception as e:  # noqa: BLE001
+            made_n = repr(e)[:200]
+        kids = db.sql("SELECT id, added_by_member_id FROM transactions WHERE parent_transaction_id = %s ORDER BY date", parent)
+        check(made_n == 2 and len(kids) == 2, "recurring: the job creates the due children", (made_n, kids))
+        check(kids and all(k["added_by_member_id"] == d_mid for k in kids),
+              "recurring: each child has the parent's added_by", kids)
+        tags = [sorted(r["member_id"] for r in db.sql(
+            "SELECT member_id FROM transaction_beneficiaries WHERE transaction_id = %s", k["id"])) for k in kids]
+        check(kids and all(t == [mama] for t in tags), "recurring: each child has the parent's for_whom", tags)
+        if kids:
+            r = c.get(f"/api/transactions/{kids[0]['id']}", headers={**D["h"], **FAM})
+            check(r.status_code == 200 and r.json().get("for_whom") == [mama]
+                  and (r.json().get("added_by") or {}).get("member_id") == d_mid,
+                  "recurring: a child answers the parent's added_by and for_whom", f"{r.status_code} {r.text[:200]}")
+            r = c.put(f"/api/transactions/{kids[0]['id']}", headers={**D["h"], **FAM}, json={"description": "child"})
+            check(r.status_code == 200, "recurring: Dad (member) can edit the children of his own recurring entry",
+                  f"{r.status_code} {r.text[:200]}")
+    finally:
+        _cleanup_people(made)
+
+
 def main():
     section_schema()
     section_book_users()
     section_family_rules()
     section_book_scope()
+    section_entries_breakdown()
+    section_recurring_children()
     sys.exit(1 if failures else 0)
 
 

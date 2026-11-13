@@ -114,6 +114,11 @@ async def _context(user: Mapping[str, Any]) -> Tuple[Dict[str, Any], Dict[str, A
     return me, family
 
 
+async def family_of(user: Mapping[str, Any]) -> Dict[str, Any]:
+    """The family the caller is an active member of; 404 no_family when none."""
+    return (await _context(user))[1]
+
+
 async def _lock_and_reread(user: Mapping[str, Any], family_id: str) -> Dict[str, Any]:
     """Inside transaction(): lock the family row, then re-read the caller's member row (rows read before the lock
     may be stale: a concurrent handover, leave or removal). no_family when they are no longer in this family."""

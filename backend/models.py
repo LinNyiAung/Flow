@@ -145,6 +145,8 @@ class TransactionCreate(BaseModel):
     recurrence: Optional[TransactionRecurrence] = None
     amount: PositiveAmount
     currency: Currency = Currency.USD  # NEW
+    # Family book: the member ids it was for (None or [] = Whole family). Must be empty in a personal book.
+    for_whom: Optional[List[str]] = _Field(default=None, max_length=100)
 
 class TransactionUpdate(BaseModel):
     type: Optional[TransactionType] = None
@@ -155,6 +157,15 @@ class TransactionUpdate(BaseModel):
     recurrence: Optional[TransactionRecurrence] = None
     amount: Optional[PositiveAmount] = None
     currency: Optional[Currency] = None  # NEW
+    # Family book: None (left out) keeps who it was for; [] makes it Whole family.
+    for_whom: Optional[List[str]] = _Field(default=None, max_length=100)
+
+
+class AddedBy(BaseModel):
+    """The family member who recorded a family entry (a former member keeps their name)."""
+    member_id: str
+    display_name: str
+
 
 class TransactionResponse(BaseModel):
     id: str
@@ -170,6 +181,9 @@ class TransactionResponse(BaseModel):
     currency: Currency  # NEW
     created_at: datetime
     updated_at: datetime
+    # Family book: who recorded it (null in a personal book or when not recorded) and who it was for ([] = Whole family).
+    added_by: Optional[AddedBy] = None
+    for_whom: List[str] = []
 
 class CategoryResponse(BaseModel):
     main_category: str

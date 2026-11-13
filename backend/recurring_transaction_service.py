@@ -7,8 +7,10 @@ from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 from pydantic import ValidationError
 
 from recurrence_models import RecurrenceConfig, RecurrenceFrequency
+from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import users as users_db
+from sql.db import transaction as db_transaction
 from notification_service import create_notification
 from tz_utils import app_today
 
@@ -256,6 +258,9 @@ async def _process_recurring_transaction(
 
     created = 0
     last_new_id = None
+    # A family entry's children keep who added it and who it was for (so the adder may change them and the
+    # per-person breakdown counts them).
+    for_whom = (await families_db.beneficiaries_for([transaction["_id"]])).get(transaction["_id"], []) if dates else []
     for occ_date in dates:
         new_id = occurrence_id(transaction["_id"], occ_date)
         if await _child_exists_on_date(transaction, occ_date):
@@ -281,10 +286,15 @@ async def _process_recurring_transaction(
                 "config": None,
                 "last_created_date": None,
                 "parent_transaction_id": transaction["_id"]
-            }
+            },
+            "added_by_member_id": transaction.get("added_by_member_id"),
         }
         # False = already created by a previous (possibly crashed) run: just advance the pointer.
-        if await transactions_db.insert_transaction(new_transaction):
+        async with db_transaction():
+            inserted = await transactions_db.insert_transaction(new_transaction)
+            if inserted and for_whom:
+                await families_db.set_beneficiaries(new_id, for_whom)
+        if inserted:
             created += 1
             last_new_id = new_id
         # Track even duplicates: a crashed run may have skipped the cache/budget refresh.

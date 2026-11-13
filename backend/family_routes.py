@@ -1,12 +1,18 @@
-"""The family: /api/family (members, roles, invitations). Thin routes over families.service, which holds the rules and
-raises the refusals as {"detail": {"code", "message"}}."""
+"""The family: /api/family (members, roles, invitations, the per-person breakdown). Thin routes over families.service,
+which holds the rules and raises the refusals as {"detail": {"code", "message"}}, and families.breakdown."""
+from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from families import breakdown as family_breakdown
 from families import service
+from families.book import Book, get_book
+from models import Currency
 from plans.contact import normalize_email
+from report_models import ReportPeriod
+from report_routes import calculate_report_dates
 from utils import get_current_user
 
 router = APIRouter(prefix="/api/family", tags=["family"])
@@ -101,6 +107,19 @@ async def rename_family(body: FamilyName, current_user: dict = Depends(get_curre
 @router.delete("")
 async def delete_family(body: ConfirmName, current_user: dict = Depends(get_current_user)):
     return await service.delete_family(current_user, body.confirm_name)
+
+
+@router.get("/breakdown")
+async def breakdown(start_date: datetime = Query(...), end_date: datetime = Query(...),
+                    currency: Optional[Currency] = None, book: Book = Depends(get_book)):
+    """Spending per person it was for, start_date..end_date as whole calendar days (as custom reports take them),
+    in `currency` (default: the caller's default currency). Any active member; X-Book is optional here."""
+    family = book.family if book.is_family else await service.family_of(book.person)
+    date_from, date_to = calculate_report_dates(ReportPeriod.CUSTOM, start_date, end_date)
+    code = currency.value if currency else book.person.get("default_currency") or "usd"
+    if code not in {c.value for c in Currency}:
+        code = Currency.USD.value
+    return await family_breakdown.family_breakdown(family, code, date_from, date_to)
 
 
 @router.post("/placeholders")
