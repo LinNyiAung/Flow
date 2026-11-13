@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from utils import get_current_user
+from families.book import Book, get_book
 from plans import quota
 from pdf_generator import generate_financial_report_pdf
 from report_models import (
@@ -159,7 +159,7 @@ def generate_currency_report(transactions, currency, start_date, end_date):
 @router.post("/generate", response_model=FinancialReport)
 async def generate_report(
     report_request: ReportRequest,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Generate a financial report for a specific currency"""
     try:
@@ -173,12 +173,12 @@ async def generate_report(
         # Determine currency - use requested or user's default
         currency = report_request.currency
         if currency is None:
-            currency = Currency(current_user.get("default_currency", "usd"))
+            currency = Currency(book.person.get("default_currency", "usd"))
 
         # Totals and per-category sums are computed in the database.
         window = dict(currency=currency.value, date_from=start_date, date_to=end_date)
-        totals = await transactions_db.currency_totals(current_user["_id"], **window)
-        categories = await transactions_db.category_totals(current_user["_id"], **window)
+        totals = await transactions_db.currency_totals(book.id, **window)
+        categories = await transactions_db.category_totals(book.id, **window)
         result = [{
             "totals": [
                 {"total_inflow": s["total_inflow"], "total_outflow": s["total_outflow"],
@@ -197,7 +197,7 @@ async def generate_report(
         # Handle empty result
         if not result or not result[0]["totals"]:
             # [FIX] Async find
-            goals = await goals_db.list_goals(current_user["_id"], currency=currency.value)
+            goals = await goals_db.list_goals(book.id, currency=currency.value)
 
             goals_progress = [
                 GoalProgress(
@@ -276,7 +276,7 @@ async def generate_report(
         avg_daily_outflow = total_outflow / days_in_period if days_in_period > 0 else 0
 
         # [FIX] Async find for goals (second occurrence)
-        goals = await goals_db.list_goals(current_user["_id"], currency=currency.value)
+        goals = await goals_db.list_goals(book.id, currency=currency.value)
 
         goals_progress = [
             GoalProgress(
@@ -336,7 +336,7 @@ async def generate_report(
 @router.post("/generate-multi-currency", response_model=MultiCurrencyFinancialReport)
 async def generate_multi_currency_report(
     report_request: ReportRequest,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Generate a financial report with all currencies"""
     try:
@@ -348,7 +348,7 @@ async def generate_multi_currency_report(
         )
 
         all_transactions = await transactions_db.find_transactions(
-            current_user["_id"], date_from=start_date, date_to=end_date
+            book.id, date_from=start_date, date_to=end_date
         )
 
         # Group by currency
@@ -371,7 +371,7 @@ async def generate_multi_currency_report(
             currency_reports.append(report)
 
         # [FIX] Async fetch all goals
-        all_goals = await goals_db.list_goals(current_user["_id"])
+        all_goals = await goals_db.list_goals(book.id)
 
         goals_progress = [
             GoalProgress(
@@ -413,23 +413,23 @@ async def generate_multi_currency_report(
 @router.post("/download")
 async def download_report_pdf(
     report_request: ReportRequest,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Generate and download a financial report as PDF (single currency only for now).
 
     Needs "reports" unlocked on the user's plan (Free: 403 plan_feature_locked). That is the only gate: the PDF is not
     an AI action, so nothing is counted and the hidden AI cost cap does not apply.
     """
-    quota.require_unlocked(current_user, "reports")
-    return await _download_report_pdf(report_request, current_user)
+    quota.require_unlocked(book.person, "reports")
+    return await _download_report_pdf(report_request, book)
 
 
-async def _download_report_pdf(report_request: ReportRequest, current_user: dict):
+async def _download_report_pdf(report_request: ReportRequest, book: Book):
     try:
         # Determine currency
         currency = report_request.currency
         if currency is None:
-            currency = Currency(current_user.get("default_currency", "usd"))
+            currency = Currency(book.person.get("default_currency", "usd"))
 
         # Generate the report (reuse the generate_report logic)
         start_date, end_date = calculate_report_dates(
@@ -440,13 +440,13 @@ async def _download_report_pdf(report_request: ReportRequest, current_user: dict
         )
 
         transactions = await transactions_db.find_transactions(
-            current_user["_id"], currency=currency.value, date_from=start_date, date_to=end_date
+            book.id, currency=currency.value, date_from=start_date, date_to=end_date
         )
 
         currency_report = generate_currency_report(transactions, currency, start_date, end_date)
 
         # [FIX] Async fetch goals
-        goals = await goals_db.list_goals(current_user["_id"], currency=currency.value)
+        goals = await goals_db.list_goals(book.id, currency=currency.value)
 
         goals_progress = [
             GoalProgress(
@@ -493,7 +493,7 @@ async def _download_report_pdf(report_request: ReportRequest, current_user: dict
         pdf_buffer = await asyncio.to_thread(
             generate_financial_report_pdf,
             report,
-            current_user.get("name", ""),
+            book.person.get("name", ""),
             user_timezone_offset, 
             currency
         )
