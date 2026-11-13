@@ -20,6 +20,7 @@ from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
 from utils import get_current_user, get_user_balance, get_user_money_lock
+from families.book import Book, get_book, require_writable
 from plans import quota, voice_token
 from goal_routes import to_cents
 from recurring_transaction_service import (
@@ -363,6 +364,11 @@ def _transaction_responses(docs: List[dict]) -> List[TransactionResponse]:
     return results
 
 
+def _new_entry_fields(book: Book) -> dict:
+    """Book-owned fields of a new entry: who added it, in a family book (personal entries have none)."""
+    return {"added_by_member_id": book.member["id"]} if book.is_family else {}
+
+
 def _cents_or_zero(value) -> Decimal:
     """to_cents for a stored amount; legacy NaN/inf/invalid amounts count as 0."""
     return to_cents(value) if is_finite_number(value) else Decimal("0.00")
@@ -414,9 +420,10 @@ async def _ensure_goal_allocations_covered(user_id: str, old_tx: dict, new_value
 async def create_transaction(
     transaction_data: TransactionCreate,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Create new transaction"""
+    """Create new transaction in the request's book"""
+    require_writable(book)
     await _validate_categories(
         transaction_data.type.value, transaction_data.main_category, transaction_data.sub_category
     )
@@ -427,7 +434,7 @@ async def create_transaction(
 
     new_transaction = {
         "_id": transaction_id,
-        "user_id": current_user["_id"],
+        "user_id": book.id,
         "type": transaction_data.type.value,
         "main_category": transaction_data.main_category,
         "sub_category": transaction_data.sub_category,
@@ -439,15 +446,16 @@ async def create_transaction(
         "updated_at": now,
         # Server-managed recurrence fields are never taken from the client.
         "recurrence": _new_recurrence_doc(transaction_data.recurrence, tx_date),
+        **_new_entry_fields(book),
     }
 
     await transactions_db.insert_transaction(new_transaction)
-    await users_db.mark_ai_data_stale(current_user["_id"])
+    await users_db.mark_ai_data_stale(book.id)
 
     # Check for large transaction
     try:
         user_transactions = await transactions_db.find_transactions(
-            current_user["_id"], type_="outflow", currency=transaction_data.currency.value, limit=50
+            book.id, type_="outflow", currency=transaction_data.currency.value, limit=50
         )
 
         if user_transactions:
@@ -458,7 +466,7 @@ async def create_transaction(
 
         background_tasks.add_task(
             check_large_transaction,
-            user_id=current_user["_id"],
+            user_id=book.id,
             transaction=new_transaction,
             user_spending_profile=user_profile
         )
@@ -467,7 +475,7 @@ async def create_transaction(
 
     background_tasks.add_task(
         update_relevant_budgets,
-        current_user["_id"],
+        book.id,
         tx_date,
         transaction_data.currency.value
     )
@@ -477,7 +485,7 @@ async def create_transaction(
 
 @router.get("", response_model=List[TransactionResponse])
 async def get_transactions(
-    current_user: dict = Depends(get_current_user),
+    book: Book = Depends(get_book),
     limit: int = Query(default=50, ge=1, le=10000),
     skip: int = Query(default=0, ge=0),
     transaction_type: Optional[TransactionType] = None,
@@ -497,7 +505,7 @@ async def get_transactions(
 
     # Newest first; the id tiebreaker gives a stable order for skip/limit pagination.
     transactions = await transactions_db.find_transactions(
-        current_user["_id"],
+        book.id,
         type_=transaction_type.value if transaction_type else None,
         currency=currency.value if currency else None,
         date_from=start_date,
@@ -513,10 +521,11 @@ async def get_transactions(
 async def disable_transaction_recurrence(
     background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Disable recurrence for a transaction"""
-    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+    require_writable(book)
+    transaction = await transactions_db.get_transaction(transaction_id, book.id)
 
     if not transaction:
         raise HTTPException(
@@ -524,7 +533,7 @@ async def disable_transaction_recurrence(
             detail="Transaction not found"
         )
 
-    success = await disable_recurrence_for_transaction(transaction_id, current_user["_id"])
+    success = await disable_recurrence_for_transaction(transaction_id, book.id)
 
     if not success:
         raise HTTPException(
@@ -532,7 +541,7 @@ async def disable_transaction_recurrence(
             detail="Transaction not found or recurrence not enabled"
         )
 
-    await users_db.mark_ai_data_stale(current_user["_id"])
+    await users_db.mark_ai_data_stale(book.id)
 
     return {"message": "Recurrence disabled successfully"}
 
@@ -541,10 +550,11 @@ async def disable_transaction_recurrence(
 async def disable_parent_transaction_recurrence(
     background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
-    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+    require_writable(book)
+    transaction = await transactions_db.get_transaction(transaction_id, book.id)
 
     if not transaction:
         raise HTTPException(
@@ -560,7 +570,7 @@ async def disable_parent_transaction_recurrence(
             detail="This transaction is not auto-created from a recurring transaction"
         )
 
-    success = await disable_recurrence_for_parent(parent_id, current_user["_id"])
+    success = await disable_recurrence_for_parent(parent_id, book.id)
 
     if not success:
         raise HTTPException(
@@ -568,7 +578,7 @@ async def disable_parent_transaction_recurrence(
             detail="Parent transaction not found"
         )
 
-    await users_db.mark_ai_data_stale(current_user["_id"])
+    await users_db.mark_ai_data_stale(book.id)
 
     return {"message": "Parent transaction recurrence disabled successfully"}
 
@@ -609,10 +619,10 @@ async def preview_transaction_recurrence(
 @router.get("/{transaction_id}", response_model=TransactionResponse)
 async def get_transaction(
     transaction_id: str = Path(...),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Get single transaction"""
-    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+    """Get single transaction (404 for any id outside the request's book)"""
+    transaction = await transactions_db.get_transaction(transaction_id, book.id)
 
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
@@ -625,10 +635,11 @@ async def update_transaction(
     background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
     transaction_data: TransactionUpdate = ...,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Update transaction"""
-    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+    require_writable(book)
+    transaction = await transactions_db.get_transaction(transaction_id, book.id)
 
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
@@ -707,16 +718,16 @@ async def update_transaction(
         or _cents_or_zero(new_amount) != _cents_or_zero(transaction.get("amount"))
     )
 
-    async with get_user_money_lock(current_user["_id"]):
+    async with get_user_money_lock(book.id):
         if money_changed:
             await _ensure_goal_allocations_covered(
-                current_user["_id"],
+                book.id,
                 transaction,
                 {"type": new_type, "amount": new_amount, "currency": new_currency},
             )
 
-        updated_transaction = await transactions_db.update_transaction(transaction_id, current_user["_id"], update_data)
-        await users_db.mark_ai_data_stale(current_user["_id"])
+        updated_transaction = await transactions_db.update_transaction(transaction_id, book.id, update_data)
+        await users_db.mark_ai_data_stale(book.id)
 
     if not updated_transaction:  # deleted meanwhile
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
@@ -727,7 +738,7 @@ async def update_transaction(
     for budget_date, budget_currency in {old_key, new_key}:
         background_tasks.add_task(
             update_relevant_budgets,
-            current_user["_id"],
+            book.id,
             budget_date,
             budget_currency
         )
@@ -739,23 +750,24 @@ async def update_transaction(
 async def delete_transaction(
     background_tasks: BackgroundTasks,
     transaction_id: str = Path(...),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """Delete transaction"""
-    transaction = await transactions_db.get_transaction(transaction_id, current_user["_id"])
+    require_writable(book)
+    transaction = await transactions_db.get_transaction(transaction_id, book.id)
 
     if not transaction:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
 
-    async with get_user_money_lock(current_user["_id"]):
+    async with get_user_money_lock(book.id):
         # Deleting an inflow must not leave money "allocated to goals" that no longer exists.
-        await _ensure_goal_allocations_covered(current_user["_id"], transaction, None)
+        await _ensure_goal_allocations_covered(book.id, transaction, None)
 
-        deleted = await transactions_db.delete_transaction(transaction_id, current_user["_id"])
-        await users_db.mark_ai_data_stale(current_user["_id"])
+        deleted = await transactions_db.delete_transaction(transaction_id, book.id)
+        await users_db.mark_ai_data_stale(book.id)
 
     if deleted == 0:
         raise HTTPException(
@@ -765,7 +777,7 @@ async def delete_transaction(
 
     background_tasks.add_task(
         update_relevant_budgets,
-        current_user["_id"],
+        book.id,
         _as_utc(transaction["date"]),
         transaction.get("currency", "usd")
     )
@@ -1066,9 +1078,11 @@ Respond in JSON format:
 async def batch_create_transactions(
     transactions_data: List[TransactionCreate],
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Create multiple transactions at once (one all-or-nothing insert). Not an AI call: every plan may use it."""
+    """Create multiple transactions at once (one all-or-nothing insert) in the request's book. Not an AI call: every
+    plan may use it."""
+    require_writable(book)
     new_transactions = []
     response_models = []
 
@@ -1092,7 +1106,7 @@ async def batch_create_transactions(
 
         doc = {
             "_id": transaction_id,
-            "user_id": current_user["_id"],
+            "user_id": book.id,
             "type": transaction_data.type.value,
             "main_category": transaction_data.main_category,
             "sub_category": transaction_data.sub_category,
@@ -1104,6 +1118,7 @@ async def batch_create_transactions(
             "updated_at": now,
             # Server-managed recurrence fields are never taken from the client.
             "recurrence": _new_recurrence_doc(transaction_data.recurrence, tx_date),
+            **_new_entry_fields(book),
         }
 
         new_transactions.append(doc)
@@ -1114,8 +1129,8 @@ async def batch_create_transactions(
         await transactions_db.insert_many(new_transactions)
 
         # 3. Post-processing (budgets in the background, AI data stale)
-        background_tasks.add_task(update_all_user_budgets, current_user["_id"])
-        await users_db.mark_ai_data_stale(current_user["_id"])
+        background_tasks.add_task(update_all_user_budgets, book.id)
+        await users_db.mark_ai_data_stale(book.id)
 
     return response_models
 
