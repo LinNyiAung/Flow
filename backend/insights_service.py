@@ -439,7 +439,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 async def get_financial_summary(user_id, start_date, end_date):
     """
     Financial totals per currency and the top 5 spending categories per currency, summed in
-    the database (summary stats instead of raw rows).
+    the database (summary stats instead of raw rows). Income and spending only: transfers are left out.
     """
     summary = await transactions_db.currency_totals(user_id, date_from=start_date, date_to=end_date)
     top_items = {}
@@ -450,7 +450,7 @@ async def get_financial_summary(user_id, start_date, end_date):
     return {
         "summary": [
             {"_id": s["currency"], "inflow": s["total_inflow"], "outflow": s["total_outflow"], "count": s["count"]}
-            for s in summary
+            for s in summary if s["count"]  # a currency with only transfers has no income or spending
         ],
         "categories": [{"_id": currency, "top_items": items} for currency, items in top_items.items()],
     }

@@ -151,7 +151,9 @@ def ensure_utc_datetime(dt) -> datetime:
 async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict:
     """
     Per-currency balance, computed live (exact SQL sums over indexed rows; nothing cached,
-    so it can never be stale): balance = inflow - outflow, available = balance - goals.
+    so it can never be stale): balance = inflow - outflow + transfers in - transfers out, available = balance - goals.
+    total_inflow / total_outflow are income and spending only (transfers between a personal wallet and the family
+    wallet are neither).
     """
     user = await users_db.get_user(user_id)
     if not user:
@@ -166,11 +168,11 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
 
     balances = {}
     for curr in all_currencies:
-        tx_data = tx_map.get(curr, {"total_inflow": 0, "total_outflow": 0})
+        tx_data = tx_map.get(curr, {})
         allocated = allocated_map.get(curr, 0)
-        total_inflow = tx_data["total_inflow"]
-        total_outflow = tx_data["total_outflow"]
-        balance = total_inflow - total_outflow
+        total_inflow = tx_data.get("total_inflow", 0)
+        total_outflow = tx_data.get("total_outflow", 0)
+        balance = total_inflow - total_outflow + tx_data.get("transfer_in", 0) - tx_data.get("transfer_out", 0)
         balances[curr] = {
             "currency": curr,
             "balance": balance,

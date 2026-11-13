@@ -135,6 +135,10 @@ NOTIFICATION_TRANSLATIONS = {
         "family_family_read_only_msg": "The family is read-only because the owner's plan has ended. The owner can renew, or hand ownership to a member on Plus or Pro.",
         "family_invalid_book_msg": "Unknown book. Choose Personal or Family.",
         "family_invalid_for_whom_msg": "Choose who it's for from the family's current members.",
+        "family_transfer_insufficient_msg": "There isn't enough money available in that wallet for this.",
+        "family_transfer_not_editable_msg": "A transfer can't be changed. Undo it and make a new one.",
+        "family_use_transfer_undo_msg": "This is a transfer. Undo the transfer to remove both sides together.",
+        "family_transfer_not_found_msg": "That transfer wasn't found.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -242,6 +246,10 @@ NOTIFICATION_TRANSLATIONS = {
         "family_family_read_only_msg": "ပိုင်ရှင်၏ အစီအစဉ် ကုန်ဆုံးသွားသဖြင့် ဤမိသားစုကို ကြည့်ရုံသာ ကြည့်နိုင်ပါသည်။ ပိုင်ရှင်က သက်တမ်းတိုးနိုင်သည် သို့မဟုတ် Plus သို့မဟုတ် Pro အစီအစဉ်ရှိသော အဖွဲ့ဝင်တစ်ဦးထံ ပိုင်ရှင်အဖြစ် လွှဲပေးနိုင်ပါသည်။",
         "family_invalid_book_msg": "မသိသော စာရင်းဖြစ်ပါသည်။ ကိုယ်ပိုင်စာရင်း သို့မဟုတ် မိသားစုစာရင်းကို ရွေးပါ။",
         "family_invalid_for_whom_msg": "မည်သူ့အတွက်လဲဆိုတာကို မိသားစု၏ လက်ရှိအဖွဲ့ဝင်များထဲမှ ရွေးပါ။",
+        "family_transfer_insufficient_msg": "ထိုပိုက်ဆံအိတ်တွင် ဤငွေပမာဏအတွက် သုံးနိုင်သောငွေ မလုံလောက်ပါ။",
+        "family_transfer_not_editable_msg": "ငွေလွှဲမှုကို ပြင်၍မရပါ။ ပြန်ရုပ်သိမ်းပြီး အသစ်ပြုလုပ်ပါ။",
+        "family_use_transfer_undo_msg": "ဤစာရင်းသည် ငွေလွှဲမှုဖြစ်ပါသည်။ နှစ်ဘက်လုံးကို အတူဖယ်ရှားရန် ငွေလွှဲမှုကို ပြန်ရုပ်သိမ်းပါ။",
+        "family_transfer_not_found_msg": "ထိုငွေလွှဲမှုကို မတွေ့ပါ။",
     }
 }
 
@@ -825,13 +833,15 @@ async def analyze_unusual_spending(user_id: str):
         this_week_start = wall_now - timedelta(days=7)
         recent_notification_cutoff = now - timedelta(days=7)
         this_week_transactions = await transactions_db.find_transactions(
-            user_id, type_="outflow", currency=currency, date_from=this_week_start, date_to=end_of_today
+            user_id, type_="outflow", currency=currency, date_from=this_week_start, date_to=end_of_today,
+            include_transfers=False,
         )
 
         last_month_start = wall_now - timedelta(days=35)
         last_month_end = this_week_start
         last_month_transactions = await transactions_db.find_transactions(
-            user_id, type_="outflow", currency=currency, date_from=last_month_start, date_before=last_month_end
+            user_id, type_="outflow", currency=currency, date_from=last_month_start, date_before=last_month_end,
+            include_transfers=False,
         )
 
         if len(last_month_transactions) < 5:
@@ -891,7 +901,7 @@ async def _detect_recurring_payments_for_user(user_id: str, now: datetime, today
     for currency in currencies:
         ninety_days_ago = now - timedelta(days=90)
         transactions = await transactions_db.find_transactions(
-            user_id, type_="outflow", currency=currency, date_from=ninety_days_ago
+            user_id, type_="outflow", currency=currency, date_from=ninety_days_ago, include_transfers=False
         )
 
         if len(transactions) < 10:

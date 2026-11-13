@@ -254,7 +254,8 @@ class FinancialDataProcessor:
         cutoff_date = app_wall_clock_now() - timedelta(days=days_back) if days_back else None
 
         try:
-            transactions = await transactions_db.find_transactions(self.user_id, date_from=cutoff_date, limit=limit)
+            transactions = await transactions_db.find_transactions(
+                self.user_id, date_from=cutoff_date, limit=limit, include_transfers=False)
 
             print(f"Found {len(transactions)} transactions for user {self.user_id} (Limit: {limit}, Days: {days_back})")
             return transactions
@@ -319,7 +320,8 @@ class FinancialDataProcessor:
                 currency_summaries[currency] = {
                     "total_inflow": stat["total_inflow"],
                     "total_outflow": stat["total_outflow"],
-                    "balance": stat["total_inflow"] - stat["total_outflow"],
+                    # Income and spending leave transfers out; the balance counts them (money moved in or out).
+                    "balance": stat["total_inflow"] - stat["total_outflow"] + stat["transfer_in"] - stat["transfer_out"],
                     "total_transactions": stat["count"],
                     "avg_transaction_amount": stat["total_amount_sum"] / stat["count"] if stat["count"] > 0 else 0,
                     "date_range": {

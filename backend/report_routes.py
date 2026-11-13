@@ -175,9 +175,10 @@ async def generate_report(
         if currency is None:
             currency = Currency(book.person.get("default_currency", "usd"))
 
-        # Totals and per-category sums are computed in the database.
+        # Totals and per-category sums are computed in the database (transfers left out: a currency with only
+        # transfers in the window has no income or spending, so it reports as empty).
         window = dict(currency=currency.value, date_from=start_date, date_to=end_date)
-        totals = await transactions_db.currency_totals(book.id, **window)
+        totals = [s for s in await transactions_db.currency_totals(book.id, **window) if s["count"]]
         categories = await transactions_db.category_totals(book.id, **window)
         result = [{
             "totals": [
@@ -348,7 +349,7 @@ async def generate_multi_currency_report(
         )
 
         all_transactions = await transactions_db.find_transactions(
-            book.id, date_from=start_date, date_to=end_date
+            book.id, date_from=start_date, date_to=end_date, include_transfers=False
         )
 
         # Group by currency
@@ -440,7 +441,7 @@ async def _download_report_pdf(report_request: ReportRequest, book: Book):
         )
 
         transactions = await transactions_db.find_transactions(
-            book.id, currency=currency.value, date_from=start_date, date_to=end_date
+            book.id, currency=currency.value, date_from=start_date, date_to=end_date, include_transfers=False
         )
 
         currency_report = generate_currency_report(transactions, currency, start_date, end_date)

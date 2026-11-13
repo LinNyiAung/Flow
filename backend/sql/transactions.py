@@ -13,6 +13,11 @@ from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, writ
 from sql.docs import money, recurrence_columns, transaction_doc, transaction_row
 from sql.tables import transactions as t, users
 
+# A transfer between a personal wallet and the family wallet is a pair of rows with a transfer_id. It only moves money
+# between two balances, so it is never income or spending: every aggregate below leaves it out (the balance adds
+# currency_totals' transfer_in / transfer_out back).
+NOT_TRANSFER = t.c.transfer_id.is_(None)
+
 # Dotted document paths the code updates directly -> columns.
 _RECURRENCE_FIELDS = {
     "recurrence.enabled": "recurrence_enabled",
@@ -80,12 +85,23 @@ async def delete_transaction(transaction_id: str, user_id: str) -> int:
     return await execute(delete(t).where(t.c.id == transaction_id, t.c.user_id == user_id))
 
 
+async def delete_transfer(transfer_id: str) -> int:
+    """Delete every leg of a transfer; the number deleted."""
+    return await execute(delete(t).where(t.c.transfer_id == transfer_id))
+
+
 # ------------------------------------------------------------------ reads
 async def get_transaction(transaction_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     stmt = select(t).where(t.c.id == transaction_id)
     if user_id is not None:
         stmt = stmt.where(t.c.user_id == user_id)
     return transaction_doc(await fetch_one(stmt))
+
+
+async def transfer_legs(transfer_id: str) -> List[Dict[str, Any]]:
+    """The legs of a transfer (two, or fewer if one is gone), in a stable order."""
+    rows = await fetch_all(select(t).where(t.c.transfer_id == transfer_id).order_by(t.c.type, t.c.id))
+    return [transaction_doc(r) for r in rows]
 
 
 def _filtered(stmt, user_id: Optional[str], type_: Optional[str], currency: Optional[str],
@@ -108,10 +124,13 @@ def _filtered(stmt, user_id: Optional[str], type_: Optional[str], currency: Opti
 async def find_transactions(user_id: str, *, type_: Optional[str] = None, currency: Optional[str] = None,
                             date_from: Optional[datetime] = None, date_to: Optional[datetime] = None,
                             date_before: Optional[datetime] = None, skip: int = 0,
-                            limit: Optional[int] = None) -> List[Dict[str, Any]]:
+                            limit: Optional[int] = None, include_transfers: bool = True) -> List[Dict[str, Any]]:
     """Newest first (date, then created_at, then id: a stable order for skip/limit paging).
-    date_from / date_to are inclusive, date_before is exclusive."""
+    date_from / date_to are inclusive, date_before is exclusive. include_transfers=False leaves the legs of transfers
+    out: every income or spending figure (reports, insights, budgets, the chat context) must."""
     stmt = _filtered(select(t), user_id, type_, currency, date_from, date_to, date_before)
+    if not include_transfers:
+        stmt = stmt.where(NOT_TRANSFER)
     stmt = stmt.order_by(t.c.date.desc(), t.c.created_at.desc(), t.c.id.desc()).offset(skip)
     if limit is not None:
         stmt = stmt.limit(limit)
@@ -130,13 +149,16 @@ async def child_exists_between(user_id: str, parent_id: str, start: datetime, en
 
 
 async def has_transactions_between(user_id: str, start: datetime, end: datetime) -> bool:
-    return bool(await fetch_value(select(exists().where(t.c.user_id == user_id, t.c.date >= start, t.c.date <= end))))
+    """True when an income or spending entry (not a transfer) is dated within [start, end]."""
+    return bool(await fetch_value(select(exists().where(
+        t.c.user_id == user_id, t.c.date >= start, t.c.date <= end, NOT_TRANSFER))))
 
 
 async def changed_since(user_id: str, start: datetime, end: datetime, since: datetime) -> bool:
-    """True when a transaction dated within [start, end] was created or edited after `since`."""
+    """True when an income or spending entry (not a transfer) dated within [start, end] was created or edited after
+    `since`."""
     return bool(await fetch_value(select(exists().where(
-        t.c.user_id == user_id, t.c.date >= start, t.c.date <= end,
+        t.c.user_id == user_id, t.c.date >= start, t.c.date <= end, NOT_TRANSFER,
         (t.c.created_at > since) | (t.c.updated_at > since)))))
 
 
@@ -170,33 +192,39 @@ def _f(value: Any) -> float:
 
 async def currency_totals(user_id: str, *, currency: Optional[str] = None, date_from: Optional[datetime] = None,
                           date_to: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    """Per currency: total_inflow, total_outflow, inflow_count, outflow_count, count, amount_sum, min_date, max_date."""
-    is_in, is_out = t.c.type == "inflow", t.c.type == "outflow"
+    """Per currency with any row: total_inflow, total_outflow, inflow_count, outflow_count, count, amount_sum, min_date
+    and max_date over income and spending entries only, plus transfer_in / transfer_out, the sums of the transfer legs
+    into and out of the book. A currency with only transfers has count 0 (and min_date / max_date None)."""
+    is_in, is_out = (t.c.type == "inflow") & NOT_TRANSFER, (t.c.type == "outflow") & NOT_TRANSFER
+    is_transfer = t.c.transfer_id.is_not(None)
     stmt = select(
         t.c.currency,
         func.sum(case((is_in, t.c.amount), else_=0)).label("total_inflow"),
         func.sum(case((is_out, t.c.amount), else_=0)).label("total_outflow"),
+        func.sum(case(((t.c.type == "inflow") & is_transfer, t.c.amount), else_=0)).label("transfer_in"),
+        func.sum(case(((t.c.type == "outflow") & is_transfer, t.c.amount), else_=0)).label("transfer_out"),
         func.count().filter(is_in).label("inflow_count"),
         func.count().filter(is_out).label("outflow_count"),
-        func.count().label("count"),
-        func.sum(t.c.amount).label("amount_sum"),
-        func.min(t.c.date).label("min_date"),
-        func.max(t.c.date).label("max_date"),
+        func.count().filter(NOT_TRANSFER).label("count"),
+        func.sum(t.c.amount).filter(NOT_TRANSFER).label("amount_sum"),
+        func.min(t.c.date).filter(NOT_TRANSFER).label("min_date"),
+        func.max(t.c.date).filter(NOT_TRANSFER).label("max_date"),
     )
     stmt = _filtered(stmt, user_id, None, currency, date_from, date_to, None).group_by(t.c.currency).order_by(t.c.currency)
     rows = await fetch_all(stmt)
     for r in rows:
-        for k in ("total_inflow", "total_outflow", "amount_sum"):
+        for k in ("total_inflow", "total_outflow", "transfer_in", "transfer_out", "amount_sum"):
             r[k] = _f(r[k])
     return rows
 
 
 async def category_totals(user_id: str, *, type_: Optional[str] = None, currency: Optional[str] = None,
                           date_from: Optional[datetime] = None, date_to: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    """Per (currency, type, main_category, sub_category): total and count, largest total first."""
+    """Per (currency, type, main_category, sub_category): total and count, largest total first. Transfers are left
+    out (they are neither income nor spending)."""
     total = func.sum(t.c.amount).label("total")
     stmt = select(t.c.currency, t.c.type, t.c.main_category, t.c.sub_category, total, func.count().label("count"))
-    stmt = _filtered(stmt, user_id, type_, currency, date_from, date_to, None)
+    stmt = _filtered(stmt, user_id, type_, currency, date_from, date_to, None).where(NOT_TRANSFER)
     stmt = stmt.group_by(t.c.currency, t.c.type, t.c.main_category, t.c.sub_category)
     stmt = stmt.order_by(total.desc(), t.c.main_category, t.c.sub_category)
     rows = await fetch_all(stmt)

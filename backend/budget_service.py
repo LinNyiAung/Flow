@@ -177,7 +177,7 @@ class BudgetAnalyzer:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
 
         transactions = await transactions_db.find_transactions(
-            self.user_id, type_="outflow", currency=currency, date_from=cutoff_date
+            self.user_id, type_="outflow", currency=currency, date_from=cutoff_date, include_transfers=False
         )
 
         if len(transactions) < 10:
@@ -213,7 +213,7 @@ class BudgetAnalyzer:
             }
 
         income_transactions = await transactions_db.find_transactions(
-            self.user_id, type_="inflow", currency=currency, date_from=cutoff_date
+            self.user_id, type_="inflow", currency=currency, date_from=cutoff_date, include_transfers=False
         )
 
         total_income = sum(t["amount"] for t in income_transactions)
@@ -1312,7 +1312,7 @@ async def _ai_category_budgets(
 
     transactions = await transactions_db.find_transactions(
         user_id, type_="outflow", currency=parent_budget.get("currency", "usd"),
-        date_from=parent_start, date_to=parent_end,
+        date_from=parent_start, date_to=parent_end, include_transfers=False,
     )
 
     if not transactions:
