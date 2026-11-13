@@ -7,6 +7,8 @@ Sections:
   book scope and privacy -- X-Book picks the book; no record is reachable from another book (Task 4).
   entries and breakdown -- who added an entry, who it was for, who may change it, the per-person breakdown, and
     recurring children that keep both (Task 5).
+  transfers -- moving money between a personal wallet and the family wallet: one linked pair that only changes the
+    two balances, left out of every income and spending figure, undone only by its mover (Task 6).
 """
 import asyncio
 import os
@@ -1318,6 +1320,326 @@ def section_recurring_children():
         _cleanup_people(made)
 
 
+def section_transfers():
+    """Task 6: moving money between a personal wallet and the family wallet. One linked pair per transfer that changes
+    only the two balances: never income or spending, budgets, reports or the breakdown. Only the mover may undo it."""
+    backend = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    today = datetime.now(UTC).date()
+    day = datetime(today.year, today.month, today.day, 12, tzinfo=UTC).isoformat()
+    window = {"start_date": (today - timedelta(days=1)).isoformat(), "end_date": (today + timedelta(days=1)).isoformat()}
+
+    def H(u, family=False):
+        return {**u["h"], **(FAM if family else {})}
+
+    def tx(u, family=False, **kw):
+        body = {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "date": day, "amount": 10, "currency": "mmk"} | kw
+        r = c.post("/api/transactions", headers=H(u, family), json=body)
+        check(r.status_code == 200, f"transfers: setup entry {kw}", f"{r.status_code} {r.text[:200]}")
+        return r.json() if r.status_code == 200 else {}
+
+    def salary(u, amount, currency="mmk", family=False):
+        return tx(u, family, type="inflow", main_category="Employment Income", sub_category="Salary",
+                  amount=amount, currency=currency)
+
+    def bal(u, currency, family=False):
+        r = c.get("/api/dashboard/balance", headers=H(u, family), params={"currency": currency})
+        return r.json() if r.status_code == 200 else {}
+
+    def move(u, direction, amount, currency="mmk", headers=None, **kw):
+        body = {"direction": direction, "amount": amount, "currency": currency, "date": day} | kw
+        return c.post("/api/transfers", headers=headers or u["h"], json=body)
+
+    def legs(transfer_id):
+        return db.sql("SELECT id, user_id, type, main_category, sub_category, amount, currency, date, description, "
+                      "transfer_id, added_by_member_id, recurrence_enabled FROM transactions WHERE transfer_id = %s "
+                      "ORDER BY type", transfer_id)
+
+    def listed(u, family=False):
+        r = c.get("/api/transactions", headers=H(u, family), params={"limit": 500})
+        return {t["id"]: t for t in r.json()} if r.status_code == 200 else {}
+
+    def report(u, family=False):
+        r = c.post("/api/reports/generate", headers=H(u, family),
+                   json={"period": "custom", "currency": "mmk", **window})
+        j = r.json() if r.status_code == 200 else {}
+        keys = ("total_inflow", "total_outflow", "net_balance", "total_transactions", "inflow_count", "outflow_count")
+        cats = sorted(x["category"] for x in j.get("inflow_by_category", []) + j.get("outflow_by_category", []))
+        return r.status_code, {k: j.get(k) for k in keys}, cats
+
+    def multi(u, family=False):
+        r = c.post("/api/reports/generate-multi-currency", headers=H(u, family), json={"period": "custom", **window})
+
+        def strip(v):  # everything but the generation time
+            if isinstance(v, dict):
+                return {k: strip(x) for k, x in v.items() if k != "generated_at"}
+            return [strip(x) for x in v] if isinstance(v, list) else v
+        return r.status_code, str(strip(r.json() if r.status_code == 200 else r.text))
+
+    def budget(u, family=False):
+        r = c.post("/api/budgets", headers=H(u, family), json={
+            "name": f"Transfers {tag}", "period": "custom", "currency": "mmk", "total_budget": 2000000,
+            "start_date": window["start_date"], "end_date": window["end_date"],
+            "category_budgets": [{"main_category": "Transfer", "allocated_amount": 1000000},
+                                 {"main_category": "Food & Daily Living", "allocated_amount": 1000000}]})
+        check(r.status_code == 200, f"transfers: setup budget (family={family})", f"{r.status_code} {r.text[:200]}")
+        return r.json().get("id") if r.status_code == 200 else None
+
+    def spent(u, budget_id, family=False):
+        c.post(f"/api/budgets/{budget_id}/refresh", headers=H(u, family))
+        r = c.get(f"/api/budgets/{budget_id}", headers=H(u, family))
+        j = r.json() if r.status_code == 200 else {}
+        return j.get("total_spent"), {x["main_category"]: x.get("spent_amount") for x in j.get("category_budgets", [])}
+
+    try:
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        L = register("Loner", "plus")
+        r = c.post("/api/family", headers=M["h"], json={"name": f"Transfers family {tag}"})
+        m_mid = (r.json().get("me") or {}).get("member_id") if r.status_code == 200 else None
+        c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
+        d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
+        book_id = (db.sql("SELECT f.book_user_id FROM families f JOIN family_members m ON m.family_id = f.id "
+                          "WHERE m.user_id = %s", M["id"]) or [{}])[0].get("book_user_id")
+        check(all((m_mid, d_mid, book_id)), "transfers: Mum's family with Dad", (m_mid, d_mid, book_id))
+
+        # Mum: K500,000 salary, K10,000 groceries, K200,000 set aside for a goal (available K290,000).
+        salary(M, 500000)
+        tx(M, amount=10000)
+        r = c.post("/api/goals", headers=M["h"], json={"name": f"Bike {tag}", "target_amount": 1000000,
+                                                        "goal_type": "savings", "initial_contribution": 200000,
+                                                        "currency": "mmk"})
+        check(r.status_code == 200, "transfers: Mum sets K200,000 aside for a goal", f"{r.status_code} {r.text[:200]}")
+        # The family: K300,000 income, K50,000 spending.
+        salary(M, 300000, family=True)
+        tx(M, family=True, amount=50000)
+        b_personal, b_family = budget(M), budget(M, True)
+        m0, f0 = bal(M, "mmk"), bal(M, "mmk", True)
+        rep_m0, rep_f0 = report(M), report(M, True)
+        multi_m0, multi_f0 = multi(M), multi(M, True)
+        check(m0.get("balance") == 490000 and m0.get("available_balance") == 290000 and f0.get("balance") == 250000,
+              "transfers: before -- Mum 490,000 (290,000 available), the family 250,000", (m0, f0))
+
+        # ---- Mum moves K100,000 into the family wallet ----
+        r = move(M, "to_family", 100000, description="for the house")
+        j = r.json() if r.status_code == 200 else {}
+        tid = j.get("transfer_id")
+        check(r.status_code == 200 and set(j) == {"transfer_id", "personal_transaction_id", "family_transaction_id"}
+              and all(j.values()), "transfers: Mum moves K100,000 to the family (200, the pair's ids)",
+              f"{r.status_code} {r.text[:300]}")
+        m1, f1 = bal(M, "mmk"), bal(M, "mmk", True)
+        check(m1.get("balance") == 390000 and f1.get("balance") == 350000,
+              "transfers: Mum's balance -100,000 and the family's +100,000", (m1, f1))
+        check(m1.get("available_balance") == 190000 and f1.get("available_balance") == 350000,
+              "transfers: the available balances move the same way", (m1, f1))
+        check(all(m1.get(k) == m0.get(k) and f1.get(k) == f0.get(k) for k in ("total_inflow", "total_outflow")),
+              "transfers: neither book's total_inflow / total_outflow changes", (m0, m1, f0, f1))
+        rows = legs(tid)
+        p = next((x for x in rows if x["user_id"] == M["id"]), {})
+        f = next((x for x in rows if x["user_id"] == book_id), {})
+        check(len(rows) == 2 and p.get("type") == "outflow" and f.get("type") == "inflow"
+              and p.get("id") == j.get("personal_transaction_id") and f.get("id") == j.get("family_transaction_id"),
+              "transfers: one linked pair -- an outflow in Mum's book, an inflow in the family's", rows)
+        check(all(x["main_category"] == "Transfer" and x["sub_category"] == "Family wallet" and float(x["amount"]) == 100000
+                  and x["currency"] == "mmk" and x["description"] == "for the house" and not x["recurrence_enabled"]
+                  for x in rows) and len({x["date"] for x in rows}) == 1,
+              "transfers: both legs are Transfer / Family wallet, same amount, currency, date and description", rows)
+        check(p.get("added_by_member_id") is None and f.get("added_by_member_id") == m_mid,
+              "transfers: the family leg records Mum as who moved it, the personal leg nobody", rows)
+        check(not db.sql("SELECT 1 FROM transaction_beneficiaries WHERE transaction_id = ANY(%s)", [x["id"] for x in rows]),
+              "transfers: neither leg has beneficiaries")
+
+        lm, lf = listed(M), listed(M, True)
+        check(lm.get(p.get("id"), {}).get("transfer_id") == tid and lf.get(f.get("id"), {}).get("transfer_id") == tid,
+              "transfers: both books list their leg with transfer_id", (lm.get(p.get("id")), lf.get(f.get("id"))))
+        check(lf.get(f.get("id"), {}).get("added_by") == {"member_id": m_mid, "display_name": "Mum"}
+              and lf.get(f.get("id"), {}).get("for_whom") == [],
+              "transfers: the family list shows Mum as who moved it", lf.get(f.get("id")))
+        check(all(t.get("transfer_id") is None for t in list(lm.values()) + list(lf.values()) if t["id"] not in (p.get("id"), f.get("id"))),
+              "transfers: normal entries answer transfer_id null")
+
+        # ---- left out of every income and spending figure ----
+        check(report(M) == rep_m0 and report(M, True) == rep_f0, "transfers: reports of both books are unchanged",
+              (rep_m0, report(M), rep_f0, report(M, True)))
+        check(multi(M) == multi_m0 and multi(M, True) == multi_f0,
+              "transfers: multi-currency reports of both books are unchanged", (multi_m0[1][:300], multi(M)[1][:300]))
+        check(spent(M, b_personal) == (10000, {"Transfer": 0, "Food & Daily Living": 10000}),
+              "transfers: Mum's budget spending leaves the transfer out", spent(M, b_personal))
+        check(spent(M, b_family, True) == (50000, {"Transfer": 0, "Food & Daily Living": 50000}),
+              "transfers: the family budget's spending leaves the transfer out", spent(M, b_family, True))
+
+        # ---- $5 into a family that has no USD yet (Review Focus 5) ----
+        salary(M, 50, currency="usd")
+        check(bal(M, "usd", True).get("balance") == 0, "transfers: the family has no USD yet")
+        r = move(M, "to_family", 5, currency="usd")
+        check(r.status_code == 200, "transfers: moving $5 into a family with no USD works", f"{r.status_code} {r.text[:200]}")
+        check(bal(M, "usd", True).get("balance") == 5 and bal(M, "usd").get("balance") == 45,
+              "transfers: the family has $5 and Mum $45", (bal(M, "usd", True), bal(M, "usd")))
+
+        # ---- more than the source's available balance ----
+        before = db.sql("SELECT count(*) AS n FROM transactions WHERE transfer_id IS NOT NULL")[0]["n"]
+        r = move(M, "to_family", 190000.01)
+        check(_code(r, 400, "transfer_insufficient"),
+              "transfers: more than Mum's available balance (390,000 but 190,000 available) is 400 transfer_insufficient",
+              f"{r.status_code} {r.text[:200]}")
+        r = move(D, "to_personal", 350000.01)
+        check(_code(r, 400, "transfer_insufficient"), "transfers: more than the family's available balance is refused",
+              f"{r.status_code} {r.text[:200]}")
+        r = move(M, "to_family", 1, currency="thb")
+        check(_code(r, 400, "transfer_insufficient"), "transfers: a currency the source doesn't hold is refused",
+              f"{r.status_code} {r.text[:200]}")
+        after = db.sql("SELECT count(*) AS n FROM transactions WHERE transfer_id IS NOT NULL")[0]["n"]
+        check(before == after, "transfers: a refused transfer writes nothing", (before, after))
+        r = move(M, "to_family", 190000)
+        check(r.status_code == 200 and bal(M, "mmk").get("available_balance") == 0,
+              "transfers: exactly the available balance is allowed", f"{r.status_code} {r.text[:200]}")
+        c.delete(f"/api/transfers/{r.json().get('transfer_id') if r.status_code == 200 else 'x'}", headers=M["h"])
+
+        # ---- Dad takes K20,000 out of the family wallet ----
+        r = move(D, "to_personal", 20000)
+        dj = r.json() if r.status_code == 200 else {}
+        dtid = dj.get("transfer_id")
+        check(r.status_code == 200, "transfers: Dad (member) takes K20,000 out (to_personal)", f"{r.status_code} {r.text[:200]}")
+        lf = listed(D, True)
+        fam_leg = lf.get(dj.get("family_transaction_id"), {})
+        check(fam_leg.get("transfer_id") == dtid and fam_leg.get("type") == "outflow"
+              and fam_leg.get("added_by") == {"member_id": d_mid, "display_name": "Dad"},
+              "transfers: the family list shows the outflow with transfer_id and added_by Dad", fam_leg)
+        check(listed(M, True).get(dj.get("family_transaction_id"), {}).get("added_by", {}).get("display_name") == "Dad",
+              "transfers: Mum sees who took it")
+        per_leg = listed(D).get(dj.get("personal_transaction_id"), {})
+        check(per_leg.get("transfer_id") == dtid and per_leg.get("type") == "inflow" and per_leg.get("added_by") is None,
+              "transfers: Dad's personal list shows the inflow", per_leg)
+        check(bal(D, "mmk").get("balance") == 20000 and bal(D, "mmk", True).get("balance") == 330000,
+              "transfers: Dad +20,000, the family -20,000", (bal(D, "mmk"), bal(D, "mmk", True)))
+        r = c.get("/api/family/breakdown", headers=M["h"], params={**window, "currency": "mmk"})
+        check(r.status_code == 200 and r.json().get("total_spent") == 50000,
+              "transfers: the breakdown leaves the transfer out", f"{r.status_code} {r.text[:300]}")
+        check(spent(M, b_family, True)[0] == 50000, "transfers: a family outflow transfer isn't budget spending",
+              spent(M, b_family, True))
+
+        # ---- the backend's figures, in-process ----
+        async def figures():
+            from sql import transactions as tdb
+            from insights_service import get_financial_summary
+            lo = datetime.now(UTC) - timedelta(days=2)
+            hi = datetime.now(UTC) + timedelta(days=2)
+            return {
+                "cats": {(x["main_category"]) for x in await tdb.category_totals(book_id)}
+                | {(x["main_category"]) for x in await tdb.category_totals(M["id"])},
+                "find": [x.get("transfer_id") for x in await tdb.find_transactions(book_id, include_transfers=False)],
+                "find_all": sum(1 for x in await tdb.find_transactions(book_id) if x.get("transfer_id")),
+                "dad_has": await tdb.has_transactions_between(D["id"], lo, hi),
+                "dad_changed": await tdb.changed_since(D["id"], lo, hi, lo),
+                "dad_totals": [(x["total_inflow"], x["total_outflow"], x["count"], x["transfer_in"], x["transfer_out"])
+                               for x in await tdb.currency_totals(D["id"])],
+                "dad_summary": (await get_financial_summary(D["id"], lo, hi))["summary"],
+            }
+        try:
+            fig = _backend_async(figures)
+        except Exception as e:  # noqa: BLE001
+            fig = {"error": repr(e)[:300]}
+        check("Transfer" not in fig.get("cats", {"Transfer"}), "transfers: category_totals leaves transfers out", fig)
+        check(fig.get("find") is not None and all(x is None for x in fig["find"]) and fig.get("find_all", 0) >= 2,
+              "transfers: find_transactions(include_transfers=False) leaves them out; the default keeps them", fig)
+        check(fig.get("dad_has") is False and fig.get("dad_changed") is False,
+              "transfers: a book with only transfers has no transactions for insights (has_transactions_between, "
+              "changed_since)", fig)
+        check(fig.get("dad_totals") == [(0, 0, 0, 20000, 0)],
+              "transfers: currency_totals gives transfer_in / transfer_out apart from inflow / outflow", fig)
+        check(fig.get("dad_summary") == [], "transfers: the insights summary has no currency with only transfers", fig)
+
+        # ---- transfers can't be edited or deleted as entries ----
+        for who, leg in ((D, fam_leg), (M, fam_leg)):
+            r = c.put(f"/api/transactions/{leg.get('id')}", headers=H(who, True), json={"amount": 1})
+            check(_code(r, 400, "transfer_not_editable"), f"transfers: PUT on the family leg ({who['name']}) is 400 "
+                  "transfer_not_editable", f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{per_leg.get('id')}", headers=D["h"], json={"description": "x"})
+        check(_code(r, 400, "transfer_not_editable"), "transfers: PUT on the personal leg is 400 transfer_not_editable",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/transactions/{per_leg.get('id')}", headers=D["h"])
+        check(_code(r, 400, "use_transfer_undo"), "transfers: DELETE on a leg is 400 use_transfer_undo",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/transactions/{fam_leg.get('id')}", headers=H(M, True))
+        check(_code(r, 400, "use_transfer_undo"), "transfers: an admin deleting the family leg is 400 use_transfer_undo",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/transactions/{per_leg.get('id')}/disable-recurrence", headers=D["h"])
+        check(_code(r, 400, "transfer_not_editable"), "transfers: disable-recurrence on a leg is 400",
+              f"{r.status_code} {r.text[:200]}")
+        check(len(legs(dtid)) == 2, "transfers: both legs are still there", legs(dtid))
+
+        # ---- undo ----
+        r = c.delete(f"/api/transfers/{dtid}", headers=M["h"])
+        check(_code(r, 403, "not_allowed"), "transfers: Mum (owner) undoing Dad's transfer is 403 not_allowed",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/transfers/{dtid}", headers=H(M, True))
+        check(_code(r, 403, "not_allowed"), "transfers: ... in Family mode too", f"{r.status_code} {r.text[:200]}")
+        check(len(legs(dtid)) == 2, "transfers: a refused undo changes nothing", legs(dtid))
+        r = c.delete(f"/api/transfers/{dtid}", headers=D["h"])
+        check(r.status_code == 200 and legs(dtid) == [], "transfers: Dad undoing his own transfer removes both legs",
+              f"{r.status_code} {r.text[:200]} {legs(dtid)}")
+        check(bal(D, "mmk").get("balance") == 0 and bal(D, "mmk", True).get("balance") == 350000,
+              "transfers: after the undo both balances are back", (bal(D, "mmk"), bal(D, "mmk", True)))
+        r = c.delete(f"/api/transfers/{dtid}", headers=D["h"])
+        check(_code(r, 404, "transfer_not_found"), "transfers: undoing it again is 404 transfer_not_found",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/transfers/{uuid.uuid4()}", headers=L["h"])
+        check(_code(r, 404, "transfer_not_found"), "transfers: an unknown transfer is 404", f"{r.status_code} {r.text[:200]}")
+
+        # Undo would overdraw where the money went: Dad took K20,000 and spent K15,000 of it.
+        r = move(D, "to_personal", 20000)
+        spent_tid = r.json().get("transfer_id") if r.status_code == 200 else None
+        tx(D, amount=15000)
+        r = c.delete(f"/api/transfers/{spent_tid}", headers=D["h"])
+        check(_code(r, 400, "transfer_insufficient") and len(legs(spent_tid)) == 2,
+              "transfers: an undo that would take back money already spent is 400 transfer_insufficient",
+              f"{r.status_code} {r.text[:200]}")
+
+        # A half pair (one leg gone): the undo removes the other, never leaving half a transfer.
+        r = move(M, "to_family", 1000)
+        half = r.json().get("transfer_id") if r.status_code == 200 else None
+        db.sql("DELETE FROM transactions WHERE transfer_id = %s AND user_id = %s", half, book_id)
+        r = c.delete(f"/api/transfers/{half}", headers=M["h"])
+        check(r.status_code == 200 and legs(half) == [], "transfers: undoing a half pair removes the remaining leg",
+              f"{r.status_code} {r.text[:200]}")
+
+        # ---- MMK amounts are kept as given (the app shows whole kyat) ----
+        r = move(M, "to_family", 1500.4)
+        k = r.json() if r.status_code == 200 else {}
+        rows = legs(k.get("transfer_id"))
+        check(r.status_code == 200 and len(rows) == 2 and all(float(x["amount"]) == 1500.4 for x in rows)
+              and listed(M).get(k.get("personal_transaction_id"), {}).get("amount") == 1500.4
+              and listed(M, True).get(k.get("family_transaction_id"), {}).get("amount") == 1500.4,
+              "transfers: K1500.4 is stored and answered as 1500.4 on both legs", f"{r.status_code} {rows}")
+
+        # ---- who may transfer ----
+        r = move(L, "to_family", 1)
+        check(_code(r, 409, "no_family"), "transfers: outside a family is 409 no_family", f"{r.status_code} {r.text[:200]}")
+        for label, body in (("an unknown direction", {"direction": "sideways"}), ("a zero amount", {"amount": 0}),
+                            ("a negative amount", {"amount": -5}), ("an unknown currency", {"currency": "eur"})):
+            r = c.post("/api/transfers", headers=M["h"],
+                       json={"direction": "to_family", "amount": 1, "currency": "mmk", "date": day} | body)
+            check(r.status_code == 422, f"transfers: {label} is 422", f"{r.status_code} {r.text[:200]}")
+        r = move(M, "to_family", 1, headers=H(M, True))
+        check(r.status_code == 200, "transfers: X-Book doesn't matter (the family is always the caller's own)",
+              f"{r.status_code} {r.text[:200]}")
+        db.sql("UPDATE users SET subscription_type = 'free', subscription_expires_at = NULL WHERE id = %s", M["id"])
+        r = move(D, "to_family", 1)
+        check(_code(r, 403, "family_read_only"), "transfers: a read-only family refuses transfers (family_read_only)",
+              f"{r.status_code} {r.text[:200]}")
+    finally:
+        _cleanup_people(made)
+
+
 def main():
     section_schema()
     section_book_users()
@@ -1326,6 +1648,7 @@ def main():
     section_entries_breakdown()
     section_breakdown_rounding()
     section_recurring_children()
+    section_transfers()
     sys.exit(1 if failures else 0)
 
 

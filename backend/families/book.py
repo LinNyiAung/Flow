@@ -51,6 +51,11 @@ def _fail(user: Mapping[str, Any], status: int, code: str):
                         detail={"code": code, "message": translate(f"family_{code}_msg", user_language(user))})
 
 
+def refuse(user: Mapping[str, Any], status: int, code: str):
+    """Raise the family refusal `code` (HTTP `status`, message family_<code>_msg in the user's language)."""
+    _fail(user, status, code)
+
+
 async def get_book(current_user: dict = Depends(get_current_user),
                    x_book: Optional[str] = Header(None, alias="X-Book")) -> Book:
     """The book named by X-Book (see the module docstring)."""

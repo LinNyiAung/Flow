@@ -1,21 +1,24 @@
-"""The family: /api/family (members, roles, invitations, the per-person breakdown). Thin routes over families.service,
-which holds the rules and raises the refusals as {"detail": {"code", "message"}}, and families.breakdown."""
+"""The family: /api/family (members, roles, invitations, the per-person breakdown) and /api/transfers (moving money
+between a personal wallet and the family wallet). Thin routes over families.service, which holds the rules and raises
+the refusals as {"detail": {"code", "message"}}, families.breakdown and families.transfers."""
 from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from families import breakdown as family_breakdown
 from families import service
+from families import transfers
 from families.book import Book, get_book
-from models import Currency
+from models import Currency, PositiveAmount
 from plans.contact import normalize_email
 from report_models import ReportPeriod
 from report_routes import calculate_report_dates
 from utils import get_current_user
 
 router = APIRouter(prefix="/api/family", tags=["family"])
+transfers_router = APIRouter(prefix="/api/transfers", tags=["family"])
 
 MAX_NAME_LENGTH = 60
 
@@ -87,6 +90,15 @@ class InviteBody(BaseModel):
         if email is None:
             raise ValueError("Enter a valid email address")
         return email.lower()
+
+
+class TransferBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    direction: Literal["to_family", "to_personal"]
+    amount: PositiveAmount
+    currency: Currency
+    date: datetime
+    description: Optional[str] = None
 
 
 @router.get("")
@@ -170,3 +182,18 @@ async def accept_invite(invite_id: str, current_user: dict = Depends(get_current
 @router.post("/invites/{invite_id}/decline")
 async def decline_invite(invite_id: str, current_user: dict = Depends(get_current_user)):
     return await service.decline_invite(current_user, invite_id)
+
+
+@transfers_router.post("")
+async def create_transfer(body: TransferBody, background_tasks: BackgroundTasks,
+                          current_user: dict = Depends(get_current_user)):
+    """Move money between the caller's wallet and their own family's wallet (X-Book doesn't matter)."""
+    return await transfers.create_transfer(current_user, body.direction, body.amount, body.currency.value, body.date,
+                                           body.description, background_tasks)
+
+
+@transfers_router.delete("/{transfer_id}")
+async def undo_transfer(transfer_id: str, background_tasks: BackgroundTasks,
+                        current_user: dict = Depends(get_current_user)):
+    """Undo a transfer the caller made: both legs go together."""
+    return await transfers.undo_transfer(current_user, transfer_id, background_tasks)

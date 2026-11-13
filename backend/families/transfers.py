@@ -1,0 +1,156 @@
+"""Transfers between a person's wallet and their family's wallet (spec: "The family wallet and transfers", "Transfers
+aren't income or spending", "Undoing a transfer").
+
+A transfer is one linked pair of transactions sharing a transfer_id: an outflow in the source book and an inflow in the
+destination book, with the same date, currency, amount and description, main_category "Transfer" and sub_category
+"Family wallet". It only moves money between the two balances: every income and spending figure leaves rows with a
+transfer_id out (sql.transactions), the balance counts them (utils.get_user_balance).
+
+Money never appears or disappears: both legs are written, and removed, together in one database transaction while
+holding both books' money locks, taken in sorted id order so two transfers between the same books can't deadlock.
+
+Refusals are HTTPException(status, {"code", "message"}) in the caller's language, as in families.book.
+"""
+import uuid
+from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import UTC, datetime
+from typing import Any, AsyncIterator, Dict, Iterable, List, Literal, Optional
+
+from fastapi import BackgroundTasks, HTTPException
+
+from budget_service import update_relevant_budgets
+from families.book import Book, get_book, refuse, require_writable
+from goal_routes import to_cents
+from sql import transactions as transactions_db
+from sql import families as fdb
+from sql import users as users_db
+from sql.db import transaction
+from utils import get_user_balance, get_user_money_lock
+
+MAIN_CATEGORY = "Transfer"
+SUB_CATEGORY = "Family wallet"
+Direction = Literal["to_family", "to_personal"]
+
+
+@asynccontextmanager
+async def _money_locks(user_ids: Iterable[str]) -> AsyncIterator[None]:
+    """The money locks of these books, in sorted id order. Use inside transaction(): each lock's row lock then lasts
+    until that one transaction ends."""
+    async with AsyncExitStack() as stack:
+        for uid in sorted(set(user_ids)):
+            await stack.enter_async_context(get_user_money_lock(uid))
+        yield
+
+
+async def _family_book(person: dict) -> Optional[Book]:
+    """The caller's own family book (whatever X-Book says), or None outside a family."""
+    try:
+        return await get_book(person, "family")
+    except HTTPException:
+        return None
+
+
+async def _still_in(book: Book) -> None:
+    """Under the locks: the caller is still an active member of this family (409 no_family if they left or were
+    removed since the book was resolved)."""
+    me = await fdb.active_membership(book.person["_id"])
+    if me is None or me["family_id"] != book.family["id"]:
+        refuse(book.person, 409, "no_family")
+
+
+def _refresh(background_tasks: BackgroundTasks, legs: Iterable[Dict[str, Any]]) -> None:
+    """Budgets of both books in the background, as for a normal entry (a transfer is never budget spending, but the
+    budgets are recomputed the same way)."""
+    for leg in legs:
+        date = leg["date"] if leg["date"].tzinfo else leg["date"].replace(tzinfo=UTC)
+        background_tasks.add_task(update_relevant_budgets, leg["user_id"], date, leg["currency"])
+
+
+async def create_transfer(person: dict, direction: Direction, amount: float, currency: str, date: datetime,
+                          description: Optional[str], background_tasks: BackgroundTasks) -> Dict[str, str]:
+    """Move `amount` between the caller's wallet and their family's: `to_family` out of theirs into the family's,
+    `to_personal` out of the family's into theirs. Any active member of a family that isn't read-only.
+
+    400 transfer_insufficient when the amount is more than the source book's available balance (balance minus money
+    held for goals) in that currency; nothing is written then."""
+    book = await _family_book(person)
+    if book is None:
+        refuse(person, 409, "no_family")
+    require_writable(book)
+
+    to_family = direction == "to_family"
+    source = person["_id"] if to_family else book.id
+    transfer_id = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    when = date if date.tzinfo else date.replace(tzinfo=UTC)
+    note = (description or "").strip() or None
+
+    def leg(user_id: str, type_: str, added_by: Optional[str]) -> Dict[str, Any]:
+        return {"_id": str(uuid.uuid4()), "user_id": user_id, "type": type_, "main_category": MAIN_CATEGORY,
+                "sub_category": SUB_CATEGORY, "date": when, "description": note, "amount": amount,
+                "currency": currency, "created_at": now, "updated_at": now, "recurrence": None,
+                "transfer_id": transfer_id, "added_by_member_id": added_by}
+
+    personal = leg(person["_id"], "outflow" if to_family else "inflow", None)
+    family = leg(book.id, "inflow" if to_family else "outflow", book.member["id"])
+
+    async with transaction():
+        async with _money_locks((person["_id"], book.id)):
+            await _still_in(book)
+            available = (await get_user_balance(source, currency))["available_balance"]
+            if to_cents(amount) > to_cents(available):
+                refuse(person, 400, "transfer_insufficient")
+            await transactions_db.insert_transaction(personal)
+            await transactions_db.insert_transaction(family)
+
+    for book_id in (person["_id"], book.id):
+        await users_db.mark_ai_data_stale(book_id)
+    _refresh(background_tasks, (personal, family))
+    return {"transfer_id": transfer_id, "personal_transaction_id": personal["_id"],
+            "family_transaction_id": family["_id"]}
+
+
+async def undo_transfer(person: dict, transfer_id: str, background_tasks: BackgroundTasks) -> Dict[str, str]:
+    """Remove both legs of a transfer, in one database transaction under both books' money locks.
+
+    Only the person who made it (the personal leg is in their book) may undo it; anyone else, admins included, gets
+    403 not_allowed, as does the mover once they are no longer in the family whose leg remains, and a read-only family
+    refuses (family_read_only). If one leg is already gone, the other is removed (never half a transfer). 400 transfer_insufficient when taking the money back would
+    leave the book it went to with less than nothing available (it was spent or set aside since)."""
+    legs = await transactions_db.transfer_legs(transfer_id)
+    if not legs:
+        refuse(person, 404, "transfer_not_found")
+    mine = [x for x in legs if x["user_id"] == person["_id"]]
+    others = [x for x in legs if x["user_id"] != person["_id"]]
+    if others:  # a family leg: it must be in the caller's own family, and theirs if their personal leg is gone
+        book = await _family_book(person)
+        if book is None or any(x["user_id"] != book.id for x in others):
+            refuse(person, 403, "not_allowed")  # someone else's transfer, or a family the caller has left
+        if not mine and any(x.get("added_by_member_id") != book.member["id"] for x in others):
+            refuse(person, 403, "not_allowed")
+        require_writable(book)
+
+    async with transaction():
+        async with _money_locks(x["user_id"] for x in legs):
+            legs = await transactions_db.transfer_legs(transfer_id)
+            if not legs:
+                refuse(person, 404, "transfer_not_found")
+            await _check_destination(person, legs)
+            await transactions_db.delete_transfer(transfer_id)
+
+    for book_id in {x["user_id"] for x in legs}:
+        await users_db.mark_ai_data_stale(book_id)
+    _refresh(background_tasks, legs)
+    return {"message": "Transfer undone", "transfer_id": transfer_id}
+
+
+async def _check_destination(person: dict, legs: List[Dict[str, Any]]) -> None:
+    """With both legs there, the book the money went to (the inflow leg) must still have it available."""
+    if len(legs) != 2:
+        return
+    inflow = next((x for x in legs if x["type"] == "inflow"), None)
+    if inflow is None:
+        return
+    available = (await get_user_balance(inflow["user_id"], inflow["currency"]))["available_balance"]
+    if to_cents(available) < to_cents(inflow["amount"]):
+        refuse(person, 400, "transfer_insufficient")

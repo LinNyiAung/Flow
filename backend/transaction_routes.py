@@ -20,7 +20,7 @@ from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
 from utils import get_current_user, get_user_balance, get_user_money_lock
-from families.book import Book, clean_for_whom, get_book, require_change_entry, require_writable
+from families.book import Book, clean_for_whom, get_book, refuse, require_change_entry, require_writable
 from plans import quota, voice_token
 from goal_routes import to_cents
 from recurring_transaction_service import (
@@ -372,6 +372,7 @@ def _transaction_response(t: dict, people: EntryPeople = _NO_PEOPLE) -> Transact
         parent_transaction_id=(t.get("recurrence") or {}).get("parent_transaction_id"),
         added_by=AddedBy(member_id=added, display_name=names[added]) if added in names else None,
         for_whom=list(for_whom.get(t["_id"], [])),
+        transfer_id=t.get("transfer_id"),
     )
 
 
@@ -386,6 +387,13 @@ def _transaction_responses(docs: List[dict], people: EntryPeople = _NO_PEOPLE) -
         except Exception as e:
             logger.warning(f"Skipping malformed transaction {t.get('_id')!r}: {e}")
     return results
+
+
+def _not_a_transfer(book: Book, transaction: dict, code: str = "transfer_not_editable") -> None:
+    """400 `code` for a leg of a transfer: transfers can't be edited, and are removed only together (DELETE
+    /api/transfers/{transfer_id})."""
+    if transaction.get("transfer_id"):
+        refuse(book.person, 400, code)
 
 
 def _new_entry_fields(book: Book) -> dict:
@@ -483,7 +491,7 @@ async def create_transaction(
     # Check for large transaction
     try:
         user_transactions = await transactions_db.find_transactions(
-            book.id, type_="outflow", currency=transaction_data.currency.value, limit=50
+            book.id, type_="outflow", currency=transaction_data.currency.value, limit=50, include_transfers=False
         )
 
         if user_transactions:
@@ -560,6 +568,7 @@ async def disable_transaction_recurrence(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
+    _not_a_transfer(book, transaction)  # transfers never recur
     require_change_entry(book, transaction)
 
     success = await disable_recurrence_for_transaction(transaction_id, book.id)
@@ -674,6 +683,7 @@ async def update_transaction(
 
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    _not_a_transfer(book, transaction)
     require_change_entry(book, transaction)
     for_whom = await clean_for_whom(book, transaction_data.for_whom)  # None: unchanged
 
@@ -797,6 +807,7 @@ async def delete_transaction(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found"
         )
+    _not_a_transfer(book, transaction, "use_transfer_undo")
     require_change_entry(book, transaction)
 
     async with get_user_money_lock(book.id):

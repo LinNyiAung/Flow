@@ -184,6 +184,8 @@ class TransactionResponse(BaseModel):
     # Family book: who recorded it (null in a personal book or when not recorded) and who it was for ([] = Whole family).
     added_by: Optional[AddedBy] = None
     for_whom: List[str] = []
+    # A leg of a transfer between a personal wallet and the family wallet (null for a normal entry).
+    transfer_id: Optional[str] = None
 
 class CategoryResponse(BaseModel):
     main_category: str
