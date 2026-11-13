@@ -113,8 +113,15 @@ def t_auth():
     r = c.get("/api/auth/me", headers=H(reg_token))
     bug("register token works before email verification (verification bypass)", r.status_code == 200, r.status_code)
 
+    # The e-mail is a background task that runs after the register response is sent; on a cold server the first
+    # send can land after the requests above, so wait briefly for it instead of racing it.
     out_path = os.path.join(HERE, "outbox.jsonl")
-    out = open(out_path, encoding="utf-8").read() if os.path.exists(out_path) else ""
+    out = ""
+    for _ in range(50):
+        out = open(out_path, encoding="utf-8").read() if os.path.exists(out_path) else ""
+        if "verify-email" in out:
+            break
+        time.sleep(0.1)
     ok("verification email produced (stubbed SMTP)", "verify-email" in out, "no smtp record")
 
     u = db.users.find_one({"email": email})
