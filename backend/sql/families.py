@@ -6,7 +6,7 @@ Rows come back as plain dicts with `id` (not `_id`). Every helper joins the call
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, delete, exists, func, insert, select, update
+from sqlalchemy import and_, delete, exists, func, insert, or_, select, update
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
 from sql.tables import families as f, family_invites as fi, family_members as fm, transaction_beneficiaries as tb, users
@@ -87,6 +87,34 @@ async def count_active(family_id: str, kind: str) -> int:
 
 async def update_member(member_id: str, **fields: Any) -> int:
     return await execute(update(fm).where(fm.c.id == member_id).values(**fields))
+
+
+async def set_former(member_id: str, now: datetime) -> bool:
+    """Active, non-owner member -> former (left_at = now, role kept). False when the row is not active or is the owner
+    (e.g. it was made owner meanwhile): the owner can never become former this way."""
+    return await execute(update(fm).where(
+        fm.c.id == member_id, fm.c.status == "active", or_(fm.c.role.is_(None), fm.c.role != "owner"))
+        .values(status="former", left_at=now)) == 1
+
+
+async def demote_owner(member_id: str) -> bool:
+    """The active owner -> admin; False when the row isn't the active owner any more."""
+    return await execute(update(fm).where(fm.c.id == member_id, fm.c.role == "owner", fm.c.status == "active")
+                         .values(role="admin")) == 1
+
+
+async def make_owner(member_id: str) -> bool:
+    """An active account member -> owner; False when it isn't one any more."""
+    return await execute(update(fm).where(fm.c.id == member_id, fm.c.kind == "account", fm.c.status == "active")
+                         .values(role="owner")) == 1
+
+
+async def claim_member(member_id: str, user_id: str, now: datetime) -> bool:
+    """A placeholder or former member row becomes the person's active account member (role member; id, name and tags
+    kept). False when the row is gone or is an active account member now."""
+    return await execute(update(fm).where(
+        fm.c.id == member_id, or_(fm.c.kind == "placeholder", fm.c.status == "former"))
+        .values(kind="account", user_id=user_id, role="member", status="active", joined_at=now, left_at=None)) == 1
 
 
 async def delete_member(member_id: str) -> int:

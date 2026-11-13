@@ -276,6 +276,20 @@ def section_family_rules():
             return None, None
         return inv, c.post(f"/api/family/invites/{inv['id']}/accept", headers=who["h"])
 
+    def race(*calls):
+        """Fire (method, path, headers, json) requests at the same moment, each on its own connection -> responses."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        gate = threading.Barrier(len(calls))
+
+        def go(call):
+            method, path, headers, body = call
+            with httpx.Client(base_url=BASE, timeout=60) as cc:
+                gate.wait()
+                return cc.request(method, path, headers=headers, json=body)
+        with ThreadPoolExecutor(len(calls)) as ex:
+            return list(ex.map(go, calls))
+
     def notified(uid, kind):
         return db.sql("SELECT count(*) n FROM notifications WHERE user_id = %s AND type = %s", uid, kind)[0]["n"]
 
@@ -357,6 +371,11 @@ def section_family_rules():
         check(_code(r, 403, "not_allowed"), "family rules: an admin can't change roles", r.status_code)
         r = c.delete(f"/api/family/members/{a_mid}", headers=B["h"])
         check(_code(r, 403, "not_allowed"), "family rules: the owner can't be removed", r.status_code)
+        r = c.delete(f"/api/family/members/{a_mid}", headers=A["h"])
+        check(_code(r, 403, "not_allowed"), "family rules: the owner can't remove themselves", r.status_code)
+        row = db.sql("SELECT role, status, left_at FROM family_members WHERE id = %s", a_mid)
+        check(row and row[0]["role"] == "owner" and row[0]["status"] == "active" and row[0]["left_at"] is None,
+              "family rules: after the refused leave/remove the owner is still the active owner", row)
 
         # ---- a placeholder becomes a real member ----
         r = c.post("/api/family/placeholders", headers=B["h"], json={"display_name": "Ma Ma"})
@@ -376,6 +395,10 @@ def section_family_rules():
               "family rules: accepting a linked invite turns the placeholder into the account (same member id, one row)", rows)
         check(mama is not None and (fam(M).json().get("me") or {}).get("member_id") == mama["id"],
               "family rules: the new member is that row")
+        for who, label in ((B, "an admin"), (A, "the owner")):
+            r = c.patch(f"/api/family/members/{(mama or {}).get('id')}", headers=who["h"], json={"display_name": "Auntie"})
+            check(_code(r, 403, "not_allowed"), f"family rules: {label} can't rename an active account member (their name is their own)",
+                  f"{r.status_code} {r.text[:200]}")
 
         # ---- the member cap: active accounts + pending invites <= 6 ----
         D, E, G = register("Daw"), register("Ei"), register("Gyi")
@@ -396,6 +419,22 @@ def section_family_rules():
         check(codes == [200] * 20, "family rules: 20 placeholders are allowed", codes)
         r = c.post("/api/family/placeholders", headers=A["h"], json={"display_name": "P21"})
         check(_code(r, 409, "placeholders_full"), "family rules: a 21st placeholder is placeholders_full", f"{r.status_code} {r.text[:200]}")
+        p3 = member_of(fam(A).json(), name="P3") or {"id": "missing-p3"}
+        r = c.patch(f"/api/family/members/{p3['id']}", headers=B["h"], json={"display_name": "Grandma"})
+        check(r.status_code == 200 and (member_of(r.json(), name="Grandma") or {}).get("id") == p3["id"],
+              "family rules: an admin renames a placeholder", f"{r.status_code} {r.text[:200]}")
+
+        # ---- only the owner removes an admin ----
+        d_mid = (fam(D).json().get("me") or {}).get("member_id")
+        r = c.patch(f"/api/family/members/{d_mid}", headers=A["h"], json={"role": "admin"})
+        check(r.status_code == 200, "family rules: the owner makes a second admin", r.status_code)
+        r = c.delete(f"/api/family/members/{d_mid}", headers=B["h"])
+        check(_code(r, 403, "not_allowed") and (member_of(fam(A).json(), name="Daw") or {}).get("status") == "active",
+              "family rules: an admin can't remove another admin", f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/family/members/{d_mid}", headers=A["h"])
+        drow = member_of(fam(A).json(), name="Daw") or {}
+        check(r.status_code == 200 and drow.get("status") == "former" and drow.get("role") == "admin",
+              "family rules: the owner removes an admin (former, role kept)", f"{r.status_code} {drow}")
 
         # ---- removing placeholders: untagged deleted, tagged kept as former ----
         view = fam(A).json()
@@ -424,6 +463,9 @@ def section_family_rules():
         left = db.sql("SELECT left_at FROM family_members WHERE id = %s", c_mid)
         check(left and left[0]["left_at"] is not None, "family rules: a removed member has left_at set")
         check(notified(C["id"], "family_removed") == 1, "family rules: the removed member is notified (family_removed)")
+        r = c.patch(f"/api/family/members/{c_mid}", headers=B["h"], json={"display_name": "Chit (left)"})
+        check(r.status_code == 200 and (member_of(r.json(), name="Chit (left)") or {}).get("id") == c_mid,
+              "family rules: an admin renames a former member", f"{r.status_code} {r.text[:200]}")
 
         # ---- expired and cancelled invites (a second family) ----
         X = register("Xan", "pro")
@@ -507,15 +549,64 @@ def section_family_rules():
         check(r.status_code == 200 and fam(A).json() == {"family": None} and arow.get("status") == "former",
               "family rules: the old owner leaves and is now former", f"{r.status_code} {arow}")
 
+        row = db.sql("SELECT count(*) n FROM family_members WHERE family_id = %s AND role = 'owner' AND status = 'former'", fid)
+        check(row[0]["n"] == 0, "family rules: no former member holds the owner role", row)
+
+        # ---- a former account row can only be taken over by its own person ----
+        r = invite(B, G["email"], link=a_mid)
+        check(_code(r, 400, "invite_invalid"), "family rules: an invite linked to someone else's former row is invite_invalid",
+              f"{r.status_code} {r.text[:200]}")
+        r = invite(B, f"nobody2-{tag}@example.com", link=a_mid)
+        check(_code(r, 400, "invite_invalid"), "family rules: ... also for an e-mail without an account", f"{r.status_code} {r.text[:200]}")
+
         # ---- a former member comes back as the same member ----
-        r = invite(B, A["email"])
-        check(r.status_code == 200, "family rules: a former member can be invited again", f"{r.status_code} {r.text[:200]}")
+        r = invite(B, A["email"], link=a_mid)
+        check(r.status_code == 200, "family rules: a former member can be invited again, linked to their own row",
+              f"{r.status_code} {r.text[:200]}")
         _, r = accept_from(A, FNAME)
         va = fam(A).json()
         check(r is not None and r.status_code == 200 and (va.get("me") or {}).get("member_id") == a_mid
               and (member_of(va, user=A) or {}).get("status") == "active"
               and len([x for x in va.get("members", []) if x["display_name"] == "Aye"]) == 1,
               "family rules: re-accepting reactivates the same member id", va.get("me"))
+        c.post("/api/family/leave", headers=A["h"])
+        r = invite(B, A["email"])
+        _, r = accept_from(A, FNAME)
+        va = fam(A).json()
+        check(r is not None and r.status_code == 200 and (va.get("me") or {}).get("member_id") == a_mid,
+              "family rules: an unlinked invite also reactivates the person's former row", va.get("me"))
+
+        # ---- concurrency: handovers and leaves never leave the family without exactly one active owner ----
+        m_mid, e_mid = ((fam(u).json().get("me") or {}).get("member_id") for u in (M, E))
+        by_user = {u["id"]: u for u in (A, B, M, E)}
+
+        def owners():
+            return db.sql("SELECT user_id, status FROM family_members WHERE family_id = %s AND role = 'owner'", fid)
+
+        def one_owner():
+            o = owners()
+            return len(o) == 1 and o[0]["status"] == "active"
+
+        def back_to_b():
+            o = owners()
+            if len(o) == 1 and o[0]["user_id"] != B["id"]:
+                c.post("/api/family/transfer-ownership", headers=by_user[o[0]["user_id"]]["h"], json={"member_id": b_mid})
+            return one_owner() and owners()[0]["user_id"] == B["id"]
+
+        rs = race(("POST", "/api/family/transfer-ownership", B["h"], {"member_id": m_mid}),
+                  ("POST", "/api/family/transfer-ownership", B["h"], {"member_id": e_mid}))
+        check(sorted(r.status_code for r in rs) == [200, 403] and any(_code(r, 403, "not_allowed") for r in rs) and one_owner(),
+              "family rules: two concurrent handovers: one succeeds, the other is not_allowed, one active owner",
+              ([(r.status_code, r.text[:120]) for r in rs], owners()))
+        check(back_to_b(), "family rules: ownership handed back to B", owners())
+        rs = race(("POST", "/api/family/transfer-ownership", B["h"], {"member_id": e_mid}),
+                  ("POST", "/api/family/leave", E["h"], None))
+        t_r, l_r = rs
+        coded = ((t_r.status_code == 200 and _code(l_r, 409, "owner_must_hand_over"))
+                 or (l_r.status_code == 200 and _code(t_r, 403, "not_allowed")))
+        check(coded and one_owner(), "family rules: a handover racing the target's leave: one wins, the other is coded, one active owner",
+              ([(r.status_code, r.text[:120]) for r in rs], owners()))
+        check(back_to_b(), "family rules: ownership handed back to B again", owners())
 
         # ---- deleting the family ----
         r = c.request("DELETE", "/api/family", headers=A["h"], json={"confirm_name": FNAME})

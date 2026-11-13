@@ -2,8 +2,12 @@
 2026-11-13-family-book-design.md, "People and roles", "Invitations", "Leaving and removal", "Plans").
 
 - One active family per person. Creating one needs Plus or Pro (effective_plan); joining is free.
-- Roles: owner (exactly one; makes admins, hands over ownership, deletes the family), admin (invites, removes, adds and
-  renames placeholders, renames the family), member.
+- Roles: owner (exactly one; makes and removes admins, hands over ownership, deletes the family), admin (invites;
+  removes members and placeholders but not other admins; adds placeholders; renames placeholders and former members,
+  never an active account member; renames the family), member.
+- Member-changing writes lock the family row and re-read the rows they act on, with guarded UPDATEs, so concurrent
+  handovers, leaves and removals can never leave a family with no active owner (or a former owner).
+- An invite may take over a placeholder, or a former account row whose account is gone or is the invitee's own.
 - Read-only: when the owner's effective plan isn't Plus or Pro (family_is_read_only), inviting, joining and adding
   placeholders answer family_read_only; leaving, removing, renaming, roles, handing over ownership, cancelling invites
   and deleting still work, so the family can be repaired.
@@ -110,6 +114,16 @@ async def _context(user: Mapping[str, Any]) -> Tuple[Dict[str, Any], Dict[str, A
     return me, family
 
 
+async def _lock_and_reread(user: Mapping[str, Any], family_id: str) -> Dict[str, Any]:
+    """Inside transaction(): lock the family row, then re-read the caller's member row (rows read before the lock
+    may be stale: a concurrent handover, leave or removal). no_family when they are no longer in this family."""
+    await fdb.lock_family(family_id)
+    me = await fdb.active_membership(user["_id"])
+    if me is None or me["family_id"] != family_id:
+        _fail(user, "no_family")
+    return me
+
+
 def _is_admin(me: Mapping[str, Any]) -> bool:
     return me.get("role") in fdb.ADMIN_ROLES
 
@@ -210,23 +224,27 @@ async def add_placeholder(user: Mapping[str, Any], display_name: str) -> Dict[st
 
 async def update_member(user: Mapping[str, Any], member_id: str, display_name: Optional[str] = None,
                         role: Optional[str] = None) -> Dict[str, Any]:
-    """Admins rename anyone (former members and placeholders included); only the owner moves an active account
-    member between admin and member, and never their own role."""
-    me, family = await _context(user)
-    target = await fdb.get_member(member_id, family["id"])
-    if target is None:
-        _fail(user, "not_found")
-    fields: Dict[str, Any] = {}
-    if display_name is not None:
-        _require_admin(user, me)
-        fields["display_name"] = display_name
-    if role is not None:
-        _require_owner(user, me)
-        if target["role"] == "owner" or target["kind"] != "account" or target["status"] != "active":
-            _fail(user, "not_allowed")
-        fields["role"] = role
-    if fields:
-        await fdb.update_member(target["id"], **fields)
+    """Admins rename placeholders and former members only (an active account member's name is their own); only the
+    owner moves an active account member between admin and member, and never their own role."""
+    _, family = await _context(user)
+    async with transaction():
+        me = await _lock_and_reread(user, family["id"])
+        target = await fdb.get_member(member_id, family["id"])
+        if target is None:
+            _fail(user, "not_found")
+        fields: Dict[str, Any] = {}
+        if display_name is not None:
+            _require_admin(user, me)
+            if target["kind"] == "account" and target["status"] == "active":
+                _fail(user, "not_allowed")
+            fields["display_name"] = display_name
+        if role is not None:
+            _require_owner(user, me)
+            if target["role"] == "owner" or target["kind"] != "account" or target["status"] != "active":
+                _fail(user, "not_allowed")
+            fields["role"] = role
+        if fields:
+            await fdb.update_member(target["id"], **fields)
     return await overview(user)
 
 
@@ -247,55 +265,80 @@ async def _notify(user_id: Optional[str], kind: str, key: str, ref_id: str, ref_
 
 
 async def remove_member(user: Mapping[str, Any], member_id: str) -> Dict[str, Any]:
-    """Admins. The owner (and the caller themselves: use leave) can't be removed. An account member becomes former
-    (role kept) and is notified; a placeholder becomes former when entries are tagged with it, else it is deleted."""
-    me, family = await _context(user)
-    _require_admin(user, me)
-    target = await fdb.get_member(member_id, family["id"])
-    if target is None:
-        _fail(user, "not_found")
-    if target["role"] == "owner" or target["id"] == me["id"]:
-        _fail(user, "not_allowed")
+    """Admins remove members and placeholders; only the owner removes an admin; the owner (and the caller themselves:
+    use leave) can't be removed. An account member becomes former (role kept) and is notified; a placeholder becomes
+    former when entries are tagged with it, else it is deleted. Runs under the family lock with fresh rows, so it
+    can't race a handover into a former owner, or delete a placeholder an accept is claiming."""
+    _, family = await _context(user)
     now = _now()
-    if target["kind"] == "placeholder":
-        async with transaction():
-            if await fdb.has_tags(target["id"]):
-                if target["status"] == "active":
-                    await fdb.update_member(target["id"], status="former", left_at=now)
-            else:
+    notify_user = None
+    async with transaction():
+        me = await _lock_and_reread(user, family["id"])
+        _require_admin(user, me)
+        target = await fdb.get_member(member_id, family["id"])
+        if target is None:
+            _fail(user, "not_found")
+        if target["role"] == "owner" or target["id"] == me["id"]:
+            _fail(user, "not_allowed")
+        if target["role"] == "admin" and target["status"] == "active" and me["role"] != "owner":
+            _fail(user, "not_allowed")
+        if target["kind"] == "placeholder":
+            if not await fdb.has_tags(target["id"]):
                 await fdb.delete_member(target["id"])
-    elif target["status"] == "active":
-        await fdb.update_member(target["id"], status="former", left_at=now)
-        await _notify(target["user_id"], "family_removed", "family_removed", family["id"], family["name"],
+            elif target["status"] == "active":
+                await fdb.set_former(target["id"], now)
+        elif target["status"] == "active":
+            if not await fdb.set_former(target["id"], now):
+                _fail(user, "not_allowed")
+            notify_user = target["user_id"]
+    if notify_user:
+        await _notify(notify_user, "family_removed", "family_removed", family["id"], family["name"],
                       family_name=family["name"])
     return await overview(user)
 
 
 async def leave(user: Mapping[str, Any]) -> Dict[str, Any]:
-    me, _ = await _context(user)
-    if me["role"] == "owner":
-        _fail(user, "owner_must_hand_over")
-    await fdb.update_member(me["id"], status="former", left_at=_now())
+    """Any member but the owner becomes former (role kept). Under the family lock, re-reading the caller's row."""
+    _, family = await _context(user)
+    async with transaction():
+        me = await _lock_and_reread(user, family["id"])
+        if me["role"] == "owner" or not await fdb.set_former(me["id"], _now()):
+            _fail(user, "owner_must_hand_over")
     return {"family": None}
 
 
 async def transfer_ownership(user: Mapping[str, Any], member_id: str) -> Dict[str, Any]:
-    """Owner only, to another active account member; the old owner becomes an admin."""
-    me, family = await _context(user)
-    _require_owner(user, me)
-    async with transaction():
-        await fdb.lock_family(family["id"])
-        target = await fdb.get_member(member_id, family["id"])
-        if target is None:
-            _fail(user, "not_found")
-        if target["id"] == me["id"] or target["kind"] != "account" or target["status"] != "active":
-            _fail(user, "not_allowed")
-        await fdb.update_member(me["id"], role="admin")  # first: one active owner per family (unique index)
-        await fdb.update_member(target["id"], role="owner")
+    """Owner only, to another active account member; the old owner becomes an admin. Under the family lock with
+    fresh rows and guarded updates, so concurrent handovers, leaves and removals give a coded refusal, never two
+    owners or none."""
+    _, family = await _context(user)
+    try:
+        async with transaction():
+            me = await _lock_and_reread(user, family["id"])
+            _require_owner(user, me)
+            target = await fdb.get_member(member_id, family["id"])
+            if target is None:
+                _fail(user, "not_found")
+            if target["id"] == me["id"] or target["kind"] != "account" or target["status"] != "active":
+                _fail(user, "not_allowed")
+            # Demote first: one active owner per family (unique index).
+            if not await fdb.demote_owner(me["id"]) or not await fdb.make_owner(target["id"]):
+                _fail(user, "not_allowed")
+    except IntegrityError:
+        _fail(user, "not_allowed")
     return await overview(user)
 
 
 # ---- invitations ----
+
+def _linkable(link: Mapping[str, Any], invitee_id: Optional[str]) -> bool:
+    """Whether an invite to `invitee_id` (None: no account yet) may take over member row `link`: any placeholder; a
+    former account row only when its account is gone (user_id NULL) or is the invitee's own. Never an active
+    account member."""
+    if link["kind"] == "placeholder":
+        return True
+    return link["status"] == "former" and (link["user_id"] is None or link["user_id"] == invitee_id)
+
 
 async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Optional[str] = None) -> Dict[str, Any]:
     """Admins invite by e-mail (stored lowercased), optionally linked to a placeholder or former member of this family.
@@ -316,7 +359,7 @@ async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Opt
             link = await fdb.get_member(link_member_id, family["id"])
             if link is None:
                 _fail(user, "not_found")
-            if link["kind"] != "placeholder" and link["status"] != "former":
+            if not _linkable(link, invitee["_id"] if invitee else None):
                 _fail(user, "invite_invalid")
         if invitee:
             theirs = await fdb.active_membership(invitee["_id"])
@@ -325,7 +368,7 @@ async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Opt
         existing = await fdb.pending_invite_for(family["id"], email)
         if existing:
             await fdb.set_invite_status(existing["id"], "cancelled")
-        taken =await fdb.count_active(family["id"], "account") + await fdb.count_pending_invites(family["id"], now)
+        taken = await fdb.count_active(family["id"], "account") + await fdb.count_pending_invites(family["id"], now)
         if taken + 1 > max_members:
             _fail(user, "family_full")
         invite = await fdb.insert_invite(str(uuid.uuid4()), family["id"], email, me["id"], link_member_id,
@@ -388,14 +431,14 @@ async def accept_invite(user: Mapping[str, Any], invite_id: str) -> Dict[str, An
             reuse = None
             if invite["link_member_id"]:
                 link = await fdb.get_member(invite["link_member_id"], family_id)
-                if link and (link["kind"] == "placeholder" or link["status"] == "former"):
+                if link and link["kind"] == "account" and link["status"] == "former" and not _linkable(link, uid):
+                    _fail(user, "invite_invalid")  # someone else's former row: the invite stays pending
+                if link and _linkable(link, uid):
                     reuse = link
             if reuse is None:
                 reuse = await fdb.former_account_member(family_id, uid)
-            if reuse is not None:
-                await fdb.update_member(reuse["id"], kind="account", user_id=uid, role="member", status="active",
-                                        joined_at=now, left_at=None)
-            else:
+            # The family lock keeps the row as read (remove takes it too); a failed claim falls back to a new member.
+            if reuse is None or not await fdb.claim_member(reuse["id"], uid, now):
                 await fdb.insert_member(str(uuid.uuid4()), family_id, user.get("name") or _email(user), "account",
                                         "member", uid)
     except IntegrityError:  # joined another family concurrently (one active family per person)
