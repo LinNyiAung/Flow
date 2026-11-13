@@ -3833,6 +3833,7 @@ async def _insight_inprocess_checks(uid):
         import io
 
         import main as backend_main
+        from families.book import Book
         orig_weekly = ins.generate_weekly_insight
 
         async def weekly_fails(user_id):
@@ -3843,7 +3844,7 @@ async def _insight_inprocess_checks(uid):
             with contextlib.redirect_stdout(out):
                 # the route reads the plan from the user (the route is Plus and Pro only)
                 res = await backend_main.manually_generate_weekly_insights(
-                    current_user={"_id": uid, "subscription_type": "plus", "subscription_expires_at": None})
+                    book=Book.personal({"_id": uid, "subscription_type": "plus", "subscription_expires_at": None}))
         finally:
             ins.generate_weekly_insight = orig_weekly
         printed = out.getvalue()
@@ -4011,6 +4012,7 @@ async def _budget_inprocess_checks(uid):
     from sqlalchemy import select
 
     import budget_routes
+    from families.book import Book
     import budget_service as bs
     from ai_providers import health, settings
     from ai_providers.errors import AllProvidersFailed, UnusableAnswer
@@ -4135,7 +4137,7 @@ async def _budget_inprocess_checks(uid):
             with LogCapture("budget_service") as cap:
                 req = AIBudgetRequest(period="monthly", start_date=now, currency="usd", analysis_months=3)
                 try:
-                    await budget_routes.get_ai_budget_suggestions(req, current_user=plus_user)
+                    await budget_routes.get_ai_budget_suggestions(req, book=Book.personal(plus_user))
                     err = None
                 except HTTPException as e:
                     err = e
@@ -4160,7 +4162,7 @@ async def _budget_inprocess_checks(uid):
             for lang, want in (("en", "Ko Toe Pwar can't suggest a budget right now. Please try again in a moment."),
                                ("my", "ကိုတိုးပွား ယခု ဘတ်ဂျက် အကြံပြု၍ မရသေးပါ။ ခဏအကြာတွင် ထပ်ကြိုးစားပါ။")):
                 try:
-                    await budget_routes.get_ai_budget_suggestions(req, current_user={**plus_user, "language": lang})
+                    await budget_routes.get_ai_budget_suggestions(req, book=Book.personal({**plus_user, "language": lang}))
                     err = None
                 except HTTPException as e:
                     err = e

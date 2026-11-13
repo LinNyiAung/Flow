@@ -40,6 +40,11 @@ class Book:
     def is_family(self) -> bool:
         return self.kind == "family"
 
+    @classmethod
+    def personal(cls, person: dict) -> "Book":
+        """The person's own book (what get_book gives without X-Book)."""
+        return cls(id=person["_id"], kind="personal", person=person, family=None, member=None, read_only=False)
+
 
 def _fail(user: Mapping[str, Any], status: int, code: str):
     raise HTTPException(status_code=status,
@@ -51,8 +56,7 @@ async def get_book(current_user: dict = Depends(get_current_user),
     """The book named by X-Book (see the module docstring)."""
     value = x_book.strip().lower() if x_book is not None else None
     if value in PERSONAL_VALUES:
-        return Book(id=current_user["_id"], kind="personal", person=current_user, family=None, member=None,
-                    read_only=False)
+        return Book.personal(current_user)
     if value != "family":
         _fail(current_user, 400, "invalid_book")
     member = await fdb.active_membership(current_user["_id"])

@@ -941,6 +941,7 @@ async def generation_checks(t, h):
 
         # ---- the create route: an error after the insert committed gives nothing back (the row owns the use)
         import custom_insight_routes as routes
+        from families.book import Book
         from fastapi import Response
         u5, u5h = h.register("gen-create")
         check(h.set_plan(u5, "pro") and h.add_tx(u5h, "outflow", 30, today - timedelta(days=2)),
@@ -961,7 +962,7 @@ async def generation_checks(t, h):
             ci.insert_pending, ci.get = insert, get
             try:
                 await routes.create_custom_insight(routes.CustomInsightCreate(start_date=start, end_date=end), Response(),
-                                                   current_user=await users_db.get_user(u5))
+                                                   book=Book.personal(await users_db.get_user(u5)))
                 return "returned"
             except asyncio.CancelledError:
                 return "cancelled"
