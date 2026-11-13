@@ -643,6 +643,9 @@ FAM = {"X-Book": "family"}
 
 def section_book_scope():
     """Every financial route reads and writes the book the request names (X-Book), never another one."""
+    backend = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
     c = httpx.Client(base_url=BASE, timeout=60)
     tag = uuid.uuid4().hex[:6]
     made = []
@@ -761,11 +764,11 @@ def section_book_scope():
                   and got[0].get("total_goals", got[0].get("total_budgets")) == 1,
                   f"book scope: {path} is identical for both and counts only the family's", got)
         body = {"period": "month"}
-        rep = same_for_both("/api/reports/generate-multi-currency", "POST", body, strip=("generated_at",))
+        rep = same_for_both("/api/reports/generate-multi-currency", "POST", body, strip=("generated_at", "end_date"))
         check(rep[0] == rep[1] and rep[0].get("total_transactions") == len(fam_tx)
               and [g["goal_id"] for g in rep[0].get("goals", [])] == [fam_goal],
               "book scope: the multi-currency report is identical for both and only the family's", rep[0])
-        rep = same_for_both("/api/reports/generate", "POST", body | {"currency": "usd"}, strip=("generated_at",))
+        rep = same_for_both("/api/reports/generate", "POST", body | {"currency": "usd"}, strip=("generated_at", "end_date"))
         check(rep[0] == rep[1] and abs(rep[0].get("total_outflow", -1) - 7) < 1e-9 and rep[0].get("total_inflow") == 1000,
               "book scope: the USD report is identical for both and only the family's", rep[0])
 
@@ -832,6 +835,19 @@ def section_book_scope():
         r = c.get("/api/custom-insights", headers=H(M, True))
         check(r.status_code == 200 and r.json().get("reports") == [], "book scope: the family custom-insight list has no personal reports",
               r.text[:200])
+
+        # A family custom insight is the book's row but the asker's use: a give-back must reach the asker's counters.
+        async def give_back_target():
+            import custom_insights_service as cis
+            from plans import quota
+            r = quota.Reservation(D["id"], [("custom_insight", "month", now.date())])
+            fam_row = {"user_id": book_id, "counter_keys": cis.counter_keys(r, book_id)}
+            own_row = {"user_id": D["id"], "counter_keys": cis.counter_keys(r, D["id"])}
+            return (cis._reservation(fam_row).user_id, len(fam_row["counter_keys"][0]),
+                    cis._reservation(own_row).user_id, len(own_row["counter_keys"][0]))
+        got = _backend_async(give_back_target)
+        check(got == (D["id"], 4, D["id"], 3),
+              "book scope: a family custom insight's counter_keys name the asker (personal ones are unchanged)", got)
 
         # ---- headers ----
         r = c.get("/api/transactions", headers=H(O, True))
