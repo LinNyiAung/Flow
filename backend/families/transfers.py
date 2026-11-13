@@ -114,27 +114,33 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
     """Remove both legs of a transfer, in one database transaction under both books' money locks.
 
     Only the person who made it (the personal leg is in their book) may undo it; anyone else, admins included, gets
-    403 not_allowed, as does the mover once they are no longer in the family whose leg remains, and a read-only family
-    refuses (family_read_only). If one leg is already gone, the other is removed (never half a transfer). 400 transfer_insufficient when taking the money back would
+    403 not_allowed, as does the mover once they are no longer in the family whose leg it is, and a read-only family
+    refuses (family_read_only).
+
+    Both legs must exist (R13): if one is gone (e.g. the family was deleted, which removes the family leg while the
+    personal leg stays in the mover's history), 409 transfer_gone and nothing is deleted. Removing the remaining leg
+    would bring back money that left with the other book. 400 transfer_insufficient when taking the money back would
     leave the book it went to with less than nothing available (it was spent or set aside since)."""
     legs = await transactions_db.transfer_legs(transfer_id)
     if not legs:
         refuse(person, 404, "transfer_not_found")
-    mine = [x for x in legs if x["user_id"] == person["_id"]]
-    others = [x for x in legs if x["user_id"] != person["_id"]]
-    if others:  # a family leg: it must be in the caller's own family, and theirs if their personal leg is gone
-        book = await _family_book(person)
-        if book is None or any(x["user_id"] != book.id for x in others):
-            refuse(person, 403, "not_allowed")  # someone else's transfer, or a family the caller has left
-        if not mine and any(x.get("added_by_member_id") != book.member["id"] for x in others):
-            refuse(person, 403, "not_allowed")
-        require_writable(book)
+    if not any(x["user_id"] == person["_id"] for x in legs):
+        refuse(person, 403, "not_allowed")  # someone else's transfer (its personal leg is in their book)
+    if len(legs) != 2:
+        refuse(person, 409, "transfer_gone")
+    family_leg = next(x for x in legs if x["user_id"] != person["_id"])
+    book = await _family_book(person)
+    if book is None or family_leg["user_id"] != book.id:
+        refuse(person, 403, "not_allowed")  # a family the caller is no longer in
+    require_writable(book)
 
     async with transaction():
         async with _money_locks(x["user_id"] for x in legs):
             legs = await transactions_db.transfer_legs(transfer_id)
             if not legs:
-                refuse(person, 404, "transfer_not_found")
+                refuse(person, 404, "transfer_not_found")  # undone meanwhile
+            if len(legs) != 2:
+                refuse(person, 409, "transfer_gone")
             await _check_destination(person, legs)
             await transactions_db.delete_transfer(transfer_id)
 
@@ -145,12 +151,8 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
 
 
 async def _check_destination(person: dict, legs: List[Dict[str, Any]]) -> None:
-    """With both legs there, the book the money went to (the inflow leg) must still have it available."""
-    if len(legs) != 2:
-        return
-    inflow = next((x for x in legs if x["type"] == "inflow"), None)
-    if inflow is None:
-        return
+    """The book the money went to (the inflow leg) must still have it available."""
+    inflow = next(x for x in legs if x["type"] == "inflow")
     available = (await get_user_balance(inflow["user_id"], inflow["currency"]))["available_balance"]
     if to_cents(available) < to_cents(inflow["amount"]):
         refuse(person, 400, "transfer_insufficient")

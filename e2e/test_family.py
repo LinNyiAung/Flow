@@ -1604,12 +1604,18 @@ def section_transfers():
               "transfers: an undo that would take back money already spent is 400 transfer_insufficient",
               f"{r.status_code} {r.text[:200]}")
 
-        # A half pair (one leg gone): the undo removes the other, never leaving half a transfer.
+        # R13: a half pair (one leg gone) can't be undone: removing the other leg would bring money back.
         r = move(M, "to_family", 1000)
         half = r.json().get("transfer_id") if r.status_code == 200 else None
         db.sql("DELETE FROM transactions WHERE transfer_id = %s AND user_id = %s", half, book_id)
+        m_before = bal(M, "mmk")
         r = c.delete(f"/api/transfers/{half}", headers=M["h"])
-        check(r.status_code == 200 and legs(half) == [], "transfers: undoing a half pair removes the remaining leg",
+        check(_code(r, 409, "transfer_gone") and len(legs(half)) == 1 and legs(half)[0]["user_id"] == M["id"]
+              and bal(M, "mmk") == m_before,
+              "transfers: undoing a half pair is 409 transfer_gone; the personal leg and the balance stay",
+              f"{r.status_code} {r.text[:200]} {legs(half)}")
+        r = c.delete(f"/api/transfers/{half}", headers=D["h"])
+        check(_code(r, 403, "not_allowed"), "transfers: someone else undoing a half pair is 403 not_allowed",
               f"{r.status_code} {r.text[:200]}")
 
         # ---- MMK amounts are kept as given (the app shows whole kyat) ----
@@ -1636,6 +1642,19 @@ def section_transfers():
         r = move(D, "to_family", 1)
         check(_code(r, 403, "family_read_only"), "transfers: a read-only family refuses transfers (family_read_only)",
               f"{r.status_code} {r.text[:200]}")
+
+        # R13: deleting the family removes its legs; the personal legs stay in Mum's history and can't be undone.
+        kept = k.get("transfer_id")
+        r = c.request("DELETE", "/api/family", headers=M["h"], json={"confirm_name": f"Transfers family {tag}"})
+        check(r.status_code == 200, "transfers: Mum deletes the family", f"{r.status_code} {r.text[:200]}")
+        rows = legs(kept)
+        check(len(rows) == 1 and rows[0]["user_id"] == M["id"],
+              "transfers: after the family is deleted Mum's personal leg stays", rows)
+        m_before = bal(M, "mmk")
+        r = c.delete(f"/api/transfers/{kept}", headers=M["h"])
+        check(_code(r, 409, "transfer_gone") and len(legs(kept)) == 1 and bal(M, "mmk") == m_before,
+              "transfers: undoing it then is 409 transfer_gone; the leg and Mum's balance are unchanged",
+              f"{r.status_code} {r.text[:200]} {bal(M, 'mmk')} vs {m_before}")
     finally:
         _cleanup_people(made)
 

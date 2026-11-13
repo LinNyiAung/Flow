@@ -139,6 +139,7 @@ NOTIFICATION_TRANSLATIONS = {
         "family_transfer_not_editable_msg": "A transfer can't be changed. Undo it and make a new one.",
         "family_use_transfer_undo_msg": "This is a transfer. Undo the transfer to remove both sides together.",
         "family_transfer_not_found_msg": "That transfer wasn't found.",
+        "family_transfer_gone_msg": "This transfer can't be undone because one side of it no longer exists.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -250,6 +251,7 @@ NOTIFICATION_TRANSLATIONS = {
         "family_transfer_not_editable_msg": "ငွေလွှဲမှုကို ပြင်၍မရပါ။ ပြန်ရုပ်သိမ်းပြီး အသစ်ပြုလုပ်ပါ။",
         "family_use_transfer_undo_msg": "ဤစာရင်းသည် ငွေလွှဲမှုဖြစ်ပါသည်။ နှစ်ဘက်လုံးကို အတူဖယ်ရှားရန် ငွေလွှဲမှုကို ပြန်ရုပ်သိမ်းပါ။",
         "family_transfer_not_found_msg": "ထိုငွေလွှဲမှုကို မတွေ့ပါ။",
+        "family_transfer_gone_msg": "ဤငွေလွှဲမှု၏ တစ်ဘက်မှာ မရှိတော့သဖြင့် ပြန်ရုပ်သိမ်း၍ မရပါ။",
     }
 }
 
