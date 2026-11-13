@@ -3,10 +3,13 @@
 Sections:
   schema -- the tables / columns / indexes the family book needs (Task 1).
   book users -- hidden, can't log in, left out of admin lists, stats, broadcasts, plan expiry and jobs (Task 2).
+  family rules -- creating, inviting, joining, roles, removal, ownership, read-only (Task 3).
+  book scope and privacy -- X-Book picks the book; no record is reachable from another book (Task 4).
 """
 import asyncio
 import os
 import sys
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -239,11 +242,8 @@ def _code(r, status, code):
     return isinstance(d, dict) and d.get("code") == code and bool(d.get("message"))
 
 
-def section_family_rules():
-    c = httpx.Client(base_url=BASE, timeout=60)
-    tag = uuid.uuid4().hex[:6]
-    made = []
-
+def _registrar(c, tag, made):
+    """register(name, plan) -> {"id", "email", "name", "h"}: a verified account on `plan`, its id added to `made`."""
     def register(name, plan="free"):
         email = f"fam-{name.lower()}-{tag}@example.com"
         c.post("/api/auth/register", json={"name": name, "email": email, "password": "secret123"})
@@ -255,6 +255,22 @@ def section_family_rules():
         db.sql("UPDATE users SET subscription_type = %s, subscription_expires_at = %s, trial_ends_at = NULL WHERE id = %s",
                plan, expires, uid)
         return {"id": uid, "email": email, "name": name, "h": {"Authorization": f"Bearer {token}"}}
+    return register
+
+
+def _cleanup_people(made):
+    """Delete the people in `made` and the book users of the families they were in (cascading to everything)."""
+    if made:
+        db.sql("DELETE FROM users WHERE id IN (SELECT f.book_user_id FROM families f JOIN family_members m "
+               "ON m.family_id = f.id WHERE m.user_id = ANY(%s))", made)
+        db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+
+
+def section_family_rules():
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
 
     def fam(u):
         return c.get("/api/family", headers=u["h"])
@@ -619,16 +635,255 @@ def section_family_rules():
               "family rules: the owner deletes the family; its book user is gone", f"{r.status_code} {r.text[:200]}")
         check(not db.sql("SELECT 1 FROM transactions WHERE id = %s", tx), "family rules: the family's entries went with it")
     finally:
-        if made:
-            db.sql("DELETE FROM users WHERE id IN (SELECT f.book_user_id FROM families f JOIN family_members m "
-                   "ON m.family_id = f.id WHERE m.user_id = ANY(%s))", made)
-            db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+        _cleanup_people(made)
+
+
+FAM = {"X-Book": "family"}
+
+
+def section_book_scope():
+    """Every financial route reads and writes the book the request names (X-Book), never another one."""
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    now = datetime.now(UTC).replace(microsecond=0)
+    som = now.replace(day=1, hour=0, minute=0, second=0)
+
+    def H(u, family=False):
+        return {**u["h"], **(FAM if family else {})}
+
+    def tx(u, family=False, **kw):
+        body = {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "date": now.isoformat(), "amount": 10, "currency": "usd", "description": "scope"} | kw
+        return c.post("/api/transactions", headers=H(u, family), json=body)
+
+    def budget(u, family=False, name="B"):
+        return c.post("/api/budgets", headers=H(u, family), json={
+            "name": name, "period": "monthly", "start_date": som.isoformat(), "currency": "usd", "total_budget": 100,
+            "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100}]})
+
+    def goal(u, family=False, name="G"):
+        return c.post("/api/goals", headers=H(u, family), json={
+            "name": name, "target_amount": 500, "goal_type": "savings", "currency": "usd"})
+
+    def ids(r):
+        return sorted(x["id"] for x in r.json()) if r.status_code == 200 else (r.status_code, r.text[:200])
+
+    def same_for_both(path, method="GET", body=None, strip=()):
+        """(Mum's body, Dad's body) for a family-mode request, with volatile keys removed."""
+        out = []
+        for u in (M, D):
+            r = c.request(method, path, headers=H(u, True), json=body)
+            j = r.json() if r.status_code == 200 else (r.status_code, r.text[:200])
+            if isinstance(j, dict):
+                j = {k: v for k, v in j.items() if k not in strip}
+            out.append(j)
+        return out
+
+    def book_flag(uid):
+        return db.sql("SELECT ai_data_stale FROM users WHERE id = %s", uid)[0]["ai_data_stale"]
+
+    try:
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        O = register("Outsider", "free")
+        r = c.post("/api/family", headers=M["h"], json={"name": f"Scope family {tag}"})
+        fid = (r.json().get("family") or {}).get("id") if r.status_code == 200 else None
+        m_mid = (r.json().get("me") or {}).get("member_id") if r.status_code == 200 else None
+        book_id = db.sql("SELECT book_user_id FROM families WHERE id = %s", fid)[0]["book_user_id"] if fid else None
+        c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
+        r = c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"]) if inv else None
+        check(r is not None and r.status_code == 200 and book_id, "book scope: Mum's family with Dad as a member",
+              r is not None and f"{r.status_code} {r.text[:200]}")
+        d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
+
+        # ---- personal records for each, family records from both ----
+        mum_tx = [tx(M, amount=a).json()["id"] for a in (11, 12)]
+        dad_tx = [tx(D, amount=21).json()["id"]]
+        mum_in = tx(M, type="inflow", main_category="Employment Income", sub_category="Salary", amount=900).json()["id"]
+        mum_budget, dad_budget = budget(M, name="Mum B").json()["id"], budget(D, name="Dad B").json()["id"]
+        mum_goal, dad_goal = goal(M, name="Mum G").json()["id"], goal(D, name="Dad G").json()["id"]
+        rec = c.post("/api/transactions", headers=H(D), json={
+            "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "date": now.isoformat(),
+            "amount": 5, "currency": "usd", "recurrence": {"enabled": True, "config": {"frequency": "monthly", "day_of_month": 1}}})
+        dad_rec = rec.json().get("id") if rec.status_code == 200 else None
+        dad_report = str(uuid.uuid4())
+        db.sql("INSERT INTO custom_insights (id, user_id, start_date, end_date, status, content) "
+               "VALUES (%s, %s, current_date - 7, current_date, 'ready', 'Dad''s private report')", dad_report, D["id"])
+
+        db.sql("UPDATE users SET ai_data_stale = false WHERE id IN (%s, %s)", M["id"], book_id)
+        r = tx(M, True, amount=40, currency="mmk")
+        fam_tx = [r.json().get("id")] if r.status_code == 200 else []
+        check(r.status_code == 200 and r.json().get("user_id") == book_id,
+              "book scope: a family POST transaction is stored under the book", f"{r.status_code} {r.text[:200]}")
+        check(book_flag(book_id) is True and book_flag(M["id"]) is False,
+              "book scope: a family write marks the book's AI data stale, not the person's")
+        row = db.sql("SELECT added_by_member_id FROM transactions WHERE id = %s", fam_tx[0])[0] if fam_tx else {}
+        check(row.get("added_by_member_id") == m_mid, "book scope: a family entry records who added it", row)
+        r = tx(D, True, type="inflow", main_category="Employment Income", sub_category="Salary", amount=1000)
+        fam_tx.append(r.json().get("id"))
+        r = c.post("/api/transactions/batch-create", headers=H(D, True), json=[
+            {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+             "date": now.isoformat(), "amount": 7, "currency": "usd"}])
+        check(r.status_code == 200 and all(t["user_id"] == book_id for t in r.json()),
+              "book scope: a family batch-create is stored under the book", f"{r.status_code} {r.text[:200]}")
+        fam_tx += [t["id"] for t in r.json()] if r.status_code == 200 else []
+        fam_budget = budget(M, True, name="Family B").json().get("id")
+        r = goal(M, True, name="Family G")
+        fam_goal = r.json().get("id")
+        check(r.status_code == 200 and r.json().get("user_id") == book_id, "book scope: a family goal is stored under the book",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/goals/{fam_goal}/contribute", headers=H(D, True), json={"amount": 10})
+        check(r.status_code == 200, "book scope: Dad contributes to the family goal from the family balance",
+              f"{r.status_code} {r.text[:200]}")
+
+        # ---- Family mode: Mum and Dad see the same book, and only the family's records ----
+        time.sleep(1.5)  # budget recompute runs in the background
+        lists = same_for_both("/api/transactions")
+        check(lists[0] == lists[1] and sorted(t["id"] for t in lists[0]) == sorted(fam_tx),
+              "book scope: family transactions are identical for Mum and Dad and only the family's",
+              (len(lists[0]) if isinstance(lists[0], list) else lists[0], len(fam_tx)))
+        bal = same_for_both("/api/dashboard/balance")
+        usd = (bal[0].get("balances") or {}).get("usd", {}) if isinstance(bal[0], dict) else {}
+        check(bal[0] == bal[1] and abs(usd.get("balance", 0) - 993) < 1e-9 and abs(usd.get("allocated_to_goals", 0) - 10) < 1e-9
+              and set(bal[0].get("balances", {})) == {"usd", "mmk"},
+              "book scope: the family balance is identical for both and counts only family entries", bal[0])
+        for path, want in (("/api/budgets", [fam_budget]), ("/api/goals", [fam_goal])):
+            got = same_for_both(path)
+            check(got[0] == got[1] and sorted(x["id"] for x in got[0]) == want,
+                  f"book scope: GET {path} is identical for both and only the family's", got[0])
+        for path in ("/api/budgets/summary/all-currencies", "/api/goals/summary", "/api/goals/summary/all-currencies",
+                     "/api/budgets/summary"):
+            got = same_for_both(path)
+            check(isinstance(got[0], dict) and got[0] == got[1]
+                  and got[0].get("total_goals", got[0].get("total_budgets")) == 1,
+                  f"book scope: {path} is identical for both and counts only the family's", got)
+        body = {"period": "month"}
+        rep = same_for_both("/api/reports/generate-multi-currency", "POST", body, strip=("generated_at",))
+        check(rep[0] == rep[1] and rep[0].get("total_transactions") == len(fam_tx)
+              and [g["goal_id"] for g in rep[0].get("goals", [])] == [fam_goal],
+              "book scope: the multi-currency report is identical for both and only the family's", rep[0])
+        rep = same_for_both("/api/reports/generate", "POST", body | {"currency": "usd"}, strip=("generated_at",))
+        check(rep[0] == rep[1] and abs(rep[0].get("total_outflow", -1) - 7) < 1e-9 and rep[0].get("total_inflow") == 1000,
+              "book scope: the USD report is identical for both and only the family's", rep[0])
+
+        # ---- Personal mode: each sees only their own records ----
+        check(ids(c.get("/api/transactions", headers=H(M))) == sorted(mum_tx + [mum_in]),
+              "book scope: Mum's personal list is only her own entries")
+        r = c.get("/api/transactions", headers=H(D))
+        dl = r.json() if r.status_code == 200 else []
+        check(set(dad_tx + [dad_rec]) <= {t["id"] for t in dl} and all(t["user_id"] == D["id"] for t in dl),
+              "book scope: Dad's personal list is only his own entries", [(t["id"], t["user_id"]) for t in dl])
+        check(ids(c.get("/api/budgets", headers=H(M))) == [mum_budget] and ids(c.get("/api/goals", headers=H(D))) == [dad_goal],
+              "book scope: personal budgets and goals are each person's own")
+        b = c.get("/api/dashboard/balance", headers=H(M), params={"currency": "usd"}).json()
+        check(abs(b.get("balance", 0) - (900 - 23)) < 1e-9, "book scope: Mum's personal balance is only her own", b)
+
+        # ---- Review Focus 1: no record is reachable by id from another book ----
+        targets = {
+            "Dad's personal transaction": (f"/api/transactions/{dad_tx[0]}", {"amount": 1}),
+            "Dad's personal budget": (f"/api/budgets/{dad_budget}", {"name": "pwned"}),
+            "Dad's personal goal": (f"/api/goals/{dad_goal}", {"name": "pwned"}),
+        }
+        for family in (False, True):
+            mode = "family" if family else "personal"
+            for label, (path, put) in targets.items():
+                codes = [c.get(path, headers=H(M, family)).status_code, c.put(path, headers=H(M, family), json=put).status_code,
+                         c.delete(path, headers=H(M, family)).status_code]
+                check(codes == [404, 404, 404], f"book scope: Mum GET/PUT/DELETE of {label} in {mode} mode is 404", codes)
+            codes = [c.post(f"/api/goals/{dad_goal}/contribute", headers=H(M, family), json={"amount": 1}).status_code,
+                     c.post(f"/api/budgets/{dad_budget}/refresh", headers=H(M, family)).status_code,
+                     c.post(f"/api/transactions/{dad_rec}/disable-recurrence", headers=H(M, family)).status_code,
+                     c.post(f"/api/transactions/{dad_rec}/disable-parent-recurrence", headers=H(M, family)).status_code,
+                     c.get(f"/api/custom-insights/{dad_report}", headers=H(M, family)).status_code,
+                     c.delete(f"/api/custom-insights/{dad_report}", headers=H(M, family)).status_code]
+            check(codes == [404] * 6, f"book scope: contribute / refresh / recurrence / custom insight by id of Dad's in {mode} mode is 404", codes)
+        for label, path, put in ((("Mum's own personal transaction", f"/api/transactions/{mum_tx[0]}", {"amount": 1}),
+                                  ("Mum's own personal budget", f"/api/budgets/{mum_budget}", {"name": "x"}),
+                                  ("Mum's own personal goal", f"/api/goals/{mum_goal}", {"name": "x"}))):
+            codes = [c.get(path, headers=H(M, True)).status_code, c.put(path, headers=H(M, True), json=put).status_code,
+                     c.delete(path, headers=H(M, True)).status_code]
+            check(codes == [404, 404, 404], f"book scope: {label} by id with X-Book: family is 404", codes)
+        r = c.get(f"/api/custom-insights/{dad_report}", headers=H(D, True))
+        check(r.status_code == 404, "book scope: Dad's own personal custom insight is 404 in family mode", r.status_code)
+        r = c.get(f"/api/transactions/{fam_tx[0]}", headers=H(M))
+        check(r.status_code == 404, "book scope: a family entry by id in personal mode is 404", r.status_code)
+        survived = (db.sql("SELECT count(*) n FROM transactions WHERE id = ANY(%s)", dad_tx + [mum_tx[0]])[0]["n"],
+                    db.sql("SELECT count(*) n FROM budgets WHERE id = ANY(%s)", [dad_budget, mum_budget])[0]["n"],
+                    db.sql("SELECT count(*) n FROM goals WHERE id = ANY(%s) AND name NOT LIKE 'pwned'", [dad_goal, mum_goal])[0]["n"],
+                    db.sql("SELECT recurrence_enabled e FROM transactions WHERE id = %s", dad_rec)[0]["e"])
+        check(survived == (2, 2, 2, True), "book scope: none of those requests changed a record", survived)
+        r = c.get(f"/api/custom-insights/{dad_report}", headers=H(D))
+        check(r.status_code == 200, "book scope: Dad still reads his own personal custom insight", r.status_code)
+
+        # ---- insights: the book's, gated by the owner's plan ----
+        r = c.get("/api/insights", headers=H(M, True), params={"insight_type": "weekly"})
+        mum_ins = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and mum_ins.get("user_id") == book_id,
+              "book scope: a family weekly insight is the book's", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "weekly"})
+        check(r.status_code == 200 and r.json().get("id") == mum_ins.get("id"),
+              "book scope: Dad (Free) sees the same family weekly insight (the owner's plan gates it)", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/insights", headers=H(D), params={"insight_type": "weekly"})
+        check(_code(r, 403, "plan_feature_locked"), "book scope: Dad's personal weekly insight stays locked on his Free plan",
+              r.status_code)
+        r = c.get("/api/custom-insights", headers=H(M, True))
+        check(r.status_code == 200 and r.json().get("reports") == [], "book scope: the family custom-insight list has no personal reports",
+              r.text[:200])
+
+        # ---- headers ----
+        r = c.get("/api/transactions", headers=H(O, True))
+        check(_code(r, 409, "no_family"), "book scope: X-Book: family outside a family is 409 no_family", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/transactions", headers={**O["h"], "X-Book": "personal"})
+        check(r.status_code == 200, "book scope: X-Book: personal is the personal book", r.status_code)
+        r = c.get("/api/transactions", headers={**O["h"], "X-Book": "someone-else"})
+        check(_code(r, 400, "invalid_book"), "book scope: an unknown X-Book value is 400 invalid_book", f"{r.status_code} {r.text[:200]}")
+
+        # ---- Review Focus 3: the owner's plan lapses ----
+        db.sql("UPDATE users SET subscription_expires_at = now() - interval '1 day' WHERE id = %s", M["id"])
+        for who in (M, D):
+            r = tx(who, True)
+            check(_code(r, 403, "family_read_only"), f"book scope: a lapsed family refuses {who['name']}'s family POST transaction",
+                  f"{r.status_code} {r.text[:200]}")
+        r = budget(M, True)
+        check(_code(r, 403, "family_read_only"), "book scope: a lapsed family refuses a new budget", r.status_code)
+        r = goal(M, True)
+        check(_code(r, 403, "family_read_only"), "book scope: a lapsed family refuses a new goal", r.status_code)
+        r = c.put(f"/api/transactions/{fam_tx[0]}", headers=H(M, True), json={"amount": 99})
+        check(_code(r, 403, "family_read_only"), "book scope: a lapsed family refuses an edit", r.status_code)
+        r = c.delete(f"/api/transactions/{fam_tx[0]}", headers=H(M, True))
+        check(_code(r, 403, "family_read_only"), "book scope: a lapsed family refuses a delete", r.status_code)
+        r = c.post(f"/api/goals/{fam_goal}/contribute", headers=H(D, True), json={"amount": 1})
+        check(_code(r, 403, "family_read_only"), "book scope: a lapsed family refuses a goal contribution", r.status_code)
+        check(ids(c.get("/api/transactions", headers=H(D, True))) == sorted(fam_tx),
+              "book scope: family GETs still work while read-only")
+        r = c.get("/api/dashboard/balance", headers=H(M, True))
+        check(r.status_code == 200, "book scope: the family balance still reads while read-only", r.status_code)
+        check(tx(M).status_code == 200 and tx(D).status_code == 200, "book scope: personal writes still work while the family is read-only")
+        db.sql("UPDATE users SET subscription_expires_at = now() + interval '30 days' WHERE id = %s", M["id"])
+        check(tx(M, True).status_code == 200, "book scope: renewing the owner's plan makes the family writable again")
+
+        # ---- Review Focus 4: Dad is removed while his app is open ----
+        r = c.delete(f"/api/family/members/{d_mid}", headers=M["h"])
+        check(r.status_code == 200, "book scope: Mum removes Dad", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/transactions", headers=H(D, True))
+        check(_code(r, 409, "no_family"), "book scope: Dad's next family request is 409 no_family", f"{r.status_code} {r.text[:200]}")
+        r = tx(D, True)
+        check(_code(r, 409, "no_family"), "book scope: Dad can no longer write to the family book", r.status_code)
+        r = c.get("/api/transactions", headers=H(D))
+        check(r.status_code == 200 and dad_tx[0] in {t["id"] for t in r.json()},
+              "book scope: Dad's personal book still works after removal", r.status_code)
+    finally:
+        _cleanup_people(made)
 
 
 def main():
     section_schema()
     section_book_users()
     section_family_rules()
+    section_book_scope()
     sys.exit(1 if failures else 0)
 
 

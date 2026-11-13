@@ -1,0 +1,84 @@
+"""The book a request works on (spec: docs/superpowers/specs/2026-11-13-family-book-design.md, "Privacy").
+
+Every financial route takes `book: Book = Depends(get_book)` and reads and writes `book.id` instead of the person's id.
+The book is resolved on the server from the X-Book header and the caller's own membership, never from a client-supplied
+user id:
+
+- no X-Book, "" or "personal": the caller's personal book (id = their user id);
+- "family": the family the caller is an active member of (id = its hidden book user), else 409 no_family;
+- anything else: 400 invalid_book.
+
+Quotas, plan checks and notifications settings stay on `book.person`; only the data id changes.
+
+Refusals are HTTPException(status, {"code", "message"}) with the message in the caller's language (the
+family_<code>_msg keys of notification_service.NOTIFICATION_TRANSLATIONS), as in families.service.
+"""
+from dataclasses import dataclass
+from typing import Any, Dict, Literal, Mapping, Optional
+
+from fastapi import Depends, Header, HTTPException
+
+from families.service import family_is_read_only
+from notification_service import translate
+from plans.access import user_language
+from sql import families as fdb
+from utils import get_current_user
+
+PERSONAL_VALUES = (None, "", "personal")
+
+
+@dataclass(frozen=True)
+class Book:
+    id: str
+    kind: Literal["personal", "family"]
+    person: dict
+    family: Optional[dict]
+    member: Optional[dict]
+    read_only: bool
+
+    @property
+    def is_family(self) -> bool:
+        return self.kind == "family"
+
+
+def _fail(user: Mapping[str, Any], status: int, code: str):
+    raise HTTPException(status_code=status,
+                        detail={"code": code, "message": translate(f"family_{code}_msg", user_language(user))})
+
+
+async def get_book(current_user: dict = Depends(get_current_user),
+                   x_book: Optional[str] = Header(None, alias="X-Book")) -> Book:
+    """The book named by X-Book (see the module docstring)."""
+    value = x_book.strip().lower() if x_book is not None else None
+    if value in PERSONAL_VALUES:
+        return Book(id=current_user["_id"], kind="personal", person=current_user, family=None, member=None,
+                    read_only=False)
+    if value != "family":
+        _fail(current_user, 400, "invalid_book")
+    member = await fdb.active_membership(current_user["_id"])
+    family = await fdb.get_family(member["family_id"]) if member else None
+    if member is None or family is None:
+        _fail(current_user, 409, "no_family")
+    return Book(id=family["book_user_id"], kind="family", person=current_user, family=family, member=member,
+                read_only=await family_is_read_only(family))
+
+
+def require_writable(book: Book) -> None:
+    """403 family_read_only for a family book whose owner's plan isn't Plus or Pro (a personal book is always writable)."""
+    if book.read_only:
+        _fail(book.person, 403, "family_read_only")
+
+
+def require_admin(book: Book) -> None:
+    """403 not_allowed unless the caller is the family's owner or an admin (a personal book: always allowed)."""
+    if book.is_family and (book.member or {}).get("role") not in fdb.ADMIN_ROLES:
+        _fail(book.person, 403, "not_allowed")
+
+
+def can_change_entry(book: Book, entry: Mapping[str, Any]) -> bool:
+    """Whether the caller may edit or delete `entry` in this book: always in a personal book; in a family book, the
+    owner and admins may change any entry, a member only the entries they added."""
+    if not book.is_family:
+        return True
+    member: Dict[str, Any] = book.member or {}
+    return member.get("role") in fdb.ADMIN_ROLES or entry.get("added_by_member_id") == member.get("id")

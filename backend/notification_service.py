@@ -133,6 +133,7 @@ NOTIFICATION_TRANSLATIONS = {
         "family_owner_must_hand_over_msg": "You're the owner. Hand ownership to another member before you leave.",
         "family_confirm_mismatch_msg": "The name you typed doesn't match the family name.",
         "family_family_read_only_msg": "The family is read-only because the owner's plan has ended. The owner can renew, or hand ownership to a member on Plus or Pro.",
+        "family_invalid_book_msg": "Unknown book. Choose Personal or Family.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -238,6 +239,7 @@ NOTIFICATION_TRANSLATIONS = {
         "family_owner_must_hand_over_msg": "သင်သည် ပိုင်ရှင်ဖြစ်ပါသည်။ မထွက်မီ အခြားအဖွဲ့ဝင်တစ်ဦးထံ ပိုင်ရှင်အဖြစ် လွှဲပေးပါ။",
         "family_confirm_mismatch_msg": "ရိုက်ထည့်သော အမည်သည် မိသားစုအမည်နှင့် မကိုက်ညီပါ။",
         "family_family_read_only_msg": "ပိုင်ရှင်၏ အစီအစဉ် ကုန်ဆုံးသွားသဖြင့် ဤမိသားစုကို ကြည့်ရုံသာ ကြည့်နိုင်ပါသည်။ ပိုင်ရှင်က သက်တမ်းတိုးနိုင်သည် သို့မဟုတ် Plus သို့မဟုတ် Pro အစီအစဉ်ရှိသော အဖွဲ့ဝင်တစ်ဦးထံ ပိုင်ရှင်အဖြစ် လွှဲပေးနိုင်ပါသည်။",
+        "family_invalid_book_msg": "မသိသော စာရင်းဖြစ်ပါသည်။ ကိုယ်ပိုင်စာရင်း သို့မဟုတ် မိသားစုစာရင်းကို ရွေးပါ။",
     }
 }
 
