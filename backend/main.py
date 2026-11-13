@@ -17,6 +17,8 @@ from finite_utils import SafeJSONResponse, json_safe
 
 from firebase_service import initialize_firebase
 from utils import ensure_paid, get_current_user, get_user_balance
+from families.book import Book, get_book, require_writable
+from families.service import owner_plan
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
 from scheduler import start_scheduler
 from pdf_generator import generate_financial_report_pdf
@@ -254,14 +256,14 @@ async def get_categories(transaction_type: TransactionType):
 @app.get("/api/dashboard/balance")
 async def get_balance(
     currency: Optional[Currency] = None,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """
-    Get user's financial balance including goal allocations.
+    Get the request's book's balance including goal allocations.
     If currency is specified, returns balance for that currency only.
     Otherwise returns balances for all currencies.
     """
-    return await get_user_balance(current_user["_id"], currency.value if currency else None)
+    return await get_user_balance(book.id, currency.value if currency else None)
 
 
 # ==================== AI CHATBOT ====================
@@ -331,10 +333,13 @@ async def _give_back(reservation: "quota.Reservation") -> None:
 @app.post("/api/chat/stream")
 async def stream_chat_with_ai(
     chat_request: ChatRequest,
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
     """
     Stream chat response from AI (Server-Sent Events, media type text/event-stream).
+
+    The answer is about the request's book (its data, its AI-staleness flag); the allowance is the person's. Chat
+    history is still stored per person (per book: Task 9).
 
     Frames (each `data: <json>\\n\\n`):
       - meta (always first, once): {"chunk": "", "done": false, "mode_used": "standard"|"advanced",
@@ -353,14 +358,16 @@ async def stream_chat_with_ai(
     panel / server settings); the runner records the usage. `ai_provider` in the body (sent by old apps) is
     validated and ignored.
     """
-    user_id = current_user["_id"]
+    current_user = book.person
+    user_id = current_user["_id"]  # the person: allowance and chat history
+    data_id = book.id  # the book the answer is about
 
     # Clearing the ai_data_stale flag with a conditional update first means a data
     # change that lands after this point re-sets the flag and is picked up next time.
     try:
-        if await users_db.claim_ai_data_fresh(user_id):
-            _invalidate_ai_caches(user_id)
-            print(f"🔄 AI data was stale for user {user_id}; invalidated cached vector stores")
+        if await users_db.claim_ai_data_fresh(data_id):
+            _invalidate_ai_caches(data_id)
+            print(f"🔄 AI data was stale for book {data_id}; invalidated cached vector stores")
     except Exception as e:
         print(f"⚠️ Failed to refresh stale AI data: {e}")
 
@@ -398,7 +405,7 @@ async def stream_chat_with_ai(
             try:
                 # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
                 async with aclosing(financial_chatbot.stream_chat(
-                    user_id=user_id,
+                    user_id=data_id,
                     message=chat_request.message,
                     chat_history=chat_history,
                     response_style=response_style,
@@ -505,12 +512,13 @@ async def clear_chat_history(current_user: dict = Depends(get_current_user)):
 @app.post("/api/chat/refresh-data")
 async def refresh_ai_data(
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Manually refresh user's AI data. `ai_provider` (sent by old apps) is validated and ignored: one chatbot."""
+    """Manually refresh the request's book's AI data. `ai_provider` (sent by old apps) is validated and ignored: one
+    chatbot."""
     try:
         if financial_chatbot:
-            financial_chatbot.refresh_user_data(current_user["_id"])
+            financial_chatbot.refresh_user_data(book.id)
         return {"message": "AI data refreshed successfully"}
     except Exception as e:
         print(f"Refresh AI data error: {str(e)}")
@@ -539,16 +547,30 @@ def _is_new_real_insight(insight: Optional[dict]) -> bool:
             and not insight.get("is_reused"))
 
 
-async def _generate_counted(user: dict, insight_type: str):
-    """One on-demand insight, reserved on the plan first (a locked insight type, the hidden cost cap or a used-up
-    allowance raise PlanError, which no handler may swallow) and counted only when the result is a new real insight.
+async def _insight_plan_user(book: Book) -> dict:
+    """The user whose plan gates weekly / monthly insights of `book`, and whose allowance generating one uses.
+
+    A personal book: the person. A family book: the person asking, with the family owner's effective plan, so the
+    owner's plan decides whether the family's insights are unlocked (and which limits apply) while any use is counted
+    on the person asking (their counters, their AI spend for the cost cap). Translation stays on the person's own plan.
+    """
+    if not book.is_family:
+        return book.person
+    return {**book.person, "subscription_type": await owner_plan(book.family["id"]),
+            "subscription_expires_at": None}
+
+
+async def _generate_counted(user: dict, insight_type: str, data_id: Optional[str] = None):
+    """One on-demand insight of book `data_id` (default: the user's own), reserved on the plan first (a locked insight
+    type, the hidden cost cap or a used-up allowance raise PlanError, which no handler may swallow) and counted only
+    when the result is a new real insight.
 
     An included insight reserves nothing but is still refused at the cost cap. A placeholder, an older insight
     reused for a quiet period, an empty result or any failure gives the reservation back.
     """
     reservation = await quota.reserve(user, f"insight_{insight_type}")
     try:
-        insight = await _generate_insight(user["_id"], insight_type)
+        insight = await _generate_insight(data_id or user["_id"], insight_type)
     except BaseException:
         await quota.give_back(reservation)
         raise
@@ -696,7 +718,7 @@ def _insight_response(insight: dict, translation_locked: bool = False, plan_tran
     )
 
 
-async def _free_monthly_insight(user: dict, latest: Optional[dict]) -> dict:
+async def _free_monthly_insight(user: dict, latest: Optional[dict], data_id: Optional[str] = None) -> dict:
     """The monthly insight a Free user sees: generated on demand, once per calendar month (app timezone).
 
     - A real (non-placeholder) monthly insight generated this month, by this on-demand call or by the scheduler while
@@ -709,11 +731,11 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict]) -> dict:
       is surfaced, as for Plus and Pro.
     - If the month's use is gone or the hidden cost cap is reached, the latest older real insight is shown (200, nothing
       counted); with none stored the 429 PlanError is raised. An owner-locked insight is still a 403.
-    `latest` is the newest stored insight.
+    `latest` is the newest stored insight. `data_id`: the book (default: the user's own).
     """
     from insights_service import _latest_real_insight, user_has_insight_data
 
-    user_id = user["_id"]
+    user_id = data_id or user["_id"]
     real = await _latest_real_insight(user_id, "monthly")
     this_month = periods.period_start("month", datetime.now(UTC))
     if real and real.get("generated_at") and periods.period_start("month", as_utc(real["generated_at"])) == this_month:
@@ -724,7 +746,7 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict]) -> dict:
     error: Optional[Exception] = None
     generated = None
     try:
-        generated = await _generate_counted(user, "monthly")
+        generated = await _generate_counted(user, "monthly", user_id)
     except PlanError as e:
         # Blocked from generating this month's insight (the month's use is gone, the hidden cost cap): an older real
         # insight costs nothing to show, so it is returned instead of the 429. With none stored the refusal stands.
@@ -755,20 +777,23 @@ async def get_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Get latest AI-generated financial insights.
+    """Get latest AI-generated financial insights of the request's book.
 
     `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is shown.
 
     By plan: weekly insights are locked for Free (403). A Free user's monthly insight is generated on demand, once a
     month (see _free_monthly_insight). `language` is the display language asked for by this request (not the profile's):
     Myanmar is translated once and stored for Plus and Pro; Free is never translated and gets English with
-    translation_locked true.
+    translation_locked true. In a family book the owner's plan gates the insight (_insight_plan_user); translation is
+    the person's own plan.
     """
-    user_id = current_user["_id"]
+    current_user = book.person
+    plan_user = await _insight_plan_user(book)
+    user_id = book.id
     if insight_type == "weekly":
-        quota.require_unlocked(current_user, "insight_weekly")  # outside the handlers below: a PlanError passes through
+        quota.require_unlocked(plan_user, "insight_weekly")  # outside the handlers below: a PlanError passes through
     plan_translates = not _translation_locked(current_user)
     translation_locked = language == "mm" and not plan_translates
     try:
@@ -777,11 +802,11 @@ async def get_insights(
         # Legacy insights with content None / "" are treated as missing (skipped here).
         latest_insight = await latest_valid_insight(user_id, insight_type)
 
-        if effective_plan(current_user) == "free" and insight_type == "monthly":
+        if effective_plan(plan_user) == "free" and insight_type == "monthly":
             # Free is never translated: English only, whatever language was asked for (no translation call).
-            latest_insight = await _free_monthly_insight(current_user, latest_insight)
+            latest_insight = await _free_monthly_insight(plan_user, latest_insight, user_id)
             return _insight_response(latest_insight, translation_locked, plan_translates=False,
-                                     next_insight_at=_next_insight_at(current_user, insight_type))
+                                     next_insight_at=_next_insight_at(plan_user, insight_type))
 
         # A stored "welcome" placeholder is replaced once the user has real data (incl.
         # transactions in the current, incomplete period). If they don't, but they have
@@ -793,7 +818,7 @@ async def get_insights(
                     print(f"🔄 Replacing placeholder {insight_type} insight for user {user_id} (user now has data)")
                     regenerated = None
                     try:
-                        regenerated = await _generate_counted(current_user, insight_type)
+                        regenerated = await _generate_counted(plan_user, insight_type, user_id)
                     except Exception as gen_error:
                         # AI down / rate limited / the cost cap reached (a PlanError): something stored is still
                         # worth showing, and nothing was generated.
@@ -817,7 +842,7 @@ async def get_insights(
         if not latest_insight:
             # Nothing stored at all: generation errors are surfaced (429/503/500).
             print(f"🔄 No {insight_type} insight found, generating the first one for user {user_id}")
-            latest_insight = await _generate_counted(current_user, insight_type)
+            latest_insight = await _generate_counted(plan_user, insight_type, user_id)
             if not _insight_has_content(latest_insight):
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -829,7 +854,7 @@ async def get_insights(
             latest_insight, translation_unavailable = await _translate_if_possible(latest_insight, current_user)
 
         return _insight_response(latest_insight, translation_locked, plan_translates, translation_unavailable,
-                                 _next_insight_at(current_user, insight_type))
+                                 _next_insight_at(plan_user, insight_type))
 
     except (HTTPException, PlanError):
         raise
@@ -843,15 +868,16 @@ async def get_insights(
 async def delete_insights(
     ai_provider: Optional[AIProvider] = Query(default=None),
     insight_type: Optional[str] = Query(default=None, pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Delete cached insights.
+    """Delete the request's book's cached insights (not in a read-only family).
 
     `ai_provider` (sent by old apps) is validated and ignored: reads show the newest insight of any
     provider, so clearing only one provider's rows would leave another provider's insight on screen.
     """
+    require_writable(book)
     try:
-        deleted = await insights_db.delete_for_user(current_user["_id"], None, insight_type)
+        deleted = await insights_db.delete_for_user(book.id, None, insight_type)
 
         type_msg = f" {insight_type}" if insight_type else ""
         return {"message": f"Deleted {deleted}{type_msg} insights", "deleted_count": deleted}
@@ -865,21 +891,25 @@ async def regenerate_insights(
     language: Optional[str] = Query(default="en", pattern="^(en|mm)$"),
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Force regenerate insights (admin/testing purpose). `ai_provider` (sent by old apps) is validated and ignored.
+    """Force regenerate the request's book's insights (admin/testing purpose). `ai_provider` (sent by old apps) is
+    validated and ignored.
 
-    Locked for Free (403, whatever the type): regenerating is a paid-plan action. Plus and Pro are refused at the hidden
-    cost cap. `language` is the display language of this request (see GET /api/insights).
+    Locked for Free (403, whatever the type; the person's own plan): regenerating is a paid-plan action. Plus and Pro
+    are refused at the hidden cost cap. `language` is the display language of this request (see GET /api/insights).
+    In a family book the insight type is gated by the owner's plan (_insight_plan_user).
     """
+    current_user = book.person
     # Outside the handlers below: a PlanError passes through
     ensure_paid(current_user)  # feature None: the refusal reads "only on Plus and Pro" (Free does include a monthly insight)
+    plan_user = await _insight_plan_user(book)
     plan_translates = not _translation_locked(current_user)
     translation_locked = language == "mm" and not plan_translates
     try:
-        print(f"🔄 Force regenerating {insight_type} insights for user {current_user['_id']}")
+        print(f"🔄 Force regenerating {insight_type} insights for book {book.id}")
 
-        new_insight = await _generate_counted(current_user, insight_type)
+        new_insight = await _generate_counted(plan_user, insight_type, book.id)
 
         if not _insight_has_content(new_insight):
             raise HTTPException(
@@ -893,7 +923,7 @@ async def regenerate_insights(
 
         print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
         return _insight_response(new_insight, translation_locked, plan_translates, translation_unavailable,
-                                 _next_insight_at(current_user, insight_type))
+                                 _next_insight_at(plan_user, insight_type))
     except (HTTPException, PlanError):
         raise
     except Exception as e:
@@ -907,14 +937,15 @@ async def regenerate_insights(
 async def translate_insights_to_myanmar(
     ai_provider: AIProvider = Query(default=AIProvider.OPENAI),
     insight_type: Optional[str] = Query(default="weekly", pattern="^(weekly|monthly)$"),
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Translate the latest weekly or monthly insight to Myanmar.
+    """Translate the request's book's latest weekly or monthly insight to Myanmar.
 
     `ai_provider` (sent by old apps) is validated and ignored: the newest insight of any provider is
-    translated on the insight_translation provider chain. Locked for Free (403); Plus and Pro are refused at
-    the hidden cost cap when a translation call is needed.
+    translated on the insight_translation provider chain. Locked for Free (403; the person's own plan); Plus and Pro
+    are refused at the hidden cost cap when a translation call is needed.
     """
+    current_user = book.person
     # Outside the handlers below: a PlanError passes through
     ensure_paid(current_user, "insight_translation")
     quota.require_unlocked(current_user, "insight_translation")
@@ -922,7 +953,7 @@ async def translate_insights_to_myanmar(
         from insights_service import latest_valid_insight
 
         # Legacy insights without content can't be translated: skipped.
-        insight = await latest_valid_insight(current_user["_id"], insight_type)
+        insight = await latest_valid_insight(book.id, insight_type)
 
         if not insight:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No {insight_type} insights found to translate")
@@ -930,7 +961,7 @@ async def translate_insights_to_myanmar(
         if insight.get("content_mm"):
             return {"message": "Myanmar translation already exists", "already_translated": True}
 
-        print(f"🔄 Translating {insight_type} insights to Myanmar for user {current_user['_id']}")
+        print(f"🔄 Translating {insight_type} insights to Myanmar for book {book.id}")
         await _ensure_myanmar_translation(insight, current_user)
 
         return {"message": "Translation completed successfully", "already_translated": False}
@@ -946,13 +977,16 @@ async def translate_insights_to_myanmar(
 
 @app.post("/api/insights/generate-weekly")
 async def manually_generate_weekly_insights(
-    current_user: dict = Depends(get_current_user)
+    book: Book = Depends(get_book)
 ):
-    """Manually trigger weekly insights generation for current user (once, on the insight_weekly chain).
+    """Manually trigger weekly insights generation for the request's book (once, on the insight_weekly chain).
 
-    Locked for Free (403); Plus and Pro are refused at the hidden cost cap."""
+    Locked for Free (403; the person's own plan); Plus and Pro are refused at the hidden cost cap. In a family book the
+    owner's plan gates the insight (_insight_plan_user)."""
+    current_user = book.person
     # Outside the handlers below: a PlanError passes through
     ensure_paid(current_user, "insight_weekly")
+    plan_user = await _insight_plan_user(book)
     try:
         from insights_service import is_rate_limit_error
 
@@ -960,7 +994,7 @@ async def manually_generate_weekly_insights(
         # feature's main provider when nothing was generated.
         provider = ai_provider_settings.resolve("insight_weekly").main.provider
         try:
-            insight = await _generate_counted(current_user, "weekly")
+            insight = await _generate_counted(plan_user, "weekly", book.id)
             outcome = "success" if insight else "failed"
             provider = (insight or {}).get("ai_provider") or provider
         except PlanError:
@@ -1170,10 +1204,10 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
 
 
 @app.post("/api/notifications/analyze-spending")
-async def analyze_spending_patterns(current_user: dict = Depends(get_current_user)):
-    """Manually trigger unusual spending analysis"""
+async def analyze_spending_patterns(book: Book = Depends(get_book)):
+    """Manually trigger unusual spending analysis of the request's book"""
     try:
-        await analyze_unusual_spending(current_user["_id"])
+        await analyze_unusual_spending(book.id)
         return {"message": "Spending analysis completed"}
     except Exception as e:
         print(f"Error analyzing spending: {str(e)}")
