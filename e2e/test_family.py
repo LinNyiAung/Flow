@@ -1229,6 +1229,16 @@ def section_entries_breakdown():
         r = c.get(f"/api/transactions/{e4.get('id')}", headers=H(M, True))
         check(r.status_code == 200 and r.json().get("added_by") == {"member_id": d_mid, "display_name": "Dad"},
               "entries: a former member still shows as the one who added the entry", f"{r.status_code} {r.text[:200]}")
+        # R20: an edit may keep the entry's own former tags (history isn't rewritten), but can't add another former.
+        r = c.put(f"/api/transactions/{e3.get('id')}", headers=H(M, True), json={"for_whom": [d_mid, koko]})
+        check(r.status_code == 200 and sorted(r.json().get("for_whom") or []) == sorted([d_mid, koko])
+              and tagged(e3.get("id")) == sorted([d_mid, koko]),
+              "entries: an edit keeps the entry's former member (Dad) and changes the rest: [former, active] is 200",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/transactions/{e1.get('id')}", headers=H(M, True), json={"for_whom": [mama, koko, gone]})
+        check(_code(r, 400, "invalid_for_whom") and tagged(e1.get("id")) == sorted([mama, koko]),
+              "entries: an edit adding a former member not already on the entry (Gone) is 400 and changes nothing",
+              f"{r.status_code} {r.text[:200]}")
         r = breakdown(D, "thb")
         check(_code(r, 404, "no_family"), "breakdown: Dad, who left, gets no_family", f"{r.status_code} {r.text[:200]}")
     finally:

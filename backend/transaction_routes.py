@@ -685,7 +685,11 @@ async def update_transaction(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     _not_a_transfer(book, transaction)
     require_change_entry(book, transaction)
-    for_whom = await clean_for_whom(book, transaction_data.for_whom)  # None: unchanged
+    # None: unchanged. The entry's current tags may stay, former members included (R20).
+    current_tags: List[str] = []
+    if transaction_data.for_whom is not None and book.is_family:
+        current_tags = (await families_db.beneficiaries_for([transaction_id])).get(transaction_id, [])
+    for_whom = await clean_for_whom(book, transaction_data.for_whom, already_tagged=current_tags)
 
     update_data = {"updated_at": datetime.now(UTC)}
 

@@ -99,10 +99,14 @@ def require_change_entry(book: Book, entry: Mapping[str, Any]) -> None:
         _fail(book.person, 403, "not_allowed")
 
 
-async def clean_for_whom(book: Book, member_ids: Optional[Iterable[str]]) -> Optional[List[str]]:
+async def clean_for_whom(book: Book, member_ids: Optional[Iterable[str]],
+                         already_tagged: Iterable[str] = ()) -> Optional[List[str]]:
     """Who an entry is for, checked: None stays None (not given), duplicates go (first one kept), [] is Whole family.
     400 invalid_for_whom for any id in a personal book, or, in a family book, any id that isn't an active member
-    (account or placeholder) of this family."""
+    (account or placeholder) of this family.
+
+    `already_tagged` (an update: the entry's current tags) may stay even when they are former members now, so an edit
+    never has to drop someone from history (R20); a former member not already on the entry is still refused."""
     if member_ids is None:
         return None
     ids = list(dict.fromkeys(member_ids))
@@ -110,7 +114,11 @@ async def clean_for_whom(book: Book, member_ids: Optional[Iterable[str]]) -> Opt
         return []
     if not book.is_family:
         _fail(book.person, 400, "invalid_for_whom")
-    active = {m["id"] for m in await fdb.list_members(book.family["id"]) if m["status"] == "active"}
-    if any(i not in active for i in ids):
+    members = await fdb.list_members(book.family["id"])
+    allowed = {m["id"] for m in members if m["status"] == "active"}
+    # Only ids that are (former) members of this family; the tags of a family entry always are.
+    family_ids = {m["id"] for m in members}
+    allowed |= {i for i in already_tagged if i in family_ids}
+    if any(i not in allowed for i in ids):
         _fail(book.person, 400, "invalid_for_whom")
     return ids
