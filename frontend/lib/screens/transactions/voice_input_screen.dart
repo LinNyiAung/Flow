@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
+import 'package:frontend/models/family.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
@@ -45,6 +46,17 @@ String voiceSelectedTotal(List<ExtractedTransactionData> selected) {
 final _mixedTotalFormat = NumberFormat('#,##0.00', 'en_US');
 
 class VoiceInputScreen extends StatefulWidget {
+  const VoiceInputScreen({super.key, this.book, this.initialExtraction});
+
+  /// The book the entries go to when it isn't the app's current one (New
+  /// entry's book chip was flipped); null: the current book. Sent as that
+  /// one request's `X-Book`; the app's mode never changes.
+  final BookMode? book;
+
+  /// Tests: starts with these entries read, as if a recording had been.
+  @visibleForTesting
+  final MultipleExtractedTransactions? initialExtraction;
+
   @override
   _VoiceInputScreenState createState() => _VoiceInputScreenState();
 }
@@ -84,6 +96,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    final initial = widget.initialExtraction;
+    if (initial != null) {
+      _extractedData = initial;
+      _selected = List<bool>.filled(initial.transactions.length, true);
+      return;
+    }
     _requestPermissions();
   }
 
@@ -91,6 +109,12 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     // The browser prompts for the microphone itself when recording starts.
     if (PlatformInfo.isWeb) return;
     await Permission.microphone.request();
+  }
+
+  /// [VoiceInputScreen.book] when it differs from the app's current book.
+  BookMode? get _bookOverride {
+    final book = widget.book;
+    return book != null && book != ApiService.bookMode ? book : null;
   }
 
   Future<void> _startRecording() async {
@@ -306,10 +330,11 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
     try {
       // Use batch create endpoint - currencies are already in the extracted data
-      await ApiService.batchCreateTransactions(transactions: selected);
+      await ApiService.batchCreateTransactions(transactions: selected, bookOverride: _bookOverride);
       if (!mounted) return;
 
-      // Refresh transaction list and balance
+      // Refresh transaction list and balance (of the current book, whichever
+      // book the entries went to)
       final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
       final localizations = AppLocalizations.of(context);
       final messenger = ScaffoldMessenger.of(context);

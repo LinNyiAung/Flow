@@ -2111,7 +2111,9 @@ class ApiService {
 
   static Future<List<Transaction>> batchCreateTransactions({
     required List<ExtractedTransactionData> transactions,
+    BookMode? bookOverride,
   }) async {
+    // [bookOverride]: as for createTransaction (New entry's book chip).
     try {
       final List<Map<String, dynamic>> transactionsList = transactions
           .map((tx) => tx.toJson())
@@ -2119,7 +2121,7 @@ class ApiService {
 
       final response = await _client.post(
         Uri.parse('$baseUrl/api/transactions/batch-create'),
-        headers: await _getHeaders(),
+        headers: await _getHeaders(book: bookOverride),
         body: jsonEncode(transactionsList),
       );
 

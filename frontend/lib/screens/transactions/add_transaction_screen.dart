@@ -230,12 +230,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> _goVoice() async {
-    final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => VoiceInputScreen()));
+    // The entries go to the book the chip shows (R20).
+    final book = _targetBook(listen: false);
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => VoiceInputScreen(book: book)));
     if (result == true && mounted) Navigator.pop(context, true);
   }
 
   Future<void> _goScan() async {
-    final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => ImageInputScreen()));
+    final book = _targetBook(listen: false);
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => ImageInputScreen(book: book)));
     if (result == true && mounted) Navigator.pop(context, true);
   }
 

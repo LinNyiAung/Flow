@@ -2,6 +2,7 @@ import 'package:frontend/utils/money.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
+import 'package:frontend/models/family.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/providers/plan_provider.dart';
@@ -22,6 +23,17 @@ import '../../models/transaction.dart';
 import '../../models/voice_image_models.dart';
 
 class ImageInputScreen extends StatefulWidget {
+  const ImageInputScreen({super.key, this.book, this.initialExtraction});
+
+  /// The book the entry goes to when it isn't the app's current one (New
+  /// entry's book chip was flipped); null: the current book. Sent as that
+  /// one request's `X-Book`; the app's mode never changes.
+  final BookMode? book;
+
+  /// Tests: starts with this receipt read, as if an image had been.
+  @visibleForTesting
+  final ExtractedTransactionData? initialExtraction;
+
   @override
   _ImageInputScreenState createState() => _ImageInputScreenState();
 }
@@ -38,6 +50,8 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
   @override
   void initState() {
     super.initState();
+    _extractedData = widget.initialExtraction;
+    if (_extractedData != null) return;
     _requestPermissions();
   }
 
@@ -176,6 +190,9 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
       amount: _extractedData!.amount,
       currency: _extractedData!.currency, // Use detected currency from AI
       context: context,
+      // New entry's flipped book; the provider sends it only when it differs
+      // from the current book, and then leaves the current list alone.
+      bookOverride: widget.book,
     );
 
     if (!mounted) return;

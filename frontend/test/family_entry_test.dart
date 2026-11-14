@@ -9,6 +9,7 @@ import 'package:frontend/models/family.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/models/voice_image_models.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/budget_provider.dart';
@@ -25,6 +26,8 @@ import 'package:frontend/screens/family/transfer_sheet.dart';
 import 'package:frontend/screens/home/home_screen.dart';
 import 'package:frontend/screens/transactions/add_transaction_screen.dart';
 import 'package:frontend/screens/transactions/edit_transaction_screen.dart';
+import 'package:frontend/screens/transactions/image_input_screen.dart';
+import 'package:frontend/screens/transactions/voice_input_screen.dart';
 import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/screens/transactions/transfer_detail_view.dart';
 import 'package:frontend/services/api_service.dart';
@@ -89,6 +92,9 @@ Future<http.Response> Function(http.Request) _server({
 }) {
   return (request) async {
     final path = request.url.path;
+    if (path == '/api/transactions/batch-create' && request.method == 'POST') {
+      return _json([_txJson()]);
+    }
     if (path == '/api/transactions' && request.method == 'POST') {
       final body = jsonDecode(request.body) as Map<String, dynamic>;
       return _json(_txJson(forWhom: List<String>.from(body['for_whom'] as List? ?? const [])));
@@ -218,6 +224,7 @@ Future<TransactionProvider> _pump(
     providers: [
       ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
       ChangeNotifierProvider<TransactionProvider>.value(value: txs),
+      ChangeNotifierProvider<PlanProvider>(create: (_) => PlanProvider()),
       if (family != null) ChangeNotifierProvider<FamilyProvider>.value(value: family),
       if (books != null) ChangeNotifierProvider<BookModeProvider>.value(value: books),
     ],
@@ -551,6 +558,109 @@ void main() {
       expect(_sent('POST', '/api/transactions'), isEmpty);
       expect(find.descendant(of: find.byType(SnackBar), matching: find.text(_en.familyReadOnlyBanner)),
           findsOneWidget);
+    });
+  });
+
+  group('R20: voice and scan follow the book chip', () {
+    /// Opens [screen] above the host and lets it build (the voice screen's
+    /// pulse animation never settles).
+    Future<void> openUnsettled(WidgetTester tester, Widget Function(BuildContext) screen,
+        {required BookModeProvider books}) async {
+      await _pump(tester, screen, family: _Family(_overview()), books: books, open: false);
+      await tester.tap(find.text('open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    Future<void> tapSave(WidgetTester tester) async {
+      final save = find.widgetWithText(FilledButton, _en.saveTransactionButton);
+      await tester.ensureVisible(save);
+      await tester.pump();
+      await tester.tap(save);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    final lunch = ExtractedTransactionData(
+      type: TransactionType.outflow,
+      mainCategory: 'Food & Daily Living',
+      subCategory: 'Restaurants',
+      date: DateTime(2026, 11, 10, 12),
+      amount: 12,
+      currency: Currency.usd,
+      confidence: 0.9,
+    );
+    final spoken = MultipleExtractedTransactions(transactions: [lunch], totalCount: 1, overallConfidence: 0.9);
+
+    for (final (from, to) in [(BookMode.personal, BookMode.family), (BookMode.family, BookMode.personal)]) {
+      for (final (label, icon) in [('mic', Icons.mic_rounded), ('scan', Icons.document_scanner_rounded)]) {
+        testWidgets('${from.name} mode, chip flipped to ${to.name}: $label opens for the ${to.name} book',
+            (tester) async {
+          final books = await _books(from);
+          await _pump(tester, _addScreen, family: _Family(_overview()), books: books);
+          await _tapAndSettle(tester, find.byKey(AddTransactionScreen.bookChipKey));
+
+          await tester.tap(_inBar(find.byIcon(icon)));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+
+          final BookMode? book = label == 'mic'
+              ? tester.widget<VoiceInputScreen>(find.byType(VoiceInputScreen)).book
+              : tester.widget<ImageInputScreen>(find.byType(ImageInputScreen)).book;
+          expect(book, to);
+          expect(books.mode, from, reason: 'the app stays in its mode');
+        });
+      }
+    }
+
+    testWidgets('voice for the family book from Personal mode: the batch carries X-Book family', (tester) async {
+      final books = BookModeProvider();
+      await openUnsettled(tester, (_) => VoiceInputScreen(book: BookMode.family, initialExtraction: spoken),
+          books: books);
+      await tapSave(tester);
+
+      final batch = _sent('POST', '/api/transactions/batch-create').single;
+      expect(batch.headers['X-Book'], 'family');
+      expect(ApiService.bookMode, BookMode.personal);
+      // Only the current (personal) book is reloaded.
+      final reloads = _requests.where((r) => r.method == 'GET').toList();
+      expect(reloads, isNotEmpty);
+      expect(reloads.every((r) => !r.headers.containsKey('X-Book')), isTrue);
+    });
+
+    testWidgets('voice for the personal book from Family mode: no X-Book', (tester) async {
+      final books = await _books(BookMode.family);
+      await openUnsettled(tester, (_) => VoiceInputScreen(book: BookMode.personal, initialExtraction: spoken),
+          books: books);
+      await tapSave(tester);
+
+      expect(_sent('POST', '/api/transactions/batch-create').single.headers.containsKey('X-Book'), isFalse);
+      expect(ApiService.bookMode, BookMode.family);
+      final reloads = _requests.where((r) => r.method == 'GET').toList();
+      expect(reloads.every((r) => r.headers['X-Book'] == 'family'), isTrue);
+    });
+
+    testWidgets('scan for the family book from Personal mode: X-Book family; the personal list is untouched',
+        (tester) async {
+      final books = BookModeProvider();
+      final txs = TransactionProvider();
+      await _pump(tester, (_) => ImageInputScreen(book: BookMode.family, initialExtraction: lunch),
+          family: _Family(_overview()), books: books, transactions: txs);
+      await tapSave(tester);
+
+      expect(_sent('POST', '/api/transactions').single.headers['X-Book'], 'family');
+      expect(txs.transactions, isEmpty);
+      expect(ApiService.bookMode, BookMode.personal);
+    });
+
+    testWidgets('scan for the personal book from Family mode: no X-Book', (tester) async {
+      final books = await _books(BookMode.family);
+      await _pump(tester, (_) => ImageInputScreen(book: BookMode.personal, initialExtraction: lunch),
+          family: _Family(_overview()), books: books);
+      await tapSave(tester);
+
+      expect(_sent('POST', '/api/transactions').single.headers.containsKey('X-Book'), isFalse);
+      expect(ApiService.bookMode, BookMode.family);
     });
   });
 
