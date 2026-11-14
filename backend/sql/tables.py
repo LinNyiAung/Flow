@@ -120,6 +120,7 @@ Index("ix_transactions_parent_date", transactions.c.parent_transaction_id, trans
 Index("ix_transactions_recurring", transactions.c.recurrence_enabled, postgresql_where=transactions.c.recurrence_enabled)
 Index("ix_transactions_created_at", transactions.c.created_at)
 Index("ix_transactions_transfer_id", transactions.c.transfer_id)
+Index("ix_transactions_added_by_member_id", transactions.c.added_by_member_id)  # the SET NULL FK's index
 
 # Family book. Each family owns a hidden users row (kind 'family_book'); its transactions, budgets, goals and insights
 # are stored under that user id. family_members.user_id is SET NULL so deleting a person never deletes family history.
@@ -360,6 +361,7 @@ chat_sessions = Table(
 )
 Index("ix_chat_sessions_user_updated", chat_sessions.c.user_id, chat_sessions.c.updated_at.desc())
 Index("ix_chat_sessions_updated", chat_sessions.c.updated_at)
+Index("ix_chat_sessions_book_id", chat_sessions.c.book_id)  # the CASCADE FK's index
 
 chat_messages = Table(
     "chat_messages", metadata,

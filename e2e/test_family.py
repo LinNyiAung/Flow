@@ -91,7 +91,8 @@ def section_schema():
 
     idx = {r["indexname"] for r in db.sql("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")}
     for name in ("uq_family_members_user_active", "uq_family_members_owner_active", "uq_family_invites_pending_email",
-                 "ix_transactions_transfer_id", "uq_families_book_user_id"):
+                 "ix_transactions_transfer_id", "uq_families_book_user_id",
+                 "ix_transactions_added_by_member_id", "ix_chat_sessions_book_id"):  # R21 (I3): the two FKs' indexes
         check(name in idx, f"schema: index {name}", "missing")
 
     rows = {r["plan"]: r for r in db.sql("SELECT plan, family_max_members m, family_max_placeholders p FROM plan_settings")} \

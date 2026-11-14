@@ -87,6 +87,8 @@ def upgrade() -> None:
     op.create_foreign_key(op.f('fk_transactions_added_by_member_id_family_members'), 'transactions', 'family_members',
                           ['added_by_member_id'], ['id'], ondelete='SET NULL')
     op.create_index('ix_transactions_transfer_id', 'transactions', ['transfer_id'], unique=False)
+    # The SET NULL foreign key's index: deleting a member row then doesn't scan every transaction.
+    op.create_index('ix_transactions_added_by_member_id', 'transactions', ['added_by_member_id'], unique=False)
 
     op.create_table('transaction_beneficiaries',
     sa.Column('transaction_id', sa.Text(), nullable=False),
@@ -99,6 +101,8 @@ def upgrade() -> None:
 
     op.add_column('chat_sessions', sa.Column('book_id', sa.Text(), nullable=True))
     op.create_foreign_key(op.f('fk_chat_sessions_book_id_users'), 'chat_sessions', 'users', ['book_id'], ['id'], ondelete='CASCADE')
+    # The CASCADE foreign key's index: deleting a book user (a family) then doesn't scan every chat session.
+    op.create_index('ix_chat_sessions_book_id', 'chat_sessions', ['book_id'], unique=False)
 
     op.add_column('plan_settings', sa.Column('family_max_members', sa.SmallInteger(), server_default='0', nullable=False))
     op.add_column('plan_settings', sa.Column('family_max_placeholders', sa.SmallInteger(), server_default='0', nullable=False))
@@ -118,10 +122,12 @@ def downgrade() -> None:
     op.drop_column('plan_settings', 'family_max_placeholders')
     op.drop_column('plan_settings', 'family_max_members')
 
+    op.drop_index('ix_chat_sessions_book_id', table_name='chat_sessions')
     op.drop_constraint(op.f('fk_chat_sessions_book_id_users'), 'chat_sessions', type_='foreignkey')
     op.drop_column('chat_sessions', 'book_id')
 
     op.drop_table('transaction_beneficiaries')  # its index goes with it
+    op.drop_index('ix_transactions_added_by_member_id', table_name='transactions')
     op.drop_index('ix_transactions_transfer_id', table_name='transactions')
     op.drop_constraint(op.f('fk_transactions_added_by_member_id_family_members'), 'transactions', type_='foreignkey')
     op.drop_column('transactions', 'transfer_id')
