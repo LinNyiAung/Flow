@@ -8,6 +8,7 @@ from plans import store as plan_store
 from plans.access import effective_plan
 from plans.catalog import PAID_PLANS
 from sql import budgets as budgets_db
+from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import insights as insights_db
@@ -66,6 +67,25 @@ async def _skip_user(user: dict, feature: str) -> bool:
         logger.info(f"⏭️ Skipping user {user['_id']} - monthly AI cost cap reached")
         return True
     return False
+
+
+async def _job_targets(feature: str) -> list:
+    """What a scheduled insight job (`feature`: insight_weekly / insight_monthly) generates for: (data_id, plan_user)
+    pairs, where plan_user is the user whose plan and cost cap _skip_user checks.
+
+    - every paid person: (their id, themselves);
+    - every family whose owner is on a paid plan (sql.families.books_with_paid_owner; list_fields leaves book users
+      out on purpose): (the family's book user id, the owner). A family insight is stored and notified under the book
+      (the notice fans out to the members), counts against nobody's allowance, and is skipped like the owner's own
+      (plan ended or locked type, or the owner at their monthly cost cap)."""
+    users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
+    try:
+        books = await families_db.books_with_paid_owner(PAID_PLANS)
+    except Exception as e:  # noqa: BLE001  the personal insights must still run
+        logger.error(f"❌ Could not list family books for {feature}: {type(e).__name__}: {e}")
+        books = []
+    return ([(u["_id"], u) for u in users]
+            + [(b["book_user_id"], b["owner"]) for b in books])
 
 
 def _has_content(text) -> bool:
@@ -720,24 +740,26 @@ Total Transactions: {total_tx}
 
 
 async def generate_weekly_insights_for_all_users():
-    """Generate weekly insights for all Plus and Pro users using Bounded Concurrency.
+    """Generate weekly insights for all Plus and Pro users, and for the family books of Plus and Pro owners, using
+    Bounded Concurrency (_job_targets).
 
     Free users are never included (weekly insights are locked for them), a Plus or Pro plan that has ended counts as
     Free, a plan whose insight_weekly the owner locked is skipped, and a user at their plan's hidden monthly cost cap
-    is skipped for the rest of the month. The jobs never use
-    an allowance; their spend lands in ai_usage (the runner records it with the user id) and counts towards the cap.
+    is skipped for the rest of the month. A family book is checked the same way on its owner. The jobs never use
+    an allowance; their spend lands in ai_usage (the runner records it with the user id, a family's under its book)
+    and a person's counts towards their cap.
     """
     logger.info("🔄 Starting weekly insights generation (Concurrent Mode)...")
 
-    # 1. Fetch all Plus and Pro users quickly to release DB cursor
+    # 1. Fetch all Plus and Pro users (and paid owners' family books) quickly to release DB cursor
     # Projection only gets necessary fields to save memory (the plan check and the cost cap read these)
-    users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
+    targets = await _job_targets("insight_weekly")
 
-    if not users:
+    if not targets:
         logger.info("ℹ️ No Plus or Pro users found for weekly insights.")
         return
 
-    logger.info(f"📊 Processing {len(users)} Plus and Pro users for weekly insights...")
+    logger.info(f"📊 Processing {len(targets)} Plus and Pro users and family books for weekly insights...")
 
     # 2. Semaphore to limit concurrency (5 users at a time = 5 concurrent AI calls).
     sem = asyncio.Semaphore(5)
@@ -745,13 +767,12 @@ async def generate_weekly_insights_for_all_users():
     success_count = 0
     error_count = 0
 
-    async def process_user_weekly(user):
+    async def process_user_weekly(user_id, plan_user):
         nonlocal success_count, error_count
-        user_id = user["_id"]
 
         async with sem:  # Wait for a free slot in the semaphore
             try:
-                if await _skip_user(user, "insight_weekly"):
+                if await _skip_user(plan_user, "insight_weekly"):
                     return
 
                 # One insight per user, on the insight_weekly provider chain (background: the
@@ -783,7 +804,7 @@ async def generate_weekly_insights_for_all_users():
 
     # 3. Create and run all tasks
     # This fires off the workers, which will respect the semaphore limit
-    tasks = [process_user_weekly(user) for user in users]
+    tasks = [process_user_weekly(data_id, plan_user) for data_id, plan_user in targets]
     await asyncio.gather(*tasks)
 
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
@@ -1451,18 +1472,19 @@ async def generate_monthly_insights_for_all_users():
     """Generate monthly insights for all Plus and Pro users using Bounded Concurrency.
 
     Free users get their monthly insight on demand instead (see main._free_monthly_insight), so this job never
-    spends on them. Same user selection, locked-plan skip (insight_monthly) and cost-cap skip as the weekly job.
+    spends on them. Same selection (paid users and the family books of paid owners), locked-plan skip
+    (insight_monthly) and cost-cap skip as the weekly job.
     """
     logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
 
-    # 1. Fetch all Plus and Pro users
-    users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
+    # 1. Fetch all Plus and Pro users and paid owners' family books
+    targets = await _job_targets("insight_monthly")
 
-    if not users:
+    if not targets:
         logger.info("ℹ️ No Plus or Pro users found for monthly insights.")
         return
 
-    logger.info(f"📊 Processing {len(users)} Plus and Pro users for monthly insights...")
+    logger.info(f"📊 Processing {len(targets)} Plus and Pro users and family books for monthly insights...")
 
     # 2. Semaphore to limit concurrency
     sem = asyncio.Semaphore(5)
@@ -1470,13 +1492,12 @@ async def generate_monthly_insights_for_all_users():
     success_count = 0
     error_count = 0
 
-    async def process_user_monthly(user):
+    async def process_user_monthly(user_id, plan_user):
         nonlocal success_count, error_count
-        user_id = user["_id"]
 
         async with sem:
             try:
-                if await _skip_user(user, "insight_monthly"):
+                if await _skip_user(plan_user, "insight_monthly"):
                     return
 
                 # One insight per user, on the insight_monthly provider chain (background: the
@@ -1507,7 +1528,7 @@ async def generate_monthly_insights_for_all_users():
                 error_count += 1
 
     # 3. Run all tasks
-    tasks = [process_user_monthly(user) for user in users]
+    tasks = [process_user_monthly(data_id, plan_user) for data_id, plan_user in targets]
     await asyncio.gather(*tasks)
 
     logger.info(f"✅ Monthly insights generation completed: {success_count} successful, {error_count} errors")

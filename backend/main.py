@@ -3,7 +3,7 @@ import hashlib
 import json
 from contextlib import aclosing
 from datetime import datetime, timedelta, UTC
-from typing import List, Optional
+from typing import Awaitable, Callable, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, status, Depends, Query, Path
 from fastapi.encoders import jsonable_encoder
@@ -44,6 +44,7 @@ from sql import users as users_db
 from sql import notification_prefs as prefs_db
 from sql import notifications as notifications_db
 from sql import chat as chat_db
+from sql import families as families_db
 from sql import insights as insights_db
 from ai_chatbot import financial_chatbot, ChatServiceError
 from config import settings
@@ -575,21 +576,37 @@ async def _insight_plan_user(book: Book) -> dict:
             "subscription_expires_at": None}
 
 
+async def _require_owner_under_cost_cap(book: Book, feature: str) -> None:
+    """A family book's on-demand AI work (its insights and their translation) reserves nothing (R10) but stops at the
+    owner's monthly AI cost cap, as the scheduled jobs do (insights_service._skip_user): PlanError plan_cost_cap (429)
+    in the asker's language. The upgrade hint only when the asker is the owner (a member's upgrade wouldn't lift it).
+    No owner account: nothing to check (such a family is read-only, refused before this)."""
+    owner = await families_db.owner_user(book.family["id"])
+    if owner is not None:
+        await quota.require_under_cost_cap(owner, feature, lang=user_language(book.person),
+                                           upgrade_hint=owner["_id"] == book.person["_id"])
+
+
 async def _generate_for(book: Book, plan_user: dict, insight_type: str):
     """One on-demand insight of `book`. A personal book: _generate_counted on the person. A family book: never counted
-    (R10); refused with family_read_only when the owner's plan isn't paid, and plan_feature_locked when the owner's plan
-    locks the insight type. The AI cost is recorded under the book."""
+    (R10); refused with family_read_only when the owner's plan isn't paid, plan_feature_locked when the owner's plan
+    locks the insight type, and plan_cost_cap while the owner is over their monthly AI cost cap. The AI cost is
+    recorded under the book."""
     if not book.is_family:
         return await _generate_counted(plan_user, insight_type, book.id)
     require_writable(book)
     quota.require_unlocked(plan_user, f"insight_{insight_type}")
+    await _require_owner_under_cost_cap(book, f"insight_{insight_type}")
     return await _generate_insight(book.id, insight_type)
 
 
 def _translation_kwargs(book: Book) -> dict:
-    """_ensure_myanmar_translation options for `book`: a family insight's translation is never counted (R10) and its
-    AI cost is recorded under the book."""
-    return {"counted": False, "cost_user_id": book.id} if book.is_family else {}
+    """_ensure_myanmar_translation options for `book`: a family insight's translation is never counted (R10), stops at
+    the owner's cost cap, and its AI cost is recorded under the book."""
+    if not book.is_family:
+        return {}
+    return {"counted": False, "cost_user_id": book.id,
+            "before_call": lambda: _require_owner_under_cost_cap(book, "insight_translation")}
 
 
 async def _read_only_family_insight(book: Book, insight_type: str, language: Optional[str]) -> InsightResponse:
@@ -644,12 +661,14 @@ def _needs_translation_call(insight: dict) -> bool:
 
 
 async def _ensure_myanmar_translation(insight: dict, user: dict, *, counted: bool = True,
-                                      cost_user_id: Optional[str] = None) -> dict:
+                                      cost_user_id: Optional[str] = None,
+                                      before_call: Optional[Callable[[], Awaitable[None]]] = None) -> dict:
     """Translate (and cache) content_mm if missing. Placeholders never hit the paid API and a stored translation costs
     nothing; only a real translation call is reserved on the user's plan (the cost cap applies) and counted.
 
-    counted False (a family insight, R10): nothing is reserved or counted. cost_user_id: whose AI usage the call is
-    recorded as (default: the user)."""
+    counted False (a family insight, R10): nothing is reserved or counted; `before_call` (awaited only when an AI call
+    is needed) may refuse it instead (the owner's cost cap). cost_user_id: whose AI usage the call is recorded as
+    (default: the user)."""
     if not _needs_translation_call(insight):
         if insight.get("content_mm"):
             return insight
@@ -658,6 +677,8 @@ async def _ensure_myanmar_translation(insight: dict, user: dict, *, counted: boo
     elif counted:
         reservation = await quota.reserve(user, "insight_translation")  # PlanError: locked, cost cap, used up
     else:
+        if before_call is not None:
+            await before_call()  # PlanError: e.g. the family owner's cost cap
         reservation = None
 
     from insights_service import translate_insight_to_myanmar
