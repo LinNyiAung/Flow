@@ -270,9 +270,16 @@ async def get_balance(
 
 # ==================== AI CHATBOT ====================
 
-async def save_chat_session(user_id: str, user_message: str, ai_response: str):
+def _chat_book_id(book: Book) -> Optional[str]:
+    """The chat_sessions.book_id of a request's book (ruling R2): the family's book id in Family mode, None for the
+    personal book. Chat history is stored and read per (person, book_id): private to each person, per book."""
+    return book.id if book.is_family else None
+
+
+async def save_chat_session(user_id: str, user_message: str, ai_response: str, book_id: Optional[str] = None):
     """
-    Append one user/assistant exchange to the server-stored chat history.
+    Append one user/assistant exchange to the person's server-stored chat history about `book_id` (None: their
+    personal book).
 
     The server copy is the source of truth: client-supplied history is never written
     back (it may be stale, truncated or edited), only the new exchange is appended and
@@ -285,7 +292,7 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str):
             {"role": "assistant", "content": ai_response, "timestamp": current_time},
         ]
 
-        await chat_db.append_exchange(user_id, new_messages, settings.MAX_CHAT_HISTORY, current_time)
+        await chat_db.append_exchange(user_id, new_messages, settings.MAX_CHAT_HISTORY, current_time, book_id)
     except Exception as e:
         print(f"Error saving chat session: {e}")
 
@@ -435,7 +442,7 @@ async def stream_chat_with_ai(
             if full_response:
                 # Saved BEFORE the "done" frame: the client may disconnect as soon as it
                 # sees done:true, which would cancel anything after the yield.
-                await save_chat_session(user_id, chat_request.message, full_response)
+                await save_chat_session(user_id, chat_request.message, full_response, _chat_book_id(book))
 
             await settle()  # the answer completed: the use is kept
             yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
@@ -477,12 +484,13 @@ async def chat_with_ai(
 
 @app.get("/api/chat/history", response_model=List[ChatMessage])
 async def get_chat_history(
-    current_user: dict = Depends(get_current_user),
+    book: Book = Depends(get_book),
     limit: int = Query(default=20, ge=1, le=50)
 ):
-    """Get user's chat history"""
+    """The caller's own chat history about the request's book: personal, or (X-Book: family) their own family-mode
+    questions only, never another member's."""
     try:
-        messages = await chat_db.history(current_user["_id"], limit)
+        messages = await chat_db.history(book.person["_id"], limit, _chat_book_id(book))
 
         return [
             ChatMessage(
@@ -498,10 +506,11 @@ async def get_chat_history(
 
 
 @app.delete("/api/chat/history")
-async def clear_chat_history(current_user: dict = Depends(get_current_user)):
-    """Clear user's chat history"""
+async def clear_chat_history(book: Book = Depends(get_book)):
+    """Clear the caller's own chat history about the request's book (Family mode: only their own family-mode history;
+    their personal history and other members' are kept)."""
     try:
-        deleted = await chat_db.clear(current_user["_id"])
+        deleted = await chat_db.clear(book.person["_id"], _chat_book_id(book))
         return {
             "message": f"Cleared {deleted} chat sessions",
             "deleted_count": deleted
