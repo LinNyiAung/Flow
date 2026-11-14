@@ -6,8 +6,13 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/chat_provider.dart';
+import 'package:frontend/models/family.dart';
+import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
+import 'package:frontend/screens/family/transfer_sheet.dart';
+import 'package:frontend/screens/transactions/transfer_detail_view.dart';
+import 'package:frontend/utils/family_entries.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
@@ -1228,6 +1233,16 @@ class _HomeScreenState extends State<HomeScreen> {
     // Per the component spec: outflow amounts stay neutral onSurface, only
     // inflow is coloured — the icon tint above still signals direction.
     final moneyColor = isInflow ? scheme.primary : scheme.onSurface;
+    // A transfer leg: the transfer icon and label, never its category; in
+    // the family book, who moved the money.
+    final isTransfer = transaction.isTransfer;
+    final familyBook = showsFamilyBook(context);
+    final secondLine = isTransfer
+        ? (familyBook && transaction.addedBy != null
+            ? localizations.addedByName(memberRefName(
+                localizations, transaction.addedBy!, Provider.of<FamilyProvider?>(context, listen: false)))
+            : null)
+        : transaction.mainCategory;
 
     return InkWell(
       onTap: () => _navigateToEditTransaction(transaction),
@@ -1239,8 +1254,14 @@ class _HomeScreenState extends State<HomeScreen> {
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(color: tint, shape: BoxShape.circle),
-              child: Icon(iconForCategoryName(transaction.mainCategory), color: ink),
+              decoration: BoxDecoration(
+                color: isTransfer ? scheme.secondaryContainer : tint,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isTransfer ? Icons.swap_horiz_rounded : iconForCategoryName(transaction.mainCategory),
+                color: isTransfer ? scheme.onSecondaryContainer : ink,
+              ),
             ),
             SizedBox(width: responsive.sp16),
             Expanded(
@@ -1248,7 +1269,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    transaction.subCategory,
+                    isTransfer
+                        ? transferLabel(localizations, transaction, familyBook: familyBook)
+                        : transaction.subCategory,
                     style: TextStyle(
                       fontSize: responsive.fontSize(mobile: 15),
                       fontWeight: FontWeight.w600,
@@ -1307,15 +1330,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ],
-                  Text(
-                    transaction.mainCategory,
-                    style: TextStyle(
-                      fontSize: responsive.fs12,
-                      color: scheme.onSurfaceVariant,
+                  if (secondLine != null)
+                    Text(
+                      secondLine,
+                      style: TextStyle(
+                        fontSize: responsive.fs12,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
                   if (transaction.description != null &&
                       transaction.description!.isNotEmpty) ...[
                     SizedBox(height: 2),
@@ -1650,6 +1674,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showAddTransactionOptions() {
     final localizations = AppLocalizations.of(context);
     final responsive = ResponsiveHelper(context);
+    // Members of a family can move money between their wallet and the
+    // family's (not while the family is read-only).
+    final family = Provider.of<FamilyProvider?>(context, listen: false);
+    final transfer = transferActionFor(
+      inFamily: family?.inFamily ?? false,
+      readOnly: family?.readOnly ?? false,
+      mode: Provider.of<BookModeProvider?>(context, listen: false)?.mode ?? BookMode.personal,
+    );
 
     showAppBottomSheet<void>(
       context: context,
@@ -1715,6 +1747,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
               },
             ),
+            if (transfer != null) ...[
+              SizedBox(height: responsive.sp12),
+              _buildAddOption(
+                icon: Icons.swap_horiz_rounded,
+                title: transfer == TransferDirection.toFamily
+                    ? localizations.moveToFamilyWallet
+                    : localizations.takeFromFamilyWallet,
+                subtitle: transfer == TransferDirection.toFamily
+                    ? localizations.moveToFamilyHint
+                    : localizations.takeFromFamilyHint,
+                onTap: () async {
+                  Navigator.pop(context);
+                  final moved = await showTransferSheet(this.context, direction: transfer);
+                  if (moved == true && mounted) {
+                    _refreshData();
+                    _showSuccessSnackBar(localizations.transferDone);
+                  }
+                },
+              ),
+            ],
           ],
         );
       },
@@ -1786,6 +1838,9 @@ class _HomeScreenState extends State<HomeScreen> {
       // Transaction deleted
       _refreshData(); // Refresh data
       _showSuccessSnackBar(localizations.transactionDeleted);
+    } else if (result == TransferDetailView.undoneResult) {
+      _refreshData();
+      _showSuccessSnackBar(localizations.transferUndone);
     }
   }
 }

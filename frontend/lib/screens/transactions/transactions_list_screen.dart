@@ -6,8 +6,11 @@ import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/notification_provider.dart';
+import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/transactions/image_input_screen.dart';
+import 'package:frontend/screens/transactions/transfer_detail_view.dart';
+import 'package:frontend/utils/family_entries.dart';
 import 'package:frontend/screens/transactions/voice_input_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -23,11 +26,12 @@ import '../transactions/edit_transaction_screen.dart';
 import '../transactions/add_transaction_screen.dart'; // Make sure to import this
 
 /// The count line's net total ("+$29.50", "-K9,999") for the entries in
-/// [currency]. An amount that rounds to zero shows no sign ("K0").
+/// [currency]. An amount that rounds to zero shows no sign ("K0"). Transfers
+/// between wallets are not income or spending, so they are left out.
 String transactionsNetTotal(List<Transaction> transactions, Currency currency) {
   double net = 0;
   for (final t in transactions) {
-    if (t.currency != currency) continue;
+    if (t.currency != currency || t.isTransfer) continue;
     net += t.type == TransactionType.inflow ? t.amount : -t.amount;
   }
   return formatMoney(net, currency, showPlus: true);
@@ -777,18 +781,33 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     // an alert. The icon tint above still signals direction.
     final moneyColor = isInflow ? scheme.primary : scheme.onSurface;
 
-    var subtitle = transaction.mainCategory;
-    if (transaction.recurrence?.enabled ?? false) {
-      subtitle += ' · ${transaction.recurrence!.config!.getDisplayText()}';
-    } else if (transaction.parentTransactionId != null) {
-      subtitle += ' · ${localizations.autoCreated}';
+    // A transfer leg: the transfer icon and label, never its category; in
+    // the family book, who moved the money.
+    final isTransfer = transaction.isTransfer;
+    final familyBook = showsFamilyBook(context);
+    String? subtitle;
+    if (isTransfer) {
+      final by = transaction.addedBy;
+      if (familyBook && by != null) {
+        subtitle = localizations.addedByName(
+            memberRefName(localizations, by, Provider.of<FamilyProvider?>(context, listen: false)));
+      }
+    } else {
+      subtitle = transaction.mainCategory;
+      if (transaction.recurrence?.enabled ?? false) {
+        subtitle += ' · ${transaction.recurrence!.config!.getDisplayText()}';
+      } else if (transaction.parentTransactionId != null) {
+        subtitle += ' · ${localizations.autoCreated}';
+      }
     }
 
     return AppListRow(
-      icon: iconForCategoryName(transaction.mainCategory),
-      iconBg: isInflow ? scheme.primaryContainer : scheme.errorContainer,
-      iconColor: amountColor,
-      title: transaction.subCategory,
+      icon: isTransfer ? Icons.swap_horiz_rounded : iconForCategoryName(transaction.mainCategory),
+      iconBg: isTransfer
+          ? scheme.secondaryContainer
+          : (isInflow ? scheme.primaryContainer : scheme.errorContainer),
+      iconColor: isTransfer ? scheme.onSecondaryContainer : amountColor,
+      title: isTransfer ? transferLabel(localizations, transaction, familyBook: familyBook) : transaction.subCategory,
       subtitle: subtitle,
       onTap: () => _navigateToEditTransaction(transaction),
       trailing: Padding(
@@ -820,7 +839,7 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       ),
     );
 
-    if (result == true || result == 'deleted') {
+    if (result == true || result == 'deleted' || result == TransferDetailView.undoneResult) {
       _refreshData();
     }
   }

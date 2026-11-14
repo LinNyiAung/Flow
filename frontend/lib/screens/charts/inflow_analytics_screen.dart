@@ -124,6 +124,8 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
 
       setState(() {
         _filteredTransactions = transactions.where((t) {
+          // A transfer between wallets is not income.
+          if (t.isTransfer) return false;
           if (_selectedPeriod == TimePeriod.custom &&
               _customStartDate != null &&
               _customEndDate != null) {

@@ -125,6 +125,8 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
 
       setState(() {
         _filteredTransactions = transactions.where((t) {
+          // A transfer between wallets is not spending.
+          if (t.isTransfer) return false;
           if (_selectedPeriod == TimePeriod.custom &&
               _customStartDate != null &&
               _customEndDate != null) {
