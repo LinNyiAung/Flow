@@ -91,7 +91,12 @@ class ApiException implements Exception {
   /// null when the error carried none. Decide from this, never from [message].
   final String? code;
 
-  ApiException(this.message, {this.statusCode, this.code});
+  /// The app root was already told about this error and says so itself (a
+  /// Family-mode `no_family`: back to Personal, with its own message; see
+  /// [ApiService.onNoFamily]). A screen must not show it a second time.
+  final bool reported;
+
+  ApiException(this.message, {this.statusCode, this.code, this.reported = false});
 
   /// The `detail.code` of an error body `{"detail": {"code": ...}}`, or null.
   static String? codeOf(String body) {
@@ -543,13 +548,14 @@ class ApiService {
       return planError;
     }
     final code = ApiException.codeOf(response.body);
-    if (code == noFamilyCode && bookMode == BookMode.family) {
-      onNoFamily?.call();
-    }
+    final onNoFamily = ApiService.onNoFamily;
+    final reported = code == noFamilyCode && bookMode == BookMode.family && onNoFamily != null;
+    if (reported) onNoFamily();
     return ApiException(
       errorMessage(response, fallback),
       statusCode: response.statusCode,
       code: code,
+      reported: reported,
     );
   }
 

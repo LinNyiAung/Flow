@@ -19,6 +19,7 @@ class FamilyProvider with ChangeNotifier {
   bool _loaded = false;
   bool _isLoading = false;
   String? _error;
+  bool _lastErrorReported = false;
 
   /// Bumped by [reset]: anything that answers for an older generation
   /// (the previous user) is dropped.
@@ -38,6 +39,11 @@ class FamilyProvider with ChangeNotifier {
   bool get loaded => _loaded;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  /// The last change failed with an error the app already reported itself
+  /// (a Family-mode `no_family`: the app goes back to Personal and says why),
+  /// so the screen must not show the message a change returned.
+  bool get lastErrorReported => _lastErrorReported;
 
   Family? get family => _overview.family;
   bool get inFamily => _overview.family != null;
@@ -202,15 +208,30 @@ class FamilyProvider with ChangeNotifier {
   }
 
   /// Runs [body] for the current generation: null when it succeeds,
-  /// otherwise the message to show.
+  /// otherwise the message to show (see [lastErrorReported]).
+  ///
+  /// A `no_family` refusal means the family is gone: the family is reloaded.
+  /// In Family mode the app root already does that (and says why).
   Future<String?> _run(Future<void> Function(int generation) body) async {
+    _lastErrorReported = false;
     try {
       await body(_generation);
       return null;
     } catch (e) {
       debugPrint('FamilyProvider: $e');
+      if (e is ApiException) {
+        _lastErrorReported = e.reported;
+        if (e.code == ApiService.noFamilyCode && !e.reported) unawaited(refresh());
+      }
       return _messageOf(e);
     }
+  }
+
+  /// Tests: shows [overview] (and [myInvites]) as if the server had answered.
+  @visibleForTesting
+  void debugApply(FamilyOverview overview, {List<FamilyInvite>? myInvites}) {
+    if (myInvites != null) _myInvites = List.unmodifiable(myInvites);
+    _apply(overview);
   }
 
   void _apply(FamilyOverview overview) {

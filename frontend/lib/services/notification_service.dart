@@ -181,6 +181,13 @@ Color _getNotificationColor(NotificationType type) {
     case NotificationType.custom_insight_ready:
     case NotificationType.custom_insight_failed:
       return Color(0xFFFF9800);
+    case NotificationType.family_invite:
+    case NotificationType.family_invite_accepted:
+      return Color(0xFF4CAF50);
+    case NotificationType.family_removed:
+      return Color(0xFF9E9E9E);
+    case NotificationType.family_owner:
+      return Color(0xFFFF9800);
   }
 }
 }

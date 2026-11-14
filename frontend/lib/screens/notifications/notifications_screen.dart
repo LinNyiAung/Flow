@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/app_navigator.dart';
+import 'package:frontend/providers/book_mode_provider.dart';
+import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/providers/budget_provider.dart';
-import 'package:frontend/screens/budgets/budget_detail_screen.dart';
-import 'package:frontend/screens/insights/custom_insight_report_screen.dart';
-import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
+import 'package:frontend/services/notification_opener.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:frontend/widgets/mascot.dart';
@@ -14,7 +15,6 @@ import '../../models/notification.dart';
 import '../../providers/notification_provider.dart';
 import '../../providers/goal_provider.dart';
 import '../../widgets/app_list_row.dart';
-import '../goals/goal_detail_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
   @override
@@ -90,6 +90,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.custom_insight_ready:
       case NotificationType.custom_insight_failed:
         return Icons.auto_awesome_rounded;
+      case NotificationType.family_invite:
+        return Icons.mail_rounded;
+      case NotificationType.family_invite_accepted:
+        return Icons.group_add_rounded;
+      case NotificationType.family_removed:
+        return Icons.person_remove_rounded;
+      case NotificationType.family_owner:
+        return Icons.key_rounded;
     }
   }
 
@@ -152,6 +160,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return scheme.primary;
       case NotificationType.custom_insight_failed:
         return scheme.onSurfaceVariant;
+      case NotificationType.family_invite:
+      case NotificationType.family_invite_accepted:
+        return scheme.primary;
+      case NotificationType.family_removed:
+        return scheme.onSurfaceVariant;
+      case NotificationType.family_owner:
+        return scheme.tertiary;
     }
   }
 
@@ -159,67 +174,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final notificationProvider =
         Provider.of<NotificationProvider>(context, listen: false);
 
-    final navigator = Navigator.of(context);
+    // Read before marking as read: the screen may be closed by a book switch.
+    final opener = NotificationOpener(
+      navigatorKey: navigatorKey,
+      books: Provider.of<BookModeProvider?>(context, listen: false),
+      family: Provider.of<FamilyProvider?>(context, listen: false),
+      budgets: Provider.of<BudgetProvider>(context, listen: false),
+      goals: Provider.of<GoalProvider>(context, listen: false),
+    );
 
     // Mark as read
     if (!notification.isRead) {
       await notificationProvider.markAsRead(notification.id);
     }
+    if (!mounted) return;
 
-    // Navigate based on notification type
-    if (notification.type.name.startsWith('budget_') && notification.goalId != null) {
-      // Budget notification
-      final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
-      final budget = await budgetProvider.getBudget(notification.goalId!);
-
-      if (budget != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BudgetDetailScreen(budget: budget),
-          ),
-        ).then((_) => _refreshNotifications());
-      }
-    } else if (notification.type.name.startsWith('goal_') && notification.goalId != null) {
-      // Goal notification
-      final goalProvider = Provider.of<GoalProvider>(context, listen: false);
-      final goal = await goalProvider.getGoal(notification.goalId!);
-
-      if (goal != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GoalDetailScreen(goal: goal),
-          ),
-        ).then((_) => _refreshNotifications());
-      }
-    } else if (notification.type == NotificationType.large_transaction ||
-        notification.type == NotificationType.unusual_spending ||
-        notification.type == NotificationType.payment_reminder ||
-        notification.type == NotificationType.recurring_transaction_created ||
-        notification.type == NotificationType.recurring_transaction_ended ||
-        notification.type == NotificationType.recurring_transaction_disabled) {
-      // Transaction notifications - navigate to transactions list
-      Navigator.pushNamed(context, '/transactions').then((_) => _refreshNotifications());
-    } else if (notification.type == NotificationType.weekly_insights_generated ||
-        notification.type == NotificationType.monthly_insights_generated) {
-      // Navigate to insights screen
-      Navigator.pushNamed(context, '/insights').then((_) => _refreshNotifications());
-    } else if (notification.type == NotificationType.custom_insight_ready) {
-      // The report is in goal_id. Without one, the Custom tab lists them.
-      final reportId = notification.goalId;
-      if (reportId != null && reportId.isNotEmpty) {
-        navigator.push(
-          MaterialPageRoute(builder: (_) => CustomInsightReportScreen(reportId: reportId)),
-        ).then((_) => _refreshNotifications());
-      } else {
-        navigator.pushNamed('/insights', arguments: InsightsScreen.customTabArgument)
-            .then((_) => _refreshNotifications());
-      }
-    } else if (notification.type == NotificationType.custom_insight_failed) {
-      // Nothing to open: the Custom tab shows the failed or refused report.
-      navigator.pushNamed('/insights', arguments: InsightsScreen.customTabArgument)
-          .then((_) => _refreshNotifications());
+    if (notificationOpensSomething(notification.type.name)) {
+      // A budget, goal, entries or insights: opened in the notice's own book
+      // (switching first when needed, which closes this screen); the family
+      // itself: the family screens. Refreshed on return if still open.
+      await opener.open(
+        notification.type.name,
+        goalId: notification.goalId,
+        family: notification.isFamilyBook,
+        onClosed: () {
+          if (mounted) _refreshNotifications();
+        },
+      );
     } else if (notification.type.isPlanNotice) {
       // The plan ended, the trial is about to, an admin activated a plan or
       // closed a request: open the Upgrade screen so the user can renew,
@@ -229,12 +210,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         NotificationEventBus().notifySubscriptionUpdated();
       }
       Navigator.pushNamed(context, '/subscription').then((_) => _refreshNotifications());
-    } else if (notification.type == NotificationType.system_broadcast || // NEW
-        notification.type == NotificationType.admin_announcement) {
-      // NEW
-      // Broadcast notifications - just dismiss or show detail
-      // No specific navigation needed
     }
+    // Broadcasts, announcements and "removed from family": nothing to open.
   }
 
   @override

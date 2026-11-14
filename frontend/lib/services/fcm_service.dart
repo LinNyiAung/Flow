@@ -5,6 +5,7 @@ import 'package:frontend/models/notification.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/utils/custom_insight_push.dart';
+import 'package:frontend/utils/push_tap.dart';
 
 import 'package:frontend/services/notification_event_bus.dart';
 
@@ -162,10 +163,15 @@ class FCMService {
   }
 
   void _onNotificationTapped(NotificationResponse response) {
-    // A custom insight's notification carries its type and report id.
-    final custom = parseCustomInsightPayload(response.payload);
-    if (custom != null) {
-      _handleNotificationNavigation({'type': custom.type, 'goal_id': custom.goalId});
+    // The local notification of a push received in the foreground carries
+    // its type, id and book (see pushTapPayload).
+    final tap = parsePushTapPayload(response.payload);
+    if (tap != null) {
+      _handleNotificationNavigation({
+        'type': tap.type,
+        'goal_id': tap.goalId,
+        if (tap.family) 'book': 'family',
+      });
     }
     print('📨 Local notification tapped: ${response.payload}');
   }
@@ -173,7 +179,7 @@ class FCMService {
   void _handleNotificationNavigation(Map<String, dynamic> data) {
     final notificationType = data['type'];
     final goalId = data['goal_id'];
-    
+
     print('Navigate to: type=$notificationType, goalId=$goalId');
 
     // The app was opened from a plan notice's push: the plan may have changed.
@@ -181,32 +187,40 @@ class FCMService {
       NotificationEventBus().notifySubscriptionUpdated();
     }
 
-    // A custom insight's push was tapped (app in the background, closed, or
-    // the local notification): open the report (its id is goal_id) or the
-    // Custom tab. Kept until the app can navigate (it may still be starting).
-    if (isCustomInsightPushType(notificationType)) {
-      _pendingOpen = (type: notificationType!, goalId: goalId is String ? goalId : null);
+    // A push was tapped (app in the background, closed, or the local
+    // notification): open what it is about (a budget, goal, entries,
+    // insights, a custom insight, a family invitation), in its own book
+    // (`book: family`: the family's). Kept until the app can open it (it may
+    // still be starting, or the family not be known yet).
+    if (notificationOpensSomething(notificationType)) {
+      _pendingOpen = (
+        type: notificationType!,
+        goalId: goalId is String && goalId.isNotEmpty ? goalId : null,
+        family: data['book'] == 'family',
+      );
       retryPendingOpen();
     }
   }
 
-  /// Opens the screen for a tapped custom insight push: set by the app root,
-  /// returns false when it cannot yet (no navigator, nobody signed in).
-  bool Function(String type, String? goalId)? _openFromPush;
-  ({String type, String? goalId})? _pendingOpen;
+  /// Opens the screen for a tapped push: set by the app root, returns false
+  /// when it cannot yet (no navigator, nobody signed in, the family unknown).
+  bool Function(PushTap tap)? _openFromPush;
+  PushTap? _pendingOpen;
 
-  void setOpenFromPushHandler(bool Function(String type, String? goalId)? handler) {
+  void setOpenFromPushHandler(bool Function(PushTap tap)? handler) {
     _openFromPush = handler;
     retryPendingOpen();
   }
 
-  /// Tries the tapped push that could not be opened yet (after sign-in or once
-  /// the app has built its navigator).
+  /// Tries the tapped push that could not be opened yet (after sign-in, once
+  /// the app has built its navigator, or once the family is known).
   void retryPendingOpen() {
     final pending = _pendingOpen;
     final open = _openFromPush;
     if (pending == null || open == null) return;
-    if (open(pending.type, pending.goalId)) _pendingOpen = null;
+    // Cleared first: opening may notify a listener that retries again.
+    _pendingOpen = null;
+    if (!open(pending)) _pendingOpen ??= pending;
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
@@ -249,7 +263,7 @@ class FCMService {
       notification.title,
       notification.body,
       notificationDetails,
-      payload: customInsightPayload(notificationType, message.data['goal_id']) ??
+      payload: pushTapPayload(notificationType, message.data['goal_id'], message.data['book']) ??
           message.data['notification_id'],
     );
   }
@@ -286,7 +300,13 @@ class FCMService {
       case 'upgrade_request_declined':
       case 'custom_insight_ready':
       case 'custom_insight_failed':
+      case 'family_owner':
         return Color(0xFFFF9800);
+      case 'family_invite':
+      case 'family_invite_accepted':
+        return Color(0xFF4CAF50);
+      case 'family_removed':
+        return Color(0xFF9E9E9E);
       default:
         return Color(0xFF667eea);
     }

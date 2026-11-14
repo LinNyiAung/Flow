@@ -43,6 +43,27 @@ enum NotificationType {
   // A custom insight could not be made (or was refused).
   // ignore: constant_identifier_names
   custom_insight_failed,
+  // You were invited to a family; `goal_id` is the invite's id, `goal_name` the family's name.
+  // ignore: constant_identifier_names
+  family_invite,
+  // Someone joined your family (sent to its admins); `goal_id` is the family's id.
+  // ignore: constant_identifier_names
+  family_invite_accepted,
+  // An admin removed you from the family.
+  // ignore: constant_identifier_names
+  family_removed,
+  // The owner deleted their account, so the family is yours now.
+  // ignore: constant_identifier_names
+  family_owner,
+}
+
+extension FamilyNotificationType on NotificationType {
+  /// About the person's family itself (not about either book's money).
+  bool get isFamilyNotice =>
+      this == NotificationType.family_invite ||
+      this == NotificationType.family_invite_accepted ||
+      this == NotificationType.family_removed ||
+      this == NotificationType.family_owner;
 }
 
 extension PlanNotificationType on NotificationType {
@@ -66,6 +87,38 @@ bool notificationRefreshesPlan(String? typeName) =>
     typeName == NotificationType.plan_activated.name ||
     typeName == NotificationType.upgrade_request_declined.name;
 
+/// True when a notice of this type (its wire name) is about one book's money
+/// (a budget, a goal, entries, insights): it is opened in the book it belongs
+/// to, the family's when it carries the family marker, the person's own
+/// otherwise (see `openInBook`).
+bool notificationBelongsToBook(String? typeName) {
+  if (typeName == null) return false;
+  if (typeName.startsWith('budget_') || typeName.startsWith('goal_')) return true;
+  const others = {
+    'large_transaction',
+    'unusual_spending',
+    'payment_reminder',
+    'recurring_transaction_created',
+    'recurring_transaction_ended',
+    'recurring_transaction_disabled',
+    'weekly_insights_generated',
+    'monthly_insights_generated',
+    'custom_insight_ready',
+    'custom_insight_failed',
+  };
+  return others.contains(typeName);
+}
+
+/// True when tapping a notice (or its push) of this type opens a screen
+/// through `NotificationOpener`: one book's money, or the family itself (an
+/// invitation, a new member, the ownership). Plan notices open the Upgrade
+/// screen from the notifications list only.
+bool notificationOpensSomething(String? typeName) =>
+    notificationBelongsToBook(typeName) ||
+    typeName == NotificationType.family_invite.name ||
+    typeName == NotificationType.family_invite_accepted.name ||
+    typeName == NotificationType.family_owner.name;
+
 class AppNotification {
   final String id;
   final String userId;
@@ -78,6 +131,10 @@ class AppNotification {
   final DateTime createdAt;
   final bool isRead;
 
+  /// `extra.book`: `family` for a notice that belongs to the family book (open
+  /// it in Family mode); null for the person's own (or for no book at all).
+  final String? book;
+
   AppNotification({
     required this.id,
     required this.userId,
@@ -89,9 +146,15 @@ class AppNotification {
     this.currency,  // NEW
     required this.createdAt,
     required this.isRead,
+    this.book,
   });
 
+  /// The notice belongs to the family book.
+  bool get isFamilyBook => book == 'family';
+
   factory AppNotification.fromJson(Map<String, dynamic> json) {
+    final extra = json['extra'];
+    final book = extra is Map ? extra['book'] : null;
     return AppNotification(
       id: json['id'],
       userId: json['user_id'],
@@ -107,6 +170,7 @@ class AppNotification {
       currency: json['currency'],  // NEW
       createdAt: parseInstant(json['created_at']),
       isRead: json['is_read'],
+      book: book is String ? book : null,
     );
   }
 
@@ -122,6 +186,7 @@ class AppNotification {
       currency: currency,
       createdAt: createdAt,
       isRead: isRead ?? this.isRead,
+      book: book,
     );
   }
 
@@ -137,6 +202,7 @@ class AppNotification {
       'currency': currency,  // NEW
       'created_at': createdAt.toIso8601String(),
       'is_read': isRead,
+      if (book != null) 'extra': {'book': book},
     };
   }
   

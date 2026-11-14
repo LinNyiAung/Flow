@@ -9,12 +9,16 @@ import 'package:frontend/widgets/app_logo.dart';
 import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/family_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../providers/notification_provider.dart';
 import 'edit_profile_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
+  /// The Family row (between Account and Appearance).
+  static const Key familyRowKey = ValueKey('settings-family');
+
   @override
   _SettingsScreenState createState() => _SettingsScreenState();
 }
@@ -241,6 +245,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+
+          const SizedBox(height: 24),
+
+          _buildSectionHeader(context, localizations.familyTitle),
+          const SizedBox(height: 10),
+          Card(
+            child: Builder(builder: (context) {
+              final familyName = Provider.of<FamilyProvider?>(context)?.family?.name.trim();
+              return AppListRow(
+                key: SettingsScreen.familyRowKey,
+                icon: Icons.family_restroom_rounded,
+                title: localizations.familyTitle,
+                subtitle: familyName == null || familyName.isEmpty ? localizations.familyCreateOrJoin : familyName,
+                onTap: () => Navigator.pushNamed(context, '/family'),
+                trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+              );
+            }),
           ),
 
           const SizedBox(height: 24),

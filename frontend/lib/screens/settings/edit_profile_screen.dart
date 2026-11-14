@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/family_provider.dart';
 
 import '../../services/localization_service.dart';
 
@@ -331,6 +332,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _showDeleteAccountDialog(BuildContext context) async {
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
+    // In a family: what happens to it (the owner's passes on, as the server
+    // does: the longest-standing admin, else member; deleted if nobody's left).
+    final family = Provider.of<FamilyProvider?>(context, listen: false);
+    final familyNote = family == null || !family.inFamily
+        ? null
+        : family.isOwner
+            ? localizations.familyDeleteAccountNoteOwner
+            : localizations.familyDeleteAccountNote;
 
     final passwordController = TextEditingController();
     var obscure = true;
@@ -369,6 +378,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             _buildDeleteItem('• ${localizations.allYourAiInsights}'),
             _buildDeleteItem('• ${localizations.allYourChatHistory}'),
             _buildDeleteItem('• ${localizations.yourAccountInformation}'),
+            if (familyNote != null) _buildDeleteItem('• $familyNote'),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(12),

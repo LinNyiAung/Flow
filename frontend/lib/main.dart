@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:frontend/app_navigator.dart';
 import 'package:frontend/providers/app_version_provider.dart';
 import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/book_session.dart';
@@ -22,8 +23,7 @@ import 'package:frontend/screens/budgets/budgets_screen.dart';
 import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
-import 'package:frontend/models/notification.dart';
-import 'package:frontend/screens/insights/custom_insight_report_screen.dart';
+import 'package:frontend/screens/family/family_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
@@ -41,7 +41,9 @@ import 'package:frontend/screens/update/force_update_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/services/notification_opener.dart';
 import 'package:frontend/services/notification_service.dart';
+import 'package:frontend/utils/push_tap.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_logo.dart';
 import 'package:frontend/widgets/mascot.dart';
@@ -55,10 +57,6 @@ import 'providers/chat_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/ai/ai_chat_screen.dart';
-
-/// Global navigator, used for app-wide navigation that has no BuildContext
-/// (e.g. the "session expired" → login redirect).
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 /// Global messenger, for app-wide snackbars that have no BuildContext (e.g.
 /// "you're no longer in this family").
@@ -159,28 +157,36 @@ class _MyAppState extends State<MyApp> {
     _bookSession.attach();
     _authProvider.addListener(_onAuthChanged);
     _planProvider.addListener(_onPlanChanged);
-    // A tapped custom insight push opens its report once the navigator is built.
+    // A push about a book waits for the family to be known.
+    _familyProvider.addListener(_retryPushOpen);
+    // A tapped push opens its screen once the navigator is built.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) FCMService().setOpenFromPushHandler(_openFromPush);
     });
   }
 
-  /// A custom insight push was tapped: the report (its id is [goalId]) for a
-  /// finished one, the Custom tab otherwise. False while the app cannot show
-  /// it yet (no navigator, nobody signed in); the tap is then kept and tried
-  /// again after sign-in.
-  bool _openFromPush(String type, String? goalId) {
-    final navigator = navigatorKey.currentState;
-    if (navigator == null || !_authProvider.isAuthenticated) return false;
-    if (type == NotificationType.custom_insight_ready.name && goalId != null && goalId.isNotEmpty) {
-      navigator.push(MaterialPageRoute<void>(
-        builder: (_) => CustomInsightReportScreen(reportId: goalId),
-      ));
-    } else {
-      navigator.pushNamed('/insights', arguments: InsightsScreen.customTabArgument);
-    }
-    return true;
-  }
+  /// Opens tapped notices and pushes (in the notice's own book; see
+  /// NotificationOpener).
+  late final NotificationOpener _notificationOpener = NotificationOpener(
+    navigatorKey: navigatorKey,
+    books: _bookModeProvider,
+    family: _familyProvider,
+    budgets: _budgetProvider,
+    goals: _goalProvider,
+  );
+
+  /// A push was tapped: opens what it is about, in its book ([PushTap.family]:
+  /// it carried `book: family`). False while the app cannot show it yet (no
+  /// navigator, nobody signed in, the family not known yet); the tap is then
+  /// kept and tried again after sign-in or once the family is loaded.
+  bool _openFromPush(PushTap tap) => _notificationOpener.openPush(
+        tap.type,
+        goalId: tap.goalId,
+        family: tap.family,
+        signedIn: _authProvider.isAuthenticated,
+      );
+
+  void _retryPushOpen() => FCMService().retryPendingOpen();
 
   /// Pro users (with Advanced left in their plan) get the Standard / Advanced
   /// switch in chat; everyone else is always answered by Standard.
@@ -272,6 +278,7 @@ class _MyAppState extends State<MyApp> {
     ApiService.onSessionExpired = null;
     ApiService.onPlanUsageChanged = null;
     _bookSession.detach();
+    _familyProvider.removeListener(_retryPushOpen);
     _authProvider.removeListener(_onAuthChanged);
     _planProvider.removeListener(_onPlanChanged);
     super.dispose();
@@ -336,6 +343,7 @@ class _MyAppState extends State<MyApp> {
             '/terms-conditions': (context) => TermsAndConditionsScreen(),
             '/login': (context) => const LoginScreen(),
             '/feedback': (context) => FeedbackScreen(),
+            '/family': (context) => const FamilyScreen(),
           },
           onGenerateRoute: (settings) {
             if (settings.name == '/language-settings') {

@@ -1266,6 +1266,70 @@ class AppLocalizations {
       'familyNoLongerMember': "You're no longer in this family, so you're back in your personal book.",
       'bookPersonal': 'Personal',
       'familyReadOnlyBanner': "This family is read-only: the owner's plan has ended.",
+      'familyTitle': 'Family',
+      'familyCreateOrJoin': 'Create or join a family',
+      'familyCreateTitle': 'Create a family',
+      'familyCreateIntro': "Keep the household's money together in one shared family book. Your personal book stays private.",
+      'familyNameLabel': 'Family name',
+      'familyCreateButton': 'Create family',
+      'familyCreateNeedsPlan': 'Creating a family needs the Plus or Pro plan. Joining one is free.',
+      'familyInvitationsTitle': 'Invitations',
+      'familyInvitationsPending': '{n} waiting',
+      'familyInvitationsNone': 'No invitations right now',
+      'familyRoleOwner': 'Owner',
+      'familyRoleAdmin': 'Admin',
+      'familyRoleMember': 'Member',
+      'familyNameOnly': 'Name only',
+      'familyFormer': 'Former member',
+      'familyYou': 'You',
+      'familyMembersSection': 'Members',
+      'familyMembersCount': '{n} of {max} members',
+      'familyPlaceholdersSection': 'Name-only members',
+      'familyPlaceholdersHint': 'People without the app, like young children or grandparents. Entries can be marked as for them.',
+      'familyPendingInvitesSection': 'Waiting to join',
+      'familyInviteAs': 'Joins as {name}',
+      'familyInviteExpires': 'Expires {date}',
+      'familyCancelInvite': 'Cancel invitation',
+      'familyInviteCancelled': 'Invitation cancelled.',
+      'familyFormerSection': 'Former members ({n})',
+      'familyActionsSection': 'Manage',
+      'familyRename': 'Rename family',
+      'familyInviteAction': 'Invite someone',
+      'familyAddName': 'Add a name',
+      'familyAddNameHint': 'e.g. Ma Ma, Grandma',
+      'familyMemberNameLabel': 'Name',
+      'familyHandOver': 'Hand over ownership',
+      'familyHandOverNone': 'Only another account member can become the owner. Invite someone first.',
+      'familyHandOverConfirm': '{name} becomes the owner, and you become an admin.',
+      'familyHandOverDone': '{name} is the owner now.',
+      'familyLeave': 'Leave family',
+      'familyLeaveConfirm': "The entries you added stay in the family book, and money you moved in stays in the family wallet. Your personal book isn't affected.",
+      'familyOwnerLeaveHint': "You're the owner: hand over ownership before you leave.",
+      'familyLeft': 'You left the family.',
+      'familyDelete': 'Delete family',
+      'familyDeleteWarning': "This deletes the family's entries, budgets, goals and members for everyone. Personal books aren't touched, and transfers stay in each person's history.",
+      'familyDeleteTypeName': 'Type "{name}" to confirm.',
+      'familyDeleted': 'The family was deleted.',
+      'familyMakeAdmin': 'Make admin',
+      'familyRemoveAdmin': 'Remove as admin',
+      'familyRenameMember': 'Rename',
+      'familyRemoveMember': 'Remove from family',
+      'familyRemoveConfirmTitle': 'Remove {name}?',
+      'familyRemoveConfirm': 'Their entries, and anything marked as for them, stay in the family book under their name.',
+      'familyInviteIntro': 'Use the email they signed up to Toe Pwar with. The invitation lasts 14 days.',
+      'familyInviteThisIs': 'This is…',
+      'familyInviteSomeoneNew': 'Someone new',
+      'familyInviteLinkHint': 'Already in the family list? Pick their name, and the entries for them become theirs.',
+      'familyInviteSend': 'Send',
+      'familyInviteSent': 'Invitation sent to {email}.',
+      'familyInvitedBy': 'From {name}',
+      'familyJoin': 'Join',
+      'familyDecline': 'Decline',
+      'familyLeaveFirst': "You're already in a family. Leave it before you join another.",
+      'familyJoined': 'You joined {name}.',
+      'familyDeclined': 'Invitation declined.',
+      'familyDeleteAccountNote': "You'll leave your family. The entries you added stay in the family book.",
+      'familyDeleteAccountNoteOwner': "You own your family: it passes to the longest-standing admin (or member, if there's no admin). If nobody else is left, the family is deleted.",
     },
     'my': {
       // Home Screen
@@ -2429,6 +2493,70 @@ class AppLocalizations {
       'familyNoLongerMember': 'ဒီမိသားစုထဲမှာ မရှိတော့သဖြင့် ကိုယ်ပိုင်စာရင်းကို ပြန်ပြောင်းထားပါတယ်။',
       'bookPersonal': 'ကိုယ်ပိုင်',
       'familyReadOnlyBanner': 'ပိုင်ရှင်၏ အစီအစဉ် ကုန်ဆုံးသွားသဖြင့် ဒီမိသားစုစာရင်းကို ကြည့်ရုံသာ ကြည့်နိုင်ပါတယ်။',
+      'familyTitle': 'မိသားစု',
+      'familyCreateOrJoin': 'မိသားစု ဖွဲ့ရန် သို့မဟုတ် ဝင်ရန်',
+      'familyCreateTitle': 'မိသားစု ဖွဲ့ရန်',
+      'familyCreateIntro': 'အိမ်ထောင်စု၏ ငွေကို မိသားစုစာရင်း တစ်ခုတည်းမှာ အတူ မှတ်ပါ။ ကိုယ်ပိုင်စာရင်းကိုတော့ ဘယ်သူမှ မမြင်ရပါ။',
+      'familyNameLabel': 'မိသားစုအမည်',
+      'familyCreateButton': 'မိသားစု ဖွဲ့မည်',
+      'familyCreateNeedsPlan': 'မိသားစု ဖွဲ့ရန် Plus သို့မဟုတ် Pro အစီအစဉ် လိုပါတယ်။ မိသားစုထဲ ဝင်တာကတော့ အခမဲ့ပါ။',
+      'familyInvitationsTitle': 'ဖိတ်ကြားချက်များ',
+      'familyInvitationsPending': '{n} ခု စောင့်နေပါတယ်',
+      'familyInvitationsNone': 'လောလောဆယ် ဖိတ်ကြားချက် မရှိပါ',
+      'familyRoleOwner': 'ပိုင်ရှင်',
+      'familyRoleAdmin': 'စီမံသူ',
+      'familyRoleMember': 'အဖွဲ့ဝင်',
+      'familyNameOnly': 'အမည်သာ',
+      'familyFormer': 'ယခင်အဖွဲ့ဝင်',
+      'familyYou': 'သင်',
+      'familyMembersSection': 'အဖွဲ့ဝင်များ',
+      'familyMembersCount': 'အဖွဲ့ဝင် {n}/{max}',
+      'familyPlaceholdersSection': 'အမည်သာ အဖွဲ့ဝင်များ',
+      'familyPlaceholdersHint': 'ကလေးငယ်များ၊ အဘိုးအဘွားများကဲ့သို့ အက်ပ်မသုံးသူများပါ။ စာရင်းများကို သူတို့အတွက်ဟု မှတ်နိုင်ပါတယ်။',
+      'familyPendingInvitesSection': 'ဝင်ရန် စောင့်နေသူများ',
+      'familyInviteAs': '{name} အဖြစ် ဝင်ပါမယ်',
+      'familyInviteExpires': '{date} တွင် သက်တမ်းကုန်မည်',
+      'familyCancelInvite': 'ဖိတ်ကြားချက် ပယ်ဖျက်ရန်',
+      'familyInviteCancelled': 'ဖိတ်ကြားချက်ကို ပယ်ဖျက်လိုက်ပါပြီ။',
+      'familyFormerSection': 'ယခင်အဖွဲ့ဝင်များ ({n})',
+      'familyActionsSection': 'စီမံရန်',
+      'familyRename': 'မိသားစုအမည် ပြောင်းရန်',
+      'familyInviteAction': 'တစ်ယောက်ယောက်ကို ဖိတ်ရန်',
+      'familyAddName': 'အမည် ထည့်ရန်',
+      'familyAddNameHint': 'ဥပမာ မမ၊ အဘွား',
+      'familyMemberNameLabel': 'အမည်',
+      'familyHandOver': 'ပိုင်ရှင်အဖြစ် လွှဲပေးရန်',
+      'familyHandOverNone': 'အကောင့်ရှိသော အခြားအဖွဲ့ဝင်သာ ပိုင်ရှင် ဖြစ်နိုင်ပါတယ်။ အရင်ဆုံး တစ်ယောက်ယောက်ကို ဖိတ်ပါ။',
+      'familyHandOverConfirm': '{name} က ပိုင်ရှင် ဖြစ်လာပြီး သင်က စီမံသူ ဖြစ်သွားပါမယ်။',
+      'familyHandOverDone': 'ယခု {name} က ပိုင်ရှင် ဖြစ်ပါပြီ။',
+      'familyLeave': 'မိသားစုမှ ထွက်ရန်',
+      'familyLeaveConfirm': 'သင်ထည့်ခဲ့သော စာရင်းများနှင့် မိသားစုပိုက်ဆံအိတ်ထဲ ထည့်ခဲ့သောငွေများ ကျန်ရှိနေပါမယ်။ ကိုယ်ပိုင်စာရင်းကို မထိခိုက်ပါ။',
+      'familyOwnerLeaveHint': 'သင်က ပိုင်ရှင်ဖြစ်လို့ မထွက်ခင် ပိုင်ရှင်အဖြစ် လွှဲပေးပါ။',
+      'familyLeft': 'မိသားစုမှ ထွက်လိုက်ပါပြီ။',
+      'familyDelete': 'မိသားစု ဖျက်ရန်',
+      'familyDeleteWarning': 'မိသားစု၏ စာရင်းများ၊ ဘတ်ဂျက်များ၊ ရည်မှန်းချက်များနှင့် အဖွဲ့ဝင်များကို လူတိုင်းအတွက် ဖျက်ပါမယ်။ ကိုယ်ပိုင်စာရင်းများကို မထိပါ။ ငွေလွှဲမှုများလည်း ကိုယ်စီ မှတ်တမ်းထဲ ကျန်ပါမယ်။',
+      'familyDeleteTypeName': 'အတည်ပြုရန် "{name}" ဟု ရိုက်ထည့်ပါ။',
+      'familyDeleted': 'မိသားစုကို ဖျက်လိုက်ပါပြီ။',
+      'familyMakeAdmin': 'စီမံသူ ခန့်ရန်',
+      'familyRemoveAdmin': 'စီမံသူမှ ဖြုတ်ရန်',
+      'familyRenameMember': 'အမည်ပြောင်းရန်',
+      'familyRemoveMember': 'မိသားစုမှ ဖယ်ရှားရန်',
+      'familyRemoveConfirmTitle': '{name} ကို ဖယ်ရှားမလား။',
+      'familyRemoveConfirm': 'သူ့စာရင်းများနှင့် သူ့အတွက်ဟု မှတ်ထားသည်များ သူ့အမည်ဖြင့် မိသားစုစာရင်းထဲ ကျန်ရှိနေပါမယ်။',
+      'familyInviteIntro': 'သူ တိုးပွားမှာ စာရင်းသွင်းထားတဲ့ အီးမေးလ်ကို ထည့်ပါ။ ဖိတ်ကြားချက်က ၁၄ ရက် ခံပါတယ်။',
+      'familyInviteThisIs': 'ဒီသူက…',
+      'familyInviteSomeoneNew': 'လူသစ်',
+      'familyInviteLinkHint': 'မိသားစုစာရင်းထဲ ရှိပြီးသားလား။ သူ့အမည်ကို ရွေးလိုက်ရင် သူ့အတွက် မှတ်ထားတဲ့ စာရင်းတွေ သူ့ဆီ ပါသွားပါမယ်။',
+      'familyInviteSend': 'ပို့ရန်',
+      'familyInviteSent': '{email} သို့ ဖိတ်ကြားချက် ပို့လိုက်ပါပြီ။',
+      'familyInvitedBy': '{name} ထံမှ',
+      'familyJoin': 'ဝင်ရန်',
+      'familyDecline': 'ငြင်းရန်',
+      'familyLeaveFirst': 'သင် မိသားစုတစ်ခုထဲမှာ ရှိနေပါပြီ။ နောက်တစ်ခုကို မဝင်ခင် လက်ရှိမိသားစုမှ ထွက်ပါ။',
+      'familyJoined': '{name} ထဲ ဝင်လိုက်ပါပြီ။',
+      'familyDeclined': 'ဖိတ်ကြားချက်ကို ငြင်းလိုက်ပါပြီ။',
+      'familyDeleteAccountNote': 'သင့်မိသားစုမှ ထွက်သွားပါမယ်။ သင်ထည့်ခဲ့သော စာရင်းများ မိသားစုစာရင်းထဲ ကျန်ရှိနေပါမယ်။',
+      'familyDeleteAccountNoteOwner': 'သင်ပိုင်သော မိသားစုကို အကြာဆုံး စီမံသူ (စီမံသူ မရှိလျှင် အကြာဆုံး အဖွဲ့ဝင်) ထံ လွှဲပေးပါမယ်။ ကျန်သူ မရှိလျှင် မိသားစုကို ဖျက်ပါမယ်။',
     }
   };
 
@@ -3669,6 +3797,80 @@ class AppLocalizations {
   /// Family mode, the owner's plan has lapsed: everyone can read, nobody can
   /// add or change. Also the reason the + button gives.
   String get familyReadOnlyBanner => translate('familyReadOnlyBanner');
+
+  // ---- Family management (Task 14) ----
+  String get familyTitle => translate('familyTitle');
+  String get familyCreateOrJoin => translate('familyCreateOrJoin');
+  String get familyCreateTitle => translate('familyCreateTitle');
+  String get familyCreateIntro => translate('familyCreateIntro');
+  String get familyNameLabel => translate('familyNameLabel');
+  String get familyCreateButton => translate('familyCreateButton');
+  String get familyCreateNeedsPlan => translate('familyCreateNeedsPlan');
+  String get familyInvitationsTitle => translate('familyInvitationsTitle');
+  String familyInvitationsPending(int n) => translate('familyInvitationsPending').replaceAll('{n}', '$n');
+  String get familyInvitationsNone => translate('familyInvitationsNone');
+  String get familyRoleOwner => translate('familyRoleOwner');
+  String get familyRoleAdmin => translate('familyRoleAdmin');
+  String get familyRoleMember => translate('familyRoleMember');
+  String get familyNameOnly => translate('familyNameOnly');
+  String get familyFormer => translate('familyFormer');
+  String get familyYou => translate('familyYou');
+  String get familyMembersSection => translate('familyMembersSection');
+  String familyMembersCount(int n, int max) =>
+      translate('familyMembersCount').replaceAll('{n}', '$n').replaceAll('{max}', '$max');
+  String get familyPlaceholdersSection => translate('familyPlaceholdersSection');
+  String get familyPlaceholdersHint => translate('familyPlaceholdersHint');
+  String get familyPendingInvitesSection => translate('familyPendingInvitesSection');
+  String familyInviteAs(String name) => translate('familyInviteAs').replaceAll('{name}', name);
+  String familyInviteExpires(String date) => translate('familyInviteExpires').replaceAll('{date}', date);
+  String get familyCancelInvite => translate('familyCancelInvite');
+  String get familyInviteCancelled => translate('familyInviteCancelled');
+  String familyFormerSection(int n) => translate('familyFormerSection').replaceAll('{n}', '$n');
+  String get familyActionsSection => translate('familyActionsSection');
+  String get familyRename => translate('familyRename');
+  String get familyInviteAction => translate('familyInviteAction');
+  String get familyAddName => translate('familyAddName');
+  String get familyAddNameHint => translate('familyAddNameHint');
+  String get familyMemberNameLabel => translate('familyMemberNameLabel');
+  String get familyHandOver => translate('familyHandOver');
+  String get familyHandOverNone => translate('familyHandOverNone');
+  String familyHandOverConfirm(String name) => translate('familyHandOverConfirm').replaceAll('{name}', name);
+  String familyHandOverDone(String name) => translate('familyHandOverDone').replaceAll('{name}', name);
+  String get familyLeave => translate('familyLeave');
+  String get familyLeaveConfirm => translate('familyLeaveConfirm');
+  String get familyOwnerLeaveHint => translate('familyOwnerLeaveHint');
+  String get familyLeft => translate('familyLeft');
+  String get familyDelete => translate('familyDelete');
+  String get familyDeleteWarning => translate('familyDeleteWarning');
+  String familyDeleteTypeName(String name) => translate('familyDeleteTypeName').replaceAll('{name}', name);
+  String get familyDeleted => translate('familyDeleted');
+  String get familyMakeAdmin => translate('familyMakeAdmin');
+  String get familyRemoveAdmin => translate('familyRemoveAdmin');
+  String get familyRenameMember => translate('familyRenameMember');
+  String get familyRemoveMember => translate('familyRemoveMember');
+  String familyRemoveConfirmTitle(String name) => translate('familyRemoveConfirmTitle').replaceAll('{name}', name);
+  String get familyRemoveConfirm => translate('familyRemoveConfirm');
+  String get familyInviteIntro => translate('familyInviteIntro');
+  String get familyInviteThisIs => translate('familyInviteThisIs');
+  String get familyInviteSomeoneNew => translate('familyInviteSomeoneNew');
+  String get familyInviteLinkHint => translate('familyInviteLinkHint');
+  String get familyInviteSend => translate('familyInviteSend');
+  String familyInviteSent(String email) => translate('familyInviteSent').replaceAll('{email}', email);
+  String familyInvitedBy(String name) => translate('familyInvitedBy').replaceAll('{name}', name);
+  String get familyJoin => translate('familyJoin');
+  String get familyDecline => translate('familyDecline');
+
+  /// Join tapped while already in a family (one family per person).
+  String get familyLeaveFirst => translate('familyLeaveFirst');
+  String familyJoined(String name) => translate('familyJoined').replaceAll('{name}', name);
+  String get familyDeclined => translate('familyDeclined');
+
+  /// The delete-account list, for someone in a family (the owner: [familyDeleteAccountNoteOwner]).
+  String get familyDeleteAccountNote => translate('familyDeleteAccountNote');
+
+  /// The owner's family passes on as the server does: the longest-standing
+  /// admin, else member; deleted when nobody else is left.
+  String get familyDeleteAccountNoteOwner => translate('familyDeleteAccountNoteOwner');
 
   /// A plan date (when an allowance resets, when a request was made) in the
   /// device's local time: [AppDates.full] in this app language ("1 Dec 2026";
