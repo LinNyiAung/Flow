@@ -7,14 +7,14 @@ destination book, with the same date, currency, amount and description, main_cat
 transfer_id out (sql.transactions), the balance counts them (utils.get_user_balance).
 
 Money never appears or disappears: both legs are written, and removed, together in one database transaction while
-holding both books' money locks, taken in sorted id order so two transfers between the same books can't deadlock.
+holding both books' money locks (utils.get_users_money_locks: the in-process locks first, then the transaction, then
+the row locks, each in sorted id order so two transfers between the same books can't deadlock).
 
 Refusals are HTTPException(status, {"code", "message"}) in the caller's language, as in families.book.
 """
 import uuid
-from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, AsyncIterator, Dict, Iterable, List, Literal, Optional
+from typing import Any, Dict, Iterable, List, Literal, Optional
 
 from fastapi import BackgroundTasks, HTTPException
 
@@ -24,22 +24,11 @@ from goal_routes import to_cents
 from sql import transactions as transactions_db
 from sql import families as fdb
 from sql import users as users_db
-from sql.db import transaction
-from utils import get_user_balance, get_user_money_lock
+from utils import get_user_balance, get_users_money_locks
 
 MAIN_CATEGORY = "Transfer"
 SUB_CATEGORY = "Family wallet"
 Direction = Literal["to_family", "to_personal"]
-
-
-@asynccontextmanager
-async def _money_locks(user_ids: Iterable[str]) -> AsyncIterator[None]:
-    """The money locks of these books, in sorted id order. Use inside transaction(): each lock's row lock then lasts
-    until that one transaction ends."""
-    async with AsyncExitStack() as stack:
-        for uid in sorted(set(user_ids)):
-            await stack.enter_async_context(get_user_money_lock(uid))
-        yield
 
 
 async def _family_book(person: dict) -> Optional[Book]:
@@ -94,14 +83,13 @@ async def create_transfer(person: dict, direction: Direction, amount: float, cur
     personal = leg(person["_id"], "outflow" if to_family else "inflow", None)
     family = leg(book.id, "inflow" if to_family else "outflow", book.member["id"])
 
-    async with transaction():
-        async with _money_locks((person["_id"], book.id)):
-            await _still_in(book)
-            available = (await get_user_balance(source, currency))["available_balance"]
-            if to_cents(amount) > to_cents(available):
-                refuse(person, 400, "transfer_insufficient")
-            await transactions_db.insert_transaction(personal)
-            await transactions_db.insert_transaction(family)
+    async with get_users_money_locks((person["_id"], book.id)):  # one transaction: both legs or neither
+        await _still_in(book)
+        available = (await get_user_balance(source, currency))["available_balance"]
+        if to_cents(amount) > to_cents(available):
+            refuse(person, 400, "transfer_insufficient")
+        await transactions_db.insert_transaction(personal)
+        await transactions_db.insert_transaction(family)
 
     for book_id in (person["_id"], book.id):
         await users_db.mark_ai_data_stale(book_id)
@@ -134,15 +122,14 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
         refuse(person, 403, "not_allowed")  # a family the caller is no longer in
     require_writable(book)
 
-    async with transaction():
-        async with _money_locks(x["user_id"] for x in legs):
-            legs = await transactions_db.transfer_legs(transfer_id)
-            if not legs:
-                refuse(person, 404, "transfer_not_found")  # undone meanwhile
-            if len(legs) != 2:
-                refuse(person, 409, "transfer_gone")
-            await _check_destination(person, legs)
-            await transactions_db.delete_transfer(transfer_id)
+    async with get_users_money_locks(x["user_id"] for x in legs):  # one transaction: both legs or neither
+        legs = await transactions_db.transfer_legs(transfer_id)
+        if not legs:
+            refuse(person, 404, "transfer_not_found")  # undone meanwhile
+        if len(legs) != 2:
+            refuse(person, 409, "transfer_gone")
+        await _check_destination(person, legs)
+        await transactions_db.delete_transfer(transfer_id)
 
     for book_id in {x["user_id"] for x in legs}:
         await users_db.mark_ai_data_stale(book_id)

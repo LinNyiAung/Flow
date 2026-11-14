@@ -1713,6 +1713,46 @@ def section_transfers():
               and listed(M, True).get(k.get("family_transaction_id"), {}).get("amount") == 1500.4,
               "transfers: K1500.4 is stored and answered as 1500.4 on both legs", f"{r.status_code} {rows}")
 
+        # ---- R21 (M1): a transfer waits for the books' in-process locks before it takes a pooled connection ----
+        async def waits_without_a_connection():
+            from fastapi import BackgroundTasks
+            import utils
+            from families import transfers as tr
+            from sql import db as sqldb
+            from sql import users as users_db
+            person = await users_db.get_user(M["id"])
+            pool = sqldb.get_engine().sync_engine.pool
+            held = []
+
+            async def while_family_locked(make):
+                entered, release = asyncio.Event(), asyncio.Event()
+
+                async def other_request():  # another request moving the family's money (its own task and context)
+                    async with utils.get_user_money_lock(book_id):
+                        entered.set()
+                        await release.wait()
+                holder = asyncio.create_task(other_request())
+                await entered.wait()
+                base = pool.checkedout()
+                task = asyncio.create_task(make())
+                await asyncio.sleep(0.5)
+                held.append(pool.checkedout() - base)
+                release.set()
+                await holder
+                return await task
+            made = await while_family_locked(lambda: tr.create_transfer(person, "to_family", 2, "mmk", datetime.now(UTC),
+                                                                         None, BackgroundTasks()))
+            undone = await while_family_locked(lambda: tr.undo_transfer(person, made["transfer_id"], BackgroundTasks()))
+            return held, made, undone, legs(made["transfer_id"])
+        try:
+            held, made_t, undone, left = _backend_async(waits_without_a_connection)
+        except Exception as e:  # noqa: BLE001
+            held, made_t, undone, left = repr(e)[:300], {}, {}, None
+        check(held == [0, 0] and made_t.get("transfer_id") and undone.get("transfer_id") == made_t.get("transfer_id")
+              and left == [],
+              "transfers: create and undo wait on the books' in-process locks holding no pooled connection, then "
+              "complete as usual", (held, made_t, undone, left))
+
         # ---- who may transfer ----
         r = move(L, "to_family", 1)
         check(_code(r, 409, "no_family"), "transfers: outside a family is 409 no_family", f"{r.status_code} {r.text[:200]}")

@@ -1,8 +1,8 @@
 import asyncio
 import weakref
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Iterable, Optional
 from fastapi import Depends, HTTPException , status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -12,6 +12,7 @@ from plans.catalog import PAID_PLANS
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import users as users_db
+from sql.db import transaction
 import jwt  # PyJWT (replaces python-jose; same HS256 tokens)
 from passlib.context import CryptContext
 
@@ -198,16 +199,37 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
 _user_money_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = weakref.WeakValueDictionary()
 
 
-@asynccontextmanager
-async def get_user_money_lock(user_id: str) -> AsyncIterator[None]:
-    """`async with get_user_money_lock(uid):` - the block is serialized per user and its
-    database writes commit (or roll back) together."""
+def _process_money_lock(user_id: str) -> asyncio.Lock:
+    """The in-process lock of this user (held strongly by whoever is using it)."""
     lock = _user_money_locks.get(user_id)
     if lock is None:
         lock = asyncio.Lock()
         _user_money_locks[user_id] = lock
-    async with lock:
+    return lock
+
+
+@asynccontextmanager
+async def get_user_money_lock(user_id: str) -> AsyncIterator[None]:
+    """`async with get_user_money_lock(uid):` - the block is serialized per user and its
+    database writes commit (or roll back) together."""
+    async with _process_money_lock(user_id):
         async with users_db.money_lock(user_id):
+            yield
+
+
+@asynccontextmanager
+async def get_users_money_locks(user_ids: Iterable[str]) -> AsyncIterator[None]:
+    """`async with get_users_money_locks(ids):` - several users' money locks for one block whose database writes
+    commit (or roll back) together, in the same order as get_user_money_lock: every in-process lock first (sorted id
+    order, so two blocks over the same users can't deadlock), only then one transaction (a pooled connection), and the
+    row locks in the same sorted order inside it."""
+    ids = sorted(set(user_ids))
+    async with AsyncExitStack() as process_locks:
+        for uid in ids:
+            await process_locks.enter_async_context(_process_money_lock(uid))
+        async with transaction(), AsyncExitStack() as row_locks:  # the row locks end before the transaction does
+            for uid in ids:
+                await row_locks.enter_async_context(users_db.money_lock(uid))
             yield
 
 
