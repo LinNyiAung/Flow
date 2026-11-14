@@ -1970,6 +1970,8 @@ def section_notifications():
         check(len(mp) == 1 and len(dp) == 1 and pushes(f"fcm-book-{tag}") == [],
               "notifications: each member's device gets the push in their language; the book's token none",
               (len(mp), len(dp), pushes(f"fcm-book-{tag}")))
+        check(mp and dp and all((p.get("data") or {}).get("book") == "family" for p in mp + dp),
+              "notifications: the family push data carries book = 'family'", [p.get("data") for p in mp + dp])
 
         r = c.put("/api/notifications/preferences", headers=D["h"], json={"preferences": {"budget_threshold": False}})
         check(r.status_code == 200, "notifications: Dad turns budget alerts off", f"{r.status_code} {r.text[:200]}")
@@ -2085,6 +2087,16 @@ def section_notifications():
         late = [n for uid in (M["id"], D["id"], book) for n in notes(uid) if n["goal_name"] == f"Bread {tag}"]
         check(isinstance(n2, int) and n2 >= 2 and late == [], "notifications: once its adder is former, a recurring entry's notices go to nobody",
               (n2, late))
+
+        # ---- a personal push has no book marker ----
+        r = c.post("/api/budgets", headers=D["h"], json={
+            "name": f"Mine {tag}", "period": "custom", "currency": "mmk", "total_budget": 20000,
+            "start_date": (today - timedelta(days=1)).isoformat(), "end_date": (today + timedelta(days=2)).isoformat(),
+            "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 20000}]})
+        pid = r.json().get("id") if r.status_code == 200 else None
+        pp = wait_for(lambda: [p for p in pushes(f"fcm-dad-{tag}") if (p.get("data") or {}).get("goal_id") == pid])
+        check(pid and len(pp) == 1 and "book" not in (pp[0].get("data") or {}),
+              "notifications: Dad's personal budget push has no book in its data", (r.status_code, pp))
 
         # ---- safety net: nothing is ever stored for the book user ----
         async def direct():

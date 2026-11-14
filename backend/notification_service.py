@@ -332,7 +332,7 @@ async def create_notification(
     """Create a new notification (only if user has it enabled).
 
     extra: additional fields stored on the notification document (e.g. dedupe keys);
-    they are not sent in the push payload.
+    they are not sent in the push payload, except the family marker `book` (see family_marker).
 
     A family book user is refused (nothing is stored or pushed, None is returned): a family book's notices go to its
     members through create_notification_from_key, and per-entry notices are never sent for it.
@@ -383,6 +383,9 @@ async def create_notification(
                     "goal_name": goal_name or "",
                     "currency": currency or "",
                 }
+                if notification.get("book"):
+                    # A family book's notice: the app's push-tap handler switches to Family mode first.
+                    fcm_data["book"] = notification["book"]
 
                 send_fcm_notification(
                     fcm_token=fcm_token,
