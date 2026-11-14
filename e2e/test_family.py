@@ -12,6 +12,9 @@ Sections:
   budgets and goals -- only admins create, change or delete them or take money out of a goal; any member adds (Task 7).
   family notifications -- budget and goal notices reach every active account member in their own language and by their
     own preferences, never the book user; no per-entry notices; recurring notices only to the adder (Task 8).
+  ai -- Ko Toe Pwar in Family mode answers from the family book and the asker's profile; chat history is private per
+    person and book; chat uses and costs the asker's allowance; family insights jobs and the owner's cost cap; the admin
+    AI report's family row (Task 9).
 """
 import asyncio
 import os
@@ -2108,6 +2111,247 @@ def section_notifications():
         _cleanup_people(made)
 
 
+def section_ai():
+    """Task 9: Ko Toe Pwar and insights for the family book. Family mode answers from the family book only (with a
+    FAMILY section: members, this month's breakdown, moves between wallets) and the asker's own profile; each person's
+    chat history stays private per book; a family chat uses and costs the asker's own allowance; the weekly and
+    monthly jobs also make family insights for a paid owner under the owner's cost cap, as do on-demand ones; the
+    admin AI report names a family's row."""
+    backend = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    import json
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    started = datetime.now(UTC) - timedelta(seconds=5)
+    now = datetime.now(UTC).replace(microsecond=0)
+    fam_name = f"AI family {tag}"
+    grandma = f"Grandma {tag}"
+
+    def H(u, family=False):
+        return {**u["h"], **(FAM if family else {})}
+
+    def tx(u, family=False, **kw):
+        body = {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "date": now.isoformat(), "amount": 10, "currency": "usd"} | kw
+        return c.post("/api/transactions", headers=H(u, family), json=body)
+
+    def chat(u, family, message):
+        r = c.post("/api/chat/stream", headers=H(u, family), json={"message": message})
+        frames = [json.loads(line[6:]) for line in r.text.split("\n") if line.startswith("data: ")] \
+            if r.status_code == 200 else []
+        return r.status_code == 200 and bool(frames) and frames[-1].get("done") and "error" not in frames[-1]
+
+    def history(u, family):
+        r = c.get("/api/chat/history", headers=H(u, family), params={"limit": 50})
+        return [m["content"] for m in r.json()] if r.status_code == 200 else (r.status_code, r.text[:200])
+
+    def chat_uses(uid):
+        return db.sql("SELECT coalesce(sum(used), 0) n FROM usage_counters WHERE user_id = %s AND feature = 'chat' "
+                      "AND period = 'week'", uid)[0]["n"]
+
+    def ai_rows(uid, feature):
+        return db.sql("SELECT count(*) n FROM ai_usage WHERE user_id = %s AND feature_type = %s", uid, feature)[0]["n"]
+
+    def book_insights(kind):
+        return db.sql("SELECT count(*) n FROM insights WHERE user_id = %s AND insight_type = %s AND is_placeholder = false",
+                      book, kind)[0]["n"]
+
+    def run_job(kind):
+        async def go():
+            import insights_service as ins
+            if kind == "weekly":
+                await ins.generate_weekly_insights_for_all_users()
+            else:
+                await ins.generate_monthly_insights_for_all_users()
+        _backend_async(go)
+
+    book = None
+    try:
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        r = c.post("/api/family", headers=M["h"], json={"name": fam_name})
+        c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
+        view = c.post("/api/family/placeholders", headers=M["h"], json={"display_name": grandma}).json()
+        gm = next((m["id"] for m in view.get("members", []) if m["display_name"] == grandma), None)
+        book = (db.sql("SELECT book_user_id b FROM families WHERE name = %s", fam_name) or [{}])[0].get("b")
+        check(book and gm, "ai: Mum (Plus, owner), Dad (Free) and the placeholder Grandma share a family", (book, gm))
+        db.sql("UPDATE users SET default_currency = 'thb', language = 'my' WHERE id = %s", D["id"])
+        db.sql("UPDATE users SET default_currency = 'mmk' WHERE id = %s", M["id"])
+
+        # Personal entries that must never reach the family answers; family entries; a transfer.
+        tx(M, description=f"MUMSECRET{tag}", amount=77)
+        tx(D, description=f"DADSECRET{tag}", amount=66)
+        tx(D, type="inflow", main_category="Employment Income", sub_category="Salary", amount=1000,
+           description=f"DADPAY{tag}")
+        r = tx(M, True, description=f"FAMGROCER{tag}", amount=30, for_whom=[gm])
+        check(r.status_code == 200, "ai: Mum adds a family entry for Grandma", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/transfers", headers=D["h"], json={"direction": "to_family", "amount": 250, "currency": "usd",
+                                                           "date": now.isoformat()})
+        check(r.status_code == 200, "ai: Dad moves $250 into the family wallet", f"{r.status_code} {r.text[:200]}")
+
+        # ---- the context, in-process ----
+        async def context():
+            from ai_chatbot import FinancialDataProcessor
+            p = FinancialDataProcessor(book)
+            docs = "\n".join(d.page_content for d in await p.create_financial_documents())
+            family = await p.get_family_context()
+            personal = await FinancialDataProcessor(M["id"]).get_family_context()
+            return docs, family, personal
+        try:
+            docs, family, personal = _backend_async(context)
+        except Exception as e:  # noqa: BLE001
+            docs, family, personal = "", repr(e)[:300], None
+        check(f"FAMGROCER{tag}" in docs and f"MUMSECRET{tag}" not in docs and f"DADSECRET{tag}" not in docs
+              and f"DADPAY{tag}" not in docs,
+              "ai: the family book's context has the family entries and none of Mum's or Dad's personal ones", docs[:300])
+        lines = family.splitlines()
+        gm_line = next((x for x in lines if grandma in x and "30" in x), None)
+        move_line = next((x for x in lines if "Dad" in x and "250" in x), None)
+        check("FAMILY" in family and all(n in family for n in ("Mum", "Dad", grandma)) and gm_line is not None,
+              "ai: the FAMILY section names the members (placeholders too) and this month's spending for Grandma",
+              family[:500])
+        check(move_line is not None and "into the family wallet" in move_line
+              and "not income or spending" in family.lower(),
+              "ai: the FAMILY section lists Dad's move into the family wallet, labelled as not income or spending",
+              family[:500])
+        check(all(s not in family for s in (f"MUMSECRET{tag}", f"DADSECRET{tag}", f"DADPAY{tag}", "1,000", "1000"))
+              and personal == "",
+              "ai: the FAMILY section has no personal data; a personal book has no FAMILY section", (family[:300], personal))
+
+        # ---- the prompt, in-process: the asker's profile, the family framing, usage on the asker ----
+        async def prompt():
+            import ai_chatbot
+            from ai_providers import runner
+            from ai_providers.types import Completion, Target
+            seen = {}
+            orig = runner.run_stream
+
+            async def fake_run_stream(feature, *, user_id, prompt):
+                seen.update(feature=feature, user_id=user_id, system=prompt.system, user=prompt.user)
+                yield "ok"
+                yield runner.RunResult("ok", Target("gemini", "gemini-2.5-flash"), None, Completion("ok", 1, 1, "stop"))
+            runner.run_stream = fake_run_stream
+            try:
+                bot = ai_chatbot.FinancialChatbot()
+                async for _ in bot.stream_chat(book, "How much did we spend on Grandma?", person_id=D["id"]):
+                    pass
+            finally:
+                runner.run_stream = orig
+            return seen
+        try:
+            seen = _backend_async(prompt)
+        except Exception as e:  # noqa: BLE001
+            seen = {"error": repr(e)[:300]}
+        user_p, sys_p = seen.get("user", ""), seen.get("system", "")
+        check(seen.get("user_id") == D["id"], "ai: a family chat's AI usage is recorded under the asker (Dad), not the book",
+              {k: v for k, v in seen.items() if k in ("user_id", "error")})
+        check("Name: Dad" in user_p and "Default Currency: THB" in user_p and "Language: Myanmar" in user_p,
+              "ai: the family chat prompt carries the asker's name, language and default currency", user_p[:300])
+        check("family book (shared household money), not their personal money" in sys_p + user_p
+              and "FAMILY" in user_p and grandma in user_p,
+              "ai: the family chat prompt says it is about the family book and carries the FAMILY section", sys_p[-400:])
+        check(all(s not in user_p for s in (f"MUMSECRET{tag}", f"DADSECRET{tag}", f"DADPAY{tag}")),
+              "ai: the family chat prompt has none of Mum's or Dad's personal entries", user_p[:300])
+
+        # ---- over HTTP: allowance and cost on the asker ----
+        d_uses, m_uses = chat_uses(D["id"]), chat_uses(M["id"])
+        d_cost, b_cost = ai_rows(D["id"], "chat"), ai_rows(book, "chat")
+        ok = chat(D, True, f"family question {tag}")
+        check(ok and chat_uses(D["id"]) == d_uses + 1 and chat_uses(M["id"]) == m_uses,
+              "ai: Dad's family chat uses Dad's own chat allowance (not Mum's)",
+              (ok, d_uses, chat_uses(D["id"]), m_uses, chat_uses(M["id"])))
+        check(ai_rows(D["id"], "chat") == d_cost + 1 and ai_rows(book, "chat") == b_cost,
+              "ai: Dad's family chat AI cost is recorded under Dad (his cost cap applies), none under the book",
+              (d_cost, ai_rows(D["id"], "chat"), b_cost, ai_rows(book, "chat")))
+
+        # ---- chat history: private to each person, per book ----
+        chat(M, False, f"mum personal {tag}")
+        chat(M, True, f"mum family {tag}")
+        mf, mp, df = history(M, True), history(M, False), history(D, True)
+        check(isinstance(mf, list) and f"mum family {tag}" in mf and f"mum personal {tag}" not in mf
+              and f"family question {tag}" not in mf,
+              "ai: Mum's family history has her family question only (not her personal one, not Dad's)", mf)
+        check(isinstance(mp, list) and f"mum personal {tag}" in mp and f"mum family {tag}" not in mp,
+              "ai: Mum's personal history has no family question", mp)
+        check(isinstance(df, list) and f"family question {tag}" in df and f"mum family {tag}" not in df
+              and f"mum personal {tag}" not in df, "ai: Dad's family history never shows Mum's questions", df)
+        r = c.delete("/api/chat/history", headers=H(M, True))
+        check(r.status_code == 200 and history(M, True) == [] and f"mum personal {tag}" in history(M, False)
+              and f"family question {tag}" in history(D, True),
+              "ai: Mum clearing her family history leaves her personal history and Dad's family history",
+              (r.status_code, history(M, True), history(M, False), history(D, True)))
+
+        # ---- the scheduled jobs: family insights for a paid owner ----
+        db.sql("DELETE FROM notifications WHERE user_id = ANY(%s)", [M["id"], D["id"]])
+        run_job("weekly")
+        check(book_insights("weekly") == 1, "ai: the weekly job makes one family insight under the book for a Plus owner",
+              book_insights("weekly"))
+        dn = db.sql("SELECT type, book FROM notifications WHERE user_id = %s AND type = 'weekly_insights_generated'",
+                    D["id"])
+        check(len(dn) == 1 and dn[0]["book"] == "family", "ai: Dad is told the family weekly insights are ready", dn)
+        run_job("monthly")
+        check(book_insights("monthly") == 1, "ai: the monthly job makes one family insight for a paid owner",
+              book_insights("monthly"))
+        check(db.sql("SELECT coalesce(sum(used), 0) n FROM usage_counters WHERE user_id = ANY(%s) "
+                     "AND feature LIKE 'insight%%'", [M["id"], D["id"]])[0]["n"] == 0,
+              "ai: the family insights jobs count against nobody")
+
+        # ---- the admin AI report names the family's row ----
+        sys.path.insert(0, backend)
+        os.chdir(stubenv.BACKEND)
+        import test_plans  # noqa: E402  (admin helpers)
+        admins = test_plans.make_admins(db, ("super_admin",))
+        try:
+            ah = test_plans.admin_login(c, admins["super_admin"])
+            r = c.get("/api/admin/ai-usage/users", headers=ah, params={"limit": 100, "start_date": started.isoformat()})
+            row = next((u for u in (r.json() if r.status_code == 200 else []) if u.get("user_id") == book), None)
+            check(row is not None and row.get("user_name") == f"Family · {fam_name}"
+                  and "book.invalid" not in (row.get("user_email") or "") and M["email"] in (row.get("user_email") or ""),
+                  "ai: the admin AI usage report labels the book's row 'Family · <name>' with the owner's e-mail",
+                  (r.status_code, row))
+        finally:
+            db.admins.delete_many({"email": admins["super_admin"]})
+
+        db.sql("DELETE FROM insights WHERE user_id = %s", book)
+        db.sql("UPDATE users SET subscription_type = 'free' WHERE id = %s", M["id"])
+        run_job("weekly")
+        run_job("monthly")
+        check(book_insights("weekly") == 0 and book_insights("monthly") == 0,
+              "ai: the jobs make no family insight when the owner is Free", (book_insights("weekly"), book_insights("monthly")))
+
+        # ---- the owner's cost cap: the jobs skip, on-demand refuses ----
+        db.sql("UPDATE users SET subscription_type = 'plus' WHERE id = %s", M["id"])
+        cap_row = str(uuid.uuid4())
+        db.sql("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, estimated_cost_usd) "
+               "VALUES (%s, %s, 'chat', 'openai', 'gpt-test', 500)", cap_row, M["id"])
+        try:
+            run_job("weekly")
+            run_job("monthly")
+            check(book_insights("weekly") == 0 and book_insights("monthly") == 0,
+                  "ai: the jobs skip the family while the owner is over the cost cap",
+                  (book_insights("weekly"), book_insights("monthly")))
+            r = c.post("/api/insights/regenerate", headers=H(M, True), params={"insight_type": "weekly"})
+            check(_code(r, 429, "plan_cost_cap") and book_insights("weekly") == 0,
+                  "ai: a family regenerate is plan_cost_cap while the owner is over the cost cap", f"{r.status_code} {r.text[:200]}")
+            r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
+            check(_code(r, 429, "plan_cost_cap") and book_insights("monthly") == 0,
+                  "ai: a family GET that would generate is plan_cost_cap while the owner is over the cost cap",
+                  f"{r.status_code} {r.text[:200]}")
+        finally:
+            db.sql("DELETE FROM ai_usage WHERE id = %s", cap_row)
+        r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
+        check(r.status_code == 200 and r.json().get("user_id") == book,
+              "ai: under the cap again, Dad's family GET makes the family's monthly insight", f"{r.status_code} {r.text[:200]}")
+    finally:
+        _cleanup_people(made)
+
+
 def main():
     section_schema()
     section_book_users()
@@ -2119,6 +2363,7 @@ def main():
     section_transfers()
     section_budgets_goals()
     section_notifications()
+    section_ai()
     sys.exit(1 if failures else 0)
 
 
