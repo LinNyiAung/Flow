@@ -63,8 +63,9 @@ async def overall_stats(start: Optional[datetime], end: Optional[datetime]) -> D
         _count_if(c.feature_type == "monthly_insight").label("monthly_insights"),
         _count_if(c.feature_type == "chat").label("chat_requests"),
         _count_if(c.feature_type == "translation").label("translations"),
-        func.count(distinct(c.user_id)).label("unique_users"),
-    ), start, end)
+        # People only: a family's hidden book user (its insights' cost) is not an active user.
+        func.count(distinct(case((users.c.kind == "person", c.user_id)))).label("unique_users"),
+    ).select_from(ai_usage.join(users, users.c.id == c.user_id)), start, end)
     out = _f(await fetch_one(stmt))
     by_provider = await fetch_all(_window(
         select(c.provider, func.coalesce(func.sum(c.estimated_cost_usd), 0).label("cost")), start, end).group_by(c.provider))
