@@ -196,17 +196,29 @@ void main() {
       expect(modeChanges, 0);
     });
 
-    testWidgets('a notice without the family marker leaves the mode alone', (tester) async {
+    testWidgets('a personal notice tapped in Family mode switches to Personal before opening', (tester) async {
       final p = make();
       await tester.runAsync(() => p.setMode(BookMode.family));
-      modeChanges = 0;
+      final seen = <String>[];
+      p.onModeChanged = () => seen.add('reset:${p.mode.name}');
+      await pumpButton(
+          tester, p, (context) => openInBook(context, family: false, open: () => seen.add('open:${p.mode.name}')));
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(seen, ['reset:personal', 'open:personal']);
+      expect(ApiService.bookMode, BookMode.personal);
+    });
+
+    testWidgets('a personal notice in Personal mode opens without a reset', (tester) async {
+      final p = make();
       var opened = 0;
       await pumpButton(tester, p, (context) => openInBook(context, family: false, open: () => opened++));
 
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       expect(opened, 1);
-      expect(p.mode, BookMode.family);
+      expect(p.mode, BookMode.personal);
       expect(modeChanges, 0);
     });
   });

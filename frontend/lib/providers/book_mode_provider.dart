@@ -93,13 +93,15 @@ class BookModeProvider with ChangeNotifier {
 }
 
 /// Opens something that belongs to a book (a tapped notification or push):
-/// for a [family] one, switches to Family first when needed, then calls
-/// [open]. A notice without the family marker may be personal or about no
-/// book at all (an invitation, a plan change), so it leaves the mode alone.
+/// first makes the mode match the notice's book ([family]: Family; otherwise
+/// the person's own book, Personal), then calls [open]. A notice without the
+/// family marker is about the person's own book, which would 404 in Family
+/// mode (ruling R17).
 Future<void> openInBook(BuildContext context, {required bool family, required VoidCallback open}) async {
   final books = Provider.of<BookModeProvider>(context, listen: false);
-  if (family && !books.isFamily) {
-    await books.setMode(BookMode.family);
+  final wanted = family ? BookMode.family : BookMode.personal;
+  if (books.mode != wanted) {
+    await books.setMode(wanted);
   }
   open();
 }
