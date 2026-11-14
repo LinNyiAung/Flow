@@ -9,6 +9,7 @@ Sections:
     recurring children that keep both (Task 5).
   transfers -- moving money between a personal wallet and the family wallet: one linked pair that only changes the
     two balances, left out of every income and spending figure, undone only by its mover (Task 6).
+  budgets and goals -- only admins create, change or delete them or take money out of a goal; any member adds (Task 7).
 """
 import asyncio
 import os
@@ -1659,6 +1660,184 @@ def section_transfers():
         _cleanup_people(made)
 
 
+def section_budgets_goals():
+    """Task 7: in a family book only the owner and admins create, change or delete budgets and goals (and refresh a
+    budget, ask for AI suggestions, or take money out of a goal); any active member may add money to a goal. Reads stay
+    open to all, and personal books are unchanged."""
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    today = datetime.now(UTC).date()
+    day = datetime(today.year, today.month, today.day, 12, tzinfo=UTC).isoformat()
+    window = {"start_date": (today - timedelta(days=1)).isoformat(), "end_date": (today + timedelta(days=1)).isoformat()}
+
+    def H(u, family=False):
+        return {**u["h"], **(FAM if family else {})}
+
+    def bud(u, family=True, name="B"):
+        return c.post("/api/budgets", headers=H(u, family), json={
+            "name": f"{name} {tag}", "period": "custom", "currency": "mmk", "total_budget": 100000, **window,
+            "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100000}]})
+
+    def goal(u, family=True, **kw):
+        return c.post("/api/goals", headers=H(u, family), json={
+            "name": f"G {tag}", "target_amount": 500000, "goal_type": "savings", "currency": "mmk"} | kw)
+
+    def put(u, amount, goal_id, family=True):
+        return c.post(f"/api/goals/{goal_id}/contribute", headers=H(u, family), json={"amount": amount})
+
+    def avail(u, family=True):
+        r = c.get("/api/dashboard/balance", headers=H(u, family), params={"currency": "mmk"})
+        return r.json().get("available_balance") if r.status_code == 200 else None
+
+    def salary(u, amount, family):
+        return c.post("/api/transactions", headers=H(u, family), json={
+            "type": "inflow", "main_category": "Employment Income", "sub_category": "Salary", "date": day,
+            "amount": amount, "currency": "mmk"})
+
+    suggest = {"period": "monthly", "start_date": datetime.now(UTC).isoformat(), "currency": "mmk", "analysis_months": 3}
+
+    try:
+        A = register("Ann", "plus")
+        B = register("Bo", "free")
+        S = register("Sam", "free")
+        c.post("/api/family", headers=A["h"], json={"name": f"BG family {tag}"})
+        for p in (B, S):
+            c.post("/api/family/invites", headers=A["h"], json={"email": p["email"]})
+            inv = next(iter(c.get("/api/family/invites/mine", headers=p["h"]).json().get("invites", [])), None)
+            if inv:
+                c.post(f"/api/family/invites/{inv['id']}/accept", headers=p["h"])
+        b_mid = (c.get("/api/family", headers=B["h"]).json().get("me") or {}).get("member_id")
+        r = c.patch(f"/api/family/members/{b_mid}", headers=A["h"], json={"role": "admin"})
+        check(r.status_code == 200, "budgets and goals: Ann (owner), Bo (admin) and Sam (member)", r.status_code)
+        check(salary(A, 100000, True).status_code == 200, "budgets and goals: the family has K100,000")
+
+        # ---- budgets ----
+        r = bud(S)
+        check(_code(r, 403, "not_allowed"), "budgets and goals: a member can't create a family budget",
+              f"{r.status_code} {r.text[:200]}")
+        r = bud(B)
+        bid = r.json().get("id") if r.status_code == 200 else None
+        check(r.status_code == 200 and bid, "budgets and goals: an admin creates a family budget",
+              f"{r.status_code} {r.text[:200]}")
+        r = bud(A, name="Owner")
+        oid = r.json().get("id") if r.status_code == 200 else None
+        check(r.status_code == 200, "budgets and goals: the owner creates a family budget",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/budgets", headers=H(S, True), params={"limit": 50})
+        ids = [x["id"] for x in r.json()] if r.status_code == 200 else []
+        check(bid in ids and oid in ids, "budgets and goals: a member lists the family budgets", f"{r.status_code} {ids}")
+        check(c.get(f"/api/budgets/{bid}", headers=H(S, True)).status_code == 200,
+              "budgets and goals: a member reads one family budget")
+        check(c.get("/api/budgets/summary", headers=H(S, True)).status_code == 200,
+              "budgets and goals: a member reads the family budget summary")
+        r = c.put(f"/api/budgets/{bid}", headers=H(S, True), json={"name": "Renamed"})
+        check(_code(r, 403, "not_allowed"), "budgets and goals: a member can't edit a family budget",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/budgets/{bid}", headers=H(B, True), json={"name": f"Renamed {tag}"})
+        check(r.status_code == 200 and r.json().get("name") == f"Renamed {tag}",
+              "budgets and goals: an admin edits a family budget", f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/budgets/{bid}/refresh", headers=H(S, True))
+        check(_code(r, 403, "not_allowed"), "budgets and goals: a member can't refresh a family budget",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/budgets/{bid}/refresh", headers=H(B, True))
+        check(r.status_code == 200, "budgets and goals: an admin refreshes a family budget",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/budgets/ai-suggest", headers=H(S, True), json=suggest)
+        check(_code(r, 403, "not_allowed"), "budgets and goals: a member can't ask for family AI budget suggestions",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/budgets/ai-suggest", headers=H(B, True), json=suggest)
+        check(r.status_code != 403, "budgets and goals: an admin may ask for family AI budget suggestions",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/budgets/{bid}", headers=H(S, True))
+        check(_code(r, 403, "not_allowed") and c.get(f"/api/budgets/{bid}", headers=H(A, True)).status_code == 200,
+              "budgets and goals: a member can't delete a family budget (it stays)", f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/budgets/{bid}", headers=H(B, True))
+        check(r.status_code == 200 and c.get(f"/api/budgets/{bid}", headers=H(A, True)).status_code == 404,
+              "budgets and goals: an admin deletes a family budget", f"{r.status_code} {r.text[:200]}")
+
+        # ---- goals ----
+        r = goal(S)
+        check(_code(r, 403, "not_allowed"), "budgets and goals: a member can't create a family goal",
+              f"{r.status_code} {r.text[:200]}")
+        r = goal(B)
+        gid = r.json().get("id") if r.status_code == 200 else None
+        check(r.status_code == 200 and gid, "budgets and goals: an admin creates a family goal",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/goals", headers=H(S, True))
+        check(r.status_code == 200 and gid in [x["id"] for x in r.json()],
+              "budgets and goals: a member lists the family goals", r.status_code)
+        check(c.get(f"/api/goals/{gid}", headers=H(S, True)).status_code == 200,
+              "budgets and goals: a member reads one family goal")
+        check(c.get("/api/goals/summary", headers=H(S, True)).status_code == 200,
+              "budgets and goals: a member reads the family goals summary")
+        r = c.put(f"/api/goals/{gid}", headers=H(S, True), json={"name": "Renamed"})
+        check(_code(r, 403, "not_allowed"), "budgets and goals: a member can't edit a family goal",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/goals/{gid}", headers=H(B, True), json={"name": f"Renamed {tag}"})
+        check(r.status_code == 200, "budgets and goals: an admin edits a family goal", f"{r.status_code} {r.text[:200]}")
+
+        a0 = avail(S)
+        r = put(S, 20000, gid)
+        check(a0 is not None and r.status_code == 200 and avail(S) == a0 - 20000,
+              "budgets and goals: a member adds K20,000 to a family goal; the available balance drops by 20,000",
+              f"{r.status_code} {r.text[:200]} {a0} -> {avail(S)}")
+        r = put(S, -5000, gid)
+        check(_code(r, 403, "not_allowed") and avail(S) == a0 - 20000,
+              "budgets and goals: a member can't take money out of a family goal (nothing moves)",
+              f"{r.status_code} {r.text[:200]} {avail(S)}")
+        r = put(B, -5000, gid)
+        check(r.status_code == 200 and avail(S) == a0 - 15000,
+              "budgets and goals: an admin takes K5,000 out of a family goal", f"{r.status_code} {r.text[:200]} {avail(S)}")
+        r = put(A, 1000, gid)
+        check(r.status_code == 200, "budgets and goals: the owner adds money to a family goal", r.status_code)
+        r = c.delete(f"/api/goals/{gid}", headers=H(S, True))
+        check(_code(r, 403, "not_allowed") and c.get(f"/api/goals/{gid}", headers=H(A, True)).status_code == 200,
+              "budgets and goals: a member can't delete a family goal (it stays)", f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/goals/{gid}", headers=H(B, True))
+        check(r.status_code == 200 and c.get(f"/api/goals/{gid}", headers=H(A, True)).status_code == 404,
+              "budgets and goals: an admin deletes a family goal", f"{r.status_code} {r.text[:200]}")
+
+        # ---- read-only: a member's contribution is refused ----
+        r = goal(A, name="RO")
+        rid = r.json().get("id") if r.status_code == 200 else None
+        db.sql("UPDATE users SET subscription_type = 'free', subscription_expires_at = NULL WHERE id = %s", A["id"])
+        r = put(S, 100, rid)
+        check(_code(r, 403, "family_read_only"), "budgets and goals: a read-only family refuses contributions",
+              f"{r.status_code} {r.text[:200]}")
+        db.sql("UPDATE users SET subscription_type = 'plus', subscription_expires_at = %s WHERE id = %s",
+               datetime.now(UTC) + timedelta(days=30), A["id"])
+
+        # ---- personal books are unchanged: a plain member does everything in their own book ----
+        r = bud(S, family=False, name="Mine")
+        sb = r.json().get("id") if r.status_code == 200 else None
+        check(r.status_code == 200, "budgets and goals: a member creates a personal budget",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/budgets/{sb}", headers=S["h"], json={"name": "Mine2"})
+        check(r.status_code == 200, "budgets and goals: a member edits a personal budget", f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/budgets/{sb}/refresh", headers=S["h"])
+        check(r.status_code == 200, "budgets and goals: a member refreshes a personal budget", r.status_code)
+        r = c.delete(f"/api/budgets/{sb}", headers=S["h"])
+        check(r.status_code == 200, "budgets and goals: a member deletes a personal budget",
+              f"{r.status_code} {r.text[:200]}")
+        salary(S, 50000, False)
+        r = goal(S, family=False)
+        sg = r.json().get("id") if r.status_code == 200 else None
+        check(r.status_code == 200, "budgets and goals: a member creates a personal goal", f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/goals/{sg}", headers=S["h"], json={"name": "Mine2"})
+        check(r.status_code == 200, "budgets and goals: a member edits a personal goal", f"{r.status_code} {r.text[:200]}")
+        r = put(S, 10000, sg, family=False)
+        check(r.status_code == 200, "budgets and goals: a member adds to a personal goal", f"{r.status_code} {r.text[:200]}")
+        r = put(S, -4000, sg, family=False)
+        check(r.status_code == 200, "budgets and goals: a member takes money out of a personal goal",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"/api/goals/{sg}", headers=S["h"])
+        check(r.status_code == 200, "budgets and goals: a member deletes a personal goal", f"{r.status_code} {r.text[:200]}")
+    finally:
+        _cleanup_people(made)
+
+
 def main():
     section_schema()
     section_book_users()
@@ -1668,6 +1847,7 @@ def main():
     section_breakdown_rounding()
     section_recurring_children()
     section_transfers()
+    section_budgets_goals()
     sys.exit(1 if failures else 0)
 
 

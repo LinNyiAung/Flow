@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from ai_providers.errors import AllProvidersFailed
 from models import Currency
 from finite_utils import finite_or
-from families.book import Book, get_book, require_writable
+from families.book import Book, get_book, require_admin, require_writable
 from plans import quota
 
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
@@ -113,6 +113,7 @@ async def get_ai_budget_suggestions(
     the simple rule-based suggestions that replace an AI that could not answer (or that had too little data to be
     asked), give it back.
     """
+    require_admin(book)
     current_user = book.person
     analyzer = BudgetAnalyzer(book.id, user_language(current_user), ai_user_id=current_user["_id"])
     reservation = await quota.reserve(current_user, "budget_suggestion")
@@ -171,6 +172,7 @@ async def create_budget(
 ):
     """Create a new budget (manual or from AI suggestions) in the request's book"""
     require_writable(book)
+    require_admin(book)
     try:
         budget_id = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -406,6 +408,7 @@ async def update_budget(
     when "Main" itself is budgeted). Spent-amount recalculation never changes it.
     """
     require_writable(book)
+    require_admin(book)
     try:
         budget = await budgets_db.get_budget(budget_id, book.id)
 
@@ -502,6 +505,7 @@ async def delete_budget(
 ):
     """Delete a budget"""
     require_writable(book)
+    require_admin(book)
     try:
         budget = await budgets_db.get_budget(budget_id, book.id)
 
@@ -539,7 +543,8 @@ async def refresh_budget(
     budget_id: str = Path(...),
     book: Book = Depends(get_book)
 ):
-    """Manually refresh a budget's spent amounts (a recompute, not a change: allowed in a read-only family)"""
+    """Manually refresh a budget's spent amounts (a recompute: allowed in a read-only family; admins only in a family book)"""
+    require_admin(book)
     try:
         budget = await budgets_db.get_budget(budget_id, book.id)
 

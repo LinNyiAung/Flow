@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Path
 
 from models import Currency
-from families.book import Book, get_book, require_writable
+from families.book import Book, get_book, require_admin, require_writable
 from utils import get_user_balance, get_user_money_lock
 from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
@@ -40,6 +40,7 @@ async def create_goal(
 ):
     """Create a new financial goal in the request's book"""
     require_writable(book)
+    require_admin(book)
     initial = to_cents(goal_data.initial_contribution or 0)
     target = to_cents(goal_data.target_amount)
     if target <= 0:
@@ -211,6 +212,7 @@ async def update_goal(
 ):
     """Update a goal's details"""
     require_writable(book)
+    require_admin(book)
     goal = await goals_db.get_goal(goal_id, book.id)
 
     if not goal:
@@ -270,6 +272,8 @@ async def contribute_to_goal(
     """Add or reduce amount from a goal (serialized per book + optimistic guard)"""
     require_writable(book)
     amount = to_cents(contribution.amount)
+    if amount < 0:
+        require_admin(book)  # taking money out of a family goal is for admins; adding is for every member
     if amount == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contribution amount must not be zero")
 
@@ -395,6 +399,7 @@ async def delete_goal(
 ):
     """Delete a goal and return its amount to balance"""
     require_writable(book)
+    require_admin(book)
     goal = await goals_db.get_goal(goal_id, book.id)
 
     if not goal:
