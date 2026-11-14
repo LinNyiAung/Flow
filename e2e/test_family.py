@@ -1214,6 +1214,25 @@ def section_entries_breakdown():
         r = breakdown(L, "usd")
         check(_code(r, 404, "no_family"), "breakdown: outside a family is 404 no_family", f"{r.status_code} {r.text[:200]}")
 
+        # ---- R21 (I1): an account member's family name follows their profile name ----
+        def dad_names():
+            v = c.get("/api/family", headers=M["h"]).json()
+            in_family = next((m["display_name"] for m in v.get("members", []) if m["id"] == d_mid), None)
+            e = c.get(f"/api/transactions/{e4.get('id')}", headers=H(M, True))
+            return in_family, (e.json().get("added_by") or {}).get("display_name") if e.status_code == 200 else e.status_code
+        r = c.put("/api/auth/profile", headers=D["h"], json={"name": "  Daddy  "})
+        check(r.status_code == 200 and dad_names() == ("Daddy", "Daddy"),
+              "entries: Dad renames his profile: GET /api/family and added_by on his entries show the new name",
+              (r.status_code, dad_names()))
+        r = c.put("/api/auth/profile", headers=D["h"], json={"name": "   "})
+        check(r.status_code in (400, 422) and dad_names() == ("Daddy", "Daddy"),
+              "entries: a blank profile name is refused and the family name is unchanged", (r.status_code, dad_names()))
+        r = c.put("/api/auth/profile", headers=D["h"], json={"name": "Dad"})
+        check(r.status_code == 200 and dad_names() == ("Dad", "Dad"), "entries: Dad renames his profile back",
+              (r.status_code, dad_names()))
+        m_name = (db.sql("SELECT display_name FROM family_members WHERE id = %s", m_mid) or [{}])[0].get("display_name")
+        check(m_name == "Mum", "entries: another member's family name is untouched by Dad's renames", m_name)
+
         # ---- a removed placeholder and a member who left stay in the history as former ----
         r = c.delete(f"/api/family/members/{gone}", headers=M["h"])
         check(r.status_code == 200, "entries: Mum removes the tagged placeholder Gone", f"{r.status_code} {r.text[:200]}")
@@ -1221,6 +1240,11 @@ def section_entries_breakdown():
         check(_code(r, 400, "invalid_for_whom"), "entries: for_whom with a former placeholder is 400", f"{r.status_code} {r.text[:200]}")
         r = c.post("/api/family/leave", headers=D["h"])
         check(r.status_code == 200, "entries: Dad leaves the family", f"{r.status_code} {r.text[:200]}")
+        # R21 (I1): a former member's row keeps the name it had (history); the checks below still expect "Dad".
+        r = c.put("/api/auth/profile", headers=D["h"], json={"name": "Papa"})
+        row = (db.sql("SELECT display_name FROM family_members WHERE id = %s", d_mid) or [{}])[0]
+        check(r.status_code == 200 and row.get("display_name") == "Dad",
+              "entries: a profile rename after leaving leaves the former member row's name as it was", (r.status_code, row))
         r = tx(M, for_whom=[d_mid])
         check(_code(r, 400, "invalid_for_whom"), "entries: for_whom with a former member (Dad) is 400", f"{r.status_code} {r.text[:200]}")
         r = breakdown(M, "thb")

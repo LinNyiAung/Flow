@@ -75,6 +75,11 @@ def _email(user: Mapping[str, Any]) -> str:
     return (user.get("email") or "").strip().lower()
 
 
+def _own_name(user: Mapping[str, Any]) -> str:
+    """An account member's display name: the person's profile name, else their e-mail (never blank)."""
+    return (user.get("name") or "").strip() or _email(user)
+
+
 # ---- reading ----
 
 async def owner_plan(family_id: str) -> str:
@@ -190,8 +195,7 @@ async def create_family(user: Mapping[str, Any], name: str) -> Dict[str, Any]:
         async with transaction():
             book_id = await users_db.create_book_user(family_id)
             await fdb.insert_family(family_id, name, book_id)
-            await fdb.insert_member(str(uuid.uuid4()), family_id, user.get("name") or _email(user), "account", "owner",
-                                    user["_id"])
+            await fdb.insert_member(str(uuid.uuid4()), family_id, _own_name(user), "account", "owner", user["_id"])
     except IntegrityError:  # a concurrent create or join won the one-family-per-person index
         _fail(user, "already_in_family")
     return await overview(user)
@@ -227,6 +231,14 @@ async def add_placeholder(user: Mapping[str, Any], display_name: str) -> Dict[st
             _fail(user, "placeholders_full")
         await fdb.insert_member(str(uuid.uuid4()), family["id"], display_name, "placeholder", None)
     return await overview(user)
+
+
+async def follow_profile_name(user_id: str, name: str) -> None:
+    """The person changed their profile name: their name in their family follows (their active account member row;
+    former rows keep the name they had, as history). A blank name is never stored."""
+    name = (name or "").strip()
+    if name:
+        await fdb.rename_account_member(user_id, name)
 
 
 async def update_member(user: Mapping[str, Any], member_id: str, display_name: Optional[str] = None,
@@ -501,11 +513,10 @@ async def accept_invite(user: Mapping[str, Any], invite_id: str) -> Dict[str, An
                 reuse = await fdb.former_account_member(family_id, uid)
             # The family lock keeps the row as read (remove takes it too); a failed claim falls back to a new member.
             if reuse is None or not await fdb.claim_member(reuse["id"], uid, now):
-                await fdb.insert_member(str(uuid.uuid4()), family_id, user.get("name") or _email(user), "account",
-                                        "member", uid)
+                await fdb.insert_member(str(uuid.uuid4()), family_id, _own_name(user), "account", "member", uid)
     except IntegrityError:  # joined another family concurrently (one active family per person)
         _fail(user, "already_in_family")
-    name = user.get("name") or _email(user)
+    name = _own_name(user)
     for admin_id in await fdb.admin_user_ids(family_id):
         if admin_id != uid:
             await _notify(admin_id, "family_invite_accepted", "family_invite_accepted", family_id, family["name"],

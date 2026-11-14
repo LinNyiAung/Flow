@@ -441,7 +441,9 @@ async def update_profile(
             detail="Name must be at least 2 characters"
         )
 
-    updated_user = await users_db.update_user_returning(current_user["_id"], name=name)
+    async with transaction():
+        updated_user = await users_db.update_user_returning(current_user["_id"], name=name)
+        await families_service.follow_profile_name(current_user["_id"], name)
     return build_user_response(updated_user)
 
 

@@ -144,6 +144,13 @@ async def update_member(member_id: str, **fields: Any) -> int:
     return await execute(update(fm).where(fm.c.id == member_id).values(**fields))
 
 
+async def rename_account_member(user_id: str, display_name: str) -> int:
+    """The person's family name follows their profile name: their active account member row takes `display_name`.
+    Former rows keep the name they had (history). Returns the rows changed (0 or 1)."""
+    return await execute(update(fm).where(fm.c.user_id == user_id, fm.c.status == "active", fm.c.kind == "account")
+                         .values(display_name=display_name))
+
+
 async def set_former(member_id: str, now: datetime) -> bool:
     """Active, non-owner member -> former (left_at = now, role kept). False when the row is not active or is the owner
     (e.g. it was made owner meanwhile): the owner can never become former this way."""
