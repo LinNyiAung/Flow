@@ -4,7 +4,7 @@ family_invites, transaction_beneficiaries). Plain Core queries; the rules live i
 Rows come back as plain dicts with `id` (not `_id`). Every helper joins the caller's transaction() when inside one.
 """
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import and_, delete, exists, func, insert, or_, select, update
 
@@ -23,6 +23,43 @@ async def insert_family(family_id: str, name: str, book_user_id: str) -> None:
 
 async def get_family(family_id: str) -> Optional[Dict[str, Any]]:
     return await fetch_one(select(f).where(f.c.id == family_id))
+
+
+async def family_for_book(book_user_id: str) -> Optional[Dict[str, Any]]:
+    """The family whose hidden book user this is, or None (a person's id)."""
+    return await fetch_one(select(f).where(f.c.book_user_id == book_user_id))
+
+
+async def books_with_paid_owner(plans: Sequence[str]) -> List[Dict[str, Any]]:
+    """Every family whose active owner's stored plan is one of `plans` (the scheduled insight jobs), oldest first:
+    `book_user_id`, `family_id`, `family_name` and `owner`, the owner's user fields that effective_plan and
+    quota.over_cost_cap read (`_id`, subscription_type, subscription_expires_at, usage_reset_at). The caller still
+    checks the owner's effective plan (an expired paid plan is stored as paid until the expiry job runs)."""
+    stmt = (select(f.c.book_user_id, f.c.id.label("family_id"), f.c.name.label("family_name"),
+                   users.c.id.label("owner_id"), users.c.subscription_type, users.c.subscription_expires_at,
+                   users.c.usage_reset_at)
+            .select_from(f.join(fm, and_(fm.c.family_id == f.c.id, fm.c.role == "owner", fm.c.status == "active"))
+                         .join(users, users.c.id == fm.c.user_id))
+            .where(users.c.subscription_type.in_(list(plans)), users.c.kind == "person")
+            .order_by(f.c.created_at, f.c.id))
+    return [{"book_user_id": r["book_user_id"], "family_id": r["family_id"], "family_name": r["family_name"],
+             "owner": {"_id": r["owner_id"], "subscription_type": r["subscription_type"],
+                       "subscription_expires_at": r["subscription_expires_at"],
+                       "usage_reset_at": r["usage_reset_at"]}}
+            for r in await fetch_all(stmt)]
+
+
+async def owner_user(family_id: str) -> Optional[Dict[str, Any]]:
+    """The active owner's user fields that effective_plan and quota.over_cost_cap read (`_id`, subscription_type,
+    subscription_expires_at, usage_reset_at, language), or None when the owner's account is gone."""
+    row = await fetch_one(select(users.c.id, users.c.subscription_type, users.c.subscription_expires_at,
+                                 users.c.usage_reset_at, users.c.language)
+                          .select_from(fm.join(users, users.c.id == fm.c.user_id))
+                          .where(fm.c.family_id == family_id, fm.c.role == "owner", fm.c.status == "active"))
+    if row is None:
+        return None
+    return {"_id": row["id"], **{k: row[k] for k in ("subscription_type", "subscription_expires_at",
+                                                      "usage_reset_at", "language")}}
 
 
 async def lock_family(family_id: str) -> Optional[Dict[str, Any]]:
@@ -178,6 +215,20 @@ async def outflow_shares(book_user_id: str, currency: str, date_from: datetime, 
                    t.c.transfer_id.is_(None), t.c.date >= date_from, t.c.date <= date_to)
             .order_by(t.c.id, fm.c.joined_at, fm.c.id))
     return await fetch_all(stmt)
+
+
+async def transfer_totals(book_user_id: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+    """The family book's transfer legs dated within [date_from, date_to], summed per mover, direction and currency:
+    `member_id` (the leg's added_by_member_id, the member who moved it), `type` (inflow: into the family wallet;
+    outflow: out of it), `currency` and `total`. Only the family's own legs: nobody's personal book is read."""
+    stmt = (select(t.c.added_by_member_id.label("member_id"), t.c.type, t.c.currency,
+                   func.sum(t.c.amount).label("total"))
+            .select_from(t.outerjoin(fm, fm.c.id == t.c.added_by_member_id))
+            .where(t.c.user_id == book_user_id, t.c.transfer_id.isnot(None), t.c.date >= date_from,
+                   t.c.date <= date_to)
+            .group_by(t.c.added_by_member_id, fm.c.joined_at, t.c.type, t.c.currency)
+            .order_by(fm.c.joined_at.nulls_last(), t.c.added_by_member_id, t.c.type, t.c.currency))
+    return [{**r, "total": float(r["total"])} for r in await fetch_all(stmt)]
 
 
 # ---- invites ----

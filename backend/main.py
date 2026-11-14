@@ -347,8 +347,9 @@ async def stream_chat_with_ai(
     """
     Stream chat response from AI (Server-Sent Events, media type text/event-stream).
 
-    The answer is about the request's book (its data, its AI-staleness flag); the allowance is the person's. Chat
-    history is still stored per person (per book: Task 9).
+    The answer is about the request's book (its data, its AI-staleness flag); the allowance, the AI cost (so the cost
+    cap) and the prompt's profile (name, language, default currency) are the person's. Chat history is stored per
+    person and book (_chat_book_id): a family chat is private to the person asking.
 
     Frames (each `data: <json>\\n\\n`):
       - meta (always first, once): {"chunk": "", "done": false, "mode_used": "standard"|"advanced",
@@ -419,6 +420,7 @@ async def stream_chat_with_ai(
                     chat_history=chat_history,
                     response_style=response_style,
                     feature=feature,
+                    person_id=user_id,  # the asker: profile, and the AI usage the runner records
                 )) as stream:
                     async for chunk_text, _usage in stream:  # usage is already tracked by the provider runner
                         if chunk_text:

@@ -18,10 +18,13 @@ from ai_providers import runner as ai_runner
 from ai_providers.errors import AllProvidersFailed, redact
 from ai_providers.types import Prompt
 from budget_service import get_running_budgets
+from families.breakdown import family_breakdown
+from models import Currency
+from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import users as users_db
-from tz_utils import app_today, app_wall_clock_now, days_until, stored_calendar_date
+from tz_utils import app_today, app_wall_clock_now, current_month_to_date_range, days_until, stored_calendar_date
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -233,6 +236,19 @@ class UserVectorStoreCache:
         return store
 
 
+_CURRENCIES = tuple(c.value for c in Currency)
+_SYMBOLS = {"usd": "$", "mmk": "K", "thb": "฿"}
+
+
+def _money(currency: str, amount: float) -> str:
+    """e.g. "$250.00 (USD)", "K30,000 (MMK)" (MMK in whole kyat)."""
+    places = 0 if currency == "mmk" else 2
+    return f"{_SYMBOLS.get(currency, '')}{amount:,.{places}f} ({currency.upper()})"
+
+
+_LANGUAGE_NAMES = {"en": "English", "my": "Myanmar"}
+
+
 class FinancialDataProcessor:
     """Processes user's financial data for RAG"""
 
@@ -360,6 +376,55 @@ class FinancialDataProcessor:
         except Exception as e:
             print(f"Error generating financial summary: {e}")
             return {"message": "Error generating financial summary"}
+
+    async def get_family_context(self) -> str:
+        """The FAMILY section of a family book's chat context; "" for a personal book.
+
+        Only the family book's own rows are read: the active members' names (placeholders too), this month's spending
+        per person it was for (families.breakdown, one block per currency used) and the moves between wallets this
+        month (the family's transfer legs per mover), which are labelled as moves and never counted as income or
+        spending. Nobody's personal book is read.
+        """
+        family = await families_db.family_for_book(self.user_id)
+        if not family:
+            return ""
+        members = await families_db.list_members(family["id"])
+        names = {m["id"]: m["display_name"] for m in members}
+        date_from, date_to = current_month_to_date_range()
+
+        def label(m: Dict[str, Any]) -> str:
+            if m["kind"] == "placeholder":
+                return f"{m['display_name']} (no app account)"
+            return f"{m['display_name']} ({m.get('role') or 'member'})"
+
+        lines = [
+            "FAMILY: this is the family book, the household's shared money (not anyone's personal money)",
+            f"Family name: {family['name']}",
+            "Members: " + (", ".join(label(m) for m in members if m["status"] == "active") or "none"),
+            f"This month so far: {date_from:%B %d} to {date_to:%B %d, %Y}",
+        ]
+        for currency in _CURRENCIES:
+            breakdown = await family_breakdown(family, currency, date_from, date_to)
+            if not breakdown["rows"]:
+                continue
+            lines.append(f"Spending this month by who it was for ({currency.upper()}), total "
+                         f"{_money(currency, breakdown['total_spent'])}:")
+            for row in breakdown["rows"]:
+                former = " (former member)" if row["status"] == "former" else ""
+                lines.append(f"  - {row['display_name']}{former}: {_money(currency, row['amount'])}")
+        moves = await families_db.transfer_totals(self.user_id, date_from, date_to)
+        lines.append("Moves between wallets this month (transfers between a member's personal wallet and the family "
+                     "wallet; NOT income or spending, never count them as either):")
+        if not moves:
+            lines.append("  - none")
+        for move in moves:
+            who = names.get(move["member_id"]) or "A member"
+            amount = _money(move["currency"], move["total"])
+            if move["type"] == "inflow":
+                lines.append(f"  - {who} moved {amount} from their personal wallet into the family wallet")
+            else:
+                lines.append(f"  - {who} moved {amount} out of the family wallet into their personal wallet")
+        return "\n".join(lines)
 
     # [FIX] Changed to async
     async def create_financial_documents(self) -> List[Document]:
@@ -949,8 +1014,22 @@ class FinancialChatbot:
         if self.user_vector_stores.invalidate(user_id):
             print(f"🗑️ Invalidated cache for user {user_id}")
 
-    def _build_system_prompt(self, today: str, response_style: str = "normal") -> str:
-        """Build the chat system prompt (persona, Myanmar language support, response style); same for every provider"""
+    def _build_system_prompt(self, today: str, response_style: str = "normal", family: bool = False) -> str:
+        """Build the chat system prompt (persona, Myanmar language support, response style); same for every provider.
+        family: the chat is about the user's family book (Family mode), which the prompt says up front."""
+        prompt = self._base_system_prompt(today, response_style)
+        if not family:
+            return prompt
+        return prompt + """
+
+👨‍👩‍👧 FAMILY MODE:
+- You are answering about the user's family book (shared household money), not their personal money.
+- All the financial data you are given is the family book's: the household's shared wallet, budgets and goals. You never see any member's personal money; if asked about it, say that in Family mode you can only see the family book.
+- "We", "us" and "our" mean the family. Use the FAMILY section for the members and for spending per person (counted by who it was for, not who added it).
+- Moves between a member's personal wallet and the family wallet are transfers: never count them as income or spending."""
+
+    def _base_system_prompt(self, today: str, response_style: str = "normal") -> str:
+        """The persona, language, currency, accuracy and style rules (Personal and Family mode alike)."""
 
         # Define style-specific instructions
         style_instructions = {
@@ -1094,11 +1173,20 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
 ဘာသာစကားကို သဘာဝကျကျ သုံးပါ။ (Use language naturally.)"""
 
-    def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, budgets_summary: Dict, context: str, history_text: str, message: str, today: str) -> str:
-        """Build comprehensive user prompt with multi-currency support including budgets"""
+    def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, budgets_summary: Dict, context: str,
+                           history_text: str, message: str, today: str, family_text: str = "") -> str:
+        """Build comprehensive user prompt with multi-currency support including budgets.
+
+        user: the person asking (their own name, language and default currency, in Family mode too). family_text: the
+        FAMILY section of a family book (FinancialDataProcessor.get_family_context), "" for a personal book."""
+        language = _LANGUAGE_NAMES.get(user.get("language") or "en", "English")
+        book_line = ("Family book (shared household money), not the user's personal money" if family_text
+                     else "Personal")
         prompt = f"""User Profile:
     Name: {user.get('name', 'User')}
-    Default Currency: {user.get('default_currency', 'usd').upper()}
+    Default Currency: {(user.get('default_currency') or 'usd').upper()}
+    Language: {language}
+    Book: {book_line}
     Today: {today}
 
     Quick Overview:
@@ -1179,6 +1267,16 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                 prompt += f"{currency_symbol}{total_spent:,.2f}/{currency_symbol}{total_allocated:,.2f} "
                 prompt += f"({percentage:.1f}%) {status_icon}\n"
 
+        if family_text:
+            prompt += f"""
+
+    ╔══════════════════════════════════════════════════╗
+                            FAMILY
+    ╚══════════════════════════════════════════════════╝
+
+{family_text}
+"""
+
         prompt += f"""
 
     ╔══════════════════════════════════════════════════╗
@@ -1200,28 +1298,35 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
         return prompt
 
     async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None,
-                          response_style: str = "normal", feature: str = "chat"):
+                          response_style: str = "normal", feature: str = "chat", person_id: Optional[str] = None):
         """
         Stream a chat answer from `feature`'s provider chain ("chat", or Pro's "chat_advanced": same persona, prompt
         and max tokens, its own providers), with RAG context and response style.
+
+        user_id: the book the answer is about (the person's own id, or a family's book user id). person_id: the person
+        asking (default user_id): the prompt's profile (name, language, default currency) is theirs, and the runner
+        records the AI usage under them, so a family chat counts toward the asker's own cost cap. A family book adds
+        the FAMILY section and the Family-mode rules; nobody's personal data is read for it.
 
         Yields (chunk, None) for each text chunk, then ("", usage) once, where usage has input_tokens,
         output_tokens, total_tokens, model_name, provider and fallback_from. The runner has already recorded
         the usage. Raises ChatServiceError (safe user_message) on any failure, including every provider failing.
         """
+        person_id = person_id or user_id
         try:
             # [FIX] Direct await (no to_thread needed for DB)
-            user = await users_db.get_user(user_id)
+            user = await users_db.get_user(person_id)
             if not user:
                 raise ChatServiceError("We couldn't load your account. Please log in again.")
 
             processor = FinancialDataProcessor(user_id)
 
             # [FIX] Fetch data concurrently using native async methods
-            summary, goals, budgets = await asyncio.gather(
+            summary, goals, budgets, family_text = await asyncio.gather(
                 processor.get_financial_summary(),
                 processor.get_user_goals(),
-                processor.get_user_budgets()
+                processor.get_user_budgets(),
+                processor.get_family_context(),
             )
 
             # Calculate goals summary
@@ -1344,9 +1449,10 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             today = app_wall_clock_now().strftime("%A, %B %d, %Y")
 
             # Build prompts with response style
-            system_prompt = self._build_system_prompt(today, response_style)
+            system_prompt = self._build_system_prompt(today, response_style, family=bool(family_text))
 
-            user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text, message, today)
+            user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text,
+                                                  message, today, family_text)
 
             prompt = Prompt(
                 system=system_prompt,
@@ -1359,7 +1465,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             # (it never stitches two providers' text together). aclosing: if our consumer stops early (client
             # disconnect), the runner's and the provider's streams are closed right away.
             result = None
-            async with aclosing(ai_runner.run_stream(feature, user_id=user_id, prompt=prompt)) as items:
+            # Usage (tokens and cost) is recorded under the person asking, never the family's book user.
+            async with aclosing(ai_runner.run_stream(feature, user_id=person_id, prompt=prompt)) as items:
                 async for item in items:
                     if isinstance(item, ai_runner.RunResult):
                         result = item
