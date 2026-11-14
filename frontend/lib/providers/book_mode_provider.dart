@@ -10,46 +10,82 @@ export 'package:frontend/models/family.dart' show BookMode;
 
 /// The Personal / Family switch for the whole app.
 ///
-/// The mode is remembered on the device ([prefsKey]) and defaults to
-/// Personal. Every change sets [ApiService.bookMode] (so every request carries
-/// the right `X-Book`) and calls [onModeChanged], which the app root uses to
-/// reset the providers that hold book data and rebuild Home for the new book.
+/// The mode is remembered on the device per user ([prefsKeyFor]) and defaults
+/// to Personal. A remembered Family mode is applied only once the family is
+/// confirmed ([familyKnown]); until then the app stays Personal, so nobody is
+/// sent to a family book they no longer (or never) belong to.
+///
+/// Every change sets [ApiService.bookMode] (so every request carries the
+/// right `X-Book`) and calls [onModeChanged], which the app root uses to close
+/// the screens above Home, reset the providers that hold book data and
+/// rebuild Home for the new book.
 class BookModeProvider with ChangeNotifier {
+  /// The prefix of the per-user key ([prefsKeyFor]).
   static const String prefsKey = 'book_mode';
 
+  /// Where [userId]'s mode is remembered: `book_mode:<userId>`.
+  static String prefsKeyFor(String userId) => '$prefsKey:$userId';
+
   BookMode _mode = BookMode.personal;
+
+  /// The signed-in user whose mode this is (null when signed out).
+  String? _userId;
+
+  /// What the family is known to be since the last [reset]: null unknown.
+  bool? _inFamily;
+
+  /// Family mode was remembered and waits for the family to be confirmed.
+  bool _familyPending = false;
 
   /// Bumped by [reset] and [setMode]: a [load] that started before either is
   /// dropped, so a late read of the device can't undo a newer choice.
   int _generation = 0;
 
-  /// Called after the mode changed (by [setMode], [load] or
-  /// [fallBackToPersonal]); never by [reset].
+  /// Called after the mode changed (by [setMode], a confirmed remembered
+  /// Family mode, [familyKnown] or [fallBackToPersonal]); never by [reset].
   VoidCallback? onModeChanged;
 
   BookMode get mode => _mode;
   bool get isFamily => _mode == BookMode.family;
+  String? get userId => _userId;
 
-  /// Reads the mode remembered on this device. Calls [onModeChanged] when it
-  /// differs from the current one (screens already built for the other book
-  /// must start again).
-  Future<void> load() async {
+  /// Reads [userId]'s remembered mode. A remembered Family mode is applied
+  /// when the family is (or once it is) confirmed by [familyKnown].
+  Future<void> load(String userId) async {
     final generation = _generation;
+    _userId = userId;
     BookMode saved;
     try {
       final prefs = await SharedPreferences.getInstance();
-      saved = BookMode.fromName(prefs.getString(prefsKey));
+      saved = BookMode.fromName(prefs.getString(prefsKeyFor(userId)));
     } catch (e) {
       debugPrint('Could not read the book mode: $e');
       return;
     }
     if (generation != _generation) return;
-    _apply(saved);
+    if (saved == BookMode.family) {
+      _familyPending = true;
+      _applyPendingFamily();
+    }
   }
 
-  /// Switches the whole app to [mode] and remembers it on the device.
+  /// The family is now known: [inFamily] is whether the user is in one.
+  /// Applies a remembered Family mode, or, with no family, goes back to
+  /// Personal (left, removed, deleted) and drops the remembered one.
+  void familyKnown(bool inFamily) {
+    _inFamily = inFamily;
+    if (inFamily) {
+      _applyPendingFamily();
+      return;
+    }
+    _familyPending = false;
+    if (_mode == BookMode.family) unawaited(setMode(BookMode.personal));
+  }
+
+  /// Switches the whole app to [mode] and remembers it for the signed-in user.
   Future<void> setMode(BookMode mode) async {
     _generation++;
+    _familyPending = false;
     if (!_apply(mode)) return;
     await _save(mode);
   }
@@ -63,13 +99,22 @@ class BookModeProvider with ChangeNotifier {
     return true;
   }
 
-  /// Logout or another account: back to Personal. What the device remembers
-  /// is kept and read again by the next [load].
+  /// Logout or another account: back to Personal, nothing known. What the
+  /// device remembers is kept and read again by the next [load].
   void reset() {
     _generation++;
+    _userId = null;
+    _inFamily = null;
+    _familyPending = false;
     _mode = BookMode.personal;
     ApiService.bookMode = BookMode.personal;
     notifyListeners();
+  }
+
+  void _applyPendingFamily() {
+    if (!_familyPending || _inFamily != true) return;
+    _familyPending = false;
+    _apply(BookMode.family);
   }
 
   /// Sets [mode] everywhere; false when it was already the mode.
@@ -83,9 +128,11 @@ class BookModeProvider with ChangeNotifier {
   }
 
   Future<void> _save(BookMode mode) async {
+    final userId = _userId;
+    if (userId == null) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(prefsKey, mode.name);
+      await prefs.setString(prefsKeyFor(userId), mode.name);
     } catch (e) {
       debugPrint('Could not save the book mode: $e');
     }
@@ -97,8 +144,15 @@ class BookModeProvider with ChangeNotifier {
 /// the person's own book, Personal), then calls [open]. A notice without the
 /// family marker is about the person's own book, which would 404 in Family
 /// mode (ruling R17).
-Future<void> openInBook(BuildContext context, {required bool family, required VoidCallback open}) async {
-  final books = Provider.of<BookModeProvider>(context, listen: false);
+///
+/// A switch closes every screen above Home (R18), the one that called this
+/// included, so [open] must push with the root navigator (`navigatorKey`),
+/// not with a context from a closed screen.
+Future<void> openInBook(BuildContext context, {required bool family, required VoidCallback open}) =>
+    openInBookWith(Provider.of<BookModeProvider>(context, listen: false), family: family, open: open);
+
+/// [openInBook] without a BuildContext (the push tap handler).
+Future<void> openInBookWith(BookModeProvider books, {required bool family, required VoidCallback open}) async {
   final wanted = family ? BookMode.family : BookMode.personal;
   if (books.mode != wanted) {
     await books.setMode(wanted);

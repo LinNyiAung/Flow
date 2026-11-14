@@ -13,7 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 late http.Response Function(http.Request) _respond;
 final _mock = MockClient((request) async => _respond(request));
 
-Future<String?> _stored() async => (await SharedPreferences.getInstance()).getString(BookModeProvider.prefsKey);
+Future<String?> _stored(String userId) async =>
+    (await SharedPreferences.getInstance()).getString(BookModeProvider.prefsKeyFor(userId));
 
 void main() {
   late int modeChanges;
@@ -21,6 +22,15 @@ void main() {
   BookModeProvider make() {
     modeChanges = 0;
     return BookModeProvider()..onModeChanged = () => modeChanges++;
+  }
+
+  /// Signed in as [userId] with the family confirmed (or not).
+  Future<BookModeProvider> signedIn(String userId, {bool inFamily = true}) async {
+    final p = make();
+    await p.load(userId);
+    p.familyKnown(inFamily);
+    modeChanges = 0;
+    return p;
   }
 
   setUp(() {
@@ -33,6 +43,10 @@ void main() {
     ApiService.onNoFamily = null;
   });
 
+  test('the mode is stored per user', () {
+    expect(BookModeProvider.prefsKeyFor('u1'), 'book_mode:u1');
+  });
+
   test('starts in Personal', () {
     final p = make();
     expect(p.mode, BookMode.personal);
@@ -40,15 +54,15 @@ void main() {
     expect(ApiService.bookMode, BookMode.personal);
   });
 
-  test('setMode switches the API, persists the mode and reports the change once', () async {
-    final p = make();
+  test("setMode switches the API, persists the user's mode and reports the change once", () async {
+    final p = await signedIn('u1');
     var notified = 0;
     p.addListener(() => notified++);
 
     await p.setMode(BookMode.family);
     expect(p.mode, BookMode.family);
     expect(ApiService.bookMode, BookMode.family);
-    expect(await _stored(), 'family');
+    expect(await _stored('u1'), 'family');
     expect(modeChanges, 1);
     expect(notified, 1);
 
@@ -57,57 +71,99 @@ void main() {
 
     await p.setMode(BookMode.personal);
     expect(ApiService.bookMode, BookMode.personal);
-    expect(await _stored(), 'personal');
+    expect(await _stored('u1'), 'personal');
     expect(modeChanges, 2);
   });
 
-  test('the mode persists across load()', () async {
-    await make().setMode(BookMode.family);
-    ApiService.bookMode = BookMode.personal;
+  test('a stored Family mode waits for the family to be confirmed', () async {
+    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKeyFor('u1'): 'family'});
+    final p = make();
+    await p.load('u1');
+    expect(p.mode, BookMode.personal, reason: 'stays Personal until the family is known');
+    expect(ApiService.bookMode, BookMode.personal);
+    expect(modeChanges, 0);
 
-    final next = make();
-    await next.load();
-    expect(next.mode, BookMode.family);
+    p.familyKnown(true);
+    expect(p.mode, BookMode.family);
     expect(ApiService.bookMode, BookMode.family);
-    expect(modeChanges, 1, reason: 'screens already built for Personal must reset');
+    expect(modeChanges, 1);
   });
 
-  test('load() with nothing stored stays Personal, quietly', () async {
+  test('the family confirmed before the mode is read: Family at once', () async {
+    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKeyFor('u1'): 'family'});
     final p = make();
-    await p.load();
+    p.familyKnown(true);
+    await p.load('u1');
+    expect(p.mode, BookMode.family);
+    expect(modeChanges, 1);
+  });
+
+  test('a stored Family mode with no family stays Personal', () async {
+    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKeyFor('u1'): 'family'});
+    final p = make();
+    await p.load('u1');
+    p.familyKnown(false);
+    expect(p.mode, BookMode.personal);
+    expect(modeChanges, 0);
+    p.familyKnown(true);
+    expect(p.mode, BookMode.personal, reason: 'joining later does not switch by itself');
+  });
+
+  test("another user's stored mode is not used", () async {
+    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKeyFor('a'): 'family'});
+    final p = make();
+    await p.load('b');
+    p.familyKnown(true);
     expect(p.mode, BookMode.personal);
     expect(modeChanges, 0);
   });
 
+  test('leaving the family (known: no family) while in Family mode goes back to Personal', () async {
+    final p = await signedIn('u1');
+    await p.setMode(BookMode.family);
+    modeChanges = 0;
+    p.familyKnown(false);
+    expect(p.mode, BookMode.personal);
+    expect(modeChanges, 1);
+    await pumpEventQueue();
+    expect(await _stored('u1'), 'personal');
+  });
+
   test('reset() returns to Personal and the next load() re-reads the device', () async {
-    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKey: 'family'});
+    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKeyFor('u1'): 'family'});
     final p = make();
-    await p.load();
+    await p.load('u1');
+    p.familyKnown(true);
     expect(p.mode, BookMode.family);
 
     p.reset();
     expect(p.mode, BookMode.personal);
     expect(ApiService.bookMode, BookMode.personal);
-    expect(await _stored(), 'family', reason: 'the device keeps its choice');
+    expect(await _stored('u1'), 'family', reason: 'the device keeps the choice');
 
-    await p.load();
+    p.familyKnown(true);
+    expect(p.mode, BookMode.personal, reason: 'nothing read since the reset');
+    await p.load('u1');
     expect(p.mode, BookMode.family);
   });
 
   test('a load() that finishes after reset() is dropped', () async {
-    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKey: 'family'});
+    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKeyFor('u1'): 'family'});
     final p = make();
-    final loading = p.load();
+    p.familyKnown(true);
+    final loading = p.load('u1');
     p.reset();
+    p.familyKnown(true);
     await loading;
     expect(p.mode, BookMode.personal);
     expect(ApiService.bookMode, BookMode.personal);
   });
 
   test('a load() that finishes after setMode() does not undo it', () async {
-    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKey: 'family'});
+    SharedPreferences.setMockInitialValues({BookModeProvider.prefsKeyFor('u1'): 'family'});
     final p = make();
-    final loading = p.load();
+    p.familyKnown(true);
+    final loading = p.load('u1');
     await p.setMode(BookMode.personal);
     await loading;
     expect(p.mode, BookMode.personal);
@@ -115,7 +171,7 @@ void main() {
 
   group('no_family', () {
     test('a no_family response flips Family mode to Personal', () async {
-      final p = make();
+      final p = await signedIn('u1');
       await p.setMode(BookMode.family);
       modeChanges = 0;
       var fired = 0;
@@ -145,11 +201,11 @@ void main() {
       expect(ApiService.bookMode, BookMode.personal);
       expect(modeChanges, 1);
       await pumpEventQueue();
-      expect(await _stored(), 'personal');
+      expect(await _stored('u1'), 'personal');
     });
 
     test('fallBackToPersonal says whether it switched', () async {
-      final p = make();
+      final p = await signedIn('u1');
       expect(p.fallBackToPersonal(), isFalse);
       expect(modeChanges, 0);
       await p.setMode(BookMode.family);

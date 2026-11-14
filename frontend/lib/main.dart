@@ -8,6 +8,7 @@ import 'package:frontend/platform/platform_info.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/app_version_provider.dart';
 import 'package:frontend/providers/book_mode_provider.dart';
+import 'package:frontend/providers/book_session.dart';
 import 'package:frontend/providers/budget_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/feedback_provider.dart';
@@ -124,6 +125,16 @@ class _MyAppState extends State<MyApp> {
   /// The Personal / Family switch; read from the device when a user signs in.
   final BookModeProvider _bookModeProvider = BookModeProvider();
 
+  /// Ties the mode to the family, the screens and the book data (see BookSession).
+  late final BookSession _bookSession = BookSession(
+    books: _bookModeProvider,
+    family: _familyProvider,
+    navigatorKey: navigatorKey,
+    resetBookData: _resetBookState,
+    showMessage: (text) => scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(content: Text(text))),
+    noLongerMemberText: () => AppLocalizations(_locale).familyNoLongerMember,
+  );
+
   /// Web only: there is no push, so refresh when the browser tab becomes
   /// visible again (plan changed elsewhere, new notifications).
   AppLifecycleListener? _lifecycleListener;
@@ -145,12 +156,9 @@ class _MyAppState extends State<MyApp> {
     // every AI action, and when an admin changes the plan; what the server
     // reports is what the rest of the app treats as the user's plan.
     ApiService.onPlanUsageChanged = _planProvider.refresh;
-    ApiService.onNoFamily = _handleNoFamily;
-    _bookModeProvider.onModeChanged = _resetBookState;
+    _bookSession.attach();
     _authProvider.addListener(_onAuthChanged);
     _planProvider.addListener(_onPlanChanged);
-    _familyProvider.addListener(_syncBookWithFamily);
-    _bookModeProvider.addListener(_syncBookWithFamily);
     // A tapped custom insight push opens its report once the navigator is built.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) FCMService().setOpenFromPushHandler(_openFromPush);
@@ -192,28 +200,8 @@ class _MyAppState extends State<MyApp> {
     _planUserId = userId;
     if (userId != null) {
       _planProvider.refresh();
-      _familyProvider.refresh();
-      _bookModeProvider.load();
+      _bookSession.signedIn(userId);
     }
-  }
-
-  /// Family mode remembered on the device, but the user has no family (left,
-  /// removed, another account): back to Personal once the family is known.
-  void _syncBookWithFamily() {
-    if (_bookModeProvider.isFamily && _familyProvider.loaded && !_familyProvider.inFamily) {
-      _bookModeProvider.setMode(BookMode.personal);
-    }
-  }
-
-  /// A request made in Family mode answered `no_family` (removed, the family
-  /// deleted, or left on another device while the app was open): back to
-  /// Personal, reload the family, and say why.
-  void _handleNoFamily() {
-    if (!_bookModeProvider.fallBackToPersonal()) return;
-    _familyProvider.refresh();
-    scaffoldMessengerKey.currentState?.showSnackBar(
-      SnackBar(content: Text(AppLocalizations(_locale).familyNoLongerMember)),
-    );
   }
 
   void _onPlanChanged() {
@@ -234,18 +222,19 @@ class _MyAppState extends State<MyApp> {
   void _resetUserState() {
     _planProvider.reset();
     _resetBookState();
-    _familyProvider.reset();
-    _bookModeProvider.reset();
+    _chatProvider.reset(); // also the Advanced availability and choice
+    _bookSession.reset(); // the family and the mode
     _appVersionProvider.reset();
   }
 
   /// The providers that hold one book's data; also run when the Personal /
-  /// Family mode changes (Home is rebuilt for the new book, see AuthWrapper).
-  /// The plan, the family, the mode, the theme and the version check belong
-  /// to the person, not the book, and are kept.
+  /// Family mode changes, after the screens above Home are closed (Home is
+  /// rebuilt for the new book, see AuthWrapper). The plan, the family, the
+  /// mode, the theme, the version check and the chat's Advanced settings
+  /// belong to the person, not the book, and are kept.
   void _resetBookState() {
     _transactionProvider.reset();
-    _chatProvider.reset();
+    _chatProvider.resetBook();
     _goalProvider.reset();
     _insightProvider.reset();
     _customInsightProvider.reset();
@@ -280,12 +269,9 @@ class _MyAppState extends State<MyApp> {
     FCMService().setOpenFromPushHandler(null);
     ApiService.onSessionExpired = null;
     ApiService.onPlanUsageChanged = null;
-    ApiService.onNoFamily = null;
-    _bookModeProvider.onModeChanged = null;
+    _bookSession.detach();
     _authProvider.removeListener(_onAuthChanged);
     _planProvider.removeListener(_onPlanChanged);
-    _familyProvider.removeListener(_syncBookWithFamily);
-    _bookModeProvider.removeListener(_syncBookWithFamily);
     super.dispose();
   }
 

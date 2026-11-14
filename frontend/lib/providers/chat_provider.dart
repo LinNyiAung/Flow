@@ -155,6 +155,22 @@ class ChatProvider with ChangeNotifier {
 
   /// Clears all per-user state (called on logout / user switch).
   void reset() {
+    _clearConversation();
+    _mode = ChatMode.standard; // read again from the device for the next user
+    _advancedAvailable = false;
+    _advancedUsedUp = false;
+    notifyListeners();
+  }
+
+  /// The Personal / Family book changed: the conversation goes (it was about
+  /// the other book), but the person's plan-based Advanced availability and
+  /// their Standard / Advanced choice stay.
+  void resetBook() {
+    _clearConversation();
+    notifyListeners();
+  }
+
+  void _clearConversation() {
     _requestId++;
     _streamSubscription?.cancel();
     _streamSubscription = null;
@@ -169,10 +185,6 @@ class ChatProvider with ChangeNotifier {
     _planLimit = null;
     _rejectedQuestion = null;
     _responseStyle = ResponseStyle.normal;
-    _mode = ChatMode.standard; // read again from the device for the next user
-    _advancedAvailable = false;
-    _advancedUsedUp = false;
-    notifyListeners();
   }
 
   void setResponseStyle(ResponseStyle style) {
