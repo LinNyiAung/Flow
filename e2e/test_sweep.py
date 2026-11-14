@@ -46,6 +46,8 @@ PUBLIC = {
     ("POST", "/api/auth/resend-verification"), ("POST", "/api/admin/login"),
     # Intentionally public: the website's "Get the Android app" link (see test_app_download.py).
     ("GET", "/api/app/latest-android"),
+    # Intentionally public: the landing page reads the plan prices and the contacts.
+    ("GET", "/api/plan/public"),
 }
 
 
