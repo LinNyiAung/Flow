@@ -2575,6 +2575,47 @@ def section_ai():
                                          and "Family book" not in ctx for _, ctx in contexts),
               "ai: the family weekly and monthly insight prompts name the family and use the owner's currency",
               [(f, ctx[:160]) for f, ctx in contexts])
+
+        # ---- R21 (M3): a family custom insight: the family's profile in the prompt, the AI cost on the asker ----
+        async def custom_family():
+            import custom_insights_service as cis
+            from ai_providers.runner import RunResult
+            from ai_providers.types import Completion, Target
+            from plans import quota
+            from sql import custom_insights as ci
+            seen = {}
+            today = datetime.now(UTC).date()
+            start = today - timedelta(days=7)
+            rid = str(uuid.uuid4())
+            res = quota.Reservation(D["id"], [("insight_custom", "month", today)])
+            assert await ci.insert_pending({
+                "_id": rid, "user_id": book, "start_date": start, "end_date": today, "preset": None,
+                "instruction": None, "instruction_key": cis.instruction_key(None, None),
+                "counter_keys": cis.counter_keys(res, book), "figures": await cis.compute_figures(book, start, today)})
+            orig = cis.run_insight_model
+
+            async def fake(feature, system_prompt, context, user_id, label, **kw):
+                seen.update(context=context, user_id=user_id)
+                text = "## Summary\nok"
+                return RunResult(text, Target(provider="claude", model="claude-test"), None, Completion(text, 1, 1, "stop"))
+            cis.run_insight_model = fake
+            try:
+                row = await cis.run_report(rid)
+            finally:
+                cis.run_insight_model = orig
+            return seen, (row or {}).get("status")
+        try:
+            seen, status_ = _backend_async(custom_family)
+        except Exception as e:  # noqa: BLE001
+            seen, status_ = {"error": repr(e)[:300]}, None
+        ctx = seen.get("context", "")
+        check(status_ == "ready" and f"USER: {fam_name}" in ctx and "DEFAULT CURRENCY: MMK" in ctx
+              and "Family book" not in ctx,
+              "ai: a family custom insight's prompt names the family and uses the owner's currency",
+              (status_, seen.get("error"), ctx[:160]))
+        check(seen.get("user_id") == D["id"],
+              "ai: a family custom insight's AI cost is recorded under the person who asked (Dad), not the book",
+              {k: v for k, v in seen.items() if k in ("user_id", "error")})
     finally:
         _cleanup_people(made)
 

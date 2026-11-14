@@ -24,6 +24,7 @@ from datetime import date, datetime, time, timedelta, UTC
 
 from insights_service import (
     InsightAIError, currency_label, get_financial_summary, goals_budgets_context, run_insight_model,
+    _insight_profile as insight_profile,
 )
 from notification_service import notify_custom_insight_failed, notify_custom_insight_ready
 from plans import quota
@@ -363,12 +364,15 @@ async def run_report(report_id: str) -> dict | None:
         if row is None or row["status"] != "pending":
             return row
         uid, start, end = row["user_id"], row["start_date"], row["end_date"]
-        user = await users_db.get_user(uid) or {}
+        # A family book's report (R21): the prompt shows the family's profile (its name, the owner's currency) as the
+        # family's weekly and monthly insights do, and the AI cost is recorded under the person who asked, as for a
+        # family chat. A personal report: the person, both ways.
+        user = await insight_profile(await users_db.get_user(uid)) or {}
         goals = await goals_db.list_goals(uid)
         budgets = await budgets_db.budgets_overlapping(uid, *day_bounds_utc(start, end))
         context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))
         result = await asyncio.wait_for(
-            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, uid, "Custom Insight", background=True),
+            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, _asker(row), "Custom Insight", background=True),
             timeout=MODEL_TIMEOUT.total_seconds())
         text = (result.completion.text or "").strip()
         if is_off_topic(text):
