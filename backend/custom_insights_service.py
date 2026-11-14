@@ -321,11 +321,13 @@ def _asker(row: dict) -> str:
 async def _notify(row: dict) -> None:
     """After the commit: the "ready" or "not created" notice (the notification functions log their own failures)."""
     who = _asker(row)
+    # A family book's report: the asker's notice carries the family marker as well (the fan-out adds it itself).
+    family = who != row["user_id"]
     if row["status"] == "ready":
-        await notify_custom_insight_ready(who, row["_id"], row["start_date"], row["end_date"])
+        await notify_custom_insight_ready(who, row["_id"], row["start_date"], row["end_date"], family=family)
     else:
         await notify_custom_insight_failed(who, row["_id"], row["start_date"], row["end_date"],
-                                           refused=row["status"] == "refused")
+                                           refused=row["status"] == "refused", family=family)
 
 
 async def _finish(report_id: str, status: str, **fields) -> dict | None:

@@ -1185,7 +1185,8 @@ async def get_notifications(
                     goal_name=n.get("goal_name"),
                     currency=n.get("currency"),
                     created_at=n["created_at"],
-                    is_read=bool(n.get("is_read", False))
+                    is_read=bool(n.get("is_read", False)),
+                    extra={"book": n["book"]} if n.get("book") else None,
                 ))
             except Exception as item_error:
                 # One malformed document must not break the whole list

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Any, Dict, Optional
 from datetime import datetime
 from enum import Enum
 
@@ -72,3 +72,5 @@ class NotificationResponse(BaseModel):
     currency: Optional[str] = None  # NEW - add currency field
     created_at: datetime
     is_read: bool
+    # {"book": "family"} on a notice that belongs to a family book (open it in Family mode); None for personal ones.
+    extra: Optional[Dict[str, Any]] = None

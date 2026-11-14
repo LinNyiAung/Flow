@@ -419,6 +419,15 @@ async def notification_recipients(user_id: str) -> Tuple[bool, List[str]]:
     return False, [user_id]
 
 
+FAMILY_MARKER = {"book": "family"}
+
+
+def family_marker(extra: Optional[dict] = None) -> dict:
+    """`extra` plus the family book marker (stored in notifications.book, returned as extra.book by the API) for a
+    notice that belongs to a family book, so the app opens it in Family mode. Personal notices never carry it."""
+    return {**(extra or {}), **FAMILY_MARKER}
+
+
 def _for_language(value: Any, lang: str) -> Any:
     """A value that depends on the reader's language is passed as a callable taking the language."""
     return value(lang) if callable(value) else value
@@ -439,11 +448,14 @@ async def create_notification_from_key(
     """create_notification with the title and message rendered from NOTIFICATION_TRANSLATIONS in the reader's language.
 
     For a person, exactly create_notification for them. For a family book user, one notification per active account
-    member, each rendered in that member's language and subject to that member's preferences and device. `goal_name`
+    member, each rendered in that member's language and subject to that member's preferences and device, and each
+    marked as the family's (extra book = 'family', see family_marker). `goal_name`
     and the `fmt` values may be callables taking the language (e.g. a days phrase); the templates' {goal_name} is the
     notification's goal_name. Returns the notifications stored (a member's failure is logged and skipped).
     """
     is_book, recipients = await notification_recipients(user_id)
+    if is_book:
+        extra = family_marker(extra)
     sent: List[dict] = []
     for recipient in recipients:
         try:
@@ -1005,33 +1017,37 @@ async def notify_weekly_insights_generated(user_id: str):
 
 
 async def _notify_custom_insight(user_id: str, report_id: str, start: date, end: date,
-                                 notification_type: str, title_key: str, message_key: str) -> None:
+                                 notification_type: str, title_key: str, message_key: str, family: bool = False) -> None:
     """Store one custom-insight notice. goal_id carries the report id (the app opens the report from it).
 
-    user_id is the person to tell, or a family book user (then every active account member is told).
+    user_id is the person to tell, or a family book user (then every active account member is told). family=True: the
+    report is a family book's, so the notice to a person (its asker) carries the family marker too.
     Never raises: the report is already ready or failed, so a notice that cannot be stored is only logged.
     """
     try:
         await create_notification_from_key(
             user_id, notification_type, title_key, message_key,
             goal_id=report_id,
+            extra=family_marker() if family else None,
             range=lambda lang: f"{format_day(start, lang)} – {format_day(end, lang)}",
         )
     except Exception as e:
         print(f"❌ Could not send {notification_type} notification for report {report_id}: {e}")
 
 
-async def notify_custom_insight_ready(user_id: str, report_id: str, start: date, end: date) -> None:
+async def notify_custom_insight_ready(user_id: str, report_id: str, start: date, end: date,
+                                      family: bool = False) -> None:
     """Tell the user their custom insight for start..end is ready (goal_id = the report id)."""
     await _notify_custom_insight(user_id, report_id, start, end, "custom_insight_ready",
-                                 "custom_insight_ready_title", "custom_insight_ready_msg")
+                                 "custom_insight_ready_title", "custom_insight_ready_msg", family)
 
 
-async def notify_custom_insight_failed(user_id: str, report_id: str, start: date, end: date, refused: bool) -> None:
+async def notify_custom_insight_failed(user_id: str, report_id: str, start: date, end: date, refused: bool,
+                                       family: bool = False) -> None:
     """Tell the user their custom insight could not be made, and that it was not counted.
 
     refused=True: the question was off-topic (own message); same type and title as a plain failure. goal_id = the report id.
     """
     await _notify_custom_insight(user_id, report_id, start, end, "custom_insight_failed",
                                  "custom_insight_failed_title",
-                                 "custom_insight_refused_msg" if refused else "custom_insight_failed_msg")
+                                 "custom_insight_refused_msg" if refused else "custom_insight_failed_msg", family)

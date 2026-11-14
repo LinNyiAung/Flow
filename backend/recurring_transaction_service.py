@@ -11,7 +11,7 @@ from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import users as users_db
 from sql.db import transaction as db_transaction
-from notification_service import create_notification
+from notification_service import create_notification, family_marker
 from tz_utils import app_today
 
 logger = logging.getLogger(__name__)
@@ -207,14 +207,16 @@ def due_occurrences(
     return plan.dates, plan.ended
 
 
-async def _notice_recipient(transaction: dict) -> Optional[str]:
-    """Who a recurring entry's notices go to: its owner, or for a family book's entry only the member who added it,
-    while that member is an active account member (else nobody). Never the book user, never every member."""
+async def _notice_recipient(transaction: dict) -> Tuple[Optional[str], Optional[dict]]:
+    """(who, extra) for a recurring entry's notices: its owner (extra None), or for a family book's entry only the
+    member who added it, while that member is an active account member (else nobody), with the family marker as
+    extra. Never the book user, never every member."""
     owner = transaction["user_id"]
     if not await users_db.is_book_user(owner):
-        return owner
+        return owner, None
     member_id = transaction.get("added_by_member_id")
-    return await families_db.active_member_user_id(owner, member_id) if member_id else None
+    who = await families_db.active_member_user_id(owner, member_id) if member_id else None
+    return who, family_marker()
 
 
 async def _child_exists_on_date(transaction: dict, occ_date: datetime) -> bool:
@@ -315,10 +317,10 @@ async def _process_recurring_transaction(
         await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date)
 
     label = transaction.get("description") or transaction["sub_category"]
-    recipient = None
+    recipient, notice_extra = None, None
     if created or ended:
         try:
-            recipient = await _notice_recipient(transaction)
+            recipient, notice_extra = await _notice_recipient(transaction)
         except Exception as e:
             logger.error(f"Could not find who to notify for recurring {transaction['_id']}: {e}")
 
@@ -342,7 +344,8 @@ async def _process_recurring_transaction(
                 title="Recurring Transaction Created 🔄",
                 message=message,
                 goal_id=last_new_id,
-                goal_name=label
+                goal_name=label,
+                extra=notice_extra,
             )
         except Exception as e:
             logger.error(f"Failed to notify recurring creation for {transaction['_id']}: {e}")
@@ -357,7 +360,8 @@ async def _process_recurring_transaction(
                     title="Recurring Transaction Ended 🏁",
                     message=f"Your recurring transaction '{label}' has reached its end date.",
                     goal_id=transaction["_id"],
-                    goal_name=label
+                    goal_name=label,
+                    extra=notice_extra,
                 )
             except Exception as e:
                 logger.error(f"Failed to notify recurring end for {transaction['_id']}: {e}")
@@ -420,7 +424,7 @@ async def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str
     if disabled:
         parent_tx = await transactions_db.get_transaction(parent_transaction_id)
         # A family book's entry: only the member who added it is told (see _notice_recipient).
-        recipient = await _notice_recipient(parent_tx) if parent_tx else None
+        recipient, notice_extra = await _notice_recipient(parent_tx) if parent_tx else (None, None)
         if parent_tx and recipient:
             label = parent_tx.get("description") or parent_tx["sub_category"]
             await create_notification(
@@ -429,7 +433,8 @@ async def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str
                 title="Recurring Transaction Stopped 🛑",
                 message=f"Automatic creation has been stopped for '{label}'.",
                 goal_id=parent_transaction_id,
-                goal_name=label
+                goal_name=label,
+                extra=notice_extra,
             )
 
     return disabled

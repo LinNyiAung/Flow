@@ -74,6 +74,7 @@ def section_schema():
     _expect_cols("transactions", {"added_by_member_id": "YES", "transfer_id": "YES"})
     _expect_cols("transaction_beneficiaries", {"transaction_id": "NO", "member_id": "NO"})
     _expect_cols("chat_sessions", {"book_id": "YES"})
+    _expect_cols("notifications", {"book": "YES"})
     _expect_cols("plan_settings", {"family_max_members": "NO", "family_max_placeholders": "NO"})
 
     kind = _columns("users").get("kind")
@@ -1864,6 +1865,14 @@ def section_notifications():
                       "ORDER BY created_at, id", uid)
         return [r for r in rows if type_ is None or r["type"] == type_]
 
+    def api_notes(u, type_):
+        """The person's notifications of this type as GET /api/notifications answers them."""
+        r = c.get("/api/notifications", headers=u["h"], params={"limit": 100})
+        return [n for n in (r.json() if r.status_code == 200 else []) if n.get("type") == type_]
+
+    def is_family(n):
+        return (n.get("extra") or {}).get("book") == "family"
+
     def wait_for(fn, timeout=8.0):
         end = time.time() + timeout
         while True:
@@ -1953,6 +1962,9 @@ def section_notifications():
               and mt[0]["goal_id"] == dt[0]["goal_id"] == bid,
               "notifications: each in their own language, for the family budget", (mt, dt))
         check(notes(book) == [], "notifications: the book user gets none", notes(book))
+        at = api_notes(D, "budget_threshold")
+        check(len(at) == 1 and is_family(at[0]),
+              "notifications: GET /api/notifications marks Dad's family budget alert extra.book = 'family' (R15)", at)
         mp = wait_for(lambda: [p for p in pushes(f"fcm-mum-{tag}") if p.get("title") == EN["budget_threshold_title"]])
         dp = wait_for(lambda: [p for p in pushes(f"fcm-dad-{tag}") if p.get("title") == MY["budget_threshold_title"]])
         check(len(mp) == 1 and len(dp) == 1 and pushes(f"fcm-book-{tag}") == [],
@@ -2017,6 +2029,10 @@ def section_notifications():
         mw, dw = notes(M["id"], "weekly_insights_generated"), notes(D["id"], "weekly_insights_generated")
         check(len(mw) == 2 and len(dw) == 1 and dw[0]["title"] == MY["weekly_insights_title"],
               "notifications: family weekly insights reach both once, besides Mum's personal one", (mw, dw))
+        aw = api_notes(M, "weekly_insights_generated")
+        check(sorted(is_family(n) for n in aw) == [False, True]
+              and all("book" not in (n.get("extra") or {}) for n in aw if not is_family(n)),
+              "notifications: Mum's personal notice has no book marker; the family one has extra.book (R15)", aw)
 
         # ---- custom insight: the asker when recorded, else everyone ----
         async def custom():
@@ -2030,6 +2046,9 @@ def section_notifications():
         dc = [n["goal_id"] for n in notes(D["id"], "custom_insight_ready")]
         check(mc == [f"ci2-{tag}"] and sorted(dc) == [f"ci1-{tag}", f"ci2-{tag}"],
               "notifications: a family custom insight tells its asker, or everyone when the asker isn't recorded", (mc, dc))
+        ac = api_notes(D, "custom_insight_ready")
+        check(len(ac) == 2 and all(is_family(n) for n in ac),
+              "notifications: the family custom insight notices (the asker's too) carry extra.book (R15)", ac)
 
         # ---- recurring: only the member who added it; nobody once they are former ----
         def recurring(desc, end=None):
@@ -2056,6 +2075,9 @@ def section_notifications():
         check(n1 == 2 and kinds == {("recurring_transaction_created", f"Milk {tag}"),
                                     ("recurring_transaction_ended", f"Milk {tag}")},
               "notifications: Dad, who added the recurring entry, is told it was created and ended", (n1, kinds))
+        ar = api_notes(D, "recurring_transaction_created") + api_notes(D, "recurring_transaction_ended")
+        check(len(ar) == 2 and all(is_family(n) for n in ar),
+              "notifications: the adder's recurring notices for a family entry carry extra.book (R15)", ar)
         others = [n["type"] for uid in (M["id"], book) for n in notes(uid) if n["type"].startswith("recurring_")]
         check(others == [], "notifications: Mum and the book user get no recurring notices", others)
         db.sql("UPDATE family_members SET status = 'former', left_at = now() WHERE id = %s", d_mid)

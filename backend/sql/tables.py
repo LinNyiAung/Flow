@@ -268,7 +268,10 @@ notifications = Table(
     Column("is_read", Boolean, nullable=False, server_default=text("false")),
     Column("reminder_threshold", SmallInteger),
     Column("reminder_target_date", Date),
+    # 'family' on a notice a family book sent to one of its members (the app opens it in Family mode); NULL: personal.
+    Column("book", Text),
     Column("created_at", TS, nullable=False, server_default=func.now()),
+    CheckConstraint("book IS NULL OR book = 'family'", name="book"),
 )
 Index("ix_notifications_user_created", notifications.c.user_id, notifications.c.created_at.desc())
 Index("ix_notifications_user_unread", notifications.c.user_id, postgresql_where=~notifications.c.is_read)
