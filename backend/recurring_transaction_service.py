@@ -207,6 +207,16 @@ def due_occurrences(
     return plan.dates, plan.ended
 
 
+async def _notice_recipient(transaction: dict) -> Optional[str]:
+    """Who a recurring entry's notices go to: its owner, or for a family book's entry only the member who added it,
+    while that member is an active account member (else nobody). Never the book user, never every member."""
+    owner = transaction["user_id"]
+    if not await users_db.is_book_user(owner):
+        return owner
+    member_id = transaction.get("added_by_member_id")
+    return await families_db.active_member_user_id(owner, member_id) if member_id else None
+
+
 async def _child_exists_on_date(transaction: dict, occ_date: datetime) -> bool:
     """True if an auto-created child of this parent already exists on occ_date's calendar date
     (older children have uuid _ids, so the deterministic _id alone can't dedupe them)."""
@@ -305,8 +315,14 @@ async def _process_recurring_transaction(
         await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date)
 
     label = transaction.get("description") or transaction["sub_category"]
+    recipient = None
+    if created or ended:
+        try:
+            recipient = await _notice_recipient(transaction)
+        except Exception as e:
+            logger.error(f"Could not find who to notify for recurring {transaction['_id']}: {e}")
 
-    if created:
+    if created and recipient:
         currency_map = {"usd": "$", "mmk": "K", "thb": "฿"}
         currency_symbol = currency_map.get(transaction.get("currency", "usd"), "$")
         if created == 1:
@@ -321,7 +337,7 @@ async def _process_recurring_transaction(
             )
         try:
             await create_notification(
-                user_id=transaction["user_id"],
+                user_id=recipient,
                 notification_type="recurring_transaction_created",
                 title="Recurring Transaction Created 🔄",
                 message=message,
@@ -333,17 +349,18 @@ async def _process_recurring_transaction(
 
     if ended:
         await transactions_db.disable_recurrence(transaction["_id"])
-        try:
-            await create_notification(
-                user_id=transaction["user_id"],
-                notification_type="recurring_transaction_ended",
-                title="Recurring Transaction Ended 🏁",
-                message=f"Your recurring transaction '{label}' has reached its end date.",
-                goal_id=transaction["_id"],
-                goal_name=label
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify recurring end for {transaction['_id']}: {e}")
+        if recipient:
+            try:
+                await create_notification(
+                    user_id=recipient,
+                    notification_type="recurring_transaction_ended",
+                    title="Recurring Transaction Ended 🏁",
+                    message=f"Your recurring transaction '{label}' has reached its end date.",
+                    goal_id=transaction["_id"],
+                    goal_name=label
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify recurring end for {transaction['_id']}: {e}")
 
     return created
 
@@ -402,10 +419,12 @@ async def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str
 
     if disabled:
         parent_tx = await transactions_db.get_transaction(parent_transaction_id)
-        if parent_tx:
+        # A family book's entry: only the member who added it is told (see _notice_recipient).
+        recipient = await _notice_recipient(parent_tx) if parent_tx else None
+        if parent_tx and recipient:
             label = parent_tx.get("description") or parent_tx["sub_category"]
             await create_notification(
-                user_id=user_id,
+                user_id=recipient,
                 notification_type="recurring_transaction_disabled",
                 title="Recurring Transaction Stopped 🛑",
                 message=f"Automatic creation has been stopped for '{label}'.",

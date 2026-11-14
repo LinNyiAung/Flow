@@ -293,8 +293,7 @@ def _reservation(row: dict) -> quota.Reservation:
     plus the counted person's id when it isn't the row's user_id: see counter_keys)."""
     stored = row.get("counter_keys") or []
     keys = [(k[0], k[1], date.fromisoformat(k[2])) for k in stored]
-    counted = next((k[3] for k in stored if len(k) > 3), row["user_id"])
-    return quota.Reservation(counted, keys)
+    return quota.Reservation(_asker(row), keys)
 
 
 async def _give_back(row: dict) -> None:
@@ -312,12 +311,20 @@ async def _give_back(row: dict) -> None:
         logger.exception("Could not give back the use of custom insight %s", row["_id"])
 
 
+def _asker(row: dict) -> str:
+    """Who to tell about the report: the person counted for it when the row records one (a family book's report:
+    counter_keys' 4th item, see counter_keys), else the row's user_id (a person, or a family book user, whose notice
+    then goes to every active account member)."""
+    return next((k[3] for k in row.get("counter_keys") or [] if len(k) > 3), row["user_id"])
+
+
 async def _notify(row: dict) -> None:
     """After the commit: the "ready" or "not created" notice (the notification functions log their own failures)."""
+    who = _asker(row)
     if row["status"] == "ready":
-        await notify_custom_insight_ready(row["user_id"], row["_id"], row["start_date"], row["end_date"])
+        await notify_custom_insight_ready(who, row["_id"], row["start_date"], row["end_date"])
     else:
-        await notify_custom_insight_failed(row["user_id"], row["_id"], row["start_date"], row["end_date"],
+        await notify_custom_insight_failed(who, row["_id"], row["start_date"], row["end_date"],
                                            refused=row["status"] == "refused")
 
 

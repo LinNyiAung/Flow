@@ -59,15 +59,23 @@ async def count_all() -> int:
     return await fetch_value(select(func.count()).select_from(n))
 
 
-async def exists(user_id: str, types: Union[str, Iterable[str]], *, goal_id: Optional[str] = None,
+def _owner(user_id: Union[str, Iterable[str]]):
+    """user_id is one user or several (a family book's members: any of them having it counts)."""
+    return n.c.user_id == user_id if isinstance(user_id, str) else n.c.user_id.in_(list(user_id))
+
+
+async def exists(user_id: Union[str, Iterable[str]], types: Union[str, Iterable[str]], *, goal_id: Optional[str] = None,
                  goal_name: Optional[str] = None, currency: Optional[str] = None,
-                 since: Optional[datetime] = None) -> bool:
-    """De-duplication check: a notification of these type(s) (optionally for this goal/budget id,
-    name, currency) exists for the user (optionally created at or after `since`)."""
+                 since: Optional[datetime] = None, no_goal_id: bool = False) -> bool:
+    """De-duplication check: a notification of these type(s) (optionally for this goal/budget id, or with no goal_id
+    at all, name, currency) exists for the user, or for any of the users given (optionally created at or after
+    `since`)."""
     type_list = [types] if isinstance(types, str) else list(types)
-    conds = [n.c.user_id == user_id, n.c.type.in_(type_list)]
+    conds = [_owner(user_id), n.c.type.in_(type_list)]
     if goal_id is not None:
         conds.append(n.c.goal_id == goal_id)
+    if no_goal_id:
+        conds.append(n.c.goal_id.is_(None))
     if goal_name is not None:
         conds.append(n.c.goal_name == goal_name)
     if currency is not None:
@@ -77,12 +85,13 @@ async def exists(user_id: str, types: Union[str, Iterable[str]], *, goal_id: Opt
     return bool(await fetch_value(select(sql_exists().where(*conds))))
 
 
-async def approaching_reminder_exists(user_id: str, goal_id: str, threshold: int, target_key: str,
+async def approaching_reminder_exists(user_id: Union[str, Iterable[str]], goal_id: str, threshold: int, target_key: str,
                                       since: datetime) -> bool:
-    """goal_approaching_date already sent for this threshold+target date, or any one since `since`."""
+    """goal_approaching_date already sent (to the user, or any of the users given) for this threshold+target date, or
+    any one since `since`."""
     target = date.fromisoformat(target_key) if isinstance(target_key, str) else target_key
     stmt = select(sql_exists().where(
-        n.c.user_id == user_id, n.c.goal_id == goal_id, n.c.type == "goal_approaching_date",
+        _owner(user_id), n.c.goal_id == goal_id, n.c.type == "goal_approaching_date",
         or_(and_(n.c.reminder_threshold == threshold, n.c.reminder_target_date == target), n.c.created_at >= since),
     ))
     return bool(await fetch_value(stmt))

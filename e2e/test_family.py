@@ -10,6 +10,8 @@ Sections:
   transfers -- moving money between a personal wallet and the family wallet: one linked pair that only changes the
     two balances, left out of every income and spending figure, undone only by its mover (Task 6).
   budgets and goals -- only admins create, change or delete them or take money out of a goal; any member adds (Task 7).
+  family notifications -- budget and goal notices reach every active account member in their own language and by their
+    own preferences, never the book user; no per-entry notices; recurring notices only to the adder (Task 8).
 """
 import asyncio
 import os
@@ -1838,6 +1840,240 @@ def section_budgets_goals():
         _cleanup_people(made)
 
 
+def section_notifications():
+    """Task 8: a family book's budget and goal notices go to every active account member, each in their own language
+    and by their own preferences (never to the book user); per-entry notices are not sent for a family book; recurring
+    notices go only to the member who added the recurring entry; custom insight notices go to the asker when known."""
+    backend = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    import json
+    import re
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    today = datetime.now(UTC).date()
+    noon = datetime(today.year, today.month, today.day, 12, tzinfo=UTC)
+
+    def H(u, family=True):
+        return {**u["h"], **(FAM if family else {})}
+
+    def notes(uid, type_=None):
+        rows = db.sql("SELECT type, title, message, goal_id, goal_name FROM notifications WHERE user_id = %s "
+                      "ORDER BY created_at, id", uid)
+        return [r for r in rows if type_ is None or r["type"] == type_]
+
+    def wait_for(fn, timeout=8.0):
+        end = time.time() + timeout
+        while True:
+            v = fn()
+            if v or time.time() > end:
+                return v
+            time.sleep(0.25)
+
+    def pushes(token):
+        if not os.path.exists(stubenv.OUTBOX):
+            return []
+        with open(stubenv.OUTBOX, encoding="utf-8") as f:
+            recs = [json.loads(line) for line in f if '"fcm_send"' in line]
+        return [r for r in recs if r.get("fcm_token") == token or r.get("token") == token]
+
+    def tx(u, amount, main, sub, *, date=noon, currency="mmk", type_="outflow", **kw):
+        return c.post("/api/transactions", headers=H(u), json={
+            "type": type_, "main_category": main, "sub_category": sub, "date": date.isoformat(), "amount": amount,
+            "currency": currency} | kw)
+
+    from notification_service import NOTIFICATION_TRANSLATIONS as T
+    EN, MY = T["en"], T["my"]
+    myanmar = re.compile("[က-႟]")
+
+    try:
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        c.post("/api/family", headers=M["h"], json={"name": f"Notify family {tag}"})
+        c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
+        book = (db.sql("SELECT f.book_user_id b FROM families f JOIN family_members m ON m.family_id = f.id "
+                       "WHERE m.user_id = %s AND m.status = 'active'", M["id"]) or [{}])[0].get("b")
+        d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
+        check(book and d_mid, "notifications: Mum (owner, en) and Dad (member, my) share a family", (book, d_mid))
+        db.sql("UPDATE users SET language = 'my', fcm_token = %s WHERE id = %s", f"fcm-dad-{tag}", D["id"])
+        db.sql("UPDATE users SET language = 'en', fcm_token = %s WHERE id = %s", f"fcm-mum-{tag}", M["id"])
+        db.sql("UPDATE users SET fcm_token = %s WHERE id = %s", f"fcm-book-{tag}", book)
+        db.sql("DELETE FROM notifications WHERE user_id = ANY(%s)", [M["id"], D["id"]])  # the invite notices
+        tx(M, 1000000, "Employment Income", "Salary", type_="inflow")
+
+        # ---- per-entry notices are never sent for a family book ----
+        def seed(days_ago, amount, main, sub, desc=None):
+            db.sql("INSERT INTO transactions (id, user_id, type, main_category, sub_category, amount, currency, date, "
+                   "description) VALUES (%s, %s, 'outflow', %s, %s, %s, 'mmk', %s, %s)", str(uuid.uuid4()), book, main,
+                   sub, amount, noon - timedelta(days=days_ago), desc)
+        for d in (9, 12, 15, 18, 22, 26):
+            seed(d, 10000, "Transportation", "Taxi")
+        for d in (27, 57, 87):
+            seed(d, 1000, "Housing", "Rent", f"Rent {tag}")
+        r = tx(D, 300000, "Transportation", "Taxi", date=noon - timedelta(days=5), description="Big taxi")
+        check(r.status_code == 200, "notifications: Dad adds a large family entry", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/notifications/analyze-spending", headers=H(D))
+        check(r.status_code == 200, "notifications: the spending analysis runs on the family book", r.status_code)
+
+        async def payment_reminders():
+            import notification_service as ns
+            from tz_utils import app_today
+            await ns._detect_recurring_payments_for_user(book, datetime.now(UTC), app_today())
+        _backend_async(payment_reminders)
+        time.sleep(2)  # the large-entry check runs as a background task
+        per_entry = [n["type"] for uid in (book, M["id"], D["id"]) for n in notes(uid)]
+        check(per_entry == [], "notifications: a family entry by itself (large, unusual, a due payment) notifies nobody",
+              per_entry)
+
+        # ---- budgets: started, close to the cap, preferences ----
+        r = c.post("/api/budgets", headers=H(M), json={
+            "name": f"House {tag}", "period": "custom", "currency": "mmk", "total_budget": 100000,
+            "start_date": (today - timedelta(days=1)).isoformat(), "end_date": (today + timedelta(days=2)).isoformat(),
+            "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50000},
+                                 {"main_category": "Transportation", "allocated_amount": 50000}]})
+        bid = r.json().get("id") if r.status_code == 200 else None
+        check(bid, "notifications: Mum creates a running family budget", f"{r.status_code} {r.text[:200]}")
+        ms, ds = notes(M["id"], "budget_started"), notes(D["id"], "budget_started")
+        check(len(ms) == 1 and len(ds) == 1 and ms[0]["title"] == EN["budget_started_title"]
+              and ds[0]["title"] == MY["budget_started_title"] and ms[0]["goal_id"] == ds[0]["goal_id"] == bid,
+              "notifications: budget started reaches Mum (en) and Dad (my)", (ms, ds))
+
+        r = tx(D, 42000, "Food & Daily Living", "Groceries")
+        check(r.status_code == 200, "notifications: Dad spends K42,000 on food (84% of its K50,000)", r.status_code)
+        mt = wait_for(lambda: notes(M["id"], "budget_threshold"))
+        dt = wait_for(lambda: notes(D["id"], "budget_threshold"))
+        check(len(mt) == 1 and len(dt) == 1, "notifications: one budget_threshold each for Mum and Dad", (mt, dt))
+        check(mt and dt and mt[0]["title"] == EN["budget_threshold_title"] and dt[0]["title"] == MY["budget_threshold_title"]
+              and not myanmar.search(mt[0]["message"]) and myanmar.search(dt[0]["message"])
+              and mt[0]["goal_id"] == dt[0]["goal_id"] == bid,
+              "notifications: each in their own language, for the family budget", (mt, dt))
+        check(notes(book) == [], "notifications: the book user gets none", notes(book))
+        mp = wait_for(lambda: [p for p in pushes(f"fcm-mum-{tag}") if p.get("title") == EN["budget_threshold_title"]])
+        dp = wait_for(lambda: [p for p in pushes(f"fcm-dad-{tag}") if p.get("title") == MY["budget_threshold_title"]])
+        check(len(mp) == 1 and len(dp) == 1 and pushes(f"fcm-book-{tag}") == [],
+              "notifications: each member's device gets the push in their language; the book's token none",
+              (len(mp), len(dp), pushes(f"fcm-book-{tag}")))
+
+        r = c.put("/api/notifications/preferences", headers=D["h"], json={"preferences": {"budget_threshold": False}})
+        check(r.status_code == 200, "notifications: Dad turns budget alerts off", f"{r.status_code} {r.text[:200]}")
+        tx(M, 41000, "Transportation", "Fuel")
+        mt2 = wait_for(lambda: [n for n in notes(M["id"], "budget_threshold") if "Transportation" in n["message"]])
+        time.sleep(1)
+        check(len(mt2) == 1 and len(notes(D["id"], "budget_threshold")) == 1,
+              "notifications: with Dad's alerts off, only Mum gets the next one",
+              (mt2, notes(D["id"], "budget_threshold")))
+
+        # ---- budget ending soon (daily job): once each, the days in each language ----
+        async def period_job():
+            import notification_service as ns
+            await ns.check_budget_period_notifications()
+            await ns.check_budget_period_notifications()
+        _backend_async(period_job)
+        me = [n for n in notes(M["id"], "budget_ending_soon") if n["goal_id"] == bid]
+        de = [n for n in notes(D["id"], "budget_ending_soon") if n["goal_id"] == bid]
+        check(len(me) == 1 and len(de) == 1 and re.search(r"\d+ days?", me[0]["message"])
+              and "day" not in de[0]["message"] and myanmar.search(de[0]["message"]),
+              "notifications: budget ending soon reaches each member once, the days in their language", (me, de))
+
+        # ---- goals: achieved; deadline approaching ----
+        r = c.post("/api/goals", headers=H(M), json={"name": f"Trip {tag}", "target_amount": 100000,
+                                                       "goal_type": "savings", "currency": "mmk"})
+        gid = r.json().get("id") if r.status_code == 200 else None
+        r = c.post(f"/api/goals/{gid}/contribute", headers=H(D), json={"amount": 100000})
+        check(gid and r.status_code == 200, "notifications: Dad fills the family goal", f"{r.status_code} {r.text[:200]}")
+        ma, da = notes(M["id"], "goal_achieved"), notes(D["id"], "goal_achieved")
+        check(len(ma) == 1 and len(da) == 1 and ma[0]["title"] == EN["goal_achieved_title"]
+              and da[0]["title"] == MY["goal_achieved_title"] and f"Trip {tag}" in da[0]["message"]
+              and ma[0]["goal_id"] == da[0]["goal_id"] == gid,
+              "notifications: goal achieved reaches Mum (en) and Dad (my)", (ma, da))
+
+        r = c.post("/api/goals", headers=H(M), json={"name": f"Soon {tag}", "target_amount": 900000, "goal_type": "savings",
+                                                       "currency": "mmk", "target_date": (noon + timedelta(days=3)).isoformat()})
+        sid = r.json().get("id") if r.status_code == 200 else None
+
+        async def target_job():
+            import notification_service as ns
+            await ns.check_approaching_target_dates()
+            await ns.check_approaching_target_dates()
+        _backend_async(target_job)
+        mg = [n for n in notes(M["id"], "goal_approaching_date") if n["goal_id"] == sid]
+        dg = [n for n in notes(D["id"], "goal_approaching_date") if n["goal_id"] == sid]
+        check(sid and len(mg) == 1 and len(dg) == 1 and re.search(r"\d+ days?", mg[0]["message"])
+              and "day" not in dg[0]["message"] and myanmar.search(dg[0]["message"]),
+              "notifications: goal deadline reminder reaches each member once, the days in their language", (mg, dg))
+
+        # ---- insights ready: the family's notice is apart from a member's personal one ----
+        async def insights():
+            import notification_service as ns
+            await ns.notify_weekly_insights_generated(M["id"])  # Mum's personal weekly insight
+            await ns.notify_weekly_insights_generated(book)
+            await ns.notify_weekly_insights_generated(book)    # a repeat within the hour is dropped
+        _backend_async(insights)
+        mw, dw = notes(M["id"], "weekly_insights_generated"), notes(D["id"], "weekly_insights_generated")
+        check(len(mw) == 2 and len(dw) == 1 and dw[0]["title"] == MY["weekly_insights_title"],
+              "notifications: family weekly insights reach both once, besides Mum's personal one", (mw, dw))
+
+        # ---- custom insight: the asker when recorded, else everyone ----
+        async def custom():
+            import custom_insights_service as cis
+            base = {"status": "ready", "user_id": book, "start_date": today - timedelta(days=7), "end_date": today}
+            await cis._notify(base | {"_id": f"ci1-{tag}", "counter_keys": [["insight_custom", "month",
+                                                                                today.isoformat(), D["id"]]]})
+            await cis._notify(base | {"_id": f"ci2-{tag}", "counter_keys": []})
+        _backend_async(custom)
+        mc = [n["goal_id"] for n in notes(M["id"], "custom_insight_ready")]
+        dc = [n["goal_id"] for n in notes(D["id"], "custom_insight_ready")]
+        check(mc == [f"ci2-{tag}"] and sorted(dc) == [f"ci1-{tag}", f"ci2-{tag}"],
+              "notifications: a family custom insight tells its asker, or everyone when the asker isn't recorded", (mc, dc))
+
+        # ---- recurring: only the member who added it; nobody once they are former ----
+        def recurring(desc, end=None):
+            cfg = {"frequency": "daily"} | ({"end_date": end.isoformat()} if end else {})
+            r = tx(D, 5, "Food & Daily Living", "Groceries", currency="usd", date=noon - timedelta(days=2),
+                   description=desc, recurrence={"enabled": True, "config": cfg})
+            return r.json().get("id") if r.status_code == 200 else None
+
+        def run_recurring(parent):
+            async def go():
+                from collections import defaultdict
+                import recurring_transaction_service as rts
+                from sql import transactions as transactions_db
+                doc = await transactions_db.get_transaction(parent)
+                return await rts._process_recurring_transaction(doc, datetime.now(UTC), defaultdict(lambda: defaultdict(list)))
+            try:
+                return _backend_async(go)
+            except Exception as e:  # noqa: BLE001
+                return repr(e)[:200]
+
+        p1, p2 = recurring(f"Milk {tag}", end=noon), recurring(f"Bread {tag}")
+        n1 = run_recurring(p1)
+        kinds = {(n["type"], n["goal_name"]) for n in notes(D["id"]) if n["type"].startswith("recurring_")}
+        check(n1 == 2 and kinds == {("recurring_transaction_created", f"Milk {tag}"),
+                                    ("recurring_transaction_ended", f"Milk {tag}")},
+              "notifications: Dad, who added the recurring entry, is told it was created and ended", (n1, kinds))
+        others = [n["type"] for uid in (M["id"], book) for n in notes(uid) if n["type"].startswith("recurring_")]
+        check(others == [], "notifications: Mum and the book user get no recurring notices", others)
+        db.sql("UPDATE family_members SET status = 'former', left_at = now() WHERE id = %s", d_mid)
+        n2 = run_recurring(p2)
+        late = [n for uid in (M["id"], D["id"], book) for n in notes(uid) if n["goal_name"] == f"Bread {tag}"]
+        check(isinstance(n2, int) and n2 >= 2 and late == [], "notifications: once its adder is former, a recurring entry's notices go to nobody",
+              (n2, late))
+
+        # ---- safety net: nothing is ever stored for the book user ----
+        async def direct():
+            import notification_service as ns
+            return await ns.create_notification(book, "budget_threshold", "t", "m")
+        check(_backend_async(direct) is None and notes(book) == [],
+              "notifications: create_notification refuses the book user", notes(book))
+    finally:
+        _cleanup_people(made)
+
+
 def main():
     section_schema()
     section_book_users()
@@ -1848,6 +2084,7 @@ def main():
     section_recurring_children()
     section_transfers()
     section_budgets_goals()
+    section_notifications()
     sys.exit(1 if failures else 0)
 
 

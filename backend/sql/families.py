@@ -81,6 +81,23 @@ async def admin_user_ids(family_id: str) -> List[str]:
     return [r["user_id"] for r in rows]
 
 
+async def account_user_ids_for_book(book_user_id: str) -> List[str]:
+    """User ids of the active account members of the family whose book user this is, in join order (who a family
+    book's notifications go to); [] when it isn't a book user."""
+    rows = await fetch_all(select(fm.c.user_id).select_from(fm.join(f, f.c.id == fm.c.family_id))
+                           .where(f.c.book_user_id == book_user_id, fm.c.status == "active", fm.c.kind == "account",
+                                  fm.c.user_id.isnot(None))
+                           .order_by(fm.c.joined_at, fm.c.id))
+    return [r["user_id"] for r in rows]
+
+
+async def active_member_user_id(book_user_id: str, member_id: str) -> Optional[str]:
+    """The user id of this member of the book's family while it is an active account member, else None."""
+    return await fetch_value(select(fm.c.user_id).select_from(fm.join(f, f.c.id == fm.c.family_id))
+                             .where(f.c.book_user_id == book_user_id, fm.c.id == member_id, fm.c.status == "active",
+                                    fm.c.kind == "account", fm.c.user_id.isnot(None)))
+
+
 async def count_active(family_id: str, kind: str) -> int:
     return int(await fetch_value(select(func.count()).select_from(fm).where(
         fm.c.family_id == family_id, fm.c.kind == kind, fm.c.status == "active")))
