@@ -578,13 +578,14 @@ async def _insight_plan_user(book: Book) -> dict:
 
 async def _require_owner_under_cost_cap(book: Book, feature: str) -> None:
     """A family book's on-demand AI work (its insights and their translation) reserves nothing (R10) but stops at the
-    owner's monthly AI cost cap, as the scheduled jobs do (insights_service._skip_user): PlanError plan_cost_cap (429)
+    owner's monthly AI cost cap, counting the owner's spend plus the book's own (R16), as the scheduled jobs do
+    (insights_service._skip_user): PlanError plan_cost_cap (429)
     in the asker's language. The upgrade hint only when the asker is the owner (a member's upgrade wouldn't lift it).
     No owner account: nothing to check (such a family is read-only, refused before this)."""
     owner = await families_db.owner_user(book.family["id"])
     if owner is not None:
         await quota.require_under_cost_cap(owner, feature, lang=user_language(book.person),
-                                           upgrade_hint=owner["_id"] == book.person["_id"])
+                                           upgrade_hint=owner["_id"] == book.person["_id"], book_user_id=book.id)
 
 
 async def _generate_for(book: Book, plan_user: dict, insight_type: str):

@@ -52,10 +52,13 @@ def get_previous_week_date_range():
 USER_PLAN_FIELDS = ["subscription_type", "subscription_expires_at", "usage_reset_at"]
 
 
-async def _skip_user(user: dict, feature: str) -> bool:
+async def _skip_user(user: dict, feature: str, book_user_id: Optional[str] = None) -> bool:
     """True when a scheduled insight job (`feature`: insight_weekly / insight_monthly) must skip this user: their paid
     plan has ended (they count as Free at once, without waiting for the hourly expiry job), the owner locked that
-    insight type on their plan, or their AI spend this month has reached their plan's hidden cost cap."""
+    insight type on their plan, or their AI spend this month has reached their plan's hidden cost cap.
+
+    book_user_id: the job is for this family book and `user` is its owner; the cap then counts the owner's spend plus
+    the book's own (ruling R16, quota.family_over_cost_cap)."""
     plan = effective_plan(user)
     if plan not in PAID_PLANS:
         logger.info(f"⏭️ Skipping user {user['_id']} - subscription expired")
@@ -63,29 +66,44 @@ async def _skip_user(user: dict, feature: str) -> bool:
     if plan_store.limits(plan)[feature].mode == "locked":
         logger.info(f"⏭️ Skipping user {user['_id']} - {feature} is locked on the {plan} plan")
         return True
-    if await quota.over_cost_cap(user):
+    if await (quota.family_over_cost_cap(user, book_user_id) if book_user_id else quota.over_cost_cap(user)):
         logger.info(f"⏭️ Skipping user {user['_id']} - monthly AI cost cap reached")
         return True
     return False
 
 
 async def _job_targets(feature: str) -> list:
-    """What a scheduled insight job (`feature`: insight_weekly / insight_monthly) generates for: (data_id, plan_user)
-    pairs, where plan_user is the user whose plan and cost cap _skip_user checks.
+    """What a scheduled insight job (`feature`: insight_weekly / insight_monthly) generates for: (data_id, plan_user,
+    book_user_id) triples, where plan_user is the user whose plan and cost cap _skip_user checks.
 
-    - every paid person: (their id, themselves);
+    - every paid person: (their id, themselves, None);
     - every family whose owner is on a paid plan (sql.families.books_with_paid_owner; list_fields leaves book users
-      out on purpose): (the family's book user id, the owner). A family insight is stored and notified under the book
-      (the notice fans out to the members), counts against nobody's allowance, and is skipped like the owner's own
-      (plan ended or locked type, or the owner at their monthly cost cap)."""
+      out on purpose): (the family's book user id, the owner, the book user id). A family insight is stored and
+      notified under the book (the notice fans out to the members), counts against nobody's allowance, and is skipped
+      like the owner's own (plan ended or locked type), or when the owner's spend plus the book's reaches the owner's
+      monthly cost cap (R16)."""
     users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
     try:
         books = await families_db.books_with_paid_owner(PAID_PLANS)
     except Exception as e:  # noqa: BLE001  the personal insights must still run
         logger.error(f"❌ Could not list family books for {feature}: {type(e).__name__}: {e}")
         books = []
-    return ([(u["_id"], u) for u in users]
-            + [(b["book_user_id"], b["owner"]) for b in books])
+    return ([(u["_id"], u, None) for u in users]
+            + [(b["book_user_id"], b["owner"], b["book_user_id"]) for b in books])
+
+
+async def _insight_profile(user: Optional[dict]) -> Optional[dict]:
+    """The profile an insight prompt shows (USER, DEFAULT CURRENCY). A family's book user has no real profile: its
+    insight uses the family's name and the owner's default currency (the book's own when the owner is gone). A person
+    (or None) is returned as it is."""
+    if not user or user.get("kind") != "family_book":
+        return user
+    family = await families_db.family_for_book(user["_id"])
+    if not family:
+        return user
+    owner = await families_db.owner_user(family["id"])
+    return {**user, "name": family["name"],
+            "default_currency": (owner or {}).get("default_currency") or user.get("default_currency") or "usd"}
 
 
 def _has_content(text) -> bool:
@@ -281,7 +299,7 @@ async def generate_weekly_insight(user_id: str, notify: bool = False, background
         prev_week_start, prev_week_end = get_previous_week_date_range()
 
         # [FIX] Added await
-        user = await users_db.get_user(user_id)
+        user = await _insight_profile(await users_db.get_user(user_id))
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
@@ -767,12 +785,12 @@ async def generate_weekly_insights_for_all_users():
     success_count = 0
     error_count = 0
 
-    async def process_user_weekly(user_id, plan_user):
+    async def process_user_weekly(user_id, plan_user, book_user_id):
         nonlocal success_count, error_count
 
         async with sem:  # Wait for a free slot in the semaphore
             try:
-                if await _skip_user(plan_user, "insight_weekly"):
+                if await _skip_user(plan_user, "insight_weekly", book_user_id):
                     return
 
                 # One insight per user, on the insight_weekly provider chain (background: the
@@ -804,7 +822,7 @@ async def generate_weekly_insights_for_all_users():
 
     # 3. Create and run all tasks
     # This fires off the workers, which will respect the semaphore limit
-    tasks = [process_user_weekly(data_id, plan_user) for data_id, plan_user in targets]
+    tasks = [process_user_weekly(*target) for target in targets]
     await asyncio.gather(*tasks)
 
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
@@ -1035,7 +1053,7 @@ async def generate_monthly_insight(user_id: str, notify: bool = False, backgroun
         prev_month_start, prev_month_end = get_previous_month_date_range()
 
         # [FIX] Added await
-        user = await users_db.get_user(user_id)
+        user = await _insight_profile(await users_db.get_user(user_id))
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
@@ -1492,12 +1510,12 @@ async def generate_monthly_insights_for_all_users():
     success_count = 0
     error_count = 0
 
-    async def process_user_monthly(user_id, plan_user):
+    async def process_user_monthly(user_id, plan_user, book_user_id):
         nonlocal success_count, error_count
 
         async with sem:
             try:
-                if await _skip_user(plan_user, "insight_monthly"):
+                if await _skip_user(plan_user, "insight_monthly", book_user_id):
                     return
 
                 # One insight per user, on the insight_monthly provider chain (background: the
@@ -1528,7 +1546,7 @@ async def generate_monthly_insights_for_all_users():
                 error_count += 1
 
     # 3. Run all tasks
-    tasks = [process_user_monthly(data_id, plan_user) for data_id, plan_user in targets]
+    tasks = [process_user_monthly(*target) for target in targets]
     await asyncio.gather(*tasks)
 
     logger.info(f"✅ Monthly insights generation completed: {success_count} successful, {error_count} errors")

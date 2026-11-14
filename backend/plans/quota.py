@@ -92,8 +92,13 @@ async def month_spend(user: Mapping[str, Any], now: Optional[datetime] = None) -
     return await ai_usage_db.user_cost_since(_user_id(user), _spend_window_start(user, now))
 
 
-async def _at_cost_cap(user: Mapping[str, Any], plan: str, now: datetime) -> bool:
-    return await month_spend(user, now) >= store.cost_cap(plan)
+async def _at_cost_cap(user: Mapping[str, Any], plan: str, now: datetime, book_user_id: Optional[str] = None) -> bool:
+    """book_user_id (ruling R16): a family book whose AI spend counts toward this user's (its owner's) cap: the book's
+    spend since the same window start is added to the user's own."""
+    spend = await month_spend(user, now)
+    if book_user_id:
+        spend += await ai_usage_db.user_cost_since(book_user_id, _spend_window_start(user, now))
+    return spend >= store.cost_cap(plan)
 
 
 async def over_cost_cap(user: Mapping[str, Any], now: Optional[datetime] = None) -> bool:
@@ -105,15 +110,24 @@ async def over_cost_cap(user: Mapping[str, Any], now: Optional[datetime] = None)
     return await _at_cost_cap(user, effective_plan(user, now), now)
 
 
+async def family_over_cost_cap(owner: Mapping[str, Any], book_user_id: str, now: Optional[datetime] = None) -> bool:
+    """over_cost_cap for a family book's AI work (ruling R16): the owner's own spend plus the book user's spend, since
+    the owner's window start, against the owner's plan cap. Members' own chat spend stays under the members."""
+    now = _now(now)
+    return await _at_cost_cap(owner, effective_plan(owner, now), now, book_user_id)
+
+
 async def require_under_cost_cap(user: Mapping[str, Any], feature: str, *, lang: Optional[str] = None,
-                                 upgrade_hint: bool = True, now: Optional[datetime] = None) -> None:
-    """Raise PlanError plan_cost_cap (429) when over_cost_cap(user): for AI work that reserves nothing but must still
-    stop at someone's cap (a family book's insights stop at the owner's). `lang`: the refusal's language (default the
-    user's); upgrade_hint False when upgrading wouldn't help the person who sees the refusal (a member, for the owner's
-    cap). `user` needs the fields over_cost_cap reads."""
+                                 upgrade_hint: bool = True, book_user_id: Optional[str] = None,
+                                 now: Optional[datetime] = None) -> None:
+    """Raise PlanError plan_cost_cap (429) when over_cost_cap(user) (with book_user_id: family_over_cost_cap): for AI
+    work that reserves nothing but must still stop at someone's cap (a family book's insights stop at the owner's,
+    counting the book's own spend). `lang`: the refusal's language (default the user's); upgrade_hint False when
+    upgrading wouldn't help the person who sees the refusal (a member, for the owner's cap). `user` needs the fields
+    over_cost_cap reads."""
     now = _now(now)
     plan = effective_plan(user, now)
-    if await _at_cost_cap(user, plan, now):
+    if await _at_cost_cap(user, plan, now, book_user_id):
         raise PlanError(COST_CAP, feature, resets_at=periods.resets_at("month", now),
                         upgrade_available=upgrade_hint and _cost_upgrade_available(plan),
                         lang=lang or user_language(user))

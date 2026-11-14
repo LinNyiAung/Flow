@@ -51,15 +51,15 @@ async def books_with_paid_owner(plans: Sequence[str]) -> List[Dict[str, Any]]:
 
 async def owner_user(family_id: str) -> Optional[Dict[str, Any]]:
     """The active owner's user fields that effective_plan and quota.over_cost_cap read (`_id`, subscription_type,
-    subscription_expires_at, usage_reset_at, language), or None when the owner's account is gone."""
-    row = await fetch_one(select(users.c.id, users.c.subscription_type, users.c.subscription_expires_at,
-                                 users.c.usage_reset_at, users.c.language)
+    subscription_expires_at, usage_reset_at), plus language and default_currency; None when the owner's account is
+    gone."""
+    fields = ("subscription_type", "subscription_expires_at", "usage_reset_at", "language", "default_currency")
+    row = await fetch_one(select(users.c.id, *(users.c[k] for k in fields))
                           .select_from(fm.join(users, users.c.id == fm.c.user_id))
                           .where(fm.c.family_id == family_id, fm.c.role == "owner", fm.c.status == "active"))
     if row is None:
         return None
-    return {"_id": row["id"], **{k: row[k] for k in ("subscription_type", "subscription_expires_at",
-                                                      "usage_reset_at", "language")}}
+    return {"_id": row["id"], **{k: row[k] for k in fields}}
 
 
 async def lock_family(family_id: str) -> Optional[Dict[str, Any]]:
