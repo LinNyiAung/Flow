@@ -61,6 +61,8 @@ from sql import chat as chat_db
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import budgets as budgets_db
+from sql.db import transaction
+from families import service as families_service
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
 from ai_usage_service import served_differs
 from config import settings
@@ -810,12 +812,16 @@ async def delete_user(
             detail="User not found"
         )
 
-    # Every table cascades from users (ON DELETE CASCADE): one atomic delete.
-    if await users_db.delete_user(user_id) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete user"
-        )
+    # Every table cascades from users (ON DELETE CASCADE). The family steps (become former, hand over ownership,
+    # or delete a family left with nobody) run in the same transaction, so both happen or neither.
+    async with transaction():
+        handover = await families_service.before_account_delete(user_id)
+        if await users_db.delete_user(user_id) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete user"
+            )
+    await families_service.announce_new_owner(handover)
 
     await log_admin_action(
         admin_id=current_admin["_id"],

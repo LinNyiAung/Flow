@@ -17,6 +17,9 @@ Sections:
     AI report's family row (Task 9).
   limits -- the admin Plans page's family limits: read, saved, validated 0-50, kept when left out, audit-logged, and
     lowering them removes no one (Task 10).
+  account deletion -- a deleted member becomes former with their entries, name and tags kept; a deleted owner hands
+    the family to the longest-standing admin, else account member, who is told; an owner left alone takes the family
+    with them; through the user's own and the super admin's deletion (Task 11).
 """
 import asyncio
 import os
@@ -2584,6 +2587,237 @@ def section_limits():
         db.admins.delete_many({"email": {"$in": [admin_email, sup_email]}})
 
 
+def section_account_deletion():
+    """Task 11: deleting an account keeps the family's history. A member becomes former (like leaving; their entries,
+    name and tags stay); a deleting owner hands the family to the longest-standing active admin, else the
+    longest-standing active account member (placeholders and former members never), who is told; an owner left alone
+    takes the family with them. Both deletion paths (the user's own and the super admin's) do this."""
+    import admin_utils
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    books = []
+    register = _registrar(c, tag, made)
+    sup_email = f"t11super-{tag}@example.com"
+    pw = "t11-admin-pass-1"
+    db.admins.insert_one({"_id": str(uuid.uuid4()), "name": "t11 super", "email": sup_email,
+                          "password": admin_utils.get_password_hash(pw), "role": "super_admin",
+                          "created_at": datetime.now(UTC), "last_login": None})
+    SUP = {"Authorization": "Bearer " + c.post("/api/admin/login", json={"email": sup_email, "password": pw}).json()["access_token"]}
+    now = datetime.now(UTC).replace(microsecond=0)
+
+    def H(u, family=False):
+        return {**u["h"], **(FAM if family else {})}
+
+    def tx(u, family=True, **kw):
+        body = {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "date": now.isoformat(), "amount": 10, "currency": "usd", "description": "deletion"} | kw
+        return c.post("/api/transactions", headers=H(u, family), json=body)
+
+    def create(owner, name):
+        r = c.post("/api/family", headers=owner["h"], json={"name": name})
+        fid = (r.json().get("family") or {}).get("id") if r.status_code == 200 else None
+        if fid:
+            books.append(db.sql("SELECT book_user_id FROM families WHERE id = %s", fid)[0]["book_user_id"])
+        return fid, (r.json().get("me") or {}).get("member_id") if r.status_code == 200 else None
+
+    def join(owner, person, joined_at=None):
+        c.post("/api/family/invites", headers=owner["h"], json={"email": person["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=person["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=person["h"])
+        mid = (c.get("/api/family", headers=person["h"]).json().get("me") or {}).get("member_id")
+        if mid and joined_at is not None:
+            db.sql("UPDATE family_members SET joined_at = %s WHERE id = %s", joined_at, mid)
+        return mid
+
+    def make_admin(owner, mid):
+        return c.patch(f"/api/family/members/{mid}", headers=owner["h"], json={"role": "admin"})
+
+    def self_delete(u):
+        return c.request("DELETE", "/api/auth/delete-account", headers=u["h"], json={"password": "secret123"})
+
+    def admin_delete(u):
+        return c.delete(f"/api/admin/users/{u['id']}", headers=SUP)
+
+    def rows(fid):
+        return {m["id"]: m for m in db.sql("SELECT * FROM family_members WHERE family_id = %s", fid)}
+
+    def owners(fid):
+        return [m["id"] for m in rows(fid).values() if m["role"] == "owner" and m["status"] == "active"]
+
+    def notified(uid, kind):
+        return db.sql("SELECT count(*) n FROM notifications WHERE user_id = %s AND type = %s", uid, kind)[0]["n"]
+
+    base = datetime.now(UTC) - timedelta(days=30)
+    try:
+        # ---- not in a family: deleting still works ----
+        Z = register("Zaw", "free")
+        r = self_delete(Z)
+        check(r.status_code == 200 and not db.sql("SELECT 1 FROM users WHERE id = %s", Z["id"]),
+              "account deletion: someone in no family deletes their account", f"{r.status_code} {r.text[:200]}")
+
+        # ---- a member deletes their account: becomes former, their entries and name stay ----
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        fid, m_mid = create(M, f"Deletion family {tag}")
+        d_mid = join(M, D)
+        kid = c.post("/api/family/placeholders", headers=M["h"], json={"display_name": "Kid"}).json()
+        kid = next((m["id"] for m in kid.get("members", []) if m["display_name"] == "Kid"), None)
+        r = tx(D, amount=25, for_whom=[d_mid, kid])
+        e_dad = r.json().get("id") if r.status_code == 200 else None
+        e_mum = (tx(M, amount=40, for_whom=[d_mid]).json() or {}).get("id")
+        tx(D, family=False, amount=5)
+        check(all((fid, m_mid, d_mid, kid, e_dad, e_mum)), "account deletion: Mum's family with Dad and Kid, an entry each",
+              (fid, m_mid, d_mid, kid, e_dad, e_mum))
+        r = c.request("DELETE", "/api/auth/delete-account", headers=D["h"], json={"password": "wrong-password"})
+        check(r.status_code == 401 and rows(fid).get(d_mid, {}).get("status") == "active",
+              "account deletion: a wrong password changes nothing in the family", f"{r.status_code} {rows(fid).get(d_mid)}")
+        r = self_delete(D)
+        check(r.status_code == 200 and not db.sql("SELECT 1 FROM users WHERE id = %s", D["id"]),
+              "account deletion: Dad deletes his account", f"{r.status_code} {r.text[:200]}")
+        d_row = rows(fid).get(d_mid) or {}
+        check(d_row.get("status") == "former" and d_row.get("left_at") is not None and d_row.get("display_name") == "Dad"
+              and d_row.get("user_id") is None and d_row.get("role") == "member",
+              "account deletion: Dad's member row stays, former, with his name and left_at", d_row)
+        r = c.get("/api/transactions", headers=H(M, True), params={"limit": 200})
+        listed = {t["id"]: t for t in r.json()} if r.status_code == 200 else {}
+        check(e_dad in listed and listed[e_dad].get("added_by") == {"member_id": d_mid, "display_name": "Dad"}
+              and sorted(listed[e_dad].get("for_whom") or []) == sorted([d_mid, kid]),
+              "account deletion: the family entry Dad added remains, added_by Dad, its for_whom kept",
+              listed.get(e_dad) or f"{r.status_code} {r.text[:200]}")
+        check(e_mum in listed and listed[e_mum].get("for_whom") == [d_mid],
+              "account deletion: an entry for Dad still says it was for Dad", listed.get(e_mum))
+        v = c.get("/api/family", headers=M["h"]).json()
+        dad = next((m for m in v.get("members", []) if m["id"] == d_mid), {})
+        check(dad.get("status") == "former" and dad.get("display_name") == "Dad" and v.get("me", {}).get("role") == "owner",
+              "account deletion: the family view shows Dad as a former member, Mum still the owner", dad)
+        check(not db.sql("SELECT 1 FROM transactions WHERE user_id = %s", D["id"]),
+              "account deletion: Dad's personal entries are gone")
+
+        # ---- the owner deletes with admins: the longest-standing admin becomes owner ----
+        P = register("Pa", "plus")
+        mem_old = register("Old", "free")     # longest-standing, but only a member
+        adm1 = register("Adm", "plus")        # the longest-standing admin
+        adm2 = register("Adm2", "free")       # a newer admin
+        X = register("Xin", "free")           # invited by Pa, not yet joined
+        fid2, p_mid = create(P, f"Admins family {tag}")
+        # Adm2 joins before Adm, but joined_at (not the order rows were written) decides: Adm is the older admin.
+        old_mid = join(P, mem_old, base + timedelta(days=1))
+        a2 = join(P, adm2, base + timedelta(days=4))
+        a1 = join(P, adm1, base + timedelta(days=3))
+        made_admins = [make_admin(P, a1).status_code, make_admin(P, a2).status_code]
+        c.post("/api/family/placeholders", headers=P["h"], json={"display_name": "Baby"})
+        db.sql("UPDATE family_members SET joined_at = %s WHERE family_id = %s AND kind = 'placeholder'", base, fid2)
+        p_entry = (tx(P, amount=12).json() or {}).get("id")
+        r = c.post("/api/family/invites", headers=P["h"], json={"email": X["email"]})
+        x_inv = r.json().get("id") if r.status_code == 200 else None
+        check(made_admins == [200, 200], "account deletion: Pa makes Adm and Adm2 admins", made_admins)
+        check(all((fid2, p_mid, old_mid, a1, a2, p_entry, x_inv)), "account deletion: Pa's family with Old, two admins, Baby and an invite",
+              (fid2, p_mid, old_mid, a1, a2, p_entry, x_inv))
+        db.sql("UPDATE users SET language = 'my' WHERE id = %s", adm1["id"])
+        r = self_delete(P)
+        check(r.status_code == 200, "account deletion: the owner Pa deletes his account", f"{r.status_code} {r.text[:200]}")
+        rr = rows(fid2)
+        check(owners(fid2) == [a1], "account deletion: the longest-standing admin is the only owner",
+              [(m["display_name"], m["role"], m["status"]) for m in rr.values()])
+        check((rr.get(p_mid) or {}).get("status") == "former" and (rr.get(p_mid) or {}).get("role") != "owner"
+              and (rr.get(p_mid) or {}).get("display_name") == "Pa",
+              "account deletion: Pa's row is former (no longer owner), with his name", rr.get(p_mid))
+        check((rr.get(old_mid) or {}).get("role") == "member" and (rr.get(a2) or {}).get("role") == "admin",
+              "account deletion: the other members keep their roles", (rr.get(old_mid), rr.get(a2)))
+        v = c.get("/api/family", headers=adm1["h"]).json()
+        check(v.get("me", {}).get("role") == "owner" and v.get("family", {}).get("read_only") is False,
+              "account deletion: GET /api/family for Adm says role owner, family writable (Adm is on Plus)", v.get("me"))
+        r = tx(adm1, amount=3)
+        check(r.status_code == 200, "account deletion: the family takes new entries under its Plus owner", f"{r.status_code} {r.text[:200]}")
+        r = tx(mem_old, amount=4)
+        check(r.status_code == 200, "account deletion: a member adds a family entry too", f"{r.status_code} {r.text[:200]}")
+        listed = {t["id"]: t for t in c.get("/api/transactions", headers=H(adm1, True), params={"limit": 200}).json()}
+        check(listed.get(p_entry, {}).get("added_by") == {"member_id": p_mid, "display_name": "Pa"},
+              "account deletion: the old owner's entry remains, added_by Pa", listed.get(p_entry))
+        check(notified(adm1["id"], "family_owner") == 1 and notified(adm2["id"], "family_owner") == 0,
+              "account deletion: the new owner is told (family_owner), nobody else",
+              (notified(adm1["id"], "family_owner"), notified(adm2["id"], "family_owner")))
+        msg = db.sql("SELECT title, message FROM notifications WHERE user_id = %s AND type = 'family_owner'", adm1["id"])
+        check(bool(msg) and f"Admins family {tag}" in msg[0]["message"] and msg[0]["title"] == "သင် မိသားစုပိုင်ရှင် ဖြစ်လာပါပြီ",
+              "account deletion: the notice names the family, in the new owner's language (Myanmar)", msg)
+        inv = db.sql("SELECT status, invited_by_member_id FROM family_invites WHERE id = %s", x_inv)
+        check(bool(inv) and inv[0]["status"] == "pending" and inv[0]["invited_by_member_id"] == p_mid,
+              "account deletion: Pa's pending invite stays valid", inv)
+        mine = c.get("/api/family/invites/mine", headers=X["h"]).json().get("invites", [])
+        r = c.post(f"/api/family/invites/{mine[0]['id']}/accept", headers=X["h"]) if mine else None
+        check(r is not None and r.status_code == 200, "account deletion: Xin can still accept Pa's invite",
+              r is not None and f"{r.status_code} {r.text[:200]}")
+
+        # ---- the owner deletes with only members (admin path): the longest-standing account member owns it ----
+        Q = register("Que", "plus")
+        n1 = register("Nwe", "free")     # oldest active member
+        n2 = register("Nan", "plus")
+        gone = register("Gone", "free")  # older still, but left
+        fid3, q_mid = create(Q, f"Members family {tag}")
+        g_mid = join(Q, gone, base + timedelta(days=1))
+        n1_mid = join(Q, n1, base + timedelta(days=2))
+        n2_mid = join(Q, n2, base + timedelta(days=3))
+        c.post("/api/family/leave", headers=gone["h"])
+        c.post("/api/family/placeholders", headers=Q["h"], json={"display_name": "Grandpa"})
+        db.sql("UPDATE family_members SET joined_at = %s WHERE family_id = %s AND kind = 'placeholder'", base, fid3)
+        check(all((fid3, q_mid, g_mid, n1_mid, n2_mid)) and rows(fid3).get(g_mid, {}).get("status") == "former",
+              "account deletion: Que's family with Nwe, Nan, a former member and an old placeholder",
+              (fid3, q_mid, g_mid, n1_mid, n2_mid))
+        r = admin_delete(Q)
+        check(r.status_code == 200 and not db.sql("SELECT 1 FROM users WHERE id = %s", Q["id"]),
+              "account deletion: a super admin deletes the owner Que", f"{r.status_code} {r.text[:200]}")
+        check(owners(fid3) == [n1_mid], "account deletion: the longest-standing account member Nwe is the owner",
+              [(m["display_name"], m["role"], m["status"]) for m in rows(fid3).values()])
+        check((rows(fid3).get(q_mid) or {}).get("status") == "former",
+              "account deletion: Que's row is former", rows(fid3).get(q_mid))
+        v = c.get("/api/family", headers=n1["h"]).json()
+        check(v.get("me", {}).get("role") == "owner" and v.get("family", {}).get("read_only") is True,
+              "account deletion: GET /api/family for Nwe says role owner, read-only (Nwe is on Free)",
+              (v.get("me"), v.get("family")))
+        r = tx(n2, amount=3)
+        check(_code(r, 403, "family_read_only"), "account deletion: a family under a Free owner refuses new entries",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/family/transfer-ownership", headers=n1["h"], json={"member_id": n2_mid})
+        check(r.status_code == 200 and tx(n2, amount=3).status_code == 200,
+              "account deletion: the new owner can hand over to a Plus member, and it is writable again",
+              f"{r.status_code} {r.text[:200]}")
+
+        # ---- the owner alone (placeholders don't count) deletes: the family is gone ----
+        S = register("Solo", "plus")
+        fid4, _ = create(S, f"Solo family {tag}")
+        c.post("/api/family/placeholders", headers=S["h"], json={"display_name": "Cat"})
+        tx(S, amount=9)
+        book4 = db.sql("SELECT book_user_id FROM families WHERE id = %s", fid4)
+        book4 = book4[0]["book_user_id"] if book4 else None
+        r = self_delete(S)
+        check(r.status_code == 200, "account deletion: the owner alone deletes their account", f"{r.status_code} {r.text[:200]}")
+        check(not db.sql("SELECT 1 FROM families WHERE id = %s", fid4)
+              and not db.sql("SELECT 1 FROM family_members WHERE family_id = %s", fid4)
+              and not db.sql("SELECT 1 FROM users WHERE id = %s", book4)
+              and not db.sql("SELECT 1 FROM transactions WHERE user_id = %s", book4),
+              "account deletion: the family, its members, book user and entries are deleted")
+
+        # ---- the owner with only former members left (admin path): the family is gone ----
+        T = register("Tun", "plus")
+        U = register("Ung", "free")
+        fid5, _ = create(T, f"Left family {tag}")
+        join(T, U)
+        c.post("/api/family/leave", headers=U["h"])
+        r = admin_delete(T)
+        check(r.status_code == 200 and not db.sql("SELECT 1 FROM families WHERE id = %s", fid5),
+              "account deletion: an owner whose only other member left takes the family with them",
+              f"{r.status_code} {r.text[:200]}")
+        check(c.get("/api/family", headers=U["h"]).json() == {"family": None},
+              "account deletion: the member who left sees no family")
+    finally:
+        if books:
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", books)
+        _cleanup_people(made)
+        db.admins.delete_many({"email": sup_email})
+
+
 def main():
     section_schema()
     section_book_users()
@@ -2597,6 +2831,7 @@ def main():
     section_notifications()
     section_ai()
     section_limits()
+    section_account_deletion()
     sys.exit(1 if failures else 0)
 
 

@@ -17,6 +17,8 @@
   tagged entries becomes former, one without is deleted. Accepting an invite linked to a placeholder or former member,
   or re-joining after leaving, reuses that member row (same id), so its tags carry over.
 - Invites expire after INVITE_DAYS; expiry is applied lazily whenever invites are read.
+- Deleting an account (before_account_delete, in the deletion's own transaction): a member becomes former; an owner
+  hands the family to the longest-standing admin, else account member; an owner left alone takes the family along.
 
 Refusals are HTTPException(status, {"code", "message"}); the message is in the caller's language (the texts are the
 family_<code>_msg keys of notification_service.NOTIFICATION_TRANSLATIONS).
@@ -332,6 +334,61 @@ async def transfer_ownership(user: Mapping[str, Any], member_id: str) -> Dict[st
     except IntegrityError:
         _fail(user, "not_allowed")
     return await overview(user)
+
+
+# ---- deleted accounts ----
+
+async def before_account_delete(user_id: str) -> Optional[Dict[str, Any]]:
+    """Call inside the transaction() that then deletes the account (users_db.delete_user), so both commit or neither
+    (spec "Deleted accounts": nobody's history goes with them).
+
+    - Not in a family: nothing.
+    - A member or admin becomes former (left_at now; name, role and tags kept), as if they had left; deleting the user
+      row then nulls the member's user_id (FK ON DELETE SET NULL), so entries keep showing their name.
+    - The owner: the longest-standing active admin (joined_at, then id), else the longest-standing active account
+      member, becomes the owner. The old owner is demoted, made former, then the heir promoted, in that order (one
+      active owner per family). The heir's plan doesn't matter: on Free the family is simply read-only. With no other
+      active account member (placeholders and former members don't count), the family is deleted with its book user.
+
+    Locks the user row first (no create or join can point a new member row at it until the account is gone), then
+    the family row, and re-reads the member rows under the lock. Returns the handover to announce once committed
+    (announce_new_owner), or None."""
+    if not await users_db.lock_user(user_id):
+        return None
+    me = await fdb.active_membership(user_id)
+    while me is not None:
+        family = await fdb.lock_family(me["family_id"])
+        fresh = await fdb.active_membership(user_id)  # a concurrent leave or removal may have won the lock
+        if fresh is not None and fresh["id"] == me["id"] and family is not None:
+            me = fresh
+            break
+        me = fresh
+    if me is None:
+        return None
+    now = _now()
+    if me["role"] != "owner":
+        if not await fdb.set_former(me["id"], now):
+            raise RuntimeError(f"member {me['id']} could not be made former")
+        return None
+    others = [m for m in await fdb.list_members(family["id"])  # oldest first
+              if m["id"] != me["id"] and m["kind"] == "account" and m["status"] == "active" and m["user_id"]]
+    if not others:
+        await users_db.delete_user(family["book_user_id"])  # cascades to the family and all its data
+        logger.info("Family %s deleted with its last account member's account", family["id"])
+        return None
+    heir = next((m for m in others if m["role"] == "admin"), others[0])
+    if not (await fdb.demote_owner(me["id"]) and await fdb.set_former(me["id"], now)
+            and await fdb.make_owner(heir["id"])):
+        raise RuntimeError(f"family {family['id']}: ownership could not pass to member {heir['id']}")
+    logger.info("Family %s: owner's account deleted, member %s is the owner", family["id"], heir["id"])
+    return {"user_id": heir["user_id"], "family_id": family["id"], "family_name": family["name"]}
+
+
+async def announce_new_owner(handover: Optional[Mapping[str, Any]]) -> None:
+    """After before_account_delete's transaction committed: tell the new owner (family_owner). Never raises."""
+    if handover:
+        await _notify(handover["user_id"], "family_owner", "family_owner", handover["family_id"],
+                      handover["family_name"], family_name=handover["family_name"])
 
 
 # ---- invitations ----

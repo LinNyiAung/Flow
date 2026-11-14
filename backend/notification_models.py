@@ -36,6 +36,7 @@ class NotificationType(str, Enum):
     FAMILY_INVITE = "family_invite"  # goal_id: the invite id, goal_name: the family name
     FAMILY_INVITE_ACCEPTED = "family_invite_accepted"  # goal_id: the family id
     FAMILY_REMOVED = "family_removed"  # goal_id: the family id
+    FAMILY_OWNER = "family_owner"  # goal_id: the family id (the owner's account was deleted; you own it now)
 
 def parse_notification_type(value) -> NotificationType:
     """

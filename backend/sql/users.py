@@ -152,6 +152,12 @@ async def update_user_returning(user_id: str, *conditions: ColumnElement, **fiel
     return row_to_doc(await write_returning(stmt))
 
 
+async def lock_user(user_id: str) -> bool:
+    """SELECT ... FOR UPDATE on the user row (inside transaction()); False when there is none. Until the transaction
+    ends, nothing can point a new row at this user (a foreign-key check waits for the lock)."""
+    return await fetch_value(select(users.c.id).where(users.c.id == user_id).with_for_update()) is not None
+
+
 async def delete_user(user_id: str) -> int:
     """Deletes the user; every PostgreSQL table holding their data cascades."""
     return await execute(delete(users).where(users.c.id == user_id))
