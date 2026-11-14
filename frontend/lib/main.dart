@@ -7,7 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/providers/app_version_provider.dart';
+import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/budget_provider.dart';
+import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/feedback_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/models/plan_status.dart';
@@ -56,6 +58,10 @@ import 'screens/ai/ai_chat_screen.dart';
 /// Global navigator, used for app-wide navigation that has no BuildContext
 /// (e.g. the "session expired" → login redirect).
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+/// Global messenger, for app-wide snackbars that have no BuildContext (e.g.
+/// "you're no longer in this family").
+final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 /// Route that resets the whole stack to a fresh AuthWrapper (login or home).
 Route<void> authWrapperRoute() => MaterialPageRoute<void>(
@@ -113,6 +119,10 @@ class _MyAppState extends State<MyApp> {
   final FeedbackProvider _feedbackProvider = FeedbackProvider();
   final PlanProvider _planProvider = PlanProvider();
   final ThemeProvider _themeProvider = ThemeProvider()..loadThemeMode();
+  final FamilyProvider _familyProvider = FamilyProvider();
+
+  /// The Personal / Family switch; read from the device when a user signs in.
+  final BookModeProvider _bookModeProvider = BookModeProvider();
 
   /// Web only: there is no push, so refresh when the browser tab becomes
   /// visible again (plan changed elsewhere, new notifications).
@@ -135,8 +145,12 @@ class _MyAppState extends State<MyApp> {
     // every AI action, and when an admin changes the plan; what the server
     // reports is what the rest of the app treats as the user's plan.
     ApiService.onPlanUsageChanged = _planProvider.refresh;
+    ApiService.onNoFamily = _handleNoFamily;
+    _bookModeProvider.onModeChanged = _resetBookState;
     _authProvider.addListener(_onAuthChanged);
     _planProvider.addListener(_onPlanChanged);
+    _familyProvider.addListener(_syncBookWithFamily);
+    _bookModeProvider.addListener(_syncBookWithFamily);
     // A tapped custom insight push opens its report once the navigator is built.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) FCMService().setOpenFromPushHandler(_openFromPush);
@@ -176,7 +190,30 @@ class _MyAppState extends State<MyApp> {
     final userId = _authProvider.user?.id;
     if (userId == _planUserId) return;
     _planUserId = userId;
-    if (userId != null) _planProvider.refresh();
+    if (userId != null) {
+      _planProvider.refresh();
+      _familyProvider.refresh();
+      _bookModeProvider.load();
+    }
+  }
+
+  /// Family mode remembered on the device, but the user has no family (left,
+  /// removed, another account): back to Personal once the family is known.
+  void _syncBookWithFamily() {
+    if (_bookModeProvider.isFamily && _familyProvider.loaded && !_familyProvider.inFamily) {
+      _bookModeProvider.setMode(BookMode.personal);
+    }
+  }
+
+  /// A request made in Family mode answered `no_family` (removed, the family
+  /// deleted, or left on another device while the app was open): back to
+  /// Personal, reload the family, and say why.
+  void _handleNoFamily() {
+    if (!_bookModeProvider.fallBackToPersonal()) return;
+    _familyProvider.refresh();
+    scaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(content: Text(AppLocalizations(_locale).familyNoLongerMember)),
+    );
   }
 
   void _onPlanChanged() {
@@ -193,8 +230,20 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
+  /// Logout, session expiry or another account: every per-user provider.
   void _resetUserState() {
     _planProvider.reset();
+    _resetBookState();
+    _familyProvider.reset();
+    _bookModeProvider.reset();
+    _appVersionProvider.reset();
+  }
+
+  /// The providers that hold one book's data; also run when the Personal /
+  /// Family mode changes (Home is rebuilt for the new book, see AuthWrapper).
+  /// The plan, the family, the mode, the theme and the version check belong
+  /// to the person, not the book, and are kept.
+  void _resetBookState() {
     _transactionProvider.reset();
     _chatProvider.reset();
     _goalProvider.reset();
@@ -203,7 +252,6 @@ class _MyAppState extends State<MyApp> {
     _budgetProvider.reset();
     _notificationProvider.reset();
     _feedbackProvider.reset();
-    _appVersionProvider.reset();
   }
 
   /// [token] is the token the rejected request used; a 401 for an older
@@ -232,8 +280,12 @@ class _MyAppState extends State<MyApp> {
     FCMService().setOpenFromPushHandler(null);
     ApiService.onSessionExpired = null;
     ApiService.onPlanUsageChanged = null;
+    ApiService.onNoFamily = null;
+    _bookModeProvider.onModeChanged = null;
     _authProvider.removeListener(_onAuthChanged);
     _planProvider.removeListener(_onPlanChanged);
+    _familyProvider.removeListener(_syncBookWithFamily);
+    _bookModeProvider.removeListener(_syncBookWithFamily);
     super.dispose();
   }
 
@@ -253,10 +305,13 @@ class _MyAppState extends State<MyApp> {
         ChangeNotifierProvider.value(value: _feedbackProvider),
         ChangeNotifierProvider.value(value: _planProvider),
         ChangeNotifierProvider.value(value: _themeProvider),
+        ChangeNotifierProvider.value(value: _familyProvider),
+        ChangeNotifierProvider.value(value: _bookModeProvider),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) => MaterialApp(
           navigatorKey: navigatorKey,
+          scaffoldMessengerKey: scaffoldMessengerKey,
           title: 'Toe Pwar',
           debugShowCheckedModeBanner: false,
           builder: (context, child) =>
@@ -414,8 +469,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
           return const ForceUpdateScreen();
         }
 
-        // ── Step 4: All clear → home (fresh state per user) ──
-        return HomeScreen(key: ValueKey('home-$userId'));
+        // ── Step 4: All clear → home (fresh state per user and per book:
+        // switching Personal / Family builds a new Home) ──
+        return Consumer<BookModeProvider>(
+          builder: (context, books, _) => HomeScreen(key: ValueKey('home-$userId-${books.mode.name}')),
+        );
       },
     );
   }

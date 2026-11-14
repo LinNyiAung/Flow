@@ -1263,6 +1263,7 @@ class AppLocalizations {
       'nothingHeld': 'Nothing held',
       'amountToGo': '{amount} to go',
       'leftAfterThisGoal': '{amount} left after this goal',
+      'familyNoLongerMember': "You're no longer in this family, so you're back in your personal book.",
     },
     'my': {
       // Home Screen
@@ -2423,6 +2424,7 @@ class AppLocalizations {
       'nothingHeld': 'ထားရှိထားခြင်း မရှိပါ',
       'amountToGo': '{amount} ကျန်သေးသည်',
       'leftAfterThisGoal': 'ဤရည်မှန်းချက်အတွက် ဖယ်ထားပြီးနောက် {amount} ကျန်မည်',
+      'familyNoLongerMember': 'ဒီမိသားစုထဲမှာ မရှိတော့သဖြင့် ကိုယ်ပိုင်စာရင်းကို ပြန်ပြောင်းထားပါတယ်။',
     }
   };
 
@@ -3653,6 +3655,9 @@ class AppLocalizations {
   String amountToGo(String amount) => translate('amountToGo').replaceAll('{amount}', amount);
   /// "$95.00 left after this goal" (New goal: available minus the initial amount).
   String leftAfterThisGoal(String amount) => translate('leftAfterThisGoal').replaceAll('{amount}', amount);
+
+  /// Shown when a family request answers `no_family` and the app goes back to Personal.
+  String get familyNoLongerMember => translate('familyNoLongerMember');
 
   /// A plan date (when an allowance resets, when a request was made) in the
   /// device's local time: [AppDates.full] in this app language ("1 Dec 2026";
