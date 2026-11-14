@@ -17,7 +17,7 @@ from finite_utils import SafeJSONResponse, json_safe
 
 from firebase_service import initialize_firebase
 from utils import ensure_paid, get_current_user, get_user_balance
-from families.book import Book, get_book, require_writable
+from families.book import Book, get_book, require_admin, require_writable
 from families.service import owner_plan
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
 from scheduler import start_scheduler
@@ -948,12 +948,14 @@ async def delete_insights(
     insight_type: Optional[str] = Query(default=None, pattern="^(weekly|monthly)$"),
     book: Book = Depends(get_book)
 ):
-    """Delete the request's book's cached insights (not in a read-only family).
+    """Delete the request's book's cached insights (not in a read-only family; a family's are shared, so only its
+    owner and admins delete them: 403 not_allowed for a member).
 
     `ai_provider` (sent by old apps) is validated and ignored: reads show the newest insight of any
     provider, so clearing only one provider's rows would leave another provider's insight on screen.
     """
     require_writable(book)
+    require_admin(book)
     try:
         deleted = await insights_db.delete_for_user(book.id, None, insight_type)
 
@@ -977,10 +979,12 @@ async def regenerate_insights(
     Locked for Free (403, whatever the type; the person's own plan): regenerating is a paid-plan action. Plus and Pro
     are refused at the hidden cost cap. `language` is the display language of this request (see GET /api/insights).
     A family book (R10): family_read_only while the owner's plan isn't paid; the person asking must still be on Plus or
-    Pro; the owner's plan gates the type and the translation; nothing is counted against anyone.
+    Pro; the owner's plan gates the type and the translation; nothing is counted against anyone. The family's insights
+    are shared, so only its owner and admins regenerate them (403 not_allowed for a member).
     """
     # Outside the handlers below: an HTTPException / PlanError passes through
     require_writable(book)  # a read-only family never generates
+    require_admin(book)
     ensure_paid(book.person)  # feature None: the refusal reads "only on Plus and Pro" (Free does include a monthly insight)
     plan_user = await _insight_plan_user(book)
     plan_translates = not _translation_locked(plan_user)

@@ -491,10 +491,12 @@ async def _download_report_pdf(report_request: ReportRequest, book: Book):
 
         # Generate PDF with user's timezone offset
         user_timezone_offset = report_request.timezone_offset or 0  # bounded to +/-840 by ReportRequest
+        # "Generated For": the family's name for the family book, else the person's.
+        generated_for = (book.family or {}).get("name", "") if book.is_family else book.person.get("name", "")
         pdf_buffer = await asyncio.to_thread(
             generate_financial_report_pdf,
             report,
-            book.person.get("name", ""),
+            generated_for,
             user_timezone_offset, 
             currency
         )
