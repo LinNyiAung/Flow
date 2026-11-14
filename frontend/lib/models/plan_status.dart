@@ -223,6 +223,11 @@ class PlanStatus {
   /// The user's pending request for Plus or Pro; null when there is none.
   final UpgradeRequest? upgradeRequest;
 
+  /// How many account members (owner included) and placeholders a family
+  /// created on this plan may have; null from an older server.
+  final int? familyMaxMembers;
+  final int? familyMaxPlaceholders;
+
   const PlanStatus({
     required this.plan,
     this.expiresAt,
@@ -234,6 +239,8 @@ class PlanStatus {
     this.upgradeContact = const {},
     this.ownerContact = OwnerContact.none,
     this.upgradeRequest,
+    this.familyMaxMembers,
+    this.familyMaxPlaceholders,
   });
 
   /// This status with [request] as the pending upgrade request (null clears it).
@@ -248,6 +255,8 @@ class PlanStatus {
         upgradeContact: upgradeContact,
         ownerContact: ownerContact,
         upgradeRequest: request,
+        familyMaxMembers: familyMaxMembers,
+        familyMaxPlaceholders: familyMaxPlaceholders,
       );
 
   bool get isPaid => plan != Plan.free;
@@ -315,6 +324,8 @@ class PlanStatus {
       });
     }
 
+    final family = json['family'];
+
     return PlanStatus(
       plan: Plan.fromString(json['plan'] as String?),
       expiresAt: parseInstantOrNull(json['expires_at']),
@@ -326,6 +337,8 @@ class PlanStatus {
       upgradeContact: contact,
       ownerContact: OwnerContact.fromJson(json['owner_contact']),
       upgradeRequest: UpgradeRequest.tryParse(json['upgrade_request']),
+      familyMaxMembers: family is Map ? _asInt(family['max_members']) : null,
+      familyMaxPlaceholders: family is Map ? _asInt(family['max_placeholders']) : null,
     );
   }
 }

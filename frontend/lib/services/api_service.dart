@@ -8,6 +8,7 @@ import 'package:frontend/models/app_version.dart';
 import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/custom_insight.dart';
+import 'package:frontend/models/family.dart';
 import 'package:frontend/models/feedback.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/insight.dart';
@@ -86,7 +87,25 @@ class ApiException implements Exception {
   final String message;
   final int? statusCode;
 
-  ApiException(this.message, {this.statusCode});
+  /// The server's `detail.code` (e.g. `no_family`, `family_read_only`), or
+  /// null when the error carried none. Decide from this, never from [message].
+  final String? code;
+
+  ApiException(this.message, {this.statusCode, this.code});
+
+  /// The `detail.code` of an error body `{"detail": {"code": ...}}`, or null.
+  static String? codeOf(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map) return null;
+      final detail = decoded['detail'];
+      if (detail is! Map) return null;
+      final code = detail['code'];
+      return code is String && code.isNotEmpty ? code : null;
+    } on FormatException {
+      return null;
+    }
+  }
 
   @override
   String toString() => 'Exception: $message';
@@ -109,7 +128,8 @@ class PlanLimitException extends ApiException {
   static const String codeCostCap = 'plan_cost_cap';
   static const List<String> codes = [codeLocked, codeLimitReached, codeCostCap];
 
-  final String code;
+  @override
+  String get code => super.code!;
 
   /// The quota feature key (`chat`, `entry`, ...), or null on the few routes
   /// that only need a paid plan.
@@ -122,13 +142,13 @@ class PlanLimitException extends ApiException {
   final bool upgradeAvailable;
 
   PlanLimitException({
-    required this.code,
+    required String code,
     required int statusCode,
     String message = '',
     this.feature,
     this.resetsAt,
     this.upgradeAvailable = false,
-  }) : super(message, statusCode: statusCode);
+  }) : super(message, statusCode: statusCode, code: code);
 
   bool get isLocked => code == codeLocked;
   bool get isLimitReached => code == codeLimitReached;
@@ -176,17 +196,18 @@ class CustomInsightRequestException extends ApiException {
   static const String attempts = 'custom_insight_attempts';
   static const String notReady = 'custom_insight_not_ready';
 
-  final String code;
+  @override
+  String get code => super.code!;
 
   /// When the daily attempts are back (only for [attempts]); else null.
   final DateTime? resetsAt;
 
   CustomInsightRequestException({
-    required this.code,
+    required String code,
     required int statusCode,
     String message = '',
     this.resetsAt,
-  }) : super(message, statusCode: statusCode);
+  }) : super(message, statusCode: statusCode, code: code);
 
   /// Null for any body that is not a `custom_insight_*` error (a plan error,
   /// a plain 404, FastAPI's list-shaped 422, a non-JSON page).
@@ -396,6 +417,18 @@ class ApiService {
   /// and every counter shows the new numbers. Set by the app root.
   static VoidCallback? onPlanUsageChanged;
 
+  /// The book every call works on: Family mode sends `X-Book: family`, so
+  /// the server answers from the family book. Set only by `BookModeProvider`.
+  static BookMode bookMode = BookMode.personal;
+
+  /// The refusal code for "you are not in a family (any more)".
+  static const String noFamilyCode = 'no_family';
+
+  /// Called when a request made in Family mode is refused with `no_family`
+  /// (the person left, was removed or the family was deleted while the app
+  /// was open). Set by the app root: back to Personal, and say why.
+  static VoidCallback? onNoFamily;
+
   /// Auth endpoints whose 401/403 means "wrong credentials / unverified",
   /// not "session expired".
   static const List<String> _sessionCheckExemptPaths = [
@@ -509,9 +542,14 @@ class ApiService {
       onPlanUsageChanged?.call();
       return planError;
     }
+    final code = ApiException.codeOf(response.body);
+    if (code == noFamilyCode && bookMode == BookMode.family) {
+      onNoFamily?.call();
+    }
     return ApiException(
       errorMessage(response, fallback),
       statusCode: response.statusCode,
+      code: code,
     );
   }
 
@@ -544,6 +582,7 @@ class ApiService {
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
+      if (bookMode == BookMode.family) 'X-Book': 'family',
     };
   }
 
@@ -987,6 +1026,7 @@ class ApiService {
     required double amount,
     required Currency currency,
     TransactionRecurrence? recurrence,
+    List<String>? forWhom,
   }) async {
     final body = {
       'type': type.name,
@@ -999,6 +1039,10 @@ class ApiService {
     };
     if (recurrence != null) {
       body['recurrence'] = recurrence.toJson();
+    }
+    // Family book only: who it was for (left out or [] = Whole family).
+    if (forWhom != null) {
+      body['for_whom'] = forWhom;
     }
     final response = await _client.post(
       Uri.parse('$baseUrl/api/transactions'),
@@ -1145,8 +1189,11 @@ class ApiService {
     double? amount,
     Currency? currency, // NEW
     TransactionRecurrence? recurrence,
+    List<String>? forWhom,
   }) async {
     final Map<String, dynamic> updateData = {};
+    // Family book: null keeps who it was for; [] makes it Whole family.
+    if (forWhom != null) updateData['for_whom'] = forWhom;
     if (type != null) updateData['type'] = type.name;
     if (mainCategory != null) updateData['main_category'] = mainCategory;
     if (subCategory != null) updateData['sub_category'] = subCategory;
@@ -2385,6 +2432,187 @@ class ApiService {
 
     if (response.statusCode != 200) {
       throw apiError(response, 'Failed to submit feedback');
+    }
+  }
+
+  // ==================== FAMILY ====================
+  // Refusals come as {"detail": {"code", "message"}} with the message in the
+  // user's language; the code is on the thrown ApiException.
+
+  static Uri _familyUri([String path = '']) => Uri.parse('$baseUrl/api/family$path');
+
+  /// Decodes a family overview answer, or throws the server's error.
+  static FamilyOverview _overviewOf(http.Response response, String fallback) {
+    if (response.statusCode == 200) {
+      return FamilyOverview.fromJson(jsonDecode(response.body));
+    }
+    throw apiError(response, fallback);
+  }
+
+  /// `GET /api/family`: the caller's family, or [FamilyOverview.none].
+  static Future<FamilyOverview> getFamily() async {
+    final response = await _client.get(_familyUri(), headers: await _getHeaders());
+    return _overviewOf(response, 'Failed to get the family');
+  }
+
+  /// Plus or Pro only (`plan_required`); `already_in_family`.
+  static Future<FamilyOverview> createFamily(String name) async {
+    final response = await _client.post(_familyUri(),
+        headers: await _getHeaders(), body: jsonEncode({'name': name}));
+    return _overviewOf(response, 'Failed to create the family');
+  }
+
+  /// Admins.
+  static Future<FamilyOverview> renameFamily(String name) async {
+    final response = await _client.patch(_familyUri(),
+        headers: await _getHeaders(), body: jsonEncode({'name': name}));
+    return _overviewOf(response, 'Failed to rename the family');
+  }
+
+  /// The owner, with the family's name typed exactly (`confirm_mismatch`).
+  static Future<FamilyOverview> deleteFamily(String confirmName) async {
+    final response = await _client.delete(_familyUri(),
+        headers: await _getHeaders(), body: jsonEncode({'confirm_name': confirmName}));
+    return _overviewOf(response, 'Failed to delete the family');
+  }
+
+  /// Admins; `placeholders_full`.
+  static Future<FamilyOverview> addFamilyPlaceholder(String displayName) async {
+    final response = await _client.post(_familyUri('/placeholders'),
+        headers: await _getHeaders(), body: jsonEncode({'display_name': displayName}));
+    return _overviewOf(response, 'Failed to add the member');
+  }
+
+  /// Renames a placeholder or former member (admins), or sets an active
+  /// account member's [role] to `admin` or `member` (the owner).
+  static Future<FamilyOverview> updateFamilyMember(String memberId, {String? displayName, String? role}) async {
+    final response = await _client.patch(_familyUri('/members/$memberId'),
+        headers: await _getHeaders(),
+        body: jsonEncode({
+          if (displayName != null) 'display_name': displayName,
+          if (role != null) 'role': role,
+        }));
+    return _overviewOf(response, 'Failed to update the member');
+  }
+
+  /// Admins (only the owner removes an admin).
+  static Future<FamilyOverview> removeFamilyMember(String memberId) async {
+    final response = await _client.delete(_familyUri('/members/$memberId'), headers: await _getHeaders());
+    return _overviewOf(response, 'Failed to remove the member');
+  }
+
+  /// Anyone but the owner (`owner_must_hand_over`).
+  static Future<FamilyOverview> leaveFamily() async {
+    final response = await _client.post(_familyUri('/leave'), headers: await _getHeaders());
+    return _overviewOf(response, 'Failed to leave the family');
+  }
+
+  /// The owner, to another active account member.
+  static Future<FamilyOverview> transferFamilyOwnership(String memberId) async {
+    final response = await _client.post(_familyUri('/transfer-ownership'),
+        headers: await _getHeaders(), body: jsonEncode({'member_id': memberId}));
+    return _overviewOf(response, 'Failed to hand over the family');
+  }
+
+  /// Admins invite by e-mail, optionally as a placeholder or former member
+  /// ([linkMemberId]); `family_full`, `invite_invalid`, `already_in_family`.
+  static Future<FamilyInvite> createFamilyInvite(String email, {String? linkMemberId}) async {
+    final response = await _client.post(_familyUri('/invites'),
+        headers: await _getHeaders(),
+        body: jsonEncode({
+          'email': email,
+          if (linkMemberId != null) 'link_member_id': linkMemberId,
+        }));
+    if (response.statusCode == 200) {
+      return FamilyInvite.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw apiError(response, 'Failed to send the invitation');
+  }
+
+  /// The signed-in person's pending invitations, newest first.
+  static Future<List<FamilyInvite>> getMyFamilyInvites() async {
+    final response = await _client.get(_familyUri('/invites/mine'), headers: await _getHeaders());
+    if (response.statusCode == 200) {
+      final invites = (jsonDecode(response.body) as Map)['invites'];
+      return invites is List
+          ? invites.whereType<Map>().map((i) => FamilyInvite.fromJson(Map<String, dynamic>.from(i))).toList()
+          : <FamilyInvite>[];
+    }
+    throw apiError(response, 'Failed to get your invitations');
+  }
+
+  /// Admins.
+  static Future<FamilyOverview> cancelFamilyInvite(String inviteId) async {
+    final response = await _client.delete(_familyUri('/invites/$inviteId'), headers: await _getHeaders());
+    return _overviewOf(response, 'Failed to cancel the invitation');
+  }
+
+  /// Joins the family; the answer is its overview.
+  static Future<FamilyOverview> acceptFamilyInvite(String inviteId) async {
+    final response = await _client.post(_familyUri('/invites/$inviteId/accept'), headers: await _getHeaders());
+    return _overviewOf(response, 'Failed to join the family');
+  }
+
+  static Future<void> declineFamilyInvite(String inviteId) async {
+    final response = await _client.post(_familyUri('/invites/$inviteId/decline'), headers: await _getHeaders());
+    if (response.statusCode != 200) {
+      throw apiError(response, 'Failed to decline the invitation');
+    }
+  }
+
+  /// Spending per person it was for, [start]..[end] as whole calendar days,
+  /// in [currency] (default: the user's default currency).
+  static Future<FamilyBreakdown> getFamilyBreakdown(DateTime start, DateTime end, {Currency? currency}) async {
+    String day(DateTime d) => DateTime.utc(d.year, d.month, d.day).toIso8601String();
+    final uri = _familyUri('/breakdown').replace(queryParameters: {
+      'start_date': day(start),
+      'end_date': day(end),
+      if (currency != null) 'currency': currency.name,
+    });
+    final response = await _client.get(uri, headers: await _getHeaders());
+    if (response.statusCode == 200) {
+      return FamilyBreakdown.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw apiError(response, 'Failed to get the breakdown');
+  }
+
+  // ==================== TRANSFERS ====================
+
+  /// Moves [amount] between the caller's wallet and their family's
+  /// ([direction]); one linked pair of entries. `transfer_insufficient` when
+  /// the source wallet's available balance is too small.
+  static Future<TransferResult> createTransfer({
+    required TransferDirection direction,
+    required double amount,
+    required Currency currency,
+    required DateTime date,
+    String? description,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/transfers'),
+      headers: await _getHeaders(),
+      body: jsonEncode({
+        'direction': direction.wireName,
+        'amount': amount,
+        'currency': currency.name,
+        'date': date.toIso8601String(),
+        if (description != null && description.trim().isNotEmpty) 'description': description.trim(),
+      }),
+    );
+    if (response.statusCode == 200) {
+      return TransferResult.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw apiError(response, 'Failed to move the money');
+  }
+
+  /// Undoes a transfer the caller made: both legs go together.
+  static Future<void> undoTransfer(String transferId) async {
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/api/transfers/$transferId'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw apiError(response, 'Failed to undo the transfer');
     }
   }
 

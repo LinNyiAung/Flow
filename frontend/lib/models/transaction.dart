@@ -1,3 +1,4 @@
+import 'package:frontend/models/family.dart';
 import 'package:frontend/utils/money.dart';
 import 'package:frontend/utils/date_parsing.dart';
 import 'package:frontend/models/recurring_transaction.dart';
@@ -21,6 +22,16 @@ class Transaction {
   final TransactionRecurrence? recurrence;
   final String? parentTransactionId;
 
+  /// Family book: who recorded it (null in a personal book).
+  final FamilyMemberRef? addedBy;
+
+  /// Family book: the member ids it was for; empty means Whole family.
+  final List<String> forWhom;
+
+  /// Set on each leg of a transfer between a personal wallet and the family
+  /// wallet; null for a normal entry.
+  final String? transferId;
+
   Transaction({
     required this.id,
     required this.userId,
@@ -35,7 +46,13 @@ class Transaction {
     required this.updatedAt,
     this.recurrence,
     this.parentTransactionId,
+    this.addedBy,
+    this.forWhom = const [],
+    this.transferId,
   });
+
+  /// One leg of a transfer: not income or spending, and it can't be edited.
+  bool get isTransfer => transferId != null;
 
   factory Transaction.fromJson(Map<String, dynamic> json) {
     return Transaction(
@@ -56,6 +73,11 @@ class Transaction {
           ? TransactionRecurrence.fromJson(json['recurrence'])
           : null,
       parentTransactionId: json['parent_transaction_id'],
+      addedBy: FamilyMemberRef.tryParse(json['added_by']),
+      forWhom: json['for_whom'] is List
+          ? List<String>.unmodifiable((json['for_whom'] as List).whereType<String>())
+          : const [],
+      transferId: json['transfer_id'] is String ? json['transfer_id'] as String : null,
     );
   }
 
