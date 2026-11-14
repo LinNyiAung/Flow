@@ -1363,6 +1363,45 @@ def section_recurring_children():
             r = c.put(f"/api/transactions/{kids[0]['id']}", headers={**D["h"], **FAM}, json={"description": "child"})
             check(r.status_code == 200, "recurring: Dad (member) can edit the children of his own recurring entry",
                   f"{r.status_code} {r.text[:200]}")
+
+        # ---- R21 (I2): a read-only family can still stop its recurring entries (a repair action) ----
+        def recurring(u, **kw):
+            r = c.post("/api/transactions", headers={**u["h"], **FAM}, json={
+                "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "date": datetime.now(UTC).isoformat(), "amount": 3, "currency": "usd",
+                "recurrence": {"enabled": True, "config": {"frequency": "monthly", "day_of_month": 1}}} | kw)
+            return r.json().get("id") if r.status_code == 200 else None
+
+        def enabled(tid):
+            return (db.sql("SELECT recurrence_enabled e FROM transactions WHERE id = %s", tid) or [{}])[0].get("e")
+        mum_rec, dad_rec = recurring(M), recurring(D)
+        db.sql("UPDATE users SET subscription_expires_at = now() - interval '1 day' WHERE id = %s", M["id"])
+        view = c.get("/api/family", headers=D["h"]).json()
+        check(mum_rec and dad_rec and (view.get("family") or {}).get("read_only") is True,
+              "recurring: Mum's and Dad's monthly family entries, then Mum's plan lapses (read-only)", (mum_rec, dad_rec))
+        r = c.put(f"/api/transactions/{dad_rec}", headers={**D["h"], **FAM}, json={"description": "x"})
+        check(_code(r, 403, "family_read_only"), "recurring: read-only: an ordinary edit is still family_read_only",
+              f"{r.status_code} {r.text[:200]}")
+        m_mid = (c.get("/api/family", headers=M["h"]).json().get("me") or {}).get("member_id")
+        # A child Dad didn't add: its recorded adder is Mum (the check is on the child's added_by).
+        other_kid = kids[1]["id"] if len(kids) > 1 else "x"
+        db.sql("UPDATE transactions SET added_by_member_id = %s WHERE id = %s", m_mid, other_kid)
+        for path, target in (("disable-recurrence", mum_rec), ("disable-parent-recurrence", other_kid)):
+            r = c.post(f"/api/transactions/{target}/{path}", headers={**D["h"], **FAM})
+            check(_code(r, 403, "not_allowed"), f"recurring: read-only: Dad (member) can't {path} on Mum's entry (403)",
+                  f"{r.status_code} {r.text[:200]}")
+        check(enabled(mum_rec) is True and enabled(parent) is True, "recurring: read-only: Dad's refused requests changed nothing",
+              (enabled(mum_rec), enabled(parent)))
+        r = c.post(f"/api/transactions/{dad_rec}/disable-recurrence", headers={**D["h"], **FAM})
+        check(r.status_code == 200 and enabled(dad_rec) is False,
+              "recurring: read-only: Dad (the creator) stops his own recurring entry (200)", f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/transactions/{mum_rec}/disable-recurrence", headers={**M["h"], **FAM})
+        check(r.status_code == 200 and enabled(mum_rec) is False,
+              "recurring: read-only: an admin (Mum) stops her recurring entry (200)", f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/transactions/{kids[0]['id'] if kids else 'x'}/disable-parent-recurrence", headers={**M["h"], **FAM})
+        check(r.status_code == 200 and enabled(parent) is False,
+              "recurring: read-only: an admin (Mum) stops Dad's recurring parent from its child (200)",
+              f"{r.status_code} {r.text[:200]}")
     finally:
         _cleanup_people(made)
 

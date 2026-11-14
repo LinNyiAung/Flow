@@ -559,9 +559,9 @@ async def disable_transaction_recurrence(
     transaction_id: str = Path(...),
     book: Book = Depends(get_book)
 ):
-    """Disable recurrence for a transaction"""
-    require_writable(book)
-    transaction = await transactions_db.get_transaction(transaction_id, book.id)
+    """Disable recurrence for a transaction. Allowed in a read-only family too (R21): stopping recurrence is a repair
+    action (the job would otherwise keep adding entries nobody can stop); who may change the entry still applies."""
+    transaction =await transactions_db.get_transaction(transaction_id, book.id)
 
     if not transaction:
         raise HTTPException(
@@ -590,9 +590,9 @@ async def disable_parent_transaction_recurrence(
     transaction_id: str = Path(...),
     book: Book = Depends(get_book)
 ):
-    """Disable recurrence for the parent transaction (used when editing auto-created transactions)"""
-    require_writable(book)
-    transaction = await transactions_db.get_transaction(transaction_id, book.id)
+    """Disable recurrence for the parent transaction (used when editing auto-created transactions). Allowed in a
+    read-only family too, like disable-recurrence (R21: a repair action)."""
+    transaction =await transactions_db.get_transaction(transaction_id, book.id)
 
     if not transaction:
         raise HTTPException(
