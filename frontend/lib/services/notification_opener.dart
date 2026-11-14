@@ -56,7 +56,8 @@ class NotificationOpener {
   /// report or invitation it is about; [family]: it carries the family
   /// marker). [onClosed] runs when that screen is closed. Completes with
   /// false when there is nothing to open (an unknown type, a budget or goal
-  /// that no longer exists).
+  /// that no longer exists), or when the book was switched again while the
+  /// budget or goal was being fetched (it would open in the wrong book).
   Future<bool> open(String type, {String? goalId, bool family = false, VoidCallback? onClosed}) async {
     if (type == NotificationType.family_invite.name) {
       return _push(MaterialPageRoute<void>(builder: (_) => const FamilyInvitationsScreen()), onClosed);
@@ -67,13 +68,19 @@ class NotificationOpener {
     final target = _bookTarget(type, goalId);
     if (target == null) return false;
 
+    final books = this.books;
+    // The book the notice belongs to, which openInBookWith switches to.
+    final wanted = family ? BookMode.family : BookMode.personal;
+
     Future<bool>? opening;
     Future<bool> run() async {
       final route = await target();
+      // The user may have flipped the switch while the fetch was in flight:
+      // never open one book's budget or goal in the other book.
+      if (books != null && books.mode != wanted) return false;
       return route != null && _push(route, onClosed);
     }
 
-    final books = this.books;
     if (books == null) return run();
     await openInBookWith(books, family: family, open: () => opening = run());
     return await (opening ?? Future.value(false));

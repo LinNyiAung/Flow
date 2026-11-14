@@ -136,6 +136,17 @@ class _Budgets extends BudgetProvider {
   }
 }
 
+/// Answers the budget fetch only when [answer] completes.
+class _GatedBudgets extends _Budgets {
+  _GatedBudgets(this.answer);
+  final Future<Budget?> answer;
+  @override
+  Future<Budget?> getBudget(String budgetId) async {
+    fetchedIn.add(ApiService.bookMode);
+    return answer;
+  }
+}
+
 class _Goals extends GoalProvider {
   final fetchedIn = <BookMode>[];
   @override
@@ -824,6 +835,38 @@ void main() {
       expect(find.text('home'), findsOneWidget, reason: 'Back goes to Home, not to the closed list');
       expect(closed, 1);
     });
+
+    for (final from in [BookMode.personal, BookMode.family]) {
+      testWidgets('the mode flips back to ${from.name} while the budget is fetched: nothing is pushed',
+          (tester) async {
+        final books = BookModeProvider();
+        await books.setMode(from);
+        final gate = Completer<Budget?>();
+        final budgets = _GatedBudgets(gate.future);
+        await _pump(tester, const Scaffold(body: Text('home')),
+            family: _FakeFamily(overview: _overview()), books: books, budgets: budgets);
+        final opener = NotificationOpener(
+          navigatorKey: navigatorKey,
+          books: books,
+          budgets: budgets,
+          goals: _Goals(),
+          budgetPage: (b) => Scaffold(body: Text('budget ${b.name}')),
+        );
+        // A personal notice from Family mode, or a family one from Personal.
+        final opened = opener.open('budget_exceeded', goalId: 'b1', family: from == BookMode.personal);
+        await tester.pump();
+        expect(budgets.fetchedIn, [from == BookMode.personal ? BookMode.family : BookMode.personal]);
+
+        // The user flips the switch back before the fetch answers.
+        await books.setMode(from);
+        gate.complete(budget());
+        await tester.pumpAndSettle();
+
+        expect(await opened, isFalse);
+        expect(find.text('budget Family food'), findsNothing);
+        expect(find.text('home'), findsOneWidget);
+      });
+    }
 
     test('push gate: a family push waits for the family, then opens; gone from the family: dropped', () {
       final family = FamilyProvider();
