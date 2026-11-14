@@ -1,4 +1,6 @@
 import 'package:frontend/utils/money.dart';
+import 'package:frontend/models/family.dart';
+import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
@@ -29,11 +31,27 @@ typedef ReportLoader = Future<FinancialReport> Function({
   Currency? currency,
 });
 
+/// Fetches the family's "who we spent on" breakdown (tests pass a fake).
+typedef BreakdownLoader = Future<FamilyBreakdown> Function({
+  required DateTime start,
+  required DateTime end,
+  required Currency currency,
+});
+
 class ReportsScreen extends StatefulWidget {
-  const ReportsScreen({super.key, ReportLoader? reportLoader})
-      : reportLoader = reportLoader ?? _apiReport;
+  const ReportsScreen({super.key, ReportLoader? reportLoader, BreakdownLoader? breakdownLoader})
+      : reportLoader = reportLoader ?? _apiReport,
+        breakdownLoader = breakdownLoader ?? _apiBreakdown;
 
   final ReportLoader reportLoader;
+  final BreakdownLoader breakdownLoader;
+
+  static Future<FamilyBreakdown> _apiBreakdown({
+    required DateTime start,
+    required DateTime end,
+    required Currency currency,
+  }) =>
+      ApiService.getFamilyBreakdown(start, end, currency: currency);
 
   static Future<FinancialReport> _apiReport({
     required ReportPeriod period,
@@ -58,6 +76,65 @@ class _ReportsScreenState extends State<ReportsScreen> {
   bool _isLoading = false;
   bool _isDownloading = false;
   String? _error;
+
+  // "Who we spent on" (Family mode, single currency). [_breakdownRequest]
+  // marks the latest request: an answer for an older period, currency or book
+  // is dropped.
+  FamilyBreakdown? _breakdown;
+  bool _breakdownLoading = false;
+  String? _breakdownError;
+  int _breakdownRequest = 0;
+  bool _wasFamily = false;
+
+  bool get _isFamilyMode => Provider.of<BookModeProvider?>(context, listen: false)?.isFamily ?? false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final family = Provider.of<BookModeProvider?>(context)?.isFamily ?? false;
+    if (family == _wasFamily) return;
+    _wasFamily = family;
+    final report = _report;
+    if (family && report != null) {
+      _loadBreakdown(report);
+    } else {
+      _dropBreakdown();
+    }
+  }
+
+  void _dropBreakdown() {
+    _breakdownRequest++;
+    _breakdown = null;
+    _breakdownLoading = false;
+    _breakdownError = null;
+  }
+
+  Future<void> _loadBreakdown(FinancialReport report) async {
+    final request = ++_breakdownRequest;
+    setState(() {
+      _breakdown = null;
+      _breakdownError = null;
+      _breakdownLoading = true;
+    });
+    try {
+      final result = await widget.breakdownLoader(
+        start: report.startDate,
+        end: report.endDate,
+        currency: report.currency,
+      );
+      if (!mounted || request != _breakdownRequest || !_isFamilyMode) return;
+      setState(() {
+        _breakdown = result;
+        _breakdownLoading = false;
+      });
+    } catch (e) {
+      if (!mounted || request != _breakdownRequest || !_isFamilyMode) return;
+      setState(() {
+        _breakdownError = e.toString().replaceAll('Exception: ', '');
+        _breakdownLoading = false;
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -85,6 +162,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _dropBreakdown();
     });
 
     try {
@@ -113,6 +191,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           _multiCurrencyReport = null;
           _isLoading = false;
         });
+        if (_isFamilyMode) _loadBreakdown(report);
       }
     } catch (e) {
       setState(() {
@@ -685,6 +764,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Expanded(child: _infoCard(localizations.daysCoveredLabel, '$days', Icons.event_note_rounded)),
           ],
         )),
+        if (_isFamilyMode) ...[
+          const SizedBox(height: 20),
+          _buildBreakdownCard(report.currency),
+        ],
         const SizedBox(height: 20),
         Text(localizations.dailyAverages, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
@@ -733,6 +816,89 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  // ── Who we spent on (Family mode) ────────────────────────────────
+
+  Widget _buildBreakdownCard(Currency currency) {
+    final l = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final data = _breakdown;
+    final rows = data == null
+        ? const <BreakdownRow>[]
+        : [...data.rows.where((r) => r.isWholeFamily), ...data.rows.where((r) => !r.isWholeFamily)];
+
+    Widget body;
+    if (_breakdownLoading) {
+      body = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
+      );
+    } else if (_breakdownError != null) {
+      body = Text(_breakdownError!, style: TextStyle(color: scheme.error, fontSize: 13));
+    } else if (data == null || rows.isEmpty) {
+      body = Text(l.noFamilySpending, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13));
+    } else {
+      body = Column(
+        children: [
+          for (var i = 0; i < rows.length; i++)
+            _breakdownRow(rows[i], data.totalSpent, currency, last: i == rows.length - 1),
+        ],
+      );
+    }
+
+    return Card(
+      key: const ValueKey('family-breakdown-card'),
+      margin: EdgeInsets.zero,
+      child: SizedBox(
+        width: double.infinity,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l.whoWeSpentOn, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 14),
+              body,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _breakdownRow(BreakdownRow row, double total, Currency currency, {required bool last}) {
+    final l = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final name = row.isWholeFamily
+        ? l.wholeFamily
+        : row.isFormer
+            ? l.familyFormerName(row.displayName)
+            : row.displayName;
+    final share = total > 0 ? row.amount / total : 0.0;
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                formatMoney(row.amount, currency),
+                style: AppTheme.money(13, weight: FontWeight.w700, color: scheme.error),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          ProgressMeter(value: share),
+        ],
+      ),
     );
   }
 

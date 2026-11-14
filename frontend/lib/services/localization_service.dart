@@ -1339,6 +1339,8 @@ class AppLocalizations {
       'forWhomTitle': 'Who was it for?',
       'forWhomHint': 'Pick one or more people, or the whole family.',
       'wholeFamily': 'Whole family',
+      'whoWeSpentOn': 'Who we spent on',
+      'noFamilySpending': 'No family spending in this period.',
       'addedByName': 'Added by {name}',
       'familyFormerName': '{name} (former)',
       'entryNotYoursReason': 'Only the person who added this entry, or an admin, can change it.',
@@ -2595,6 +2597,8 @@ class AppLocalizations {
       'forWhomTitle': 'ဘယ်သူ့အတွက်လဲ',
       'forWhomHint': 'တစ်ယောက် သို့မဟုတ် အများကို ရွေးပါ၊ မဟုတ်ရင် မိသားစုတစ်ခုလုံးကို ရွေးပါ။',
       'wholeFamily': 'မိသားစုတစ်ခုလုံး',
+      'whoWeSpentOn': 'ဘယ်သူ့အတွက် သုံးခဲ့သလဲ',
+      'noFamilySpending': 'ဒီကာလမှာ မိသားစုအသုံးစရိတ် မရှိသေးပါ။',
       'addedByName': '{name} ထည့်ခဲ့သည်',
       'familyFormerName': '{name} (ယခင်အဖွဲ့ဝင်)',
       'entryNotYoursReason': 'ဒီစာရင်းကို ထည့်ခဲ့သူ သို့မဟုတ် စီမံသူသာ ပြင်နိုင်ပါတယ်။',
@@ -3948,6 +3952,8 @@ class AppLocalizations {
 
   /// "For whom" with nobody picked (no tags).
   String get wholeFamily => translate('wholeFamily');
+  String get whoWeSpentOn => translate('whoWeSpentOn');
+  String get noFamilySpending => translate('noFamilySpending');
   String addedByName(String name) => translate('addedByName').replaceAll('{name}', name);
 
   /// A former member's name on an entry: "Uncle (former)".
