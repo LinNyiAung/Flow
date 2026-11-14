@@ -444,7 +444,7 @@ void main() {
         await tester.runAsync(() => books.setMode(BookMode.family));
         await open();
         expect(tester.takeException(), isNull);
-        final name = find.descendant(of: bar, matching: find.text(lang == 'my' ? _longMyName : _longEnName));
+        final name = find.descendant(of: bar, matching: find.textContaining(lang == 'my' ? _longMyName : _longEnName));
         expect(name, findsOneWidget);
         expect(find.descendant(of: bar, matching: find.text(l.aiMoneyHelper)), findsNothing);
         _expectOnScreen(tester, name, 360);

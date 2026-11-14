@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:provider/provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/plan_limit_text.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
@@ -73,13 +75,19 @@ class PlanLimitSheet extends StatelessWidget {
     final featureName = feature == null ? null : l.knownPlanFeatureName(feature);
     // The explanation is built from the code, the feature and the reset date in
     // the app's language (see planLimitText for when the server's message is used).
-    final body = planLimitText(
-      l,
-      code: error.code,
-      feature: feature,
-      resetsAt: error.resetsAt,
-      fallbackMessage: error.message,
-    );
+    // In the family book the hidden cap is the family owner's, not the
+    // reader's own: only the server's message says whose it is.
+    final inFamilyBook = Provider.of<BookModeProvider?>(context)?.isFamily ?? false;
+    final serverWords = error.message.trim();
+    final body = error.isCostCap && inFamilyBook && serverWords.isNotEmpty
+        ? serverWords
+        : planLimitText(
+            l,
+            code: error.code,
+            feature: feature,
+            resetsAt: error.resetsAt,
+            fallbackMessage: error.message,
+          );
 
     return Column(
       mainAxisSize: MainAxisSize.min,

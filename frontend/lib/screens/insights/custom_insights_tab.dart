@@ -9,6 +9,7 @@ import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/screens/insights/custom_insight_form.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_text.dart';
+import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 
@@ -126,6 +127,15 @@ class _CustomInsightsTabState extends State<CustomInsightsTab> {
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
                   ),
+                  // Family book: the whole family sees (and shares) these.
+                  if (bookFamilyName(context) != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      l.familyCustomInsightsShared,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                    ),
+                  ],
                 ],
               ),
             ),

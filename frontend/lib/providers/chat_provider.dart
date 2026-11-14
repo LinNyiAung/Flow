@@ -170,7 +170,12 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Bumped whenever the whole conversation goes (a book switch, a logout): a
+  /// send that began before it belongs to the other book.
+  int _conversationId = 0;
+
   void _clearConversation() {
+    _conversationId++;
     _requestId++;
     _streamSubscription?.cancel();
     _streamSubscription = null;
@@ -228,7 +233,12 @@ class ChatProvider with ChangeNotifier {
   Future<bool> sendMessage(String message) async {
     if (message.trim().isEmpty) return false;
 
+    final conversation = _conversationId;
     await _abortActiveStream();
+    // The Personal / Family book changed (or the user logged out) while the
+    // old stream was closing: the question was typed for the other book, so
+    // it is not sent to this one.
+    if (conversation != _conversationId) return false;
     final requestId = ++_requestId;
 
     _error = null;

@@ -1264,6 +1264,12 @@ class AppLocalizations {
       'amountToGo': '{amount} to go',
       'leftAfterThisGoal': '{amount} left after this goal',
       'familyNoLongerMember': "You're no longer in this family, so you're back in your personal book.",
+      'askAboutFamily': 'Answers about your family book',
+      'familyChatGreeting': "Ask me about your family's money. I answer from the family book, not your personal one.",
+      'familySuggestionSpendMonth': 'How much did we spend this month?',
+      'familySuggestionSpendOn': 'What did we spend on {name}?',
+      'familySuggestionSpendKids': 'What did we spend on the kids?',
+      'familyCustomInsightsShared': 'Reports made here are shared with your whole family.',
       'bookPersonal': 'Personal',
       'familyReadOnlyBanner': "This family is read-only: the owner's plan has ended.",
       'onlyAdminsChangeFamilyBudgets': 'Only admins can change family budgets.',
@@ -2522,6 +2528,12 @@ class AppLocalizations {
       'amountToGo': '{amount} ကျန်သေးသည်',
       'leftAfterThisGoal': 'ဤရည်မှန်းချက်အတွက် ဖယ်ထားပြီးနောက် {amount} ကျန်မည်',
       'familyNoLongerMember': 'ဒီမိသားစုထဲမှာ မရှိတော့သဖြင့် ကိုယ်ပိုင်စာရင်းကို ပြန်ပြောင်းထားပါတယ်။',
+      'askAboutFamily': 'မိသားစုစာရင်းအကြောင်း ဖြေပေးပါတယ်',
+      'familyChatGreeting': 'မိသားစုရဲ့ ငွေကြေးအကြောင်း မေးလို့ရပါတယ်။ ကိုယ်ပိုင်စာရင်းမဟုတ်ဘဲ မိသားစုစာရင်းကနေ ဖြေပေးမှာပါ။',
+      'familySuggestionSpendMonth': 'ဒီလ မိသားစုအနေနဲ့ ဘယ်လောက်သုံးခဲ့လဲ?',
+      'familySuggestionSpendOn': '{name} အတွက် ဘာတွေသုံးခဲ့လဲ?',
+      'familySuggestionSpendKids': 'ကလေးတွေအတွက် ဘာတွေသုံးခဲ့လဲ?',
+      'familyCustomInsightsShared': 'ဒီမှာ ပြုလုပ်တဲ့ အစီရင်ခံစာတွေကို မိသားစုအားလုံး ကြည့်နိုင်ပါတယ်။',
       'bookPersonal': 'ကိုယ်ပိုင်',
       'familyReadOnlyBanner': 'ပိုင်ရှင်၏ အစီအစဉ် ကုန်ဆုံးသွားသဖြင့် ဒီမိသားစုစာရင်းကို ကြည့်ရုံသာ ကြည့်နိုင်ပါတယ်။',
       'onlyAdminsChangeFamilyBudgets': 'မိသားစု ဘတ်ဂျက်များကို စီမံသူများသာ ပြောင်းလဲနိုင်ပါတယ်။',
@@ -3852,6 +3864,24 @@ class AppLocalizations {
 
   /// Shown when a family request answers `no_family` and the app goes back to Personal.
   String get familyNoLongerMember => translate('familyNoLongerMember');
+
+  // ---- Ko Toe Pwar and insights in Family mode (Task 18) ----
+  /// The line under Ko Toe Pwar's name in Family mode.
+  String get askAboutFamily => translate('askAboutFamily');
+
+  /// The chat's welcome text in Family mode.
+  String get familyChatGreeting => translate('familyChatGreeting');
+
+  /// The Family mode suggested questions: this month, then [placeholderName]
+  /// (the first placeholder member) or "the kids" when the family has none.
+  List<String> familySuggestions(String? placeholderName) => [
+        translate('familySuggestionSpendMonth'),
+        placeholderName == null ? translate('familySuggestionSpendKids') : familySuggestionSpendOn(placeholderName),
+      ];
+  String familySuggestionSpendOn(String name) => translate('familySuggestionSpendOn').replaceAll('{name}', name);
+
+  /// The Custom insights tab in Family mode, with no report yet.
+  String get familyCustomInsightsShared => translate('familyCustomInsightsShared');
 
   /// The Personal segment of the Personal / Family switch.
   String get bookPersonal => translate('bookPersonal');

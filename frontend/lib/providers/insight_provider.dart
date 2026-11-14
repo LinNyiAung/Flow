@@ -31,8 +31,10 @@ class InsightProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   int? _errorStatusCode;
+  String? _errorCode;
   String? _actionError;
   int? _actionErrorStatusCode;
+  String? _actionErrorCode;
   String _currentLanguage = 'en';
   String _insightType = 'weekly';
 
@@ -56,6 +58,11 @@ class InsightProvider with ChangeNotifier {
 
   /// HTTP status of [actionError] (null for timeouts / network errors).
   int? get actionErrorStatusCode => _actionErrorStatusCode;
+
+  /// The server's `detail.code` of [error] / [actionError] (for example
+  /// `family_read_only`), or null.
+  String? get errorCode => _errorCode;
+  String? get actionErrorCode => _actionErrorCode;
 
   /// Set when [error] / [actionError] came from the plan refusing the request
   /// (locked, used up, monthly AI limit) rather than from a failure.
@@ -95,15 +102,19 @@ class InsightProvider with ChangeNotifier {
 
   static int? _statusOf(Object e) => e is ApiException ? e.statusCode : null;
 
+  static String? _codeOf(Object e) => e is ApiException ? e.code : null;
+
   static PlanLimitException? _limitOf(Object e) =>
       e is PlanLimitException ? e : null;
 
   void _clearErrors() {
     _error = null;
     _errorStatusCode = null;
+    _errorCode = null;
     _errorPlanLimit = null;
     _actionError = null;
     _actionErrorStatusCode = null;
+    _actionErrorCode = null;
     _actionPlanLimit = null;
   }
   String get currentLanguage => _currentLanguage;
@@ -210,6 +221,7 @@ class InsightProvider with ChangeNotifier {
       // Translation failed: keep the insight that is already shown.
       _actionError = _clean(e);
       _actionErrorStatusCode = _statusOf(e);
+      _actionErrorCode = _codeOf(e);
       _actionPlanLimit = _limitOf(e);
       _isLoading = false;
       notifyListeners();
@@ -242,6 +254,7 @@ class InsightProvider with ChangeNotifier {
       _insight = null;
       _error = _clean(e);
       _errorStatusCode = _statusOf(e);
+      _errorCode = _codeOf(e);
       _errorPlanLimit = _limitOf(e);
     }
     _isLoading = false;
@@ -275,10 +288,12 @@ class InsightProvider with ChangeNotifier {
       if (gen != _generation) return false;
       _actionError = _clean(e);
       _actionErrorStatusCode = _statusOf(e);
+      _actionErrorCode = _codeOf(e);
       _actionPlanLimit = _limitOf(e);
       if (_insight == null) {
         _error = _actionError;
         _errorStatusCode = _actionErrorStatusCode;
+        _errorCode = _actionErrorCode;
         _errorPlanLimit = _actionPlanLimit;
       }
       _isLoading = false;
@@ -290,6 +305,7 @@ class InsightProvider with ChangeNotifier {
   Future<bool> clearInsights() async {
     _error = null;
     _errorStatusCode = null;
+    _errorCode = null;
     try {
       await ApiService.deleteInsights();
       _generation++;
@@ -299,6 +315,7 @@ class InsightProvider with ChangeNotifier {
     } catch (e) {
       _actionError = _clean(e);
       _actionErrorStatusCode = _statusOf(e);
+      _actionErrorCode = _codeOf(e);
       notifyListeners();
       return false;
     }

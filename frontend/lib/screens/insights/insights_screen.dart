@@ -119,7 +119,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
   /// from the HTTP [statusCode] carried by the provider (429 → rate limited,
   /// 5xx → server error). Falls back to a status embedded in the message
   /// (e.g. "Failed to get insights (502)"). Returns (message, details).
-  (String, String?) _friendlyInsightError(String raw, int? statusCode, AppLocalizations localizations) {
+  (String, String?) _friendlyInsightError(String raw, int? statusCode, AppLocalizations localizations,
+      {String? code}) {
+    // A read-only family with no insight stored yet: say why, not "failed".
+    if (code == 'family_read_only') return (localizations.familyReadOnlyBanner, null);
     final match = RegExp(r'^Failed to [a-z ]*insights?:\s*(\d{3})?:?\s*(.*)$', caseSensitive: false, dotAll: true)
         .firstMatch(raw.trim());
     final status = statusCode ??
@@ -606,7 +609,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (raw == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(_friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations).$1),
+        content: Text(_friendlyInsightError(raw, insightProvider.actionErrorStatusCode, localizations,
+                code: insightProvider.actionErrorCode)
+            .$1),
         backgroundColor: Theme.of(context).colorScheme.error,
       ),
     );
@@ -710,7 +715,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
     if (planLimit != null) return _buildPlanLimit(planLimit);
     final scheme = Theme.of(context).colorScheme;
     final (message, details) =
-        _friendlyInsightError(insightProvider.error!, insightProvider.errorStatusCode, localizations);
+        _friendlyInsightError(insightProvider.error!, insightProvider.errorStatusCode, localizations,
+            code: insightProvider.errorCode);
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 32),
       children: [

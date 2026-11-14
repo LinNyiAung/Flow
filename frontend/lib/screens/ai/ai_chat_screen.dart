@@ -7,7 +7,9 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:frontend/models/family.dart';
 import 'package:frontend/models/plan_status.dart';
+import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -42,6 +44,13 @@ class _AiChatScreenState extends State<AiChatScreen>
     localizations.suggestionIncomeVsExpenses,
     localizations.suggestionSpendOnFood,
   ];
+
+  /// Family mode: this month, and the first placeholder member (the kids, say).
+  List<String> _familySuggestions(AppLocalizations localizations) {
+    final members = Provider.of<FamilyProvider?>(context)?.members ?? const <FamilyMember>[];
+    final placeholder = members.where((m) => m.isPlaceholder && m.isActive).firstOrNull;
+    return localizations.familySuggestions(placeholder?.displayName);
+  }
 
   @override
   void initState() {
@@ -194,7 +203,14 @@ class _AiChatScreenState extends State<AiChatScreen>
                             Icon(Icons.family_restroom_rounded, size: 13, color: color),
                             const SizedBox(width: 4),
                             Flexible(
-                              child: Text(familyName, style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              // "<family> · Answers about your family book"; a
+                              // long line is cut at the end.
+                              child: Text(
+                                '$familyName · ${localizations.askAboutFamily}',
+                                style: style,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                         );
@@ -487,6 +503,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   Widget _buildEmptyState(ChatProvider chatProvider) {
     final scheme = Theme.of(context).colorScheme;
     final localizations = AppLocalizations.of(context);
+    final inFamilyBook = bookFamilyName(context) != null;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
@@ -501,7 +518,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            localizations.aiChatDes,
+            inFamilyBook ? localizations.familyChatGreeting : localizations.aiChatDes,
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant, height: 1.55),
             textAlign: TextAlign.center,
           ),
@@ -514,7 +531,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             ),
           ),
           const SizedBox(height: 8),
-          ..._quickSuggestions(localizations).map((s) => _suggestionRow(s, chatProvider)),
+          ...(inFamilyBook ? _familySuggestions(localizations) : _quickSuggestions(localizations))
+              .map((s) => _suggestionRow(s, chatProvider)),
         ],
       ),
     );
