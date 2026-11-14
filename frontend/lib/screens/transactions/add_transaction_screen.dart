@@ -6,6 +6,9 @@ import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
+import 'package:frontend/providers/book_mode_provider.dart';
+import 'package:frontend/providers/family_provider.dart';
+import 'package:frontend/widgets/for_whom_picker.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
@@ -31,9 +34,10 @@ const double _kPinnedHeaderSlack = 36;
 
 /// Estimated height of the entry header (type toggle, currency chips,
 /// amount label and amount) at [textScaler]. Only the text parts grow with
-/// the text scale; paddings stay fixed. ≈190 dp at scale 1.0.
+/// the text scale; paddings stay fixed. ≈190 dp at scale 1.0. [withBookChip]:
+/// the "Adding to" chip above them (members of a family), ≈39 dp more.
 @visibleForTesting
-double estimatedEntryHeaderHeight(TextScaler textScaler) {
+double estimatedEntryHeaderHeight(TextScaler textScaler, {bool withBookChip = false}) {
   // Toggle padding (4+4+10+10) + chip padding (7+7) + gaps (12 + 14 + 6 + 8)
   // + top padding 4.
   const fixed = 28.0 + 14.0 + 40.0 + 4.0;
@@ -42,15 +46,17 @@ double estimatedEntryHeaderHeight(TextScaler textScaler) {
       textScaler.scale(13) +
       textScaler.scale(13) +
       textScaler.scale(42);
-  return fixed + text * 1.3;
+  // Book chip: padding 6+6 and a 10 dp gap below, plus a 13 pt line.
+  final chip = withBookChip ? 22.0 + textScaler.scale(13) * 1.3 : 0.0;
+  return fixed + text * 1.3 + chip;
 }
 
 /// Minimum body height for pinning the type toggle + amount above the
 /// scrolling area: header + full keypad + breathing room (≈460 dp at text
 /// scale 1.0; larger text needs more room, else everything scrolls).
 @visibleForTesting
-double pinnedHeaderMinHeight(TextScaler textScaler) =>
-    estimatedEntryHeaderHeight(textScaler) + _kKeypadHeight + _kPinnedHeaderSlack;
+double pinnedHeaderMinHeight(TextScaler textScaler, {bool withBookChip = false}) =>
+    estimatedEntryHeaderHeight(textScaler, withBookChip: withBookChip) + _kKeypadHeight + _kPinnedHeaderSlack;
 
 // Extension for safely finding an element in a list
 extension FirstWhereOrNullExtension<E> on Iterable<E> {
@@ -66,6 +72,9 @@ extension FirstWhereOrNullExtension<E> on Iterable<E> {
 
 class AddTransactionScreen extends StatefulWidget {
   const AddTransactionScreen({super.key, this.categoriesLoader});
+
+  /// The "Adding to: Personal / (family name)" chip (members of a family only).
+  static const Key bookChipKey = ValueKey('add-book-chip');
 
   /// Loads the category list for a type; [ApiService.getCategories] unless
   /// given (tests pass a fixed list).
@@ -92,6 +101,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String? _saveError;
 
   TransactionRecurrence? _recurrence;
+
+  /// The book this entry goes to when the book chip flipped it; null: the
+  /// app's current book. For this entry only: the app's mode never changes.
+  BookMode? _flippedBook;
+
+  /// Family book: who it was for (member ids); empty is Whole family.
+  List<String> _forWhom = const [];
 
   Currency _selectedCurrency = Currency.usd;
 
@@ -197,6 +213,20 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// The app's current book (Personal where the family providers aren't in
+  /// the tree).
+  BookMode _currentBook({bool listen = true}) =>
+      Provider.of<BookModeProvider?>(context, listen: listen)?.mode ?? BookMode.personal;
+
+  /// The book this entry goes to: the flipped one, else the current one.
+  BookMode _targetBook({bool listen = true}) => _flippedBook ?? _currentBook(listen: listen);
+
+  /// The signed-in person's family; null with no family (no chip then).
+  FamilyProvider? _familyOrNull({bool listen = true}) {
+    final family = Provider.of<FamilyProvider?>(context, listen: listen);
+    return family != null && family.inFamily ? family : null;
   }
 
   Future<void> _goVoice() async {
@@ -534,7 +564,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             // with the text scale, so the threshold does too (otherwise the
             // scroll area could end up smaller than the keypad).
             _headerPinned = constraints.maxHeight >=
-                pinnedHeaderMinHeight(MediaQuery.textScalerOf(context));
+                pinnedHeaderMinHeight(MediaQuery.textScalerOf(context), withBookChip: _familyOrNull() != null);
             if (_headerPinned) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -566,9 +596,67 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
   }
 
-  /// Type toggle, currency chips and the amount display.
+  /// "Adding to: Personal / (family name)": which book the entry goes to. Tapping
+  /// it flips the book for this entry only.
+  Widget _bookChip(AppLocalizations localizations, ColorScheme scheme, FamilyProvider family) {
+    final target = _targetBook();
+    final toFamily = target == BookMode.family;
+    final name = toFamily ? (family.family?.name.trim() ?? '') : localizations.bookPersonal;
+    return Center(
+      child: Semantics(
+        button: true,
+        child: InkWell(
+          key: AddTransactionScreen.bookChipKey,
+          onTap: () => setState(() => _flippedBook = toFamily ? BookMode.personal : BookMode.family),
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: toFamily ? scheme.secondaryContainer : Theme.of(context).cardTheme.color,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: toFamily ? Colors.transparent : scheme.outline),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  toFamily ? Icons.family_restroom_rounded : Icons.person_rounded,
+                  size: 16,
+                  color: toFamily ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                // A long family name ends in "…"; the swap icon always shows.
+                Flexible(
+                  child: Text(
+                    localizations.addingToBook(name),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: toFamily ? scheme.onSecondaryContainer : scheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(Icons.swap_horiz_rounded, size: 16, color: scheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Book chip (members of a family), type toggle, currency chips and the
+  /// amount display.
   List<Widget> _buildEntryHeader(AppLocalizations localizations, ColorScheme scheme, Color typeInk) {
+    final family = _familyOrNull();
     return [
+              if (family != null) ...[
+                _bookChip(localizations, scheme, family),
+                const SizedBox(height: 10),
+              ],
               // Type segmented control
               Container(
                 padding: const EdgeInsets.all(4),
@@ -800,6 +888,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         ),
                       ),
                     ),
+                    if (_familyOrNull() != null && _targetBook() == BookMode.family) ...[
+                      Divider(height: 1, indent: 52),
+                      ForWhomRow(
+                        selected: _forWhom,
+                        onChanged: (picked) => setState(() => _forWhom = picked),
+                      ),
+                    ],
                     Divider(height: 1, indent: 52),
                     InkWell(
                       onTap: _openRepeatSheet,
@@ -1155,13 +1250,27 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
 
+    final family = _familyOrNull(listen: false);
+    final current = _currentBook(listen: false);
+    final target = _targetBook(listen: false);
+    final toFamily = target == BookMode.family;
+    // A read-only family takes no new entries (the server would refuse).
+    if (toFamily && (family?.readOnly ?? false)) {
+      _showError(localizations.familyReadOnlyBanner);
+      return;
+    }
+
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
     setState(() {
       _isSaving = true;
       _saveError = null;
     });
+    // The current book's providers are refreshed by the caller; the mode
+    // never changes here, even when the entry went to the other book.
     final success = await transactionProvider.createTransaction(
+      forWhom: toFamily && family != null ? _forWhom : null,
+      bookOverride: target == current ? null : target,
       type: _selectedType,
       mainCategory: _selectedMainCategory!,
       subCategory: _selectedSubCategory!,

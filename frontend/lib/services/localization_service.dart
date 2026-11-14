@@ -1330,6 +1330,32 @@ class AppLocalizations {
       'familyDeclined': 'Invitation declined.',
       'familyDeleteAccountNote': "You'll leave your family. The entries you added stay in the family book.",
       'familyDeleteAccountNoteOwner': "You own your family: it passes to the longest-standing admin (or member, if there's no admin). If nobody else is left, the family is deleted.",
+      // Family entries and transfers (Task 15)
+      'addingToBook': 'Adding to: {book}',
+      'forWhomLabel': 'For whom',
+      'forWhomTitle': 'Who was it for?',
+      'forWhomHint': 'Pick one or more people, or the whole family.',
+      'wholeFamily': 'Whole family',
+      'addedByName': 'Added by {name}',
+      'familyFormerName': '{name} (former)',
+      'entryNotYoursReason': 'Only the person who added this entry, or an admin, can change it.',
+      'transferTitle': 'Transfer',
+      'transferToFamily': 'Moved to family wallet',
+      'transferFromFamily': 'Taken from family wallet',
+      'moveToFamilyWallet': 'Move to family wallet',
+      'takeFromFamilyWallet': 'Take from family wallet',
+      'moveToFamilyHint': "From your wallet into the family's",
+      'takeFromFamilyHint': "From the family's wallet into yours",
+      'transferMoveButton': 'Move money',
+      'transferNotIncome': "A transfer isn't income or spending. It only moves money between the two wallets.",
+      'transferDone': 'Money moved.',
+      'transferInsufficient': "There isn't that much money available in the wallet it comes from.",
+      'transferUndoInsufficient': "The money has already been spent or set aside, so this can't be undone.",
+      'transferGone': "This transfer can't be undone: one side of it no longer exists.",
+      'undoTransfer': 'Undo transfer',
+      'undoTransferConfirm': 'Both sides are removed, and the money goes back to the wallet it came from.',
+      'transferUndone': 'Transfer undone.',
+      'transferOnlyMakerUndo': 'Only the person who made this transfer can undo it.',
     },
     'my': {
       // Home Screen
@@ -2557,6 +2583,32 @@ class AppLocalizations {
       'familyDeclined': 'ဖိတ်ကြားချက်ကို ငြင်းလိုက်ပါပြီ။',
       'familyDeleteAccountNote': 'သင့်မိသားစုမှ ထွက်သွားပါမယ်။ သင်ထည့်ခဲ့သော စာရင်းများ မိသားစုစာရင်းထဲ ကျန်ရှိနေပါမယ်။',
       'familyDeleteAccountNoteOwner': 'သင်ပိုင်သော မိသားစုကို အကြာဆုံး စီမံသူ (စီမံသူ မရှိလျှင် အကြာဆုံး အဖွဲ့ဝင်) ထံ လွှဲပေးပါမယ်။ ကျန်သူ မရှိလျှင် မိသားစုကို ဖျက်ပါမယ်။',
+      // Family entries and transfers (Task 15)
+      'addingToBook': '{book} စာရင်းထဲ ထည့်မည်',
+      'forWhomLabel': 'ဘယ်သူ့အတွက်',
+      'forWhomTitle': 'ဘယ်သူ့အတွက်လဲ',
+      'forWhomHint': 'တစ်ယောက် သို့မဟုတ် အများကို ရွေးပါ၊ မဟုတ်ရင် မိသားစုတစ်ခုလုံးကို ရွေးပါ။',
+      'wholeFamily': 'မိသားစုတစ်ခုလုံး',
+      'addedByName': '{name} ထည့်ခဲ့သည်',
+      'familyFormerName': '{name} (ယခင်အဖွဲ့ဝင်)',
+      'entryNotYoursReason': 'ဒီစာရင်းကို ထည့်ခဲ့သူ သို့မဟုတ် စီမံသူသာ ပြင်နိုင်ပါတယ်။',
+      'transferTitle': 'ငွေလွှဲမှု',
+      'transferToFamily': 'မိသားစုပိုက်ဆံအိတ်သို့ ရွှေ့ထားသည်',
+      'transferFromFamily': 'မိသားစုပိုက်ဆံအိတ်မှ ယူထားသည်',
+      'moveToFamilyWallet': 'မိသားစုပိုက်ဆံအိတ်သို့ ရွှေ့ရန်',
+      'takeFromFamilyWallet': 'မိသားစုပိုက်ဆံအိတ်မှ ယူရန်',
+      'moveToFamilyHint': 'သင့်ပိုက်ဆံအိတ်မှ မိသားစုပိုက်ဆံအိတ်သို့',
+      'takeFromFamilyHint': 'မိသားစုပိုက်ဆံအိတ်မှ သင့်ပိုက်ဆံအိတ်သို့',
+      'transferMoveButton': 'ငွေရွှေ့မည်',
+      'transferNotIncome': 'ငွေလွှဲမှုသည် ဝင်ငွေ သို့မဟုတ် သုံးငွေ မဟုတ်ပါ။ ပိုက်ဆံအိတ်နှစ်ခုကြား ငွေရွှေ့ရုံသာ ဖြစ်ပါတယ်။',
+      'transferDone': 'ငွေ ရွှေ့ပြီးပါပြီ။',
+      'transferInsufficient': 'ငွေထုတ်မည့် ပိုက်ဆံအိတ်တွင် သုံးနိုင်သောငွေ မလုံလောက်ပါ။',
+      'transferUndoInsufficient': 'ထိုငွေကို သုံးပြီး သို့မဟုတ် ဖယ်ထားပြီး ဖြစ်သဖြင့် ပြန်ရုပ်သိမ်း၍ မရပါ။',
+      'transferGone': 'ဤငွေလွှဲမှု၏ တစ်ဘက်မှာ မရှိတော့သဖြင့် ပြန်ရုပ်သိမ်း၍ မရပါ။',
+      'undoTransfer': 'ငွေလွှဲမှု ပြန်ရုပ်သိမ်းရန်',
+      'undoTransferConfirm': 'နှစ်ဘက်လုံး ပျက်သွားပြီး ငွေက မူလပိုက်ဆံအိတ်ထဲ ပြန်ရောက်ပါမယ်။',
+      'transferUndone': 'ငွေလွှဲမှုကို ပြန်ရုပ်သိမ်းပြီးပါပြီ။',
+      'transferOnlyMakerUndo': 'ဤငွေလွှဲမှုကို ပြုလုပ်သူသာ ပြန်ရုပ်သိမ်းနိုင်ပါတယ်။',
     }
   };
 
@@ -3871,6 +3923,51 @@ class AppLocalizations {
   /// The owner's family passes on as the server does: the longest-standing
   /// admin, else member; deleted when nobody else is left.
   String get familyDeleteAccountNoteOwner => translate('familyDeleteAccountNoteOwner');
+
+  // ---- Family entries and transfers (Task 15) ----
+
+  /// The book chip on New entry: "Adding to: Personal" / "Adding to: (family name)".
+  String addingToBook(String book) => translate('addingToBook').replaceAll('{book}', book);
+  String get forWhomLabel => translate('forWhomLabel');
+  String get forWhomTitle => translate('forWhomTitle');
+  String get forWhomHint => translate('forWhomHint');
+
+  /// "For whom" with nobody picked (no tags).
+  String get wholeFamily => translate('wholeFamily');
+  String addedByName(String name) => translate('addedByName').replaceAll('{name}', name);
+
+  /// A former member's name on an entry: "Uncle (former)".
+  String familyFormerName(String name) => translate('familyFormerName').replaceAll('{name}', name);
+
+  /// Why Save and Delete are off on someone else's family entry.
+  String get entryNotYoursReason => translate('entryNotYoursReason');
+  String get transferTitle => translate('transferTitle');
+
+  /// A transfer leg's label: money that went into the family wallet.
+  String get transferToFamily => translate('transferToFamily');
+
+  /// A transfer leg's label: money that came out of the family wallet.
+  String get transferFromFamily => translate('transferFromFamily');
+  String get moveToFamilyWallet => translate('moveToFamilyWallet');
+  String get takeFromFamilyWallet => translate('takeFromFamilyWallet');
+  String get moveToFamilyHint => translate('moveToFamilyHint');
+  String get takeFromFamilyHint => translate('takeFromFamilyHint');
+  String get transferMoveButton => translate('transferMoveButton');
+  String get transferNotIncome => translate('transferNotIncome');
+  String get transferDone => translate('transferDone');
+
+  /// `transfer_insufficient` on a new transfer.
+  String get transferInsufficient => translate('transferInsufficient');
+
+  /// `transfer_insufficient` on Undo: the destination already used the money.
+  String get transferUndoInsufficient => translate('transferUndoInsufficient');
+
+  /// `transfer_gone`: one leg no longer exists.
+  String get transferGone => translate('transferGone');
+  String get undoTransfer => translate('undoTransfer');
+  String get undoTransferConfirm => translate('undoTransferConfirm');
+  String get transferUndone => translate('transferUndone');
+  String get transferOnlyMakerUndo => translate('transferOnlyMakerUndo');
 
   /// A plan date (when an allowance resets, when a request was made) in the
   /// device's local time: [AppDates.full] in this app language ("1 Dec 2026";

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/models/family.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/user.dart';
@@ -30,6 +31,7 @@ class _FakeTransactions extends TransactionProvider {
     Currency? currency,
     BuildContext? context,
     TransactionRecurrence? recurrence,
+    List<String>? forWhom,
   }) async {
     updates.add(amount ?? -1);
     return true;
@@ -55,6 +57,7 @@ class _RejectingTransactions extends TransactionProvider {
     Currency? currency,
     BuildContext? context,
     TransactionRecurrence? recurrence,
+    List<String>? forWhom,
   }) async =>
       false;
 }
@@ -77,6 +80,7 @@ class _SlowTransactions extends TransactionProvider {
     Currency? currency,
     BuildContext? context,
     TransactionRecurrence? recurrence,
+    List<String>? forWhom,
   }) {
     calls++;
     return pending.future;
@@ -101,6 +105,8 @@ class _RejectingNewEntry extends TransactionProvider {
     required Currency currency,
     BuildContext? context,
     TransactionRecurrence? recurrence,
+    List<String>? forWhom,
+    BookMode? bookOverride,
   }) async =>
       false;
 }

@@ -5,7 +5,11 @@ import 'package:frontend/widgets/app_bar_save_button.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/providers/family_provider.dart';
+import 'package:frontend/screens/transactions/transfer_detail_view.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/utils/family_entries.dart';
+import 'package:frontend/widgets/for_whom_picker.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
@@ -66,9 +70,23 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
   // transaction type can't overwrite the list for the current one.
   int _categoryRequestId = 0;
 
+  /// Family book: who it is for (member ids; empty is Whole family). Sent
+  /// only when it differs from the entry's.
+  late List<String> _forWhom;
+
   @override
   void initState() {
     super.initState();
+    _forWhom = widget.transaction.forWhom;
+    // A transfer opens read-only (TransferDetailView): no form, no categories.
+    if (widget.transaction.isTransfer) {
+      _amountText = '';
+      _descriptionController = TextEditingController();
+      _selectedType = widget.transaction.type;
+      _selectedDate = widget.transaction.date;
+      _selectedCurrency = widget.transaction.currency;
+      return;
+    }
 
     // Initialize form fields with the data from the passed transaction
     _amountText = _formatAmountForField(widget.transaction.amount);
@@ -422,12 +440,53 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
     );
   }
 
+  /// "Added by (name)" (family entries) and, when the entry can't be
+  /// changed, why: a short block above the form.
+  Widget _entryInfo(AppLocalizations l, ColorScheme scheme, {String? addedBy, String? lockReason}) {
+    Widget line(IconData icon, String text) => Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            // Wraps; never cut short.
+            Expanded(
+              child: Text(text, style: TextStyle(fontSize: 13, height: 1.4, color: scheme.onSurfaceVariant)),
+            ),
+          ],
+        );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: AppTheme.trackFor(context), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (addedBy != null) line(Icons.person_rounded, l.addedByName(addedBy)),
+          if (addedBy != null && lockReason != null) const SizedBox(height: 8),
+          if (lockReason != null) line(Icons.lock_outline_rounded, lockReason),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Transfers can't be edited: a read-only view, with Undo for its maker.
+    if (widget.transaction.isTransfer) return TransferDetailView(transaction: widget.transaction);
+
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final isInflow = _selectedType == TransactionType.inflow;
     final typeInk = isInflow ? scheme.primary : scheme.error;
+
+    final familyBook = showsFamilyBook(context);
+    final family = Provider.of<FamilyProvider?>(context);
+    final readOnly = familyBook && (family?.readOnly ?? false);
+    final canChange = !readOnly && canChangeEntry(widget.transaction, familyBook: familyBook, family: family);
+    final lockReason = readOnly ? localizations.familyReadOnlyBanner : (canChange ? null : localizations.entryNotYoursReason);
+    final addedBy = familyBook && widget.transaction.addedBy != null
+        ? memberRefName(localizations, widget.transaction.addedBy!, family)
+        : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -448,9 +507,14 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
             color: scheme.error,
             tooltip: localizations.deleteTransactionTitle,
             // Not while a save is in flight: deleting under it races the update.
-            onPressed: _isSaving ? null : _showDeleteSheet,
+            // Nor on someone else's family entry (see lockReason).
+            onPressed: _isSaving || !canChange ? null : _showDeleteSheet,
           ),
-          AppBarSaveButton(label: localizations.save, saving: _isSaving, onPressed: _updateTransaction),
+          AppBarSaveButton(
+            label: localizations.save,
+            saving: _isSaving,
+            onPressed: canChange ? _updateTransaction : null,
+          ),
         ],
       ),
       body: SafeArea(
@@ -459,6 +523,9 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (addedBy != null || lockReason != null)
+                _entryInfo(localizations, scheme, addedBy: addedBy, lockReason: lockReason),
+
               // Type segmented control
               Container(
                 padding: const EdgeInsets.all(4),
@@ -607,6 +674,13 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
                         ),
                       ),
                     ),
+                    if (familyBook) ...[
+                      Divider(height: 1, indent: 52),
+                      ForWhomRow(
+                        selected: _forWhom,
+                        onChanged: (picked) => setState(() => _forWhom = picked),
+                      ),
+                    ],
                     Divider(height: 1, indent: 52),
                     InkWell(
                       onTap: () {
@@ -1174,6 +1248,11 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       );
     }
 
+    // Family book: who it is for, only when it changed (null keeps it).
+    final original = widget.transaction.forWhom.toSet();
+    final forWhomChanged = _forWhom.length != original.length || !_forWhom.every(original.contains);
+    final forWhomToSend = showsFamilyBook(context, listen: false) && forWhomChanged ? _forWhom : null;
+
     setState(() {
       _isSaving = true;
       _saveError = null;
@@ -1190,6 +1269,7 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       currency: _selectedCurrency,
       context: context,
       recurrence: recurrenceToSend,
+      forWhom: forWhomToSend,
     );
     if (!mounted) return;
 

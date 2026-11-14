@@ -583,12 +583,14 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, String>> _getHeaders() async {
+  /// The headers of every call. [book] overrides [bookMode] for this one
+  /// call (an entry added to the other book).
+  static Future<Map<String, String>> _getHeaders({BookMode? book}) async {
     final token = await getToken();
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
-      if (bookMode == BookMode.family) 'X-Book': 'family',
+      if ((book ?? bookMode) == BookMode.family) 'X-Book': 'family',
     };
   }
 
@@ -1033,7 +1035,10 @@ class ApiService {
     required Currency currency,
     TransactionRecurrence? recurrence,
     List<String>? forWhom,
+    BookMode? bookOverride,
   }) async {
+    // [bookOverride]: the book this one entry goes to when it isn't the
+    // app's current book (New entry's book chip); null follows [bookMode].
     final body = {
       'type': type.name,
       'main_category': mainCategory,
@@ -1052,7 +1057,7 @@ class ApiService {
     }
     final response = await _client.post(
       Uri.parse('$baseUrl/api/transactions'),
-      headers: await _getHeaders(),
+      headers: await _getHeaders(book: bookOverride),
       body: jsonEncode(body),
     );
     if (response.statusCode == 200) {

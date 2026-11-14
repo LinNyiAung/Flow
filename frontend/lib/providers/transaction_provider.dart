@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/family.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
 import 'package:provider/provider.dart';
@@ -91,9 +92,14 @@ class TransactionProvider with ChangeNotifier {
   required Currency currency,  // NEW
   BuildContext? context,
   TransactionRecurrence? recurrence,
+  List<String>? forWhom,
+  BookMode? bookOverride,
 }) async {
   _setLoading(true);
   _setWriteError(null);
+  // An entry added to the other book (New entry's book chip) never joins
+  // this list, which shows the app's current book.
+  final otherBook = bookOverride != null && bookOverride != ApiService.bookMode;
 
   try {
     final transaction = await ApiService.createTransaction(
@@ -105,9 +111,11 @@ class TransactionProvider with ChangeNotifier {
       amount: amount,
       currency: currency,  // NEW
       recurrence: recurrence,
+      forWhom: forWhom,
+      bookOverride: otherBook ? bookOverride : null,
     );
 
-    _transactions.insert(0, transaction);
+    if (!otherBook) _transactions.insert(0, transaction);
     await Future.wait([fetchBalance(), fetchWeekSpending()]);
     
     _refreshAiData(context);
@@ -133,6 +141,7 @@ Future<bool> updateTransaction({
   Currency? currency,  // NEW
   BuildContext? context,
   TransactionRecurrence? recurrence,
+  List<String>? forWhom,
 }) async {
   _setLoading(true);
   _setWriteError(null);
@@ -148,6 +157,7 @@ Future<bool> updateTransaction({
       amount: amount,
       currency: currency,  // NEW
       recurrence: recurrence,
+      forWhom: forWhom,
     );
 
     final index = _transactions.indexWhere((t) => t.id == transactionId);
@@ -188,6 +198,27 @@ Future<bool> updateTransaction({
       _setLoading(false);
       return false;
     }
+  }
+
+  /// Undoes a transfer the user made: both legs go together. Throws the
+  /// server's refusal (an [ApiException] with its code) for the caller to
+  /// explain; on success both legs leave the list and the balance reloads.
+  Future<void> undoTransfer(String transferId, {BuildContext? context}) async {
+    // Looked up before the request: [context] may be gone once it answers.
+    ChatProvider? chat;
+    if (context != null) {
+      try {
+        chat = Provider.of<ChatProvider>(context, listen: false);
+      } catch (_) {
+        // No chat in the tree (tests): nothing to refresh.
+      }
+    }
+    await ApiService.undoTransfer(transferId);
+    _transactions.removeWhere((t) => t.transferId == transferId);
+    _weekOutflows = _weekOutflows.where((t) => t.transferId != transferId).toList();
+    notifyListeners();
+    await Future.wait([fetchBalance(), fetchWeekSpending()]);
+    chat?.refreshAiData();
   }
 
   // Fetch all transactions for the user, optionally filtered by type and date range
@@ -240,7 +271,8 @@ Future<bool> updateTransaction({
         limit: 10000,
       );
       if (gen != _generation || requestId != _weekRequestId) return;
-      _weekOutflows = result;
+      // A transfer to the family wallet is not spending.
+      _weekOutflows = result.where((t) => !t.isTransfer).toList();
       notifyListeners();
     } catch (e) {
       debugPrint("Error fetching week spending: $e");
