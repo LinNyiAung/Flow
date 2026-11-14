@@ -2315,6 +2315,14 @@ def section_ai():
                   and "book.invalid" not in (row.get("user_email") or "") and M["email"] in (row.get("user_email") or ""),
                   "ai: the admin AI usage report labels the book's row 'Family · <name>' with the owner's e-mail",
                   (r.status_code, row))
+            r = c.get("/api/admin/ai-usage/stats", headers=ah, params={"start_date": started.isoformat()})
+            people = db.sql("SELECT count(DISTINCT a.user_id) n FROM ai_usage a JOIN users u ON u.id = a.user_id "
+                            "WHERE a.created_at >= %s AND u.kind = 'person'", started)[0]["n"]
+            book_rows = db.sql("SELECT count(*) n FROM ai_usage WHERE user_id = %s AND created_at >= %s",
+                               book, started)[0]["n"]
+            check(r.status_code == 200 and book_rows > 0 and r.json().get("total_users") == people,
+                  "ai: the admin AI page's Active Users count leaves the book user out",
+                  (r.status_code, r.json().get("total_users") if r.status_code == 200 else r.text[:200], people, book_rows))
         finally:
             db.admins.delete_many({"email": admins["super_admin"]})
 
@@ -2348,6 +2356,54 @@ def section_ai():
         r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
         check(r.status_code == 200 and r.json().get("user_id") == book,
               "ai: under the cap again, Dad's family GET makes the family's monthly insight", f"{r.status_code} {r.text[:200]}")
+
+        # ---- R16: the book's own AI spend counts toward the owner's cap ----
+        db.sql("DELETE FROM insights WHERE user_id = %s", book)
+        mum_spend = db.sql("SELECT coalesce(sum(estimated_cost_usd), 0) n FROM ai_usage WHERE user_id = %s", M["id"])[0]["n"]
+        book_row = str(uuid.uuid4())
+        db.sql("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, estimated_cost_usd) "
+               "VALUES (%s, %s, 'weekly_insight', 'openai', 'gpt-test', 2)", book_row, book)
+        try:
+            run_job("weekly")
+            check(float(mum_spend) < 0.5 and book_insights("weekly") == 0,
+                  "ai: R16: the weekly job skips the family when the book's spend takes the owner over the cap",
+                  (mum_spend, book_insights("weekly")))
+            r = c.post("/api/insights/regenerate", headers=H(M, True), params={"insight_type": "weekly"})
+            check(_code(r, 429, "plan_cost_cap") and book_insights("weekly") == 0,
+                  "ai: R16: a family regenerate is plan_cost_cap when the book's spend takes the owner over the cap",
+                  f"{r.status_code} {r.text[:200]}")
+            r = c.post("/api/insights/regenerate", headers=H(M), params={"insight_type": "weekly"})
+            ok = chat(M, False, f"mum personal again {tag}")
+            check(r.status_code == 200 and r.json().get("user_id") == M["id"] and ok,
+                  "ai: R16: Mum's own personal insight and chat are unaffected by the book's spend",
+                  (f"{r.status_code} {r.text[:200]}", ok))
+        finally:
+            db.sql("DELETE FROM ai_usage WHERE id = %s", book_row)
+
+        # ---- the family insight prompt: the family's name and the owner's currency ----
+        async def insight_contexts():
+            import insights_service as ins
+            seen = []
+            orig = ins._call_insight_model
+
+            async def fake_call(feature, system_prompt, context, user_id, label, **kw):
+                seen.append((feature, context))
+                return "## Fake family insight", "gemini", 1, 1, 2
+            ins._call_insight_model = fake_call
+            try:
+                await ins.generate_weekly_insight(book)
+                await ins.generate_monthly_insight(book)
+            finally:
+                ins._call_insight_model = orig
+            return seen
+        try:
+            contexts = _backend_async(insight_contexts)
+        except Exception as e:  # noqa: BLE001
+            contexts = [("error", repr(e)[:300])]
+        check(len(contexts) == 2 and all(f"USER: {fam_name}" in ctx and "DEFAULT CURRENCY: MMK" in ctx
+                                         and "Family book" not in ctx for _, ctx in contexts),
+              "ai: the family weekly and monthly insight prompts name the family and use the owner's currency",
+              [(f, ctx[:160]) for f, ctx in contexts])
     finally:
         _cleanup_people(made)
 
