@@ -10,6 +10,7 @@ import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/utils/family_permissions.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
@@ -481,10 +482,13 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     if (success) {
       Navigator.pop(context, true);
     } else {
-      final error = Provider.of<BudgetProvider>(context, listen: false).error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error ?? localizations.failedToCreateBudget)),
-      );
+      final budgets = Provider.of<BudgetProvider>(context, listen: false);
+      // Skipped when the app already said it (a Family-mode no_family).
+      if (!budgets.errorReported) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(budgets.error ?? localizations.failedToCreateBudget)),
+        );
+      }
     }
   }
 
@@ -536,7 +540,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
           children: [
-            // AI entry point
+            // AI entry point (a family's AI suggestion is an admin's too).
+            if (canManageBudgetsGoals(context)) ...[
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
               decoration: BoxDecoration(
@@ -607,8 +612,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                 ],
               ),
             ),
-
             const SizedBox(height: 24),
+            ],
 
             // Name Field
             TextFormField(

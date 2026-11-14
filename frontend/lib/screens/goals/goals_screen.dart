@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
+import '../../utils/family_permissions.dart';
 import '../../widgets/app_drawer.dart';
 import 'add_goal_screen.dart';
 import 'goal_detail_screen.dart';
@@ -168,6 +169,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
         color: scheme.primary,
         child: CustomScrollView(
           slivers: [
+            // Family mode, no rights to change goals: why there is no + button.
+            if (!canManageBudgetsGoals(context))
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: FamilyManageNote(goals: true),
+                ),
+              ),
             // Summary card — matches the mockup's Goals screen exactly: a
             // plain elevated card (NOT the tonal primaryContainer hero used
             // on Dashboard/Budgets/Goal detail — the prototype deliberately
@@ -304,11 +313,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToAddGoal,
-        tooltip: localizations.createNewGoal,
-        child: const Icon(Icons.add_rounded),
-      ),
+      // Family mode: only admins create goals (and nobody while read-only).
+      floatingActionButton: canManageBudgetsGoals(context)
+          ? FloatingActionButton(
+              onPressed: _navigateToAddGoal,
+              tooltip: localizations.createNewGoal,
+              child: const Icon(Icons.add_rounded),
+            )
+          : null,
     );
   }
 
@@ -586,6 +598,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       ),
                     ),
                   ),
+                  // A family member can only add money; nobody can in a read-only
+                  // family (the card still opens the goal).
+                  if (canAddToGoal(context)) ...[
                   const SizedBox(width: 8),
                   OutlinedButton(
                     onPressed: () => _navigateToGoalDetail(goal),
@@ -597,8 +612,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     ),
-                    child: Text(localizations.manageFunds, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    child: Text(canManageBudgetsGoals(context) ? localizations.manageFunds : localizations.addMoney,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                   ),
+                  ],
                 ],
               ),
               if (overdue) ...[
@@ -652,7 +669,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            none ? localizations.createGoalGetStarted : localizations.goalsFilterHint,
+            none ? (canManageBudgetsGoals(context) ? localizations.createGoalGetStarted : '') : localizations.goalsFilterHint,
             style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
             textAlign: TextAlign.center,
           ),

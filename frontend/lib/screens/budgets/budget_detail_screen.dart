@@ -4,6 +4,7 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/screens/budgets/edit_budget_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/utils/family_permissions.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/progress_meter.dart';
 import 'package:frontend/widgets/status_pill.dart';
@@ -43,7 +44,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     // the latest transactions (POST /budgets/{id}/refresh) before pulling the
     // now-current record. This runs automatically on load and on pull-to-
     // refresh — there is no user-facing "refresh" button.
-    await budgetProvider.refreshBudget(_budget.id);
+    // Family book: the server lets only admins ask for this (and not while
+    // read-only); everyone else just reads the current record.
+    if (canManageBudgetsGoals(context, listen: false)) await budgetProvider.refreshBudget(_budget.id);
     final updatedBudget = await budgetProvider.getBudget(_budget.id);
     // The user may have left the screen while the refresh was in flight.
     if (!mounted) return;
@@ -162,9 +165,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     if (success) {
       Navigator.pop(context, _deletedResultValue);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(budgetProvider.error ?? localizations.failedToDeleteBudget)),
-      );
+      // Skipped when the app already said it (a Family-mode no_family).
+      if (!budgetProvider.errorReported) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(budgetProvider.error ?? localizations.failedToDeleteBudget)),
+        );
+      }
     }
   }
 
@@ -274,6 +280,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final statusColor = _getStatusColor();
     final localizations = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
+    // Family mode: edit and delete are for admins (and nobody while read-only).
+    final canManage = canManageBudgetsGoals(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -283,10 +291,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          if (canManage)
           IconButton(
             icon: const Icon(Icons.edit_rounded),
             onPressed: _isDeleting ? null : () => _navigateToEditBudget(),
           ),
+          if (canManage)
           IconButton(
             icon: _isDeleting
                 ? SizedBox(

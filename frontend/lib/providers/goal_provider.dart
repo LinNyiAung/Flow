@@ -8,6 +8,7 @@ class GoalProvider with ChangeNotifier {
   GoalsSummary? _summary;
   bool _isLoading = false;
   String? _error;
+  bool _errorReported = false;
   MultiCurrencyGoalsSummary? _multiCurrencySummary;
 
   /// Bumped on [reset]; responses for an older session are discarded.
@@ -21,6 +22,7 @@ class GoalProvider with ChangeNotifier {
     _multiCurrencySummary = null;
     _isLoading = false;
     _error = null;
+    _errorReported = false;
     notifyListeners();
   }
 
@@ -30,6 +32,10 @@ class GoalProvider with ChangeNotifier {
   GoalsSummary? get summary => _summary;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  /// The last error is one the app already reported itself (a Family-mode
+  /// `no_family`): a screen must not show it again.
+  bool get errorReported => _errorReported;
 
   List<Goal> get activeGoals => _goals.where((g) => g.status == GoalStatus.active).toList();
   List<Goal> get achievedGoals => _goals.where((g) => g.status == GoalStatus.achieved).toList();
@@ -41,6 +47,15 @@ class GoalProvider with ChangeNotifier {
 
   void _setError(String? error) {
     _error = error;
+    if (error == null) _errorReported = false;
+    notifyListeners();
+  }
+
+  /// Sets [error] from a failed call, remembering whether the app already
+  /// said it itself (see [errorReported]).
+  void _setErrorFrom(Object e) {
+    _errorReported = e is ApiException && e.reported;
+    _error = e.toString().replaceAll('Exception: ', '');
     notifyListeners();
   }
 
@@ -83,7 +98,7 @@ class GoalProvider with ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return false;
     }
@@ -107,7 +122,7 @@ class GoalProvider with ChangeNotifier {
       _setLoading(false);
     } catch (e) {
       if (gen != _generation) return;
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
     }
   }
@@ -128,7 +143,7 @@ class GoalProvider with ChangeNotifier {
     try {
       return await ApiService.getGoal(goalId);
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       return null;
     }
   }
@@ -162,7 +177,7 @@ class GoalProvider with ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return false;
     }
@@ -191,7 +206,7 @@ class GoalProvider with ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return false;
     }
@@ -209,7 +224,7 @@ class GoalProvider with ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return false;
     }
@@ -217,6 +232,7 @@ class GoalProvider with ChangeNotifier {
 
   void clearError() {
     _error = null;
+    _errorReported = false;
     notifyListeners();
   }
 }

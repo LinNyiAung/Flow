@@ -1266,6 +1266,9 @@ class AppLocalizations {
       'familyNoLongerMember': "You're no longer in this family, so you're back in your personal book.",
       'bookPersonal': 'Personal',
       'familyReadOnlyBanner': "This family is read-only: the owner's plan has ended.",
+      'onlyAdminsChangeFamilyBudgets': 'Only admins can change family budgets.',
+      'onlyAdminsChangeFamilyGoals': 'Only admins can change family goals.',
+      'addMoney': 'Add money',
       'familyTitle': 'Family',
       'familyCreateOrJoin': 'Create or join a family',
       'familyCreateTitle': 'Create a family',
@@ -2519,6 +2522,9 @@ class AppLocalizations {
       'familyNoLongerMember': 'ဒီမိသားစုထဲမှာ မရှိတော့သဖြင့် ကိုယ်ပိုင်စာရင်းကို ပြန်ပြောင်းထားပါတယ်။',
       'bookPersonal': 'ကိုယ်ပိုင်',
       'familyReadOnlyBanner': 'ပိုင်ရှင်၏ အစီအစဉ် ကုန်ဆုံးသွားသဖြင့် ဒီမိသားစုစာရင်းကို ကြည့်ရုံသာ ကြည့်နိုင်ပါတယ်။',
+      'onlyAdminsChangeFamilyBudgets': 'မိသားစု ဘတ်ဂျက်များကို စီမံသူများသာ ပြောင်းလဲနိုင်ပါတယ်။',
+      'onlyAdminsChangeFamilyGoals': 'မိသားစု ရည်မှန်းချက်များကို စီမံသူများသာ ပြောင်းလဲနိုင်ပါတယ်။',
+      'addMoney': 'ငွေထည့်ရန်',
       'familyTitle': 'မိသားစု',
       'familyCreateOrJoin': 'မိသားစု ဖွဲ့ရန် သို့မဟုတ် ဝင်ရန်',
       'familyCreateTitle': 'မိသားစု ဖွဲ့ရန်',
@@ -3849,6 +3855,14 @@ class AppLocalizations {
   /// Family mode, the owner's plan has lapsed: everyone can read, nobody can
   /// add or change. Also the reason the + button gives.
   String get familyReadOnlyBanner => translate('familyReadOnlyBanner');
+
+  /// Shown to a family member who isn't an admin, where the create, edit and
+  /// delete controls for budgets and goals are missing.
+  String get onlyAdminsChangeFamilyBudgets => translate('onlyAdminsChangeFamilyBudgets');
+  String get onlyAdminsChangeFamilyGoals => translate('onlyAdminsChangeFamilyGoals');
+
+  /// A family member's goal button: they can only add money, not withdraw.
+  String get addMoney => translate('addMoney');
 
   // ---- Family management (Task 14) ----
   String get familyTitle => translate('familyTitle');

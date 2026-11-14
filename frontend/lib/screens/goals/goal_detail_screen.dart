@@ -4,6 +4,8 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
+import 'package:frontend/utils/family_permissions.dart';
+import 'package:frontend/widgets/read_only_banner.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/mascot.dart';
 import 'package:frontend/widgets/progress_meter.dart';
@@ -117,6 +119,8 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     } else {
       if (!mounted) return;
       Navigator.pop(context); // Close sheet
+      // Skipped when the app already said it (a Family-mode no_family).
+      if (goalProvider.errorReported) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(goalProvider.error ?? localizations.operationFailed),
@@ -135,7 +139,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
 
     final localizations = AppLocalizations.of(context);
     final canAdd = _currentGoal.status == GoalStatus.active;
-    final canWithdraw = _currentGoal.currentAmount > 0;
+    // Family book: only admins take money out; a member can only add.
+    final canWithdraw = _currentGoal.currentAmount > 0 && canManageBudgetsGoals(context, listen: false);
+    final managesFunds = canManageBudgetsGoals(context, listen: false);
 
     _isContributionLoading = false;
     _contributionController.clear();
@@ -178,7 +184,8 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(localizations.manageFunds, style: Theme.of(sheetContext).textTheme.titleLarge),
+              Text(managesFunds ? localizations.manageFunds : localizations.addMoney,
+                  style: Theme.of(sheetContext).textTheme.titleLarge),
               const SizedBox(height: 4),
               Text(
                 '${localizations.available}: ${formatMoney(availableBalance, _currentGoal.currency)}',
@@ -508,7 +515,8 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                             behavior: SnackBarBehavior.floating,
                           ),
                         );
-                      } else {
+                      } else if (!goalProvider.errorReported) {
+                        // (Not when the app already said it: a Family-mode no_family.)
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(goalProvider.error ?? localizations.failedToUpdateGoal),
@@ -594,6 +602,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     } else {
       if (dialogContext.mounted) Navigator.pop(dialogContext); // Close dialog
       if (!mounted) return;
+      if (goalProvider.errorReported) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(goalProvider.error ?? localizations.failedToDeleteGoal),
@@ -622,6 +631,8 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     }
 
     final scheme = Theme.of(context).colorScheme;
+    final canManage = canManageBudgetsGoals(context);
+    final canAdd = canAddToGoal(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(localizations.goalDetails),
@@ -630,11 +641,14 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           onPressed: () => Navigator.pop(context, true),
         ),
         actions: [
-          IconButton(
-            icon: Icon(Icons.edit_rounded, color: scheme.onSurfaceVariant),
-            onPressed: _showEditDialog,
-          ),
-          IconButton(icon: Icon(Icons.delete_rounded, color: scheme.error), onPressed: _showDeleteDialog),
+          // Family book: admins edit and delete (nobody while read-only).
+          if (canManage)
+            IconButton(
+              icon: Icon(Icons.edit_rounded, color: scheme.onSurfaceVariant),
+              onPressed: _showEditDialog,
+            ),
+          if (canManage)
+            IconButton(icon: Icon(Icons.delete_rounded, color: scheme.error), onPressed: _showDeleteDialog),
         ],
       ),
       body: SingleChildScrollView(
@@ -642,6 +656,11 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Read-only family: nothing can be changed, and this says why.
+            if (isFamilyReadOnly(context)) ...[
+              const ReadOnlyBanner(),
+              const SizedBox(height: 16),
+            ],
             _buildHeader(goalIcon),
             if (_currentGoal.isOverdue) ...[
               const SizedBox(height: 16),
@@ -654,13 +673,15 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             const SizedBox(height: 20),
 
             // Action Button
-            if (_currentGoal.status == GoalStatus.active || _currentGoal.currentAmount > 0)
+            // A member (family book) can only add money, so an achieved goal has
+            // nothing for them; nobody can add while the family is read-only.
+            if (canAdd && (_currentGoal.status == GoalStatus.active || (canManage && _currentGoal.currentAmount > 0)))
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: _isLoading ? null : _showManageFundsSheet, // NEW: Disable while loading
                   icon: const Icon(Icons.account_balance_wallet_rounded),
-                  label: Text(localizations.manageFunds),
+                  label: Text(canManage ? localizations.manageFunds : localizations.addMoney),
                 ),
               ),
           ],
@@ -881,11 +902,13 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               ],
             ),
           ),
-          TextButton(
-            onPressed: _isLoading ? null : _showEditDialog,
-            style: TextButton.styleFrom(foregroundColor: scheme.onErrorContainer),
-            child: Text(localizations.goalExtendDate),
-          ),
+          // Extending the date is an edit: admins only in a family book.
+          if (canManageBudgetsGoals(context))
+            TextButton(
+              onPressed: _isLoading ? null : _showEditDialog,
+              style: TextButton.styleFrom(foregroundColor: scheme.onErrorContainer),
+              child: Text(localizations.goalExtendDate),
+            ),
         ],
       ),
     );

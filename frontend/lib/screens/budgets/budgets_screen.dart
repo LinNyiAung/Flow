@@ -8,6 +8,7 @@ import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/utils/family_permissions.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/mascot.dart';
@@ -158,6 +159,14 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                 child: _buildSummaryHero(budgetProvider, localizations),
               ),
             ),
+            // Family mode, no rights to change budgets: why there is no + button.
+            if (!canManageBudgetsGoals(context))
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: FamilyManageNote(goals: false),
+                ),
+              ),
             SliverToBoxAdapter(child: const SizedBox(height: 16)),
             SliverToBoxAdapter(child: _buildFilterRow(localizations)),
             SliverToBoxAdapter(child: const SizedBox(height: 16)),
@@ -185,11 +194,14 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToCreateBudget,
-        tooltip: localizations.createNewBudget,
-        child: const Icon(Icons.add_rounded),
-      ),
+      // Family mode: only admins create budgets (and nobody while read-only).
+      floatingActionButton: canManageBudgetsGoals(context)
+          ? FloatingActionButton(
+              onPressed: _navigateToCreateBudget,
+              tooltip: localizations.createNewBudget,
+              child: const Icon(Icons.add_rounded),
+            )
+          : null,
     );
   }
 
@@ -599,7 +611,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              none ? localizations.createYourFirstBudget : localizations.budgetsFilterHint,
+              none ? (canManageBudgetsGoals(context) ? localizations.createYourFirstBudget : '') : localizations.budgetsFilterHint,
               style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),

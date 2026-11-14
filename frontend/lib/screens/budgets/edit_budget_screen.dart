@@ -237,10 +237,13 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
         SnackBar(content: Text(localizations.budgetUpdatedSuccessfully)),
       );
     } else {
-      final error = Provider.of<BudgetProvider>(context, listen: false).error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error ?? localizations.failedToUpdateBudget)),
-      );
+      final budgets = Provider.of<BudgetProvider>(context, listen: false);
+      // Skipped when the app already said it (a Family-mode no_family).
+      if (!budgets.errorReported) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(budgets.error ?? localizations.failedToUpdateBudget)),
+        );
+      }
     }
   }
 

@@ -8,6 +8,7 @@ class BudgetProvider with ChangeNotifier {
   BudgetSummary? _summary;
   bool _isLoading = false;
   String? _error;
+  bool _errorReported = false;
   Currency? _selectedCurrency;  // NEW: track selected currency for filtering
   MultiCurrencyBudgetSummary? _multiCurrencySummary;
 
@@ -36,6 +37,10 @@ class BudgetProvider with ChangeNotifier {
   BudgetSummary? get summary => _summary;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  /// The last error is one the app already reported itself (a Family-mode
+  /// `no_family`): a screen must not show it again.
+  bool get errorReported => _errorReported;
   Currency? get selectedCurrency => _selectedCurrency;  // NEW
   MultiCurrencyBudgetSummary? get multiCurrencySummary => _multiCurrencySummary;
 
@@ -57,6 +62,15 @@ class BudgetProvider with ChangeNotifier {
 
   void _setError(String? error) {
     _error = error;
+    if (error == null) _errorReported = false;
+    notifyListeners();
+  }
+
+  /// Sets [error] from a failed call, remembering whether the app already
+  /// said it itself (see [errorReported]).
+  void _setErrorFrom(Object e) {
+    _errorReported = e is ApiException && e.reported;
+    _error = e.toString().replaceAll('Exception: ', '');
     notifyListeners();
   }
 
@@ -106,7 +120,7 @@ class BudgetProvider with ChangeNotifier {
       return suggestion;
     } catch (e) {
       if (e is PlanLimitException) _planLimit = e;
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return null;
     }
@@ -146,7 +160,7 @@ class BudgetProvider with ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return false;
     }
@@ -172,7 +186,7 @@ class BudgetProvider with ChangeNotifier {
       _setLoading(false);
     } catch (e) {
       if (gen != _generation) return;
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
     }
   }
@@ -193,7 +207,7 @@ class BudgetProvider with ChangeNotifier {
     try {
       return await ApiService.getBudget(budgetId);
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       return null;
     }
   }
@@ -230,7 +244,7 @@ class BudgetProvider with ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return false;
     }
@@ -259,7 +273,7 @@ class BudgetProvider with ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError(e.toString().replaceAll('Exception: ', ''));
+      _setErrorFrom(e);
       _setLoading(false);
       return false;
     }
@@ -276,6 +290,7 @@ class BudgetProvider with ChangeNotifier {
 
   void clearError() {
     _error = null;
+    _errorReported = false;
     notifyListeners();
   }
 }

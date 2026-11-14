@@ -113,6 +113,8 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
       Navigator.pop(context, true);
     } else {
       if (!mounted) return;
+      // Skipped when the app already said it (a Family-mode no_family).
+      if (goalProvider.errorReported) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(goalProvider.error ?? localizations.failedToCreateGoal),
