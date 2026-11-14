@@ -42,6 +42,10 @@ class PlanBody(BaseModel):
     # Whole kyat; null: not set. Left out of every plan (an older admin panel): the prices stay as they are.
     price_monthly_mmk: Optional[StrictInt] = None
     price_yearly_mmk: Optional[StrictInt] = None
+    # Family limits (whole numbers, 0 to 50; plans.store.save checks the range). Left out or null: that plan's stored
+    # value stays as it is (an older admin panel).
+    family_max_members: Optional[StrictInt] = None
+    family_max_placeholders: Optional[StrictInt] = None
 
 
 class ContactBody(BaseModel):
@@ -82,6 +86,8 @@ def _snapshot() -> dict:
                 "cost_cap_usd": store.cost_cap(plan),
                 "price_monthly_mmk": store.prices(plan)["monthly_mmk"],
                 "price_yearly_mmk": store.prices(plan)["yearly_mmk"],
+                "family_max_members": store.family_limits(plan)[0],
+                "family_max_placeholders": store.family_limits(plan)[1],
             }
             for plan in PLANS
         },
@@ -113,6 +119,10 @@ def _changes(before: dict, after: dict) -> str:
             old_price, new_price = before["plans"][plan][key], after["plans"][plan][key]
             if old_price != new_price:
                 out.append(f"{plan} {label} price: {_fmt_price(old_price)} -> {_fmt_price(new_price)}")
+        for label, key in (("members", "family_max_members"), ("placeholders", "family_max_placeholders")):
+            old_n, new_n = before["plans"][plan][key], after["plans"][plan][key]
+            if old_n != new_n:
+                out.append(f"{plan} family {label} limit: {old_n} -> {new_n}")
     for lang in ("en", "my"):
         if before["upgrade_contact"][lang] != after["upgrade_contact"][lang]:
             out.append(f"upgrade contact ({lang}) changed")
@@ -135,7 +145,7 @@ async def get_plans(current_admin: dict = Depends(require_moderator_or_above)):
 @router.put("")
 async def put_plans(body: PlansBody, current_admin: dict = Depends(require_admin_or_super)):
     """Replace all plans' limits, cost caps and the upgrade contact (and the owner's contact details when
-    `owner_contact` is sent, and every plan's prices when any plan sends a price field). 422 carries the validation
+    `owner_contact` is sent, and every plan's prices when any plan sends a price field, and the family limits any plan sends). 422 carries the validation
     message."""
     before = _snapshot()
     plan_rows = {plan: {f: lim.model_dump() for f, lim in p.limits.items()} for plan, p in body.plans.items()}
@@ -145,9 +155,17 @@ async def put_plans(body: PlansBody, current_admin: dict = Depends(require_admin
     sends_prices = any({"price_monthly_mmk", "price_yearly_mmk"} & p.model_fields_set for p in body.plans.values())
     prices = ({plan: {"monthly_mmk": p.price_monthly_mmk, "yearly_mmk": p.price_yearly_mmk}
                for plan, p in body.plans.items()} if sends_prices else None)
+    # A family limit left out (or null) keeps the plan's stored value; a body with none at all leaves them all alone.
+    sends_family = any(p.family_max_members is not None or p.family_max_placeholders is not None
+                       for p in body.plans.values())
+    family = ({plan: {"max_members": before["plans"][plan]["family_max_members"] if p.family_max_members is None
+                      else p.family_max_members,
+                      "max_placeholders": before["plans"][plan]["family_max_placeholders"]
+                      if p.family_max_placeholders is None else p.family_max_placeholders}
+               for plan, p in body.plans.items()} if sends_family else None)
     try:
         await store.save(plan_rows, caps, body.upgrade_contact.model_dump(), current_admin["_id"],
-                         body.owner_contact.model_dump() if body.owner_contact is not None else None, prices)
+                         body.owner_contact.model_dump() if body.owner_contact is not None else None, prices, family)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 

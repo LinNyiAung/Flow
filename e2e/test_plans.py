@@ -290,10 +290,14 @@ def utc(*args):
 
 
 def body_of(limits, caps, contact):
-    """The admin API body ({plans: {plan: {limits, cost_cap_usd, price_monthly_mmk, price_yearly_mmk}},
+    """The admin API body ({plans: {plan: {limits, cost_cap_usd, price_monthly_mmk, price_yearly_mmk, family_max_members,
+    family_max_placeholders}},
     upgrade_contact, owner_contact}) for catalogue-shaped inputs; no plan has a price."""
+    from plans import catalog
     return {"plans": {p: {"limits": {f: {"mode": l.mode, "quota": l.quota, "period": l.period} for f, l in limits[p].items()},
-                          "cost_cap_usd": caps[p], "price_monthly_mmk": None, "price_yearly_mmk": None} for p in limits},
+                          "cost_cap_usd": caps[p], "price_monthly_mmk": None, "price_yearly_mmk": None,
+                          "family_max_members": catalog.DEFAULT_FAMILY_LIMITS[p][0],
+                          "family_max_placeholders": catalog.DEFAULT_FAMILY_LIMITS[p][1]} for p in limits},
             "upgrade_contact": dict(contact),
             "owner_contact": {"email": "", "viber": "", "telegram": "", "facebook": "", "messenger": ""}}
 
@@ -590,7 +594,8 @@ def api_checks():
         j = r.json() if r.status_code == 200 else {}
         want = default_body()
         shaped = (set(j) == {"plans", "upgrade_contact", "owner_contact"} and set(j.get("plans", {})) == set(catalog.PLANS)
-                  and all(set(v) == {"limits", "cost_cap_usd", "price_monthly_mmk", "price_yearly_mmk"}
+                  and all(set(v) == {"limits", "cost_cap_usd", "price_monthly_mmk", "price_yearly_mmk", "family_max_members",
+                                     "family_max_placeholders"}
                           and set(v["limits"]) == set(catalog.FEATURES)
                           and all(set(x) == {"mode", "quota", "period"} for x in v["limits"].values())
                           for v in j.get("plans", {}).values()))

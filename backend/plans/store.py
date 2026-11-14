@@ -45,6 +45,7 @@ _contact: Dict[str, str] = {"en": "", "my": ""}
 _owner: Dict[str, str] = {key: "" for key in OWNER_KEYS}
 _family: Dict[str, Tuple[int, int]] = dict(DEFAULT_FAMILY_LIMITS)
 MAX_FAMILY_LIMIT = 50  # plan_settings.family_max_* are CHECKed BETWEEN 0 AND 50
+FAMILY_KEYS = ("max_members", "max_placeholders")
 
 
 # ---- reading (the cache) ----
@@ -182,10 +183,40 @@ def _prices_of(value: Any, errors: List[str]) -> Dict[str, Dict[str, Optional[in
     return out
 
 
-def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None, prices: Any = None):
+def _family_of(value: Any, errors: List[str]) -> Dict[str, Tuple[int, int]]:
+    """{plan: (max_members, max_placeholders)} for every plan from a mapping plan -> {max_members, max_placeholders}
+    (each a whole number from 0 to MAX_FAMILY_LIMIT; Free's numbers are only stored, they never let Free create a
+    family); problems are appended to `errors`."""
+    if not isinstance(value, Mapping):
+        errors.append("family limits must be an object keyed by plan")
+        return {}
+    for plan in value:
+        if plan not in PLANS:
+            errors.append(f"Unknown plan '{plan}' in the family limits")
+    out: Dict[str, Tuple[int, int]] = {}
+    for plan in PLANS:
+        row = value.get(plan)
+        if not isinstance(row, Mapping):
+            errors.append(f"{plan}: family limits are missing")
+            continue
+        for key in row:
+            if key not in FAMILY_KEYS:
+                errors.append(f"{plan}: unknown family limit '{key}'")
+        ok = True
+        for label, key in (("members", "max_members"), ("placeholders", "max_placeholders")):
+            if _family_limit(row.get(key)) is None:
+                errors.append(f"{plan}: the family {label} limit must be a whole number from 0 to {MAX_FAMILY_LIMIT}")
+                ok = False
+        if ok:
+            out[plan] = (row["max_members"], row["max_placeholders"])
+    return out
+
+
+def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None, prices: Any = None, family: Any = None):
     """-> (normalised limits {plan: {feature: Limit}}, caps {plan: float}, contact {"en", "my"}, owner contact
     {"email", "viber", "telegram", "facebook", "messenger"} or None when `owner` is None, prices
-    {plan: {"monthly_mmk", "yearly_mmk"}} or None when `prices` is None); ValueError if invalid."""
+    {plan: {"monthly_mmk", "yearly_mmk"}} or None when `prices` is None, family limits {plan: (members,
+    placeholders)} or None when `family` is None); ValueError if invalid."""
     errors: List[str] = []
     rows: Dict[str, Dict[str, Limit]] = {}
     if not isinstance(plan_rows, Mapping):
@@ -251,10 +282,11 @@ def _validate(plan_rows: Any, caps: Any, contact: Any, owner: Any = None, prices
 
     out_owner = _owner_contact(owner, errors) if owner is not None else None
     out_prices = _prices_of(prices, errors) if prices is not None else None
+    out_family = _family_of(family, errors) if family is not None else None
 
     if errors:
         raise ValueError("; ".join(errors))
-    return rows, out_caps, out_contact, out_owner, out_prices
+    return rows, out_caps, out_contact, out_owner, out_prices, out_family
 
 
 # ---- the cache <-> the database ----
@@ -346,22 +378,25 @@ async def load() -> None:
 
 
 async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: str,
-               owner_contact: Mapping | None = None, prices: Mapping | None = None) -> None:
+               owner_contact: Mapping | None = None, prices: Mapping | None = None,
+               family: Mapping | None = None) -> None:
     """Validate, store and cache the limits (plan -> feature -> Limit or {mode, quota, period}), the cost caps
     (plan -> USD), the upgrade contact texts ({"en", "my"}), when given the owner's {"email", "viber", "telegram",
     "facebook", "messenger"} (an empty string or a missing key clears one; None leaves them all as they are) and,
     when given, every plan's price (plan -> {"monthly_mmk", "yearly_mmk"} in whole kyat, None for not set; Free has none and a yearly price needs a monthly one; None leaves
-    the prices as they are). Raises ValueError with a readable message when anything is invalid; nothing is written
+    the prices as they are) and, when given, every plan's family limits (plan -> {"max_members",
+    "max_placeholders"}, whole numbers from 0 to 50; None leaves them as they are). Raises ValueError with a readable message when anything is invalid; nothing is written
     then. `admin_id` is only recorded in the server log (the route writes the admin action log).
     """
     global _write_gen
-    rows, out_caps, out_contact, out_owner, out_prices = _validate(plan_rows, caps, contact, owner_contact, prices)
+    rows, out_caps, out_contact, out_owner, out_prices, out_family = _validate(
+        plan_rows, caps, contact, owner_contact, prices, family)
     flat = [{"plan": p, "feature": f, "mode": lim.mode, "quota": lim.quota, "period": lim.period}
             for p in PLANS for f, lim in rows[p].items()]
     _write_gen += 1
-    await plans_db.write_all(flat, out_caps, out_contact, out_owner, out_prices)
+    await plans_db.write_all(flat, out_caps, out_contact, out_owner, out_prices, out_family)
     _set_cache(rows, out_caps, out_contact, out_owner if out_owner is not None else dict(_owner),
-               out_prices if out_prices is not None else {p: dict(v) for p, v in _prices.items()})
+               out_prices if out_prices is not None else {p: dict(v) for p, v in _prices.items()}, out_family)
     _write_gen += 1
     logger.info("Plans saved by admin %s", admin_id)
 

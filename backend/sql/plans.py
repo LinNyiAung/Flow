@@ -32,7 +32,8 @@ async def read_all() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[s
 
 async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, float], contact: Mapping[str, str],
                     owner_contact: Optional[Mapping[str, str]] = None,
-                    prices: Optional[Mapping[str, Mapping[str, Optional[int]]]] = None) -> None:
+                    prices: Optional[Mapping[str, Mapping[str, Optional[int]]]] = None,
+                    family: Optional[Mapping[str, Tuple[int, int]]] = None) -> None:
     """Upsert every limit row, cost cap and contact text (and the owner's contact details, and the plan prices)
     in one transaction.
 
@@ -41,6 +42,8 @@ async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, floa
     as they are.
     prices: plan -> {"monthly_mmk", "yearly_mmk"} (None clears one) for the plans in `caps`, or None to leave every
     price as it is.
+    family: plan -> (family_max_members, family_max_placeholders) for the plans in `caps`, or None to leave them all
+    as they are.
     """
     async with transaction():
         if limit_rows:
@@ -52,6 +55,8 @@ async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, floa
             values = {"cost_cap_usd": cap}
             if prices is not None:
                 values.update(price_monthly_mmk=prices[plan]["monthly_mmk"], price_yearly_mmk=prices[plan]["yearly_mmk"])
+            if family is not None:
+                values.update(family_max_members=family[plan][0], family_max_placeholders=family[plan][1])
             stmt = pg_insert(plan_settings).values(plan=plan, **values)
             await execute(stmt.on_conflict_do_update(index_elements=[plan_settings.c.plan],
                                                      set_={c: stmt.excluded[c] for c in values}))

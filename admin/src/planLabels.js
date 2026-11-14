@@ -31,5 +31,9 @@ export const PLAN_BADGE = {
   pro: 'bg-violet-500/15 border-violet-500/30 text-violet-400',
 };
 
+// The family limit fields on the Plans page.
+export const FAMILY_MEMBERS_LABEL = 'Family members (max)';
+export const FAMILY_PLACEHOLDERS_LABEL = 'Placeholders (max)';
+
 export const planLabel = (plan) => PLAN_LABELS[plan] ?? String(plan);
 export const featureLabel = (feature) => FEATURE_LABELS[feature] ?? String(feature);

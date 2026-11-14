@@ -15,6 +15,8 @@ Sections:
   ai -- Ko Toe Pwar in Family mode answers from the family book and the asker's profile; chat history is private per
     person and book; chat uses and costs the asker's allowance; family insights jobs and the owner's cost cap; the admin
     AI report's family row (Task 9).
+  limits -- the admin Plans page's family limits: read, saved, validated 0-50, kept when left out, audit-logged, and
+    lowering them removes no one (Task 10).
 """
 import asyncio
 import os
@@ -2408,6 +2410,180 @@ def section_ai():
         _cleanup_people(made)
 
 
+def section_limits():
+    """The admin Plans page's family limits (Task 10): the two numbers per plan are read and saved through
+    /api/admin/plans, applied at once to GET /api/plan and the family rules, validated 0-50, kept when left out,
+    audit-logged; lowering them never removes anyone."""
+    import admin_utils
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    admin_email = f"t10limits-{tag}@example.com"
+    pw = "t10-admin-pass-1"
+    db.admins.insert_one({"_id": str(uuid.uuid4()), "name": "t10 admin", "email": admin_email,
+                          "password": admin_utils.get_password_hash(pw), "role": "admin",
+                          "created_at": datetime.now(UTC), "last_login": None})
+    sup_email = f"t10super-{tag}@example.com"
+    db.admins.insert_one({"_id": str(uuid.uuid4()), "name": "t10 super", "email": sup_email,
+                          "password": admin_utils.get_password_hash(pw), "role": "super_admin",
+                          "created_at": datetime.now(UTC), "last_login": None})
+
+    def login(email):
+        return {"Authorization": "Bearer " + c.post("/api/admin/login", json={"email": email, "password": pw}).json()["access_token"]}
+    AD, SUP = login(admin_email), login(sup_email)
+    original = None
+
+    def plans():
+        return c.get("/api/admin/plans", headers=AD).json()
+
+    def body_with(snapshot, **family):
+        """A PUT body from a GET snapshot; family: {plan: (members, placeholders)} set on top (others as read)."""
+        b = {"plans": {p: {k: v for k, v in d.items()} for p, d in snapshot["plans"].items()},
+             "upgrade_contact": snapshot["upgrade_contact"]}
+        for plan, (m, ph) in family.items():
+            b["plans"][plan]["family_max_members"] = m
+            b["plans"][plan]["family_max_placeholders"] = ph
+        return b
+
+    def put(b):
+        return c.put("/api/admin/plans", headers=AD, json=b)
+
+    def invite(by, email):
+        return c.post("/api/family/invites", headers=by["h"], json={"email": email})
+
+    try:
+        original = plans()
+        fl = {p: (d.get("family_max_members"), d.get("family_max_placeholders")) for p, d in original["plans"].items()}
+        check(fl == {"free": (0, 0), "plus": (6, 20), "pro": (6, 20)},
+              "limits: GET /api/admin/plans gives every plan its family limits (free 0/0, plus 6/20, pro 6/20)", fl)
+
+        A = register("Lia", "plus")
+        r = c.post("/api/family", headers=A["h"], json={"name": f"Lia family {tag}"})
+        check(r.status_code == 200, "limits: a Plus user creates a family", f"{r.status_code} {r.text[:200]}")
+
+        # ---- set plus to 4 members: it applies at once ----
+        r = put(body_with(original, plus=(4, 20)))
+        check(r.status_code == 200 and r.json()["plans"]["plus"]["family_max_members"] == 4
+              and r.json()["plans"]["plus"]["family_max_placeholders"] == 20 and r.json()["plans"]["pro"]["family_max_members"] == 6,
+              "limits: PUT sets plus family_max_members to 4 and the reply shows it", f"{r.status_code} {r.text[:300]}")
+        check(plans()["plans"]["plus"]["family_max_members"] == 4, "limits: GET /api/admin/plans reports the saved 4")
+        check(c.get("/api/plan", headers=A["h"]).json().get("family") == {"max_members": 4, "max_placeholders": 20},
+              "limits: GET /api/plan gives a Plus user family limits 4/20")
+        check((c.get("/api/family", headers=A["h"]).json().get("limits")) == {"max_members": 4, "max_placeholders": 20},
+              "limits: GET /api/family shows the new limits")
+        stored = db.sql("SELECT family_max_members m, family_max_placeholders p FROM plan_settings WHERE plan = 'plus'")
+        check(stored and (stored[0]["m"], stored[0]["p"]) == (4, 20), "limits: the numbers are stored in plan_settings", stored)
+
+        # the owner counts: 3 invites fill 4 seats, the 4th invite is refused
+        people = [register(n) for n in ("Mya", "Nay", "Oo", "Pyae")]
+        rs = [invite(A, p["email"]) for p in people[:3]]
+        check(all(r.status_code == 200 for r in rs), "limits: three invites fit a family of 4 with its owner",
+              [r.status_code for r in rs])
+        r = invite(A, people[3]["email"])
+        check(_code(r, 409, "family_full"), "limits: the invite past the plus limit of 4 is refused (family_full)",
+              f"{r.status_code} {r.text[:200]}")
+
+        # ---- lowering below the current count keeps everyone, refuses only new people ----
+        inv = c.get("/api/family/invites/mine", headers=people[0]["h"]).json().get("invites", [])
+        r = c.post(f"/api/family/invites/{inv[0]['id']}/accept", headers=people[0]["h"]) if inv else None
+        check(r is not None and r.status_code == 200, "limits: a pending invite is accepted while seats are free",
+              r is not None and r.text[:200])
+        inv = c.get("/api/family/invites/mine", headers=people[1]["h"]).json().get("invites", [])
+        r = c.post(f"/api/family/invites/{inv[0]['id']}/accept", headers=people[1]["h"]) if inv else None
+        check(r is not None and r.status_code == 200, "limits: a second pending invite is accepted", r is not None and r.text[:200])
+        ph = c.post("/api/family/placeholders", headers=A["h"], json={"display_name": "Gran"})
+        check(ph.status_code == 200, "limits: a placeholder is added", f"{ph.status_code} {ph.text[:200]}")
+
+        r = put(body_with(plans(), plus=(2, 0)))
+        check(r.status_code == 200, "limits: plus is lowered to 2 members and 0 placeholders (below the current 3 and 1)",
+              f"{r.status_code} {r.text[:200]}")
+        v = c.get("/api/family", headers=A["h"]).json()
+        active = [m for m in v.get("members", []) if m["status"] == "active"]
+        check(len([m for m in active if m["kind"] == "account"]) == 3 and len([m for m in active if m["kind"] == "placeholder"]) == 1,
+              "limits: lowering the limits removes no one (3 accounts and 1 placeholder stay)", [(m["kind"], m["status"]) for m in v.get("members", [])])
+        check(v.get("limits") == {"max_members": 2, "max_placeholders": 0}, "limits: the family now shows 2/0", v.get("limits"))
+        r = invite(A, people[3]["email"])
+        check(_code(r, 409, "family_full"), "limits: a new invite over the lowered limit is refused (family_full)", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/family/placeholders", headers=A["h"], json={"display_name": "Uncle"})
+        check(_code(r, 409, "placeholders_full"), "limits: a new placeholder over the lowered limit is refused (placeholders_full)",
+              f"{r.status_code} {r.text[:200]}")
+        inv = c.get("/api/family/invites/mine", headers=people[2]["h"]).json().get("invites", [])
+        r = c.post(f"/api/family/invites/{inv[0]['id']}/accept", headers=people[2]["h"]) if inv else None
+        check(r is not None and _code(r, 409, "family_full"), "limits: an invite sent earlier can't be accepted over the lowered limit",
+              r is not None and f"{r.status_code} {r.text[:200]}")
+        check(len(c.get("/api/family", headers=people[0]["h"]).json().get("members", [])) >= 4,
+              "limits: an existing member still sees the whole family")
+
+        # ---- validation ----
+        before = plans()
+        def bad(label, **kw):
+            b = body_with(before)
+            b["plans"]["plus"].update(kw)
+            r = put(b)
+            check(r.status_code == 422, f"limits: {label} is refused (422)", f"{r.status_code} {r.text[:200]}")
+        bad("51 members", family_max_members=51)
+        bad("51 placeholders", family_max_placeholders=51)
+        bad("-1 members", family_max_members=-1)
+        bad("-1 placeholders", family_max_placeholders=-1)
+        bad("a fractional number", family_max_members=2.5)
+        bad("a text number", family_max_members="3")
+        bad("a boolean", family_max_placeholders=True)
+        r = put(body_with(before, pro=(50, 50)))
+        check(r.status_code == 200 and r.json()["plans"]["pro"]["family_max_members"] == 50,
+              "limits: 50 and 50 are accepted", f"{r.status_code} {r.text[:200]}")
+        r = put(body_with(plans(), pro=(0, 0)))
+        check(r.status_code == 200 and r.json()["plans"]["pro"]["family_max_members"] == 0,
+              "limits: 0 and 0 are accepted", f"{r.status_code} {r.text[:200]}")
+        after = plans()
+        check(after["plans"]["plus"]["family_max_members"] == 2 and after["plans"]["plus"]["family_max_placeholders"] == 0,
+              "limits: a refused PUT changes nothing", after["plans"]["plus"])
+
+        # ---- left out: kept ----
+        b = body_with(plans())
+        for p in b["plans"].values():
+            p.pop("family_max_members", None)
+            p.pop("family_max_placeholders", None)
+        r = put(b)
+        check(r.status_code == 200 and r.json()["plans"]["plus"]["family_max_members"] == 2
+              and r.json()["plans"]["plus"]["family_max_placeholders"] == 0,
+              "limits: a PUT without the family fields keeps the stored values", f"{r.status_code} {r.text[:300]}")
+        b = body_with(plans())
+        b["plans"]["plus"].pop("family_max_placeholders")
+        b["plans"]["plus"]["family_max_members"] = 5
+        r = put(b)
+        check(r.status_code == 200 and r.json()["plans"]["plus"]["family_max_members"] == 5
+              and r.json()["plans"]["plus"]["family_max_placeholders"] == 0,
+              "limits: one field left out keeps just that one", f"{r.status_code} {r.text[:300]}")
+        b = body_with(plans())
+        b["plans"]["plus"]["family_max_members"] = None
+        r = put(b)
+        check(r.status_code == 200 and r.json()["plans"]["plus"]["family_max_members"] == 5,
+              "limits: null is read as left out (kept)", f"{r.status_code} {r.text[:200]}")
+
+        # ---- the audit log ----
+        put(body_with(plans(), plus=(7, 9)))
+        logs = c.get("/api/admin/logs", headers=SUP, params={"limit": 100}).json()
+        mine = [x for x in logs if x["admin_email"] == admin_email and x["action"] == "plans_update"]
+        details = (mine[0].get("details") or "") if mine else ""
+        check("plus" in details and "7" in details and "9" in details and "famil" in details.lower(),
+              "limits: the admin action log says the family limits changed", details[:300])
+
+        # ---- Free's numbers never let Free create a family ----
+        r = put(body_with(plans(), free=(3, 3)))
+        check(r.status_code == 200 and r.json()["plans"]["free"]["family_max_members"] == 3,
+              "limits: Free may be given numbers", f"{r.status_code} {r.text[:200]}")
+        F = register("Fay", "free")
+        r = c.post("/api/family", headers=F["h"], json={"name": "Fay family"})
+        check(_code(r, 403, "plan_required"), "limits: a Free user still can't create a family whatever Free's numbers are",
+              f"{r.status_code} {r.text[:200]}")
+    finally:
+        if original is not None:
+            put(body_with(original))
+        _cleanup_people(made)
+        db.admins.delete_many({"email": {"$in": [admin_email, sup_email]}})
+
+
 def main():
     section_schema()
     section_book_users()
@@ -2420,6 +2596,7 @@ def main():
     section_budgets_goals()
     section_notifications()
     section_ai()
+    section_limits()
     sys.exit(1 if failures else 0)
 
 

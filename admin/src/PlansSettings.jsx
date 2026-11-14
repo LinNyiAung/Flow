@@ -4,11 +4,12 @@ import {
   errorMessage, formatErrorDetail, canWrite, ApiError, getPlans, updatePlans,
 } from './api';
 import {
-  PLANS, MODES, PERIODS, FEATURES, planLabel, featureLabel,
+  PLANS, MODES, PERIODS, FEATURES, planLabel, featureLabel, FAMILY_MEMBERS_LABEL, FAMILY_PLACEHOLDERS_LABEL,
 } from './planLabels';
 
 const MAX_CONTACT_LENGTH = 500;
 const MAX_PRICE_MMK = 1000000000;
+const MAX_FAMILY_LIMIT = 50;
 // The owner's contact fields, as the API names them (owner_contact).
 const OWNER_KEYS = ['email', 'viber', 'telegram', 'facebook', 'messenger'];
 // Free has no price; only the paid plans get price fields.
@@ -36,6 +37,8 @@ const toDraft = (data) => ({
       cost: String(p.cost_cap_usd),
       monthly: p.price_monthly_mmk == null ? '' : String(p.price_monthly_mmk),
       yearly: p.price_yearly_mmk == null ? '' : String(p.price_yearly_mmk),
+      famMembers: p.family_max_members == null ? '' : String(p.family_max_members),
+      famPlaceholders: p.family_max_placeholders == null ? '' : String(p.family_max_placeholders),
     }];
   })),
   contact: { en: data.upgrade_contact?.en ?? '', my: data.upgrade_contact?.my ?? '' },
@@ -53,6 +56,8 @@ const toBody = (draft) => ({
       cost_cap_usd: Number(p.cost),
       price_monthly_mmk: plan !== 'free' && p.monthly !== '' ? Number(p.monthly) : null,
       price_yearly_mmk: plan !== 'free' && p.yearly !== '' ? Number(p.yearly) : null,
+      family_max_members: Number(p.famMembers),
+      family_max_placeholders: Number(p.famPlaceholders),
     }];
   })),
   upgrade_contact: { en: draft.contact.en, my: draft.contact.my },
@@ -114,6 +119,9 @@ const savePercent = (monthly, yearly) => {
   return Math.round((1 - Number(yearly) / (12 * Number(monthly))) * 100);
 };
 
+// A whole number from 0 to 50 (the family limits; empty is not allowed).
+const validFamilyLimit = (text) => /^\d+$/.test(text) && Number(text) <= MAX_FAMILY_LIMIT;
+
 const formatMmk = (n) => `${Number(n).toLocaleString('en-US')} MMK`;
 
 /** Problems the form can see before asking the server (the server's 422 stays the source of truth). */
@@ -131,6 +139,9 @@ const findProblems = (draft, features) => {
       out.push(`${planLabel(plan)} · ${featureLabel('chat_advanced')}: can only be available when Chat is not locked`);
     }
     if (!validCost(p.cost)) out.push(`${planLabel(plan)}: the cost cap must be an amount in USD from 0 to 999999`);
+    for (const [label, text] of [['members', p.famMembers], ['placeholders', p.famPlaceholders]]) {
+      if (!validFamilyLimit(text)) out.push(`${planLabel(plan)}: the family ${label} limit must be a whole number from 0 to ${MAX_FAMILY_LIMIT}`);
+    }
     if (plan !== 'free') {
       for (const [label, text] of [['monthly', p.monthly], ['yearly', p.yearly]]) {
         if (!validPrice(text)) out.push(`${planLabel(plan)}: the ${label} price must be a whole number of kyat from 1 to 1,000,000,000`);
@@ -257,7 +268,7 @@ const OwnerField = ({ id, label, type, placeholder, hint, maxLength, value, disa
   </div>
 );
 
-const PriceField = ({ id, label, value, disabled, onChange, children }) => (
+const PriceField = ({ id, label, value, disabled, onChange, children, maxLength = 10, placeholder = 'Not set' }) => (
   <div className="min-w-0">
     <label htmlFor={id} className="block text-sm font-semibold text-slate-300 mb-2">{label}</label>
     <input
@@ -265,8 +276,8 @@ const PriceField = ({ id, label, value, disabled, onChange, children }) => (
       type="text"
       inputMode="numeric"
       value={value}
-      maxLength={10}
-      placeholder="Not set"
+      maxLength={maxLength}
+      placeholder={placeholder}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
       className={field}
@@ -301,6 +312,26 @@ const PlanPrices = ({ plan, monthly, yearly, disabled, onChange }) => {
     </div>
   );
 };
+
+const FamilyLimits = ({ plan, members, placeholders, disabled, onChange }) => (
+  <div className="min-w-0">
+    <div className="text-sm font-bold text-slate-100 mb-3">{planLabel(plan)}</div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <PriceField id={`family-${plan}-members`} label={FAMILY_MEMBERS_LABEL} value={members} disabled={disabled}
+        maxLength={2} placeholder="0" onChange={(t) => onChange('famMembers', t)}>
+        {members !== '' && !validFamilyLimit(members) && (
+          <div className="text-xs text-amber-300 mt-1.5">From 0 to {MAX_FAMILY_LIMIT}</div>
+        )}
+      </PriceField>
+      <PriceField id={`family-${plan}-placeholders`} label={FAMILY_PLACEHOLDERS_LABEL} value={placeholders} disabled={disabled}
+        maxLength={2} placeholder="0" onChange={(t) => onChange('famPlaceholders', t)}>
+        {placeholders !== '' && !validFamilyLimit(placeholders) && (
+          <div className="text-xs text-amber-300 mt-1.5">From 0 to {MAX_FAMILY_LIMIT}</div>
+        )}
+      </PriceField>
+    </div>
+  </div>
+);
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 const PlansSettings = ({ token, adminRole }) => {
@@ -481,6 +512,25 @@ const PlansSettings = ({ token, adminRole }) => {
                   plan={plan}
                   monthly={draft.plans[plan].monthly}
                   yearly={draft.plans[plan].yearly}
+                  disabled={!writable || busy}
+                  onChange={(key, text) => setPrice(plan, key, text)}
+                />
+              ))}
+            </div>
+
+            <h2 className="text-xl font-bold text-slate-100 mb-1">Family limits</h2>
+            <p className="text-slate-400 text-sm mb-4">
+              How many people a family owned by someone on the plan may have: account members (the owner counts) and
+              placeholders, each from 0 to {MAX_FAMILY_LIMIT}. Lowering a limit never removes anyone; it only stops new
+              invites and placeholders. Only Plus and Pro owners can create a family, whatever Free is set to.
+            </p>
+            <div className={`${card} p-5 mb-8 grid grid-cols-1 lg:grid-cols-3 gap-6`}>
+              {PLANS.map((plan) => (
+                <FamilyLimits
+                  key={plan}
+                  plan={plan}
+                  members={draft.plans[plan].famMembers}
+                  placeholders={draft.plans[plan].famPlaceholders}
                   disabled={!writable || busy}
                   onChange={(key, text) => setPrice(plan, key, text)}
                 />
