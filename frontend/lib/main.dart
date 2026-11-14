@@ -215,6 +215,8 @@ class _MyAppState extends State<MyApp> {
       _authProvider.refreshUserSilently();
       _planProvider.refresh();
       _notificationProvider.fetchUnreadCount();
+      // The family couldn't be loaded yet (a failed request): try again.
+      if (!_familyProvider.loaded && !_familyProvider.isLoading) _familyProvider.refresh();
     }
   }
 

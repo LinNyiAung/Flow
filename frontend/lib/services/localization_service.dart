@@ -1264,6 +1264,8 @@ class AppLocalizations {
       'amountToGo': '{amount} to go',
       'leftAfterThisGoal': '{amount} left after this goal',
       'familyNoLongerMember': "You're no longer in this family, so you're back in your personal book.",
+      'bookPersonal': 'Personal',
+      'familyReadOnlyBanner': "This family is read-only: the owner's plan has ended.",
     },
     'my': {
       // Home Screen
@@ -2425,6 +2427,8 @@ class AppLocalizations {
       'amountToGo': '{amount} ကျန်သေးသည်',
       'leftAfterThisGoal': 'ဤရည်မှန်းချက်အတွက် ဖယ်ထားပြီးနောက် {amount} ကျန်မည်',
       'familyNoLongerMember': 'ဒီမိသားစုထဲမှာ မရှိတော့သဖြင့် ကိုယ်ပိုင်စာရင်းကို ပြန်ပြောင်းထားပါတယ်။',
+      'bookPersonal': 'ကိုယ်ပိုင်',
+      'familyReadOnlyBanner': 'ပိုင်ရှင်၏ အစီအစဉ် ကုန်ဆုံးသွားသဖြင့် ဒီမိသားစုစာရင်းကို ကြည့်ရုံသာ ကြည့်နိုင်ပါတယ်။',
     }
   };
 
@@ -3658,6 +3662,13 @@ class AppLocalizations {
 
   /// Shown when a family request answers `no_family` and the app goes back to Personal.
   String get familyNoLongerMember => translate('familyNoLongerMember');
+
+  /// The Personal segment of the Personal / Family switch.
+  String get bookPersonal => translate('bookPersonal');
+
+  /// Family mode, the owner's plan has lapsed: everyone can read, nobody can
+  /// add or change. Also the reason the + button gives.
+  String get familyReadOnlyBanner => translate('familyReadOnlyBanner');
 
   /// A plan date (when an allowance resets, when a request was made) in the
   /// device's local time: [AppDates.full] in this app language ("1 Dec 2026";

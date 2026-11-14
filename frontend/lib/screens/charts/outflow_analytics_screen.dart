@@ -4,6 +4,7 @@ import 'package:frontend/utils/chart_buckets.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
+import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
@@ -222,7 +223,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: AppBarTitle(localizations.outflowAnalytics),
+        title: AppBarTitle(bookTitle(context, localizations.outflowAnalytics)),
         leading: IconButton(
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),

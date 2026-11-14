@@ -2449,10 +2449,26 @@ class ApiService {
     throw apiError(response, fallback);
   }
 
-  /// `GET /api/family`: the caller's family, or [FamilyOverview.none].
+  /// `GET /api/family`: the caller's family, or [FamilyOverview.none] for a
+  /// real "no family" answer (`{"family": null}`). Anything else (an error
+  /// status, or a 200 that isn't that shape) throws, so a failed request is
+  /// never taken for "not in a family".
   static Future<FamilyOverview> getFamily() async {
     final response = await _client.get(_familyUri(), headers: await _getHeaders());
-    return _overviewOf(response, 'Failed to get the family');
+    if (response.statusCode == 200) {
+      Object? body;
+      try {
+        body = jsonDecode(response.body);
+      } on FormatException {
+        body = null;
+      }
+      final family = body is Map ? body['family'] : 0;
+      if (body is! Map || !body.containsKey('family') || (family != null && family is! Map)) {
+        throw ApiException('Failed to get the family', statusCode: response.statusCode);
+      }
+      return FamilyOverview.fromJson(body);
+    }
+    throw apiError(response, 'Failed to get the family');
   }
 
   /// Plus or Pro only (`plan_required`); `already_in_family`.

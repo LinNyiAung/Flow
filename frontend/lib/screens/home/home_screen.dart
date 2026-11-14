@@ -6,6 +6,7 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/chat_provider.dart';
+import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/goal_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
@@ -22,6 +23,8 @@ import 'package:frontend/utils/category_icons.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_logo.dart';
 import 'package:frontend/widgets/blocking_progress.dart';
+import 'package:frontend/widgets/book_switch.dart';
+import 'package:frontend/widgets/read_only_banner.dart';
 import 'package:frontend/widgets/app_list_row.dart';
 import 'package:frontend/widgets/hero_card.dart';
 import 'package:frontend/widgets/mascot.dart';
@@ -137,6 +140,16 @@ class _HomeScreenState extends State<HomeScreen> {
     ]);
   }
 
+  /// Pull-to-refresh: the book's data, and the family too when it couldn't be
+  /// loaded yet (a failed request is retried, never taken as "no family").
+  Future<void> _pullToRefresh() {
+    final family = Provider.of<FamilyProvider?>(context, listen: false);
+    if (family != null && !family.loaded && !family.isLoading) {
+      unawaited(family.refresh());
+    }
+    return _refreshData();
+  }
+
   // Function to navigate to the TransactionsListScreen
   Future<void> _navigateToTransactionsList() =>
       _openTransactionsList(const TransactionsListScreen());
@@ -178,6 +191,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final localizations = AppLocalizations.of(context);
     final responsive = ResponsiveHelper(context);
     final scheme = Theme.of(context).colorScheme;
+    // Null where the family providers aren't in the tree (no family).
+    final inFamily = Provider.of<FamilyProvider?>(context)?.inFamily ?? false;
+    final readOnly = isFamilyReadOnly(context);
 
     return Scaffold(
       key: _scaffoldKey, // Assign the scaffold key to the Scaffold
@@ -277,10 +293,30 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         // RefreshIndicator allows pull-to-refresh functionality
         child: RefreshIndicator(
-          onRefresh: _refreshData,
+          onRefresh: _pullToRefresh,
           child: CustomScrollView(
             // Use CustomScrollView for flexible layouts with slivers
             slivers: [
+              // Family members only: the Personal / Family switch, and under
+              // it the read-only notice (Family mode, owner's plan lapsed).
+              // Nobody else gets this sliver, so their Home is unchanged.
+              if (inFamily)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: responsive.padding(left: 16, right: 16, top: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const BookSwitch(),
+                        if (readOnly) ...[
+                          SizedBox(height: responsive.sp8),
+                          const ReadOnlyBanner(),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+
               // Hero: available-to-spend balance
               SliverToBoxAdapter(
                 child: Padding(
@@ -492,12 +528,31 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-      // Floating Action Button to add new transactions
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _navigateToAddTransaction(),
-        child: Icon(Icons.add_rounded),
-        tooltip: localizations.addTransactionFabTooltip,
-      ),
+      // Floating Action Button to add new transactions. Greyed out in a
+      // read-only family: a tap says why instead of opening the add sheet.
+      floatingActionButton: readOnly
+          ? FloatingActionButton(
+              onPressed: _showReadOnlyReason,
+              tooltip: localizations.familyReadOnlyBanner,
+              backgroundColor: scheme.surfaceContainerHighest,
+              foregroundColor: scheme.onSurface.withValues(alpha: 0.38),
+              elevation: 0,
+              highlightElevation: 0,
+              child: Icon(Icons.add_rounded),
+            )
+          : FloatingActionButton(
+              onPressed: () => _navigateToAddTransaction(),
+              tooltip: localizations.addTransactionFabTooltip,
+              child: Icon(Icons.add_rounded),
+            ),
+    );
+  }
+
+  void _showReadOnlyReason() {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context).familyReadOnlyBanner)),
     );
   }
 
