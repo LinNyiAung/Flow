@@ -6,7 +6,7 @@ from sqlalchemy import case, distinct, func, insert, or_, select
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value
 from sql.docs import rows_to_docs
-from sql.tables import ai_usage, users
+from sql.tables import ai_usage, families, family_members, users
 
 c = ai_usage.c
 
@@ -72,16 +72,33 @@ async def overall_stats(start: Optional[datetime], end: Optional[datetime]) -> D
     return out
 
 
+def _family_label(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A family's hidden book user (its family insights' AI cost is recorded under it) shown as the family: user_name
+    "Family · <family name>", user_email "Family book · owner <owner's e-mail>", never the reserved book address."""
+    kind, family_name, owner_email = row.pop("user_kind"), row.pop("family_name"), row.pop("owner_email")
+    if kind == "family_book":
+        row["user_name"] = f"Family · {family_name}" if family_name else "Family"
+        row["user_email"] = f"Family book · owner {owner_email}" if owner_email else "Family book · no owner"
+    return row
+
+
 async def per_user_stats(start: Optional[datetime], end: Optional[datetime], sort_by: str,
                          skip: int, limit: int) -> List[Dict[str, Any]]:
-    """One row per user (with name/e-mail), ordered by sort_by desc then user id."""
+    """One row per user (with name/e-mail), ordered by sort_by desc then user id. A family's book user is labelled as
+    its family (_family_label)."""
     metrics = {
         "total_requests": func.count().label("total_requests"),
         "total_tokens": func.coalesce(func.sum(c.total_tokens), 0).label("total_tokens"),
         "total_cost": func.coalesce(func.sum(c.estimated_cost_usd), 0).label("total_cost"),
     }
+    owner = users.alias("owner_user")
+    owner_email = (select(owner.c.email).select_from(family_members.join(owner, owner.c.id == family_members.c.user_id))
+                   .where(family_members.c.family_id == families.c.id, family_members.c.role == "owner",
+                          family_members.c.status == "active")
+                   .limit(1).scalar_subquery())
     stmt = _window(select(
         c.user_id, users.c.name.label("user_name"), users.c.email.label("user_email"),
+        users.c.kind.label("user_kind"), families.c.name.label("family_name"), owner_email.label("owner_email"),
         metrics["total_requests"],
         func.coalesce(func.sum(c.input_tokens), 0).label("total_input_tokens"),
         func.coalesce(func.sum(c.output_tokens), 0).label("total_output_tokens"),
@@ -90,10 +107,11 @@ async def per_user_stats(start: Optional[datetime], end: Optional[datetime], sor
         _count_if(c.feature_type == "monthly_insight").label("monthly_insights"),
         _count_if(c.feature_type == "chat").label("chat_requests"),
         _count_if(c.feature_type == "translation").label("translations"),
-    ).select_from(ai_usage.join(users, users.c.id == c.user_id)), start, end)
-    stmt = (stmt.group_by(c.user_id, users.c.name, users.c.email)
+    ).select_from(ai_usage.join(users, users.c.id == c.user_id)
+                  .outerjoin(families, families.c.book_user_id == users.c.id)), start, end)
+    stmt = (stmt.group_by(c.user_id, users.c.name, users.c.email, users.c.kind, families.c.id, families.c.name)
             .order_by(metrics[sort_by].desc(), c.user_id).offset(skip).limit(limit))
-    rows = [_f(r) for r in await fetch_all(stmt)]
+    rows = [_f(_family_label(dict(r))) for r in await fetch_all(stmt)]
     if rows:  # cost per provider for just the users on this page
         by_provider = await fetch_all(_window(
             select(c.user_id, c.provider, func.coalesce(func.sum(c.estimated_cost_usd), 0).label("cost"))
