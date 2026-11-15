@@ -1,4 +1,10 @@
-# Books table: design
+# Books table (and notification links): design
+
+This is the first of four schema projects, in the owner's agreed order:
+1. this one: books, plus typed notification links;
+2. a tidy-up: a push-devices table, and budget category limits split into main and sub;
+3. goal contribution history;
+4. real calendar dates.
 
 **Status:** draft, waiting for the owner's approval.
 **Builds on:** the family book (`docs/superpowers/specs/2026-11-13-family-book-design.md`).
@@ -107,8 +113,26 @@ The existing `user_id` indexes and unique indexes are re-created on `book_id`, w
 - **Family-book settings that lived on the book user:**
   - Family insights and AI-made family budgets use the owner's `default_currency` and `language`, as R16 already says for currency (*my call*).
   - Everything else on those rows was fake and goes.
+- **`notifications`: typed links instead of `goal_id`** (the owner asked for this fix in the same piece of work). `goal_id` holds a goal, budget, transaction, custom-insight, family-invite, family or book id depending on `type`, has no FK, and leaves notices about deleted things pointing at nothing. It is replaced by nullable, typed links, each a FK with ON DELETE SET NULL:
+
+  | Column | FK |
+  |---|---|
+  | `goal_id` | `goals.id` (now only ever a goal) |
+  | `budget_id` | `budgets.id` |
+  | `transaction_id` | `transactions.id` |
+  | `custom_insight_id` | `custom_insights.id` |
+  | `family_invite_id` | `family_invites.id` |
+  | `family_id` | `families.id` |
+
+  - **One subject at most:** a CHECK allows at most one of these six per row.
+  - **Which book the notice is about:** a separate `book_id` (FK `books.id`, ON DELETE SET NULL) replaces the text marker `book`. The family marker is `book_id` pointing at a family book. Insight notices dedupe on `book_id` instead of storing the book id in `goal_id`.
+  - **On delete:** SET NULL, not CASCADE (*my call*). The notice stays in the person's list with its text, but stops opening a thing that no longer exists.
+  - **Indexes:** each link has an index; the dedupe lookups that used `goal_id` use the matching typed column.
+  - **The migration** maps every existing row by its `type` into the right column. A value that doesn't match a row in the target table is left NULL.
+  - **The builder:** writes the type → column table from `notification_service`, and every type must appear in it. `sql/notifications.exists` / `approaching_reminder_exists` take the typed column instead of `goal_id`.
+  - **API and push data stay as they are:** a notice still carries `goal_id` (whichever typed link is set) and `book` (`'family'` when its book is a family book), because installed apps read both.
 - **Unchanged (person data, keyed by person):**
-  - `notifications`, including its `book` marker;
+  - `notifications` stays keyed by its person;
   - `notification_preferences`, `usage_counters` and `upgrade_requests`;
   - `family_members`, `family_invites`, `admins` and feedback.
 
@@ -192,6 +216,11 @@ Responses also gain a `book_id` field with the same value. The app's models may 
 - **Family auto-create-with-AI budgets:**
   - with a paid owner, the AI is used and its spend is recorded under the family book;
   - with a Free owner, the non-AI amounts are used.
+- **Notification links:**
+  - every notice type stores its subject in the matching typed column;
+  - deleting a goal, budget, transaction, report, invite or family leaves its notices in the list with the link cleared;
+  - the API and push still show `goal_id` and `book` exactly as before;
+  - the migration maps old rows by type.
 - **Ids fail loudly:** a test passes a person's id where a book id belongs to a data helper and expects an empty result or an FK error, never another book's rows.
 - **Registration:** a new user has exactly one personal book, and a new family has exactly one family book.
 - **Jobs:** the insight, recurring and budget jobs cover personal and family books exactly once each.
