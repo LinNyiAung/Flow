@@ -15,6 +15,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/safe_markdown.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
 import 'package:frontend/widgets/mascot.dart';
@@ -188,25 +189,23 @@ class _AiChatScreenState extends State<AiChatScreen>
                     style: Theme.of(context).textTheme.titleMedium,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  // In Family mode the line under his name always says which
-                  // book he is talking about (the family's name; the title
-                  // row has no room for "Ko Toe Pwar · <family>" beside his
-                  // face). The reply bubble shows when he is thinking.
+                  // In Family mode the line under his name says he answers
+                  // about the family book (the book chip in the bar names
+                  // it). The reply bubble shows when he is thinking.
                   Consumer<ChatProvider>(
                     builder: (context, chatProvider, child) {
-                      final familyName = bookFamilyName(context);
+                      final inFamilyBook = bookFamilyName(context) != null;
                       final color = chatProvider.isStreaming ? scheme.primary : scheme.onSurfaceVariant;
                       final style = TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color);
-                      if (familyName != null) {
+                      if (inFamilyBook) {
                         return Row(
                           children: [
                             Icon(Icons.family_restroom_rounded, size: 13, color: color),
                             const SizedBox(width: 4),
                             Flexible(
-                              // "<family> · Answers about your family book"; a
-                              // long line is cut at the end.
+                              // A long line is cut at the end.
                               child: Text(
-                                '$familyName · ${localizations.askAboutFamily}',
+                                localizations.askAboutFamily,
                                 style: style,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -230,6 +229,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           ],
         ),
         actions: [
+          const BookChip(routeName: '/ai-chat'),
           Consumer<ChatProvider>(
             builder: (context, chatProvider, child) {
               if (chatProvider.isStreaming) {

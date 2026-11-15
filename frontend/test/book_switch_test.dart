@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/app_navigator.dart';
 import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/family.dart';
 import 'package:frontend/models/goal.dart';
@@ -28,6 +29,7 @@ import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/widgets/read_only_banner.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -160,7 +162,16 @@ class _FakeFamily extends FamilyProvider {
   Future<void> refresh() async {}
 }
 
-const _longEnName = 'The Aung Thu Win and Daw Khin Myat family of Yangon';
+/// Reports the name of the route on top after every push.
+class _TopRoute extends NavigatorObserver {
+  _TopRoute(this.onTop);
+  final void Function(String? name) onTop;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => onTop(route.settings.name);
+}
+
+const _longEnName ='The Aung Thu Win and Daw Khin Myat family of Yangon';
 const _longMyName = 'ဦးအောင်သူဝင်းနှင့် ဒေါ်ခင်မြတ်တို့ ရန်ကုန်မိသားစု';
 
 late ThemeData _light;
@@ -339,32 +350,8 @@ void main() {
   });
 
   group('which book a screen shows', () {
-    testWidgets('bookTitle: the title alone in Personal, "title · family" in Family', (tester) async {
-      final books = BookModeProvider();
-      final titles = <String>[];
-      await tester.pumpWidget(MultiProvider(
-        providers: [
-          ChangeNotifierProvider<FamilyProvider>.value(value: _FakeFamily()),
-          ChangeNotifierProvider<BookModeProvider>.value(value: books),
-        ],
-        child: Builder(builder: (context) {
-          titles.add(bookTitle(context, 'Budgets'));
-          return const SizedBox();
-        }),
-      ));
-      expect(titles.last, 'Budgets');
-      await tester.runAsync(() => books.setMode(BookMode.family));
-      await tester.pump();
-      expect(titles.last, 'Budgets · Aung family');
-
-      // No family providers in the tree: the title alone.
-      titles.clear();
-      await tester.pumpWidget(Builder(builder: (context) {
-        titles.add(bookTitle(context, 'Budgets'));
-        return const SizedBox();
-      }));
-      expect(titles.single, 'Budgets');
-    });
+    Finder inChip(Finder matching) => find.descendant(of: find.byKey(BookChip.chipKey), matching: matching);
+    Finder inBar(Finder matching) => find.descendant(of: find.byType(AppBar), matching: matching);
 
     Future<void> pumpList(WidgetTester tester, BookModeProvider books, Locale locale, String name) async {
       tester.view.physicalSize = const Size(360 * 3, 780 * 3);
@@ -400,14 +387,69 @@ void main() {
       final books = BookModeProvider();
       await pumpList(tester, books, const Locale('en'), 'Aung family');
       expect(find.text(en.allTransactionsTitle), findsOneWidget);
+      expect(inChip(find.text(en.bookPersonal)), findsOneWidget);
 
       await tester.runAsync(() => books.setMode(BookMode.family));
       await pumpList(tester, books, const Locale('en'), 'Aung family');
-      expect(find.text('${en.allTransactionsTitle} · Aung family'), findsOneWidget);
+      // The title stays plain; the chip names the family.
+      expect(find.text(en.allTransactionsTitle), findsOneWidget);
+      expect(inBar(find.textContaining(' · ')), findsNothing);
+      expect(inChip(find.text('Aung family')), findsOneWidget);
+    });
+
+    testWidgets('switching from Transactions reopens Transactions', (tester) async {
+      final books = BookModeProvider();
+      books.onModeChanged = () => navigatorKey.currentState?.popUntil((route) => route.isFirst);
+      String? topName;
+      final observer = _TopRoute((name) => topName = name);
+      Widget list() => TransactionsListScreen(
+            initialStartDate: DateTime(2026, 11, 10),
+            initialEndDate: DateTime(2026, 11, 10),
+            initialCurrency: Currency.mmk,
+          );
+      await tester.pumpWidget(MultiProvider(
+        providers: [
+          ChangeNotifierProvider<NotificationProvider>(create: (_) => _FakeNotifications()),
+          ChangeNotifierProvider<PlanProvider>(create: (_) => PlanProvider()),
+          ChangeNotifierProvider<FamilyProvider>.value(value: _FakeFamily()),
+          ChangeNotifierProvider<BookModeProvider>.value(value: books),
+        ],
+        child: MaterialApp(
+          navigatorKey: navigatorKey,
+          navigatorObservers: [observer],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('en'), Locale('my')],
+          routes: {
+            '/': (_) => const Scaffold(body: Text('home')),
+            '/transactions': (_) => list(),
+          },
+        ),
+      ));
+      await tester.pumpAndSettle(); // the strings load before the first route builds
+      // Opened the side menu's way: an unnamed route.
+      navigatorKey.currentState!.push(MaterialPageRoute<void>(builder: (_) => list()));
+      await tester.pumpAndSettle();
+      expect(topName, isNull);
+
+      await tester.tap(find.byKey(BookChip.chipKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('book-sheet-family')));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+
+      expect(books.mode, BookMode.family);
+      expect(find.byType(TransactionsListScreen), findsOneWidget);
+      expect(topName, '/transactions');
+      expect(inChip(find.text('Aung family')), findsOneWidget);
     });
 
     for (final lang in ['en', 'my']) {
-      testWidgets('$lang 360: Ko Toe Pwar\'s bar names the family in Family mode', (tester) async {
+      testWidgets('$lang 360: Ko Toe Pwar\'s bar has the book chip in both modes', (tester) async {
         final l = AppLocalizations(Locale(lang));
         final books = BookModeProvider();
         Future<void> open() async {
@@ -440,25 +482,35 @@ void main() {
         await open();
         final bar = find.byType(AppBar);
         expect(find.descendant(of: bar, matching: find.text(l.aiMoneyHelper)), findsOneWidget);
+        expect(inChip(find.text(l.bookPersonal)), findsOneWidget);
+        expect(tester.takeException(), isNull);
 
         await tester.runAsync(() => books.setMode(BookMode.family));
         await open();
         expect(tester.takeException(), isNull);
-        final name = find.descendant(of: bar, matching: find.textContaining(lang == 'my' ? _longMyName : _longEnName));
+        final longName = lang == 'my' ? _longMyName : _longEnName;
+        // The chip carries the family's name (cut); the line under his name
+        // only says he answers about the family book.
+        final name = inChip(find.text(longName));
         expect(name, findsOneWidget);
+        expect(find.descendant(of: bar, matching: find.text(l.askAboutFamily)), findsOneWidget);
+        expect(find.descendant(of: bar, matching: find.textContaining('$longName ·')), findsNothing);
         expect(find.descendant(of: bar, matching: find.text(l.aiMoneyHelper)), findsNothing);
-        _expectOnScreen(tester, name, 360);
+        _expectOnScreen(tester, find.byKey(BookChip.chipKey), 360);
       });
     }
 
-    testWidgets('Myanmar 360, a long family name: the list title still fits the bar', (tester) async {
+    testWidgets('my 360 long name: chip and actions fit', (tester) async {
       final books = BookModeProvider();
       await tester.runAsync(() => books.setMode(BookMode.family));
       await pumpList(tester, books, const Locale('my'), _longMyName);
       expect(tester.takeException(), isNull);
-      final title = find.text('${my.allTransactionsTitle} · $_longMyName');
+      expect(tester.getSize(find.byKey(BookChip.chipKey)).width, lessThanOrEqualTo(360 * 0.4));
+      final title = find.text(my.allTransactionsTitle);
       expect(title, findsOneWidget);
+      expect(tester.getSize(title).width, greaterThan(0));
       _expectOnScreen(tester, title, 360);
+      _expectOnScreen(tester, inBar(find.byType(IconButton)), 360);
     });
   });
 

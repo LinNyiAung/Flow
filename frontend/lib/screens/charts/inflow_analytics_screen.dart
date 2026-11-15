@@ -4,7 +4,7 @@ import 'package:frontend/utils/chart_buckets.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
-import 'package:frontend/widgets/book_switch.dart';
+import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
@@ -226,12 +226,13 @@ class _InflowAnalyticsScreenState extends State<InflowAnalyticsScreen> {
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: AppBarTitle(bookTitle(context, localizations.inflowAnalytics)),
+        title: AppBarTitle(localizations.inflowAnalytics),
         leading: IconButton(
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
+          const BookChip(routeName: '/inflow-analytics'),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Consumer<NotificationProvider>(

@@ -18,7 +18,7 @@ import 'package:frontend/utils/insight_errors.dart';
 import 'package:frontend/utils/plan_limit_text.dart';
 import 'package:frontend/screens/insights/custom_insights_tab.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
-import 'package:frontend/widgets/book_switch.dart';
+import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
 import 'package:frontend/widgets/insight_notes.dart';
 import 'package:frontend/widgets/mascot.dart';
@@ -185,8 +185,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-        title: AppBarTitle(bookTitle(context, localizations.aiInsights)),
+        title: AppBarTitle(localizations.aiInsights),
         actions: [
+          const BookChip(routeName: '/insights'),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Consumer<NotificationProvider>(

@@ -136,14 +136,6 @@ class _Segment extends StatelessWidget {
   }
 }
 
-/// [title] for a screen that shows one book: as is in Personal mode (and for
-/// people with no family), "title · family name" in Family mode, so it is
-/// always clear which book is open. Call it from `build` (it listens).
-String bookTitle(BuildContext context, String title) {
-  final name = bookFamilyName(context);
-  return name == null ? title : '$title · $name';
-}
-
 /// The family's name in Family mode; null in Personal mode, with no family,
 /// or where the family providers aren't in the tree. Call it from `build`.
 String? bookFamilyName(BuildContext context) {

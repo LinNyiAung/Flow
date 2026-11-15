@@ -3,6 +3,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/models/custom_insight.dart';
+import 'package:frontend/models/family.dart';
+import 'package:frontend/providers/book_mode_provider.dart';
+import 'package:frontend/providers/family_provider.dart';
+import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/notification.dart';
 import 'package:frontend/models/plan_status.dart';
@@ -25,6 +29,18 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _refusal = "That isn't something I can answer from your finances";
+
+/// A known family, no server.
+class _InFamily extends FamilyProvider {
+  @override
+  Family? get family => const Family(id: 'f1', name: 'Aung family');
+  @override
+  bool get inFamily => true;
+  @override
+  bool get loaded => true;
+  @override
+  Future<void> refresh() async {}
+}
 
 /// An [AuthProvider] with a chosen plan.
 class _Auth extends AuthProvider {
@@ -184,6 +200,8 @@ Future<void> _pump(
   Locale locale = const Locale('en'),
   RouteFactory? onGenerateRoute,
   bool settle = true,
+  FamilyProvider? family,
+  BookModeProvider? books,
 }) async {
   await _bigScreen(tester);
   final planProvider = PlanProvider(loader: () async => plan ?? _plan());
@@ -206,6 +224,8 @@ Future<void> _pump(
         ChangeNotifierProvider<CustomInsightProvider>.value(value: custom),
         ChangeNotifierProvider<InsightProvider>.value(value: insights ?? InsightProvider(fetcher: _noInsight)),
         ChangeNotifierProvider<NotificationProvider>(create: (_) => NotificationProvider()),
+        if (family != null) ChangeNotifierProvider<FamilyProvider>.value(value: family),
+        if (books != null) ChangeNotifierProvider<BookModeProvider>.value(value: books),
       ],
       child: MaterialApp(
         locale: locale,
@@ -624,6 +644,18 @@ void main() {
   });
 
   group('Report screen', () {
+    testWidgets('no chip on the report screen; the title is plain in Family mode', (tester) async {
+      final books = BookModeProvider();
+      await tester.runAsync(() => books.setMode(BookMode.family));
+      final fake = FakeCustomInsightClient()..detail = _report(_json());
+      await _pump(tester, const CustomInsightReportScreen(reportId: 'r1'),
+          fake: fake, family: _InFamily(), books: books);
+
+      expect(find.byKey(BookChip.chipKey), findsNothing);
+      final title = tester.widget<AppBarTitle>(find.descendant(of: find.byType(AppBar), matching: find.byType(AppBarTitle)));
+      expect(title.text, AppLocalizations(const Locale('en')).aiInsights);
+    });
+
     testWidgets('report_figures_and_markdown: custom-figures-usd shows 250.00 spending; MarkdownBody shown',
         (tester) async {
       final fake = FakeCustomInsightClient()..detail = _report(_json(instruction: 'Why so much on food?'));

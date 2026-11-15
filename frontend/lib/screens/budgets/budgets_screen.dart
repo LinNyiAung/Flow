@@ -2,7 +2,7 @@ import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
-import 'package:frontend/widgets/book_switch.dart';
+import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -98,12 +98,13 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: AppBarTitle(bookTitle(context, localizations.budgets)),
+        title: AppBarTitle(localizations.budgets),
         leading: IconButton(
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
+          const BookChip(routeName: '/budgets'),
           Consumer<NotificationProvider>(
             builder: (context, notificationProvider, child) {
               return Stack(

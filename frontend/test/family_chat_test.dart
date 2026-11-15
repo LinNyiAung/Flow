@@ -22,6 +22,7 @@ import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/book_chip.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -395,9 +396,11 @@ void main() {
 
     Future<Insight> never({required String language, required String insightType}) => Completer<Insight>().future;
 
-    testWidgets('the header names the family; Personal keeps the plain title', (tester) async {
+    testWidgets('Family mode: plain title, the book chip names the family', (tester) async {
       await open(tester, fetcher: never, family: true);
-      expect(find.text('${en.aiInsights} · Aung family'), findsOneWidget);
+      expect(find.text(en.aiInsights), findsOneWidget);
+      expect(find.textContaining(' · Aung family'), findsNothing);
+      expect(find.descendant(of: find.byKey(BookChip.chipKey), matching: find.text('Aung family')), findsOneWidget);
     });
 
     testWidgets('Personal mode: plain title', (tester) async {
