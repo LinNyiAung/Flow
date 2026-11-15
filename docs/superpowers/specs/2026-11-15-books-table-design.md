@@ -40,7 +40,7 @@ The owner chose to fix this now, while the app is still in development and has n
 ## Non-goals
 
 - No new features. One family per person stays, and so does one personal book per person.
-- No change to the app's screens, the `X-Book` header or the routes.
+- No change to the app's screens, the `X-Book` header or the routes. The app's models and notification handling follow the renamed fields (see API).
 - No change to the admin panel beyond what keeps its numbers right (the AI-usage report's family rows; see Admin).
 - No behaviour change, except fixing family "auto-create with AI" budgets (see Jobs).
 
@@ -48,7 +48,7 @@ The owner chose to fix this now, while the app is still in development and has n
 
 - Personal data must never become readable from another person's or a family's book, not even for a moment during the migration.
 - Money must never appear or vanish. Balances, held-for-goals amounts and transfer pairs must be identical before and after the migration.
-- Phones running the current app (Android builds already installed) must keep working against the new backend.
+- *(Dropped on the owner's word: the only installed app is the owner's own phone, which is updated together with the backend. Old app builds are not supported against the new backend.)*
 
 ## Constraints
 
@@ -61,7 +61,7 @@ The owner chose to fix this now, while the app is still in development and has n
 - **Environment:**
   - Windows; local throwaway databases and stubs only, never production or real keys.
   - Never read or print `.env` files.
-- **Existing app versions:** they parse `user_id` as a required string on transactions, budgets, goals, insights and notifications. See "API" below.
+- **App compatibility:** the app is released together with this change (see API); no older app build has to keep working.
 
 ## Approaches considered
 
@@ -130,7 +130,7 @@ The existing `user_id` indexes and unique indexes are re-created on `book_id`, w
   - **Indexes:** each link has an index; the dedupe lookups that used `goal_id` use the matching typed column.
   - **The migration** maps every existing row by its `type` into the right column. A value that doesn't match a row in the target table is left NULL.
   - **The builder:** writes the type → column table from `notification_service`, and every type must appear in it. `sql/notifications.exists` / `approaching_reminder_exists` take the typed column instead of `goal_id`.
-  - **API and push data stay as they are:** a notice still carries `goal_id` (whichever typed link is set) and `book` (`'family'` when its book is a family book), because installed apps read both.
+  - **API and push data:** a notice carries `subject_id` (whichever typed link is set) and `book` (`'family'` when its book is a family book). See API.
 - **Unchanged (person data, keyed by person):**
   - `notifications` stays keyed by its person;
   - `notification_preferences`, `usage_counters` and `upgrade_requests`;
@@ -193,9 +193,15 @@ The downgrade reverses this:
 
 ### API
 
-**Responses keep the field `user_id`**, carrying the book id, on transactions, budgets, goals and insights. That is what they carry today: the person id for personal data, the book user id for family data. Installed apps parse it as a required string, so dropping it would break them. They never compare it with anything, so a new value is safe.
+The owner's phone is the only installed app, so the API is cleaned up rather than kept compatible. The app changes with it:
 
-Responses also gain a `book_id` field with the same value. The app's models may switch to it later; that's not in scope now.
+- **Data responses:** transactions, budgets, goals and insights carry `book_id` and no longer `user_id`. The app's models rename `userId` to `bookId`; nothing in the app compared it.
+- **Notifications and push data:**
+  - `goal_id` becomes `subject_id`: the one typed link that is set, else null in the API and `""` in push data.
+  - `book` stays the family marker (`'family'` when the notice's book is a family book).
+  - The app's notification model, notification opener, push-tap payload (`type|subject_id|book`) and FCM handling rename `goalId` to `subjectId`.
+- **Notification responses** keep `user_id`: it is the recipient person.
+- **Deploying:** the backend and the owner's app are updated together. An old app build stops working against the new backend.
 
 ### Testing
 
@@ -219,7 +225,7 @@ Responses also gain a `book_id` field with the same value. The app's models may 
 - **Notification links:**
   - every notice type stores its subject in the matching typed column;
   - deleting a goal, budget, transaction, report, invite or family leaves its notices in the list with the link cleared;
-  - the API and push still show `goal_id` and `book` exactly as before;
+  - the API and push carry `subject_id` and `book`, and the app opens the right item from both;
   - the migration maps old rows by type.
 - **Ids fail loudly:** a test passes a person's id where a book id belongs to a data helper and expects an empty result or an FK error, never another book's rows.
 - **Registration:** a new user has exactly one personal book, and a new family has exactly one family book.

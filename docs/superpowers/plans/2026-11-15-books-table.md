@@ -42,9 +42,11 @@
   - Work on a personal book is recorded under `user_id` = the person.
   - Work on a family book (weekly/monthly insights scheduled or on demand, their Myanmar translations, AI-made budgets) is recorded under `book_id`, with `user_id` NULL.
   - Chat, entry AI, budget suggestions and custom insights stay under the asking person.
-- **API compatibility:**
-  - Transaction, budget, goal and insight responses keep `user_id`, now carrying the book id, and add `book_id` with the same value.
-  - Notifications and push data keep `goal_id` (whichever typed link is set) and `book` (`'family'` when the notice's book is a family book).
+- **API (no old-app compatibility; the owner's phone is updated with the backend):**
+  - Transaction, budget, goal and insight responses carry `book_id` and no `user_id`.
+  - Notifications (API and push data) carry `subject_id` (the one typed link set; null in the API, `""` in push) instead of `goal_id`, plus `book` (`'family'` when the notice's book is a family book).
+  - Notification responses keep `user_id` (the recipient).
+  - The app's models and notification handling are renamed to match (Task 7).
 - **Renaming:** helpers, services and doc dicts rename the data id from `user_id` to `book_id`, with no aliases left behind.
 - **Environment:**
   - Windows PowerShell only; Git Bash is broken.
@@ -74,7 +76,7 @@
 2. **The downgrade on a populated database:** balances, goal amounts and transfer pairs survive down and up again. Tested in Task 1 (`down then up keeps every balance`).
 3. **Deleting a family or an owner's account** when the family has AI spend, notices and chats: the delete succeeds, its spend stays in the admin totals, and its notices stay with their links cleared. Tested in Task 5 (notices) and Task 6 (spend).
 4. **A user row with no personal book** (P2) logs in and works on an empty personal book, with no 500. Tested in Task 2 (`user without a book gets one`).
-5. **A notice whose linked item is deleted** stays in the list, opens nothing, and still shows its text. Its push and API shape is unchanged for installed apps. Tested in Task 5.
+5. **A notice whose linked item is deleted** stays in the list, opens nothing, and still shows its text. In the app, tapping it shows the usual "not found" handling, with no crash. Tested in Task 5 (backend) and Task 8's browser check (app).
 
 ---
 
@@ -221,7 +223,7 @@
   - `backend/families/transfers.py`: the personal leg uses `book.person["personal_book_id"]` everywhere, including in the locks, `mark_ai_data_stale` and leg matching;
   - `backend/families/breakdown.py`;
   - `backend/main.py`: the balance/dashboard route, `_generate_counted` and `_free_monthly_insight` (no more `data_id or user["_id"]`; pass the book id), and the chat route's book (`chat_db` gets `book.id` for both modes).
-- Modify the response models: `models.py` `TransactionResponse`, `budget_models.BudgetResponse`, `goal_models.GoalResponse` and `insight_models.InsightResponse` keep `user_id: str` and gain `book_id: str`, both set to the book id.
+- Modify the response models: `models.py` `TransactionResponse`, `budget_models.BudgetResponse`, `goal_models.GoalResponse` and `insight_models.InsightResponse` replace `user_id: str` with `book_id: str`.
 - Modify `backend/admin_routes.py:563-568, 613-620`: per-user counts read the person's personal book.
 - Test:
   - update `e2e/test_api.py`, `e2e/test_family.py` (sections `book_scope`, `entries_breakdown`, `breakdown_rounding`, `transfers`, `budgets_goals`), `e2e/plans_custom_insight_checks.py` and `e2e/plans_chat_checks.py`;
@@ -233,7 +235,7 @@
 - **Produces:** every helper in code map §1 with `book_id` as its first parameter, keeping its name, e.g. `find_transactions(book_id, *, ...)`, `list_budgets(book_id, *, ...)`, `allocated_by_currency(book_id)`. Docs carry `book_id`. `chat_db.append_exchange(user_id, messages, keep_last, now, book_id)` takes `book_id` as required.
 
 - [ ] **Step 1: Write the failing tests.**
-  - **`section_api_shape`:** a created transaction, budget, goal and generated insight carry `book_id` equal to the personal book id, and `user_id` equal to the same value. In Family mode both equal the family book id.
+  - **`section_api_shape`:** a created transaction, budget, goal and generated insight carry `book_id` equal to the personal book id and have no `user_id` key. In Family mode `book_id` equals the family book id.
   - Update the existing tests named above to the new columns. Their behavioural assertions stay unchanged: privacy, transfers, breakdown, permissions.
 - [ ] **Step 2: Run and confirm failure.** `& $RUN -NoSuite`, then `test_books.py`, `test_api.py`, `test_family.py`, `plans_custom_insight_checks.py` (via `test_plans.py`, which imports it) and `plans_chat_checks.py`. Expected: failures where code still filters `c.user_id`.
 - [ ] **Step 3: Implement** the renames and the route changes.
@@ -286,11 +288,11 @@
 **Files:**
 - Modify:
   - `backend/sql/notifications.py`: the new `exists(...)` and `approaching_reminder_exists(...)` signatures, and `_row` keeps the typed keys.
-  - `backend/notification_service.py`: every writer in the type → link table stores the matching key; insight notices store `book_id` (P5); the family marker comes from the book's kind; the push data keeps `goal_id` (the one subject link set, `""` if none) and `book: 'family'` when the book is a family book.
+  - `backend/notification_service.py`: every writer in the type → link table stores the matching key; insight notices store `book_id` (P5); the family marker comes from the book's kind; the push data carries `subject_id` (the one subject link set, `""` if none) instead of `goal_id`, and `book: 'family'` when the book is a family book.
   - `backend/families/service.py` (the invite/accept/removed/owner notices), `backend/recurring_transaction_service.py` and `backend/custom_insights_service.py` writers.
-  - `backend/main.py`: the notification routes' response (`goal_id` = coalesce of the six links; `extra.book` = `'family'` when the book is a family book).
-  - `backend/notification_models.py`: the comments.
-- Test: update `e2e/test_family.py` `section_notifications`, `e2e/plans_custom_insight_checks.py` (its `goal_id` asserts stay true through the API) and `e2e/test_regressions3.py`; new `test_books.py` section `section_notification_links`.
+  - `backend/main.py`: the notification routes' response (`subject_id` = coalesce of the six links; `extra.book` = `'family'` when the book is a family book).
+  - `backend/notification_models.py`: `NotificationResponse.goal_id` → `subject_id`, and the comments.
+- Test: update `e2e/test_family.py` `section_notifications` (including the push `data.goal_id` → `data.subject_id`), `e2e/plans_custom_insight_checks.py` and `e2e/test_regressions3.py` (their `goal_id` asserts become `subject_id`); new `test_books.py` section `section_notification_links`.
 
 **Interfaces:**
 - **Consumes:** Tasks 1–4.
@@ -298,8 +300,8 @@
 
 - [ ] **Step 1: Write the failing tests** in `section_notification_links`.
   - **`each notice stores its typed link`:** trigger a `goal_achieved`, a `budget_started`, a `large_transaction` and a `custom_insight_ready` notice, and a family invite, then check each row's typed column holds the subject id and the other subject links are NULL.
-  - **`API and push keep goal_id and book`:** `GET /api/notifications` returns `goal_id` equal to the subject id. A family-book notice has `extra.book == 'family'` and the push data (captured by the stub) has `goal_id` and `book`.
-  - **`deleting the subject keeps the notice`:** delete the goal; its `goal_achieved` notice is still listed with the same text, and `goal_id` is null.
+  - **`API and push carry subject_id and book`:** `GET /api/notifications` returns `subject_id` equal to the subject id and no `goal_id` key. A family-book notice has `extra.book == 'family'`, and the push data (captured by the stub) has `subject_id` and `book` and no `goal_id`.
+  - **`deleting the subject keeps the notice`:** delete the goal; its `goal_achieved` notice is still listed with the same text, and `subject_id` is null.
   - **`insight notices dedupe per book`:** running the weekly job twice makes one `weekly_insights_generated` notice per recipient per book.
 - [ ] **Step 2: Run and confirm failure.** `& $RUN -NoSuite`; `test_books.py`, `test_family.py`, `test_regressions3.py`, `test_plans.py`.
 - [ ] **Step 3: Implement.**
@@ -346,11 +348,37 @@
 - [ ] **Step 4: Run the full backend suite.** First recreate `flow_e2e` (`dropdb`/`createdb -h 127.0.0.1 -p 54329 -U flow flow_e2e`, then `alembic upgrade head` from `backend`), then `& $RUN`. Expected: `TOTAL` with 0 problems and 0 crashes (P1: the suite must be green from here on).
 - [ ] **Step 5: Commit.** `feat(backend): AI spend per book; admin AI report shows family and deleted-family rows`
 
-### Task 7: Final verification
+### Task 7: The app follows the renamed fields
+
+**Files:**
+- Modify:
+  - `frontend/lib/models/transaction.dart`, `budget.dart`, `goal.dart`, `insight.dart`: `userId` / `json['user_id']` → `bookId` / `json['book_id']`.
+  - `frontend/lib/models/notification.dart`: `goalId` / `'goal_id'` → `subjectId` / `'subject_id'`, in fromJson, toJson and copyWith. `userId` stays (the recipient).
+  - `frontend/lib/utils/push_tap.dart`: the payload becomes `type|subject_id|book`; the record field is `subjectId`.
+  - `frontend/lib/utils/custom_insight_push.dart`, `frontend/lib/services/fcm_service.dart` (reads `data['subject_id']`), `frontend/lib/services/notification_opener.dart` (`open(type, {subjectId, ...})`, `openPush`, `_bookTarget`), `frontend/lib/services/notification_service.dart`, `frontend/lib/screens/notifications/notifications_screen.dart`, `frontend/lib/main.dart`.
+  - Leave `frontend/lib/models/report.dart`'s `goalId` alone: it is a goal-progress report row, not a notification.
+- Test: update every `frontend/test` file whose JSON fixtures or assertions use `user_id` on these models or `goal_id` / `goalId` on notifications and push taps. Find them with `rg -l "goal_id|goalId|'user_id'" frontend/test`.
+
+**Interfaces:**
+- **Consumes:** the API shape in Global Constraints.
+- **Produces:**
+  - `Transaction.bookId`, `Budget.bookId`, `Goal.bookId`, `Insight.bookId`;
+  - `NotificationModel.subjectId`;
+  - `typedef PushTap = ({String type, String? subjectId, bool family})`;
+  - `pushTapPayload(Object? type, Object? subjectId, Object? book)`;
+  - `NotificationOpener.open(String type, {String? subjectId, bool family = false, VoidCallback? onClosed})`.
+
+- [ ] **Step 1: Update the tests first.** The fixtures use `book_id` / `subject_id`; assertions read `bookId` / `subjectId`. Add one test, `push data with subject_id opens the goal`: `fcm_service`'s tap handler given `{'type': 'goal_achieved', 'subject_id': 'g1', 'book': 'family'}` opens goal `g1` in Family mode, with the same expectation as the existing `goal_id` test.
+- [ ] **Step 2: Run them and confirm failure.** `cd C:\projects\Flow\frontend; C:\flutter\bin\flutter.bat test`. Expected: compile errors or failures on the renamed fields.
+- [ ] **Step 3: Rename** in the files above.
+- [ ] **Step 4: Run and confirm success.** `flutter test` → "All tests passed!"; `flutter analyze` → 0 errors, 0 warnings, and no new infos in the changed files.
+- [ ] **Step 5: Commit.** `refactor(app): models read book_id; notifications and push taps use subject_id`
+
+### Task 8: Final verification
 
 **Files:** none, unless a check fails.
 
-- [ ] **Step 1:** `cd C:\projects\Flow\frontend; C:\flutter\bin\flutter.bat test` → "All tests passed!". `flutter analyze` → 0 errors, 0 warnings. The app is unchanged, so this proves the API stayed compatible with its tests.
+- [ ] **Step 1:** `cd C:\projects\Flow\frontend; C:\flutter\bin\flutter.bat test` → "All tests passed!". `flutter analyze` → 0 errors, 0 warnings.
 - [ ] **Step 2: Browser check.**
   1. `flutter build web --release --dart-define=API_BASE_URL=http://127.0.0.1:8765`.
   2. `& $RUN -NoSuite`; seed with `e2e/seed_rich.py`, then the scratchpad `family_seed/seed_family.py`.
