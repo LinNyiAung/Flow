@@ -1275,6 +1275,8 @@ class AppLocalizations {
       'familySuggestionSpendKids': 'What did we spend on the kids?',
       'familyCustomInsightsShared': 'Reports made here are shared with your whole family.',
       'bookPersonal': 'Personal',
+      'bookSheetTitle': 'Which book?',
+      'bookChipLabel': 'Book: {book}. Tap to switch',
       'familyReadOnlyBanner': "This family is read-only: the owner's plan has ended.",
       'onlyAdminsChangeFamilyBudgets': 'Only admins can change family budgets.',
       'onlyAdminsChangeFamilyGoals': 'Only admins can change family goals.',
@@ -2543,6 +2545,8 @@ class AppLocalizations {
       'familySuggestionSpendKids': 'ကလေးတွေအတွက် ဘာတွေသုံးခဲ့လဲ?',
       'familyCustomInsightsShared': 'ဒီမှာ ပြုလုပ်တဲ့ အစီရင်ခံစာတွေကို မိသားစုအားလုံး ကြည့်နိုင်ပါတယ်။',
       'bookPersonal': 'ကိုယ်ပိုင်',
+      'bookSheetTitle': 'ဘယ်စာရင်းကို ကြည့်မလဲ',
+      'bookChipLabel': 'စာရင်း - {book}။ ပြောင်းရန် နှိပ်ပါ',
       'familyReadOnlyBanner': 'ပိုင်ရှင်၏ အစီအစဉ် ကုန်ဆုံးသွားသဖြင့် ဒီမိသားစုစာရင်းကို ကြည့်ရုံသာ ကြည့်နိုင်ပါတယ်။',
       'onlyAdminsChangeFamilyBudgets': 'မိသားစု ဘတ်ဂျက်များကို စီမံသူများသာ ပြောင်းလဲနိုင်ပါတယ်။',
       'onlyAdminsChangeFamilyGoals': 'မိသားစု ရည်မှန်းချက်များကို စီမံသူများသာ ပြောင်းလဲနိုင်ပါတယ်။',
@@ -3897,6 +3901,12 @@ class AppLocalizations {
 
   /// The Personal segment of the Personal / Family switch.
   String get bookPersonal => translate('bookPersonal');
+
+  /// The title of the book chip's sheet.
+  String get bookSheetTitle => translate('bookSheetTitle');
+
+  /// The book chip's screen-reader label: which book is open, and that a tap switches.
+  String bookChipLabel(String book) => translate('bookChipLabel').replaceAll('{book}', book);
 
   /// Family mode, the owner's plan has lapsed: everyone can read, nobody can
   /// add or change. Also the reason the + button gives.
