@@ -32,7 +32,7 @@ from tz_utils import as_utc
 
 from . import periods, store
 from .access import COST_CAP, LIMIT_REACHED, LOCKED, PlanError, effective_plan, is_trial, user_language
-from .catalog import FEATURES, PERIODS, PLANS, Limit
+from .catalog import FEATURES, PAID_PLANS, PERIODS, PLANS, Limit
 
 logger = logging.getLogger(__name__)
 
@@ -302,6 +302,10 @@ async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dic
         "prices": {p: store.prices(p) for p in PLANS},
         # The family a user on this plan may own (0 members: the plan can't create one; joining is free).
         "family": dict(zip(("max_members", "max_placeholders"), store.family_limits(plan))),
+        # Every plan's family a user on it may own, for the Upgrade screen's Family book row: Free is always 0/0
+        # (its stored numbers never let it create one), so only Plus and Pro show limits.
+        "family_by_plan": {p: dict(zip(("max_members", "max_placeholders"),
+                                       store.family_limits(p) if p in PAID_PLANS else (0, 0))) for p in PLANS},
         "upgrade_contact": store.upgrade_contact(),
         "owner_contact": store.owner_contact(),
     }

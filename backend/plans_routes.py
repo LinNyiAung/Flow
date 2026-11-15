@@ -3,7 +3,7 @@ rendering of plan errors.
 
 GET /api/plan gives the app everything it shows about plans: the effective plan, its end date and trial state, each
 feature's allowance this period, every plan's limits and prices (for the Upgrade screen), the family limits of the user's
-plan ({"max_members", "max_placeholders"}), the upgrade contact texts, the owner's
+plan ({"max_members", "max_placeholders"}) and of every plan ("family_by_plan"; Free is always 0/0), the upgrade contact texts, the owner's
 contact details (email, Viber, Telegram, Facebook page and Messenger links) and the user's pending upgrade request (or null; it carries the Viber number and billing period they gave). Costs and cost caps are never included.
 Upgrades are manual: a user asks for Plus or Pro here and the owner handles the request in the admin panel.
 GET /api/plan/public gives the website (no login) just the prices and the owner's contact details.

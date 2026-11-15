@@ -343,6 +343,11 @@ def section_family_rules():
         check(p == {"max_members": 6, "max_placeholders": 20}, "family rules: GET /api/plan gives a Plus user family limits 6/20", p)
         p = c.get("/api/plan", headers=B["h"]).json().get("family")
         check(p == {"max_members": 0, "max_placeholders": 0}, "family rules: GET /api/plan gives a Free user family limits 0/0", p)
+        want_by_plan = {"free": {"max_members": 0, "max_placeholders": 0}, "plus": {"max_members": 6, "max_placeholders": 20},
+                        "pro": {"max_members": 6, "max_placeholders": 20}}
+        for who, label in ((A, "Plus"), (B, "Free")):
+            p = c.get("/api/plan", headers=who["h"]).json().get("family_by_plan")
+            check(p == want_by_plan, f"family rules: GET /api/plan gives a {label} user every plan's family limits", p)
 
         FNAME = f"Aye family {tag}"
         r = c.post("/api/family", headers=A["h"], json={"name": FNAME})
@@ -1788,6 +1793,13 @@ def section_transfers():
                 base = pool.checkedout()
                 task = asyncio.create_task(make())
                 await asyncio.sleep(0.5)
+                # The reads before the locks (resolving the book) may still be running on a slow first call; once
+                # they end the call waits on the lock. A connection taken before the locks would never be given back
+                # here, so the count would stay above 0 for the whole 5 s.
+                for _ in range(100):
+                    if pool.checkedout() - base == 0 or task.done():
+                        break
+                    await asyncio.sleep(0.05)
                 held.append(pool.checkedout() - base)
                 release.set()
                 await holder
@@ -2680,6 +2692,8 @@ def section_limits():
         check(plans()["plans"]["plus"]["family_max_members"] == 4, "limits: GET /api/admin/plans reports the saved 4")
         check(c.get("/api/plan", headers=A["h"]).json().get("family") == {"max_members": 4, "max_placeholders": 20},
               "limits: GET /api/plan gives a Plus user family limits 4/20")
+        check((c.get("/api/plan", headers=A["h"]).json().get("family_by_plan") or {}).get("plus") == {"max_members": 4, "max_placeholders": 20},
+              "limits: GET /api/plan family_by_plan shows Plus's saved 4/20")
         check((c.get("/api/family", headers=A["h"]).json().get("limits")) == {"max_members": 4, "max_placeholders": 20},
               "limits: GET /api/family shows the new limits")
         stored = db.sql("SELECT family_max_members m, family_max_placeholders p FROM plan_settings WHERE plan = 'plus'")

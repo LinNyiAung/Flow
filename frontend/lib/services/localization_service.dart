@@ -1128,6 +1128,10 @@ class AppLocalizations {
       'planFeature_entry': 'Receipt, text and voice entry',
       'planFeature_budget_suggestion': 'Ko Toe Pwar budget ideas',
       'planFeature_reports': 'PDF reports',
+      'planFamilyRow': 'Family book',
+      'planFamilyJoin': 'Join',
+      'planFamilyPeople': 'people',
+      'planFamilyNames': '+{n} names',
       'planCurrent': 'Current plan',
       'planTrialActive': '{plan} trial',
       'planTrialEnds': 'Trial ends {date}',
@@ -2391,6 +2395,10 @@ class AppLocalizations {
       'planFeature_entry': 'ပြေစာ၊ စာသားနှင့် အသံဖြင့် စာရင်းသွင်းခြင်း',
       'planFeature_budget_suggestion': 'ကိုတိုးပွား၏ ဘတ်ဂျက် အကြံပြုချက်',
       'planFeature_reports': 'PDF အစီရင်ခံစာ',
+      'planFamilyRow': 'မိသားစုစာရင်း',
+      'planFamilyJoin': 'ဝင်နိုင်သည်',
+      'planFamilyPeople': 'ဦး',
+      'planFamilyNames': '+ အမည် {n}',
       'planCurrent': 'လက်ရှိအစီအစဉ်',
       'planTrialActive': '{plan} စမ်းသုံးကာလ',
       'planTrialEnds': 'စမ်းသုံးကာလ {date} တွင် ကုန်ဆုံးမည်',
@@ -3707,6 +3715,10 @@ class AppLocalizations {
   String planTrialEnds(String date) => translate('planTrialEnds').replaceAll('{date}', date);
   String get planPerWeek => translate('planPerWeek');
   String get planPerMonth => translate('planPerMonth');
+  String get planFamilyRow => translate('planFamilyRow');
+  String get planFamilyJoin => translate('planFamilyJoin');
+  String get planFamilyPeople => translate('planFamilyPeople');
+  String planFamilyNames(int n) => translate('planFamilyNames').replaceAll('{n}', '$n');
   String get planIncluded => translate('planIncluded');
   String get planNotIncluded => translate('planNotIncluded');
   String get planContactTitle => translate('planContactTitle');

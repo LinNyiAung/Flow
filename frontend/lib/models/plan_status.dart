@@ -228,6 +228,10 @@ class PlanStatus {
   final int? familyMaxMembers;
   final int? familyMaxPlaceholders;
 
+  /// Every plan's family limits, for the Upgrade screen's Family book row;
+  /// empty from an older server. Free is always 0/0 (it can only join).
+  final Map<Plan, PlanFamilyLimits> familyByPlan;
+
   const PlanStatus({
     required this.plan,
     this.expiresAt,
@@ -241,6 +245,7 @@ class PlanStatus {
     this.upgradeRequest,
     this.familyMaxMembers,
     this.familyMaxPlaceholders,
+    this.familyByPlan = const {},
   });
 
   /// This status with [request] as the pending upgrade request (null clears it).
@@ -257,6 +262,7 @@ class PlanStatus {
         upgradeRequest: request,
         familyMaxMembers: familyMaxMembers,
         familyMaxPlaceholders: familyMaxPlaceholders,
+        familyByPlan: familyByPlan,
       );
 
   bool get isPaid => plan != Plan.free;
@@ -326,6 +332,16 @@ class PlanStatus {
 
     final family = json['family'];
 
+    final familyByPlan = <Plan, PlanFamilyLimits>{};
+    final rawFamilyByPlan = json['family_by_plan'];
+    if (rawFamilyByPlan is Map) {
+      rawFamilyByPlan.forEach((planName, value) {
+        final plan = Plan.values.where((p) => p.name == planName).firstOrNull;
+        final limits = PlanFamilyLimits.tryParse(value);
+        if (plan != null && limits != null) familyByPlan[plan] = limits;
+      });
+    }
+
     return PlanStatus(
       plan: Plan.fromString(json['plan'] as String?),
       expiresAt: parseInstantOrNull(json['expires_at']),
@@ -339,6 +355,27 @@ class PlanStatus {
       upgradeRequest: UpgradeRequest.tryParse(json['upgrade_request']),
       familyMaxMembers: family is Map ? _asInt(family['max_members']) : null,
       familyMaxPlaceholders: family is Map ? _asInt(family['max_placeholders']) : null,
+      familyByPlan: familyByPlan,
     );
+  }
+}
+
+/// How big a family someone on a plan may start: account members (owner
+/// included) and name-only members. 0 members: the plan can only join one.
+class PlanFamilyLimits {
+  final int maxMembers;
+  final int maxPlaceholders;
+
+  const PlanFamilyLimits({required this.maxMembers, required this.maxPlaceholders});
+
+  bool get canCreate => maxMembers > 0;
+
+  /// Null unless [json] is a map with both whole numbers.
+  static PlanFamilyLimits? tryParse(Object? json) {
+    if (json is! Map) return null;
+    final members = _asInt(json['max_members']);
+    final placeholders = _asInt(json['max_placeholders']);
+    if (members == null || placeholders == null) return null;
+    return PlanFamilyLimits(maxMembers: members, maxPlaceholders: placeholders);
   }
 }

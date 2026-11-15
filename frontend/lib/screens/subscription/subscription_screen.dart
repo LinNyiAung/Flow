@@ -399,6 +399,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       catalog: status.catalog,
       currentPlan: currentPlan,
       prices: status.prices,
+      familyByPlan: status.familyByPlan,
     );
   }
 
@@ -825,18 +826,22 @@ class _UpgradeRequestDialogState extends State<UpgradeRequestDialog> {
 /// included"), with the user's current plan's column highlighted. Everything
 /// comes from [catalog], the limits the server reports. Once the owner has set
 /// a monthly price for Plus or Pro, a Price row comes first (the monthly
-/// price, "Free" for Free, a dash for a paid plan without one).
+/// price, "Free" for Free, a dash for a paid plan without one). Then, when the
+/// server sent [familyByPlan], a Family book row: "Join" for a plan that can
+/// only join a family, else how many people and name-only members it may have.
 class PlanComparisonTable extends StatelessWidget {
   const PlanComparisonTable({
     super.key,
     required this.catalog,
     required this.currentPlan,
     this.prices = const {},
+    this.familyByPlan = const {},
   });
 
   final Map<Plan, Map<String, CatalogLimit>> catalog;
   final Plan currentPlan;
   final Map<Plan, PlanPrice> prices;
+  final Map<Plan, PlanFamilyLimits> familyByPlan;
 
   static const List<Plan> _plans = [Plan.free, Plan.plus, Plan.pro];
 
@@ -916,6 +921,14 @@ class PlanComparisonTable extends StatelessWidget {
             for (final plan in _plans) cell(_priceCell(l, scheme, plan), plan),
           ],
         ),
+      if (_plans.any(familyByPlan.containsKey))
+        TableRow(
+          key: const ValueKey('plan-family-row'),
+          children: [
+            rowLabel(l.planFamilyRow),
+            for (final plan in _plans) cell(_familyCell(l, scheme, plan), plan),
+          ],
+        ),
       for (final feature in features)
         TableRow(
           children: [
@@ -983,6 +996,35 @@ class PlanComparisonTable extends StatelessWidget {
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
         ),
+      ],
+    );
+  }
+
+  /// "Join" when [plan] can only join a family; else the number of people
+  /// over "people" and "+N names" (name-only members, when any are allowed).
+  Widget _familyCell(AppLocalizations l, ColorScheme scheme, Plan plan) {
+    final limits = familyByPlan[plan];
+    if (limits == null) return _dash(l, scheme);
+    final caption = TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant);
+    if (!limits.canCreate) {
+      return Text(
+        l.planFamilyJoin,
+        key: Key('plan-family-${plan.name}'),
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: scheme.onSurface),
+      );
+    }
+    return Column(
+      key: Key('plan-family-${plan.name}'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${limits.maxMembers}',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: scheme.onSurface),
+        ),
+        Text(l.planFamilyPeople, textAlign: TextAlign.center, style: caption),
+        if (limits.maxPlaceholders > 0)
+          Text(l.planFamilyNames(limits.maxPlaceholders), textAlign: TextAlign.center, style: caption),
       ],
     );
   }
