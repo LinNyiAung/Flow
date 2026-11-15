@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/android_download_link.dart';
-import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
-import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/widgets/plan_badge.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
@@ -206,14 +204,6 @@ class AppDrawer extends StatelessWidget {
                 ],
               ),
             ),
-
-            // Family members: the Personal / Family switch (nothing for
-            // anyone else). The menu closes before the app switches books.
-            if (Provider.of<FamilyProvider?>(context)?.inFamily ?? false)
-              Padding(
-                padding: responsive.padding(left: 16, right: 16, bottom: 12),
-                child: BookSwitch(onBeforeSwitch: () => Navigator.pop(context)),
-              ),
 
             // Navigation items
             Expanded(

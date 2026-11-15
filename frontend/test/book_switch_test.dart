@@ -330,23 +330,14 @@ void main() {
       expect(transactions.fetches, 3);
     });
 
-    testWidgets('the side menu has the switch after the profile header, and it switches', (tester) async {
+    testWidgets('the side menu has no switch (the dashboard and the book chip switch)', (tester) async {
       final books = BookModeProvider();
       await _pumpHome(tester, family: _FakeFamily(), books: books);
       await _openDrawer(tester);
 
-      final inDrawer = find.descendant(of: find.byType(Drawer), matching: find.byKey(BookSwitch.familyKey));
-      expect(inDrawer, findsOneWidget);
-      // Below the profile header (its avatar letter), above the menu items.
-      expect(tester.getRect(inDrawer).top,
-          greaterThan(tester.getRect(find.descendant(of: find.byType(Drawer), matching: find.text('U'))).bottom));
-      expect(tester.getRect(inDrawer).bottom,
-          lessThan(tester.getRect(find.descendant(of: find.byType(Drawer), matching: find.text(en.dashboard))).top));
-
-      await tester.tap(inDrawer);
-      await tester.pumpAndSettle();
-      expect(books.mode, BookMode.family);
-      expect(find.byType(Drawer), findsNothing, reason: 'the menu closes');
+      expect(find.descendant(of: find.byType(Drawer), matching: find.byType(BookSwitch)), findsNothing);
+      // The dashboard's own switch is still there, under the menu.
+      expect(find.byKey(BookSwitch.familyKey), findsOneWidget);
     });
   });
 
@@ -609,10 +600,6 @@ void main() {
             _expectOnScreen(tester, banner, width);
             _expectOnScreen(tester, find.widgetWithText(FilledButton, l.upgrade), width);
 
-            await _openDrawer(tester);
-            expect(tester.takeException(), isNull);
-            _expectOnScreen(tester, find.descendant(of: find.byType(Drawer), matching: find.byKey(BookSwitch.familyKey)),
-                width);
           });
         }
       }

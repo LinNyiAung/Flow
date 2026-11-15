@@ -7,21 +7,18 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 
-/// The Personal / Family switch, at the top of the dashboard and in the side
-/// menu: two segments, "Personal" and the family's name. The selected one is
-/// the book the whole app shows.
+/// The Personal / Family switch at the top of the dashboard: two segments,
+/// "Personal" and the family's name. The selected one is the book the whole
+/// app shows. (Other book screens switch with their BookChip.)
 ///
 /// Only members of a family see it; for everyone else (and where the family
 /// providers aren't in the tree) it takes no space, so the app looks as it
 /// always did.
 class BookSwitch extends StatelessWidget {
-  const BookSwitch({super.key, this.onBeforeSwitch});
+  const BookSwitch({super.key});
 
   static const Key personalKey = ValueKey('book-switch-personal');
   static const Key familyKey = ValueKey('book-switch-family');
-
-  /// Runs before a switch (the side menu closes itself).
-  final VoidCallback? onBeforeSwitch;
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +29,6 @@ class BookSwitch extends StatelessWidget {
 
     void select(BookMode mode) {
       if (books.mode == mode) return;
-      onBeforeSwitch?.call();
       unawaited(books.setMode(mode));
     }
 
