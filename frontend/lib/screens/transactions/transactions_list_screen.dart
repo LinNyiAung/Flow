@@ -1,7 +1,6 @@
 import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
-import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
@@ -361,13 +360,12 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: AppBarTitle(localizations.allTransactionsTitle),
+        title: BookAppBarTitle(localizations.allTransactionsTitle, routeName: '/transactions'),
         leading: IconButton(
           icon: Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
-          const BookChip(routeName: '/transactions'),
           if (hasActiveFilters)
             IconButton(
               icon: Icon(Icons.filter_alt_off_rounded),

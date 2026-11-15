@@ -174,7 +174,9 @@ class _AiChatScreenState extends State<AiChatScreen>
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-        title: Row(
+        // His face and name, then the book chip at the end next to the
+        // actions; the name and the line under it keep room to be read.
+        title: LayoutBuilder(builder: (context, constraints) => Row(
           children: [
             // Ko Toe Pwar's face; his name is the text beside it, so the
             // picture itself stays out of the screen reader.
@@ -226,10 +228,18 @@ class _AiChatScreenState extends State<AiChatScreen>
                 ],
               ),
             ),
+            if (BookChip.shows(context)) ...[
+              const SizedBox(width: 8),
+              // lead: the face, its gap and the family icon before the line
+              // under his name.
+              BookChip(
+                routeName: '/ai-chat',
+                maxWidth: BookAppBarTitle.chipRoom(constraints.maxWidth, lead: 36 + 12 + 13 + 4),
+              ),
+            ],
           ],
-        ),
+        )),
         actions: [
-          const BookChip(routeName: '/ai-chat'),
           Consumer<ChatProvider>(
             builder: (context, chatProvider, child) {
               if (chatProvider.isStreaming) {

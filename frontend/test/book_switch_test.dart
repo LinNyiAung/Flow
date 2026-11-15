@@ -29,6 +29,7 @@ import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/widgets/read_only_banner.dart';
@@ -497,6 +498,9 @@ void main() {
         expect(find.descendant(of: bar, matching: find.textContaining('$longName ·')), findsNothing);
         expect(find.descendant(of: bar, matching: find.text(l.aiMoneyHelper)), findsNothing);
         _expectOnScreen(tester, find.byKey(BookChip.chipKey), 360);
+        // His name and the line under it keep room to be read.
+        final subtitle = find.descendant(of: bar, matching: find.text(l.askAboutFamily));
+        expect(tester.renderObject<RenderBox>(subtitle).constraints.maxWidth, greaterThanOrEqualTo(AppBarTitle.minWidth));
       });
     }
 
@@ -508,9 +512,14 @@ void main() {
       expect(tester.getSize(find.byKey(BookChip.chipKey)).width, lessThanOrEqualTo(360 * 0.4));
       final title = find.text(my.allTransactionsTitle);
       expect(title, findsOneWidget);
-      expect(tester.getSize(title).width, greaterThan(0));
+      // The title keeps room to be read (the list opened from a day has its
+      // filter-clear action in the bar too).
+      final titleBox = tester.renderObject<RenderBox>(inBar(find.byType(AppBarTitle)));
+      expect(titleBox.constraints.maxWidth, greaterThanOrEqualTo(AppBarTitle.minWidth));
+      expect(titleBox.size.width, greaterThanOrEqualTo(AppBarTitle.minWidth * 0.75));
       _expectOnScreen(tester, title, 360);
       _expectOnScreen(tester, inBar(find.byType(IconButton)), 360);
+      _expectOnScreen(tester, find.byKey(BookChip.chipKey), 360);
     });
   });
 

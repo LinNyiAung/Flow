@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/app_navigator.dart';
@@ -55,8 +56,11 @@ class _Pushes extends NavigatorObserver {
 
 final en = AppLocalizations(const Locale('en'));
 
-Widget _budgetsPage() => Scaffold(
-      appBar: AppBar(title: const Text('Budgets'), actions: const [BookChip(routeName: '/budgets')]),
+Widget _budgetsPage({double? chipMaxWidth}) => Scaffold(
+      appBar: AppBar(
+        title: const Text('Budgets'),
+        actions: [BookChip(routeName: '/budgets', maxWidth: chipMaxWidth)],
+      ),
       body: const SizedBox(),
     );
 
@@ -67,6 +71,7 @@ Future<_Pushes> _pump(
   required FamilyProvider? family,
   required BookModeProvider books,
   double width = 390,
+  double? chipMaxWidth,
 }) async {
   tester.view.physicalSize = Size(width * 3, 800 * 3);
   tester.view.devicePixelRatio = 3;
@@ -86,7 +91,7 @@ Future<_Pushes> _pump(
     initialRoute: '/budgets',
     routes: {
       '/': (_) => const Scaffold(body: Text('home')),
-      '/budgets': (_) => _budgetsPage(),
+      '/budgets': (_) => _budgetsPage(chipMaxWidth: chipMaxWidth),
     },
   );
   await tester.pumpWidget(family == null
@@ -231,7 +236,27 @@ void main() {
     await _pump(tester, family: _FakeFamily(), books: books);
     final handle = tester.ensureSemantics();
     expect(find.bySemanticsLabel(en.bookChipLabel('Aung family')), findsOneWidget);
+    // A screen reader's double-tap opens the sheet.
+    final node = tester.getSemantics(find.byKey(BookChip.chipKey));
+    expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    node.owner!.performAction(node.id, SemanticsAction.tap);
+    await tester.pumpAndSettle();
+    expect(find.text('Which book?'), findsOneWidget);
     handle.dispose();
+  });
+
+  testWidgets('no room for the name: the chip keeps its icon and ▾, the label stays', (tester) async {
+    final books = BookModeProvider();
+    await books.setMode(BookMode.family);
+    await _pump(tester, family: _FakeFamily(), books: books, chipMaxWidth: 70);
+    expect(_inChip(find.byIcon(Icons.family_restroom_rounded)), findsOneWidget);
+    expect(_inChip(find.byIcon(Icons.expand_more_rounded)), findsOneWidget);
+    expect(_inChip(find.text('Aung family')), findsNothing);
+    expect(tester.getSize(find.byKey(BookChip.chipKey)).width, lessThanOrEqualTo(70));
+    final handle = tester.ensureSemantics();
+    expect(find.bySemanticsLabel(en.bookChipLabel('Aung family')), findsOneWidget);
+    handle.dispose();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('long name is cut at 40% width', (tester) async {

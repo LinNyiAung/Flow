@@ -1,7 +1,6 @@
 import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
-import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -123,13 +122,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: AppBarTitle(localizations.financialGoals),
+        title: BookAppBarTitle(localizations.financialGoals, routeName: '/goals'),
         leading: IconButton(
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
-          const BookChip(routeName: '/goals'),
           Consumer<NotificationProvider>(
             builder: (context, notificationProvider, child) {
               return Padding(

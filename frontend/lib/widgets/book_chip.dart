@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:frontend/app_navigator.dart';
@@ -6,6 +7,7 @@ import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/read_only_banner.dart';
 import 'package:provider/provider.dart';
 
@@ -16,42 +18,74 @@ import 'package:provider/provider.dart';
 /// Only members of a family see it (like the dashboard's BookSwitch); for
 /// everyone else it takes no space.
 class BookChip extends StatelessWidget {
-  const BookChip({super.key, required this.routeName});
+  const BookChip({super.key, required this.routeName, this.maxWidth});
 
   static const Key chipKey = ValueKey('book-chip');
+
+  /// Never wider than this share of the screen.
+  static const double maxScreenShare = 0.4;
+
+  /// With less room than this the chip drops the name and keeps its icon and
+  /// ▾ (the sheet and the screen-reader label still name the book).
+  static const double compactBelow = 80;
+
+  /// With less room than this (but enough for the name) the ▾ goes first; a
+  /// read-only family's lock always stays.
+  static const double caretBelow = 120;
+
+  /// The space the chip keeps after itself, outside [maxWidth].
+  static const double outerPadding = 4;
 
   /// The named route of the screen showing the chip: after a switch the same
   /// screen is opened again, in the other book.
   final String routeName;
 
-  @override
-  Widget build(BuildContext context) {
+  /// The room the bar can give the chip; null: [maxScreenShare] of the screen.
+  final double? maxWidth;
+
+  /// Whether the chip shows at all (only for members of a family). Call it
+  /// from `build` (it listens).
+  static bool shows(BuildContext context) {
     final family = Provider.of<FamilyProvider?>(context);
     final books = Provider.of<BookModeProvider?>(context);
-    if (family == null || books == null || !family.inFamily) return const SizedBox.shrink();
+    return family != null && books != null && family.inFamily;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!shows(context)) return const SizedBox.shrink();
+    final family = Provider.of<FamilyProvider>(context);
+    final books = Provider.of<BookModeProvider>(context);
     final l = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final name = books.isFamily ? (family.family?.name ?? '') : l.bookPersonal;
     final readOnly = isFamilyReadOnly(context);
+    final width = min(maxWidth ?? double.infinity, MediaQuery.sizeOf(context).width * maxScreenShare);
+    final compact = width < compactBelow;
+    final trailing = readOnly
+        ? Icons.lock_rounded
+        : (compact || width >= caretBelow ? Icons.expand_more_rounded : null);
+    void open() => showBookSheet(context, routeName: routeName);
 
     return Padding(
-      padding: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.only(right: outerPadding),
       child: Center(
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.4),
+          constraints: BoxConstraints(maxWidth: width),
           child: Semantics(
             button: true,
             excludeSemantics: true,
             label: l.bookChipLabel(name),
+            onTap: open,
             child: Material(
               key: chipKey,
               color: AppTheme.trackFor(context),
               borderRadius: BorderRadius.circular(20),
               child: InkWell(
                 borderRadius: BorderRadius.circular(20),
-                onTap: () => showBookSheet(context, routeName: routeName),
+                onTap: open,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 7, 8, 7),
+                  padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -60,21 +94,21 @@ class BookChip extends StatelessWidget {
                         size: 16,
                         color: AppTheme.accentFor(context),
                       ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                      if (!compact) ...[
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 2),
-                      Icon(
-                        readOnly ? Icons.lock_rounded : Icons.expand_more_rounded,
-                        size: readOnly ? 14 : 18,
-                        color: scheme.onSurfaceVariant,
-                      ),
+                      ],
+                      if (trailing != null) ...[
+                        const SizedBox(width: 2),
+                        Icon(trailing, size: readOnly ? 14 : 18, color: scheme.onSurfaceVariant),
+                      ],
                     ],
                   ),
                 ),
@@ -84,6 +118,42 @@ class BookChip extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// A book screen's top-bar title with the [BookChip] at its end, next to the
+/// screen's own actions. The title keeps room to be read (at least
+/// [AppBarTitle.minWidth], and 40% of the slot); the chip gets what is
+/// left, up to [BookChip.maxScreenShare] of the screen, and drops the name
+/// when that is too little. With no family it is just the title.
+class BookAppBarTitle extends StatelessWidget {
+  const BookAppBarTitle(this.title, {super.key, required this.routeName});
+
+  final String title;
+  final String routeName;
+
+  /// The chip's share of a title slot [available] wide, after [lead] (what
+  /// sits before the title text in the slot) and the gap.
+  static double chipRoom(double available, {double lead = 0}) {
+    final forTitle = available - lead - _gap - BookChip.outerPadding;
+    return max(0, forTitle - max(AppBarTitle.minWidth, forTitle * 0.4));
+  }
+
+  static const double _gap = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!BookChip.shows(context)) return AppBarTitle(title);
+    return LayoutBuilder(builder: (context, constraints) {
+      final chip = BookChip(routeName: routeName, maxWidth: chipRoom(constraints.maxWidth));
+      return Row(
+        children: [
+          Expanded(child: AppBarTitle(title)),
+          const SizedBox(width: _gap),
+          chip,
+        ],
+      );
+    });
   }
 }
 

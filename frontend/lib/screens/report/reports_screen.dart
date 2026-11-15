@@ -3,7 +3,6 @@ import 'package:frontend/models/family.dart';
 import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
-import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
@@ -276,13 +275,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
       drawer: AppDrawer(),
       drawerEdgeDragWidth: MediaQuery.of(context).size.width * 0.15,
       appBar: AppBar(
-        title: AppBarTitle(localizations.financialReports),
+        title: BookAppBarTitle(localizations.financialReports, routeName: '/reports'),
         leading: IconButton(
           icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
-          const BookChip(routeName: '/reports'),
           if (_report != null)
             _isDownloading
                 ? const Padding(
