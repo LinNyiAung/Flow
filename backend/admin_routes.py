@@ -1122,6 +1122,7 @@ async def get_users_ai_usage(
         user_stats = [
             UserAIUsageStats(
                 user_id=result["user_id"],
+                book_id=result["book_id"],
                 user_name=result["user_name"],
                 user_email=result["user_email"],
                 total_requests=result["total_requests"],
@@ -1160,27 +1161,7 @@ async def get_user_ai_usage_detail(
     """Get detailed AI usage for a specific user"""
     try:
         usage_records = await ai_usage_db.user_detail(user_id, feature_type.value if feature_type else None, limit)
-
-        return [
-            AIUsageResponse(
-                id=record["_id"],
-                user_id=record["user_id"],
-                feature_type=AIFeatureType(record["feature_type"]),
-                provider=AIProviderType(record["provider"]),
-                model_name=record["model_name"],
-                input_tokens=record["input_tokens"],
-                output_tokens=record["output_tokens"],
-                total_tokens=record["total_tokens"],
-                estimated_cost_usd=record["estimated_cost_usd"],
-                fallback_from=record.get("fallback_from"),
-                served_model=record.get("served_model"),
-                served_differs=served_differs(record["provider"], record["model_name"], record.get("served_model")),
-                outcome=record.get("outcome"),
-                cost_estimated=bool(record.get("cost_estimated")),
-                created_at=record["created_at"]
-            )
-            for record in usage_records
-        ]
+        return [_usage_response(record) for record in usage_records]
 
     except Exception as e:
         print(f"Error getting user AI usage detail: {str(e)}")
@@ -1188,6 +1169,75 @@ async def get_user_ai_usage_detail(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get user AI usage detail"
         )
+
+
+@router.get("/ai-usage/book/{book_id}", response_model=List[AIUsageResponse])
+async def get_book_ai_usage_detail(
+    book_id: str = Path(...),
+    current_admin: dict = Depends(require_moderator_or_above),
+    limit: int = Query(100, ge=1, le=500),
+    feature_type: Optional[AIFeatureType] = Query(None)
+):
+    """Detailed AI usage of a family book's own AI work (its insights, their translations, its AI-made budgets): the
+    rows recorded on its book_id. An unknown book lists nothing. A deleted family's rows have no book any more."""
+    try:
+        usage_records = await ai_usage_db.book_detail(book_id, feature_type.value if feature_type else None, limit)
+        return [_usage_response(record) for record in usage_records]
+
+    except Exception as e:
+        print(f"Error getting book AI usage detail: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get book AI usage detail"
+        )
+
+
+def _usage_response(record: dict) -> AIUsageResponse:
+    return AIUsageResponse(
+        id=record["_id"],
+        user_id=record["user_id"],
+        book_id=record.get("book_id"),
+        feature_type=AIFeatureType(record["feature_type"]),
+        provider=AIProviderType(record["provider"]),
+        model_name=record["model_name"],
+        input_tokens=record["input_tokens"],
+        output_tokens=record["output_tokens"],
+        total_tokens=record["total_tokens"],
+        estimated_cost_usd=record["estimated_cost_usd"],
+        fallback_from=record.get("fallback_from"),
+        served_model=record.get("served_model"),
+        served_differs=served_differs(record["provider"], record["model_name"], record.get("served_model")),
+        outcome=record.get("outcome"),
+        cost_estimated=bool(record.get("cost_estimated")),
+        created_at=record["created_at"]
+    )
+
+
+def _feature_stats(results: list, features: tuple) -> Dict:
+    """The per-feature and total stats of ai_usage_db.feature_stats' rows: requests, tokens, cost, unique_users (the
+    distinct people) and unique_books (the distinct family books whose own spend it was)."""
+    blank = {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0, "unique_books": 0}
+    stats = {f: dict(blank) for f in features}
+    total = dict(blank, unique_users=set(), unique_books=set())
+    for result in results:
+        feature = result["feature_type"]
+        stats[feature] = {
+            "requests": result["total_requests"],
+            "tokens": result["total_tokens"],
+            "cost": round(result["total_cost"], 4),
+            "unique_users": len(result["user_ids"]),
+            "unique_books": len(result["book_ids"]),
+        }
+        total["requests"] += result["total_requests"]
+        total["tokens"] += result["total_tokens"]
+        total["cost"] += result["total_cost"]
+        total["unique_users"].update(result["user_ids"])
+        total["unique_books"].update(result["book_ids"])
+    total["unique_users"] = len(total["unique_users"])
+    total["unique_books"] = len(total["unique_books"])
+    total["cost"] = round(total["cost"], 4)
+    stats["total"] = total
+    return stats
 
 
 
@@ -1199,30 +1249,8 @@ async def get_budget_ai_usage_stats(
 ):
     """Get AI usage statistics specifically for budget features"""
     try:
-        results = await ai_usage_db.feature_stats(["budget_suggestion", "budget_auto_create"], start_date, end_date)
-
-        stats = {
-            "budget_suggestion": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
-            "budget_auto_create": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
-            "total": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": set()}
-        }
-
-        for result in results:
-            feature = result["feature_type"]
-            stats[feature]["requests"] = result["total_requests"]
-            stats[feature]["tokens"] = result["total_tokens"]
-            stats[feature]["cost"] = round(result["total_cost"], 4)
-            stats[feature]["unique_users"] = len(result["user_ids"])
-
-            stats["total"]["requests"] += result["total_requests"]
-            stats["total"]["tokens"] += result["total_tokens"]
-            stats["total"]["cost"] += result["total_cost"]
-            stats["total"]["unique_users"].update(result["user_ids"])
-
-        stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
-        stats["total"]["cost"] = round(stats["total"]["cost"], 4)
-
-        return stats
+        features = ("budget_suggestion", "budget_auto_create")
+        return _feature_stats(await ai_usage_db.feature_stats(features, start_date, end_date), features)
 
     except Exception as e:
         print(f"Error getting budget AI usage stats: {str(e)}")
@@ -1243,34 +1271,8 @@ async def get_transaction_extraction_ai_usage_stats(
 ):
     """Get AI usage statistics specifically for transaction extraction features"""
     try:
-        results = await ai_usage_db.feature_stats(
-            ["transaction_text_extraction", "transaction_image_extraction", "transaction_audio_transcription"],
-            start_date, end_date,
-        )
-
-        stats = {
-            "transaction_text_extraction": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
-            "transaction_image_extraction": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
-            "transaction_audio_transcription": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": 0},
-            "total": {"requests": 0, "tokens": 0, "cost": 0.0, "unique_users": set()}
-        }
-
-        for result in results:
-            feature = result["feature_type"]
-            stats[feature]["requests"] = result["total_requests"]
-            stats[feature]["tokens"] = result["total_tokens"]
-            stats[feature]["cost"] = round(result["total_cost"], 4)
-            stats[feature]["unique_users"] = len(result["user_ids"])
-
-            stats["total"]["requests"] += result["total_requests"]
-            stats["total"]["tokens"] += result["total_tokens"]
-            stats["total"]["cost"] += result["total_cost"]
-            stats["total"]["unique_users"].update(result["user_ids"])
-
-        stats["total"]["unique_users"] = len(stats["total"]["unique_users"])
-        stats["total"]["cost"] = round(stats["total"]["cost"], 4)
-
-        return stats
+        features = ("transaction_text_extraction", "transaction_image_extraction", "transaction_audio_transcription")
+        return _feature_stats(await ai_usage_db.feature_stats(features, start_date, end_date), features)
 
     except Exception as e:
         print(f"Error getting transaction extraction AI usage stats: {str(e)}")

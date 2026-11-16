@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Zap, DollarSign, TrendingUp, Users, Calendar, Search, RefreshCw, Eye, X, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
-import { apiRequest, errorMessage, parseLocalDate } from './api';
+import { aiUsageDetailPath, aiUsageRowKey, apiRequest, errorMessage, parseLocalDate } from './api';
 
 // Safe number helpers so a missing field can't crash rendering.
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
@@ -178,14 +178,15 @@ const AIUsageStats = ({ token }) => {
     return () => { cancelled = true; };
   }, [token, sortBy, startDate, endDate, queryKey]);
 
-  const selectedUserId = selectedUser?.user_id ?? null;
-  const detailKey = selectedUserId ? `${selectedUserId}|${featureFilter}` : null;
+  // A person's records, or a family book's own; the "Deleted family" row has none.
+  const detailPath = selectedUser ? aiUsageDetailPath(selectedUser) : null;
+  const detailKey = detailPath ? `${detailPath}|${featureFilter}` : null;
   const detailLoading = detailKey !== null && detail.key !== detailKey;
 
   useEffect(() => {
-    if (!selectedUserId) return undefined;
+    if (!detailPath) return undefined;
     let cancelled = false;
-    apiRequest(`/api/admin/ai-usage/user/${encodeURIComponent(selectedUserId)}`, {
+    apiRequest(detailPath, {
       token,
       params: { feature_type: featureFilter, limit: 100 },
     })
@@ -196,7 +197,7 @@ const AIUsageStats = ({ token }) => {
         if (!cancelled) setDetail({ key: detailKey, records: [], error: errorMessage(err, 'Failed to load usage records') });
       });
     return () => { cancelled = true; };
-  }, [token, selectedUserId, featureFilter, detailKey]);
+  }, [token, detailPath, featureFilter, detailKey]);
 
   const refresh = () => setRefreshKey((k) => k + 1);
 
@@ -400,7 +401,7 @@ const AIUsageStats = ({ token }) => {
                       </thead>
                       <tbody>
                         {userUsage.map((user) => (
-                          <tr key={user.user_id} className="border-b border-white/5 hover:bg-slate-800/50 transition-colors">
+                          <tr key={aiUsageRowKey(user)} className="border-b border-white/5 hover:bg-slate-800/50 transition-colors">
                             <td className="px-6 py-5">
                               <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl flex items-center justify-center text-white font-bold">
@@ -429,13 +430,17 @@ const AIUsageStats = ({ token }) => {
                               <div className="text-xs text-slate-500">{fmtInt(user.monthly_insights_count)}M</div>
                             </td>
                             <td className="px-6 py-5 text-center">
-                              <button
-                                onClick={() => openUser(user)}
-                                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-500/15 border border-blue-500/30 rounded-lg text-blue-400 text-xs font-semibold hover:bg-blue-500/25"
-                              >
-                                <Eye size={14} />
-                                Detail
-                              </button>
+                              {aiUsageDetailPath(user) ? (
+                                <button
+                                  onClick={() => openUser(user)}
+                                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-500/15 border border-blue-500/30 rounded-lg text-blue-400 text-xs font-semibold hover:bg-blue-500/25"
+                                >
+                                  <Eye size={14} />
+                                  Detail
+                                </button>
+                              ) : (
+                                <span className="text-xs text-slate-500" title="The family was deleted; its records have no book any more">—</span>
+                              )}
                             </td>
                           </tr>
                         ))}

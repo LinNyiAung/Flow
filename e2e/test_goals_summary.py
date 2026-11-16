@@ -76,9 +76,9 @@ def _uid(token):
     return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["uid"]
 
 
-async def _ai_context(uid):
+async def _ai_context(book_id):
     from ai_chatbot import FinancialDataProcessor, financial_chatbot
-    proc = FinancialDataProcessor(uid)
+    proc = FinancialDataProcessor(book_id)  # the assistant reads a book (the person's personal book), not a person
     docs = await proc.create_financial_documents()
     texts = {d.metadata.get("type"): d.page_content for d in docs}
     goals_list = await proc.get_user_goals()
@@ -88,7 +88,8 @@ async def _ai_context(uid):
     return texts, prompt
 
 
-texts, prompt = asyncio.run(_ai_context(_uid(tok)))
+book = db.sql("SELECT id FROM books WHERE person_id = %s", _uid(tok))[0]["id"]
+texts, prompt = asyncio.run(_ai_context(book))
 overview = texts.get("goals_overview", "")
 check("Total Allocated: $2,800.00" in overview and "Total Target: $7,300.00" in overview,
       "AI goals overview: $2,800 of $7,300", overview[:600])

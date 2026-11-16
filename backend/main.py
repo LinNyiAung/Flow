@@ -581,7 +581,7 @@ async def _require_owner_under_cost_cap(book: Book, feature: str) -> None:
     owner = await families_db.owner_user(book.family["id"])
     if owner is not None:
         await quota.require_under_cost_cap(owner, feature, lang=user_language(book.person),
-                                           upgrade_hint=owner["_id"] == book.person["_id"], book_user_id=book.id)
+                                           upgrade_hint=owner["_id"] == book.person["_id"], book_id=book.id)
 
 
 async def _generate_for(book: Book, plan_user: dict, insight_type: str):

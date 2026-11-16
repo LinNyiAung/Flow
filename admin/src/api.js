@@ -178,6 +178,18 @@ export const getUserUsage = (token, userId) => apiRequest(`/api/admin/users/${en
 export const resetUserUsage = (token, userId) =>
   apiRequest(`/api/admin/users/${enc(userId)}/reset-usage`, { token, method: 'POST' });
 
+// AI usage report rows (/api/admin/ai-usage/users) are a person (user_id), a family book's own spend (book_id,
+// "Family · <name>") or every deleted family's spend (both null, "Deleted family").
+/** A report row's React key. */
+export const aiUsageRowKey = (row) => row.user_id ?? row.book_id ?? 'deleted-family';
+
+/** The path of a report row's usage records, or null when it has none (the "Deleted family" row). */
+export const aiUsageDetailPath = (row) => {
+  if (row?.user_id) return `/api/admin/ai-usage/user/${enc(row.user_id)}`;
+  if (row?.book_id) return `/api/admin/ai-usage/book/${enc(row.book_id)}`;
+  return null;
+};
+
 // ─── Upgrade requests ─────────────────────────────────────────────────────────
 /**
  * status: 'pending' (default) | 'done' | 'dismissed'. Resolves to

@@ -1464,7 +1464,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             # (it never stitches two providers' text together). aclosing: if our consumer stops early (client
             # disconnect), the runner's and the provider's streams are closed right away.
             result = None
-            # Usage (tokens and cost) is recorded under the person asking, never the family's book user.
+            # Usage (tokens and cost) is recorded under the person asking, never the family book.
             async with aclosing(ai_runner.run_stream(feature, user_id=person_id, prompt=prompt)) as items:
                 async for item in items:
                     if isinstance(item, ai_runner.RunResult):

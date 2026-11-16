@@ -24,7 +24,8 @@ class AIProviderType(str, Enum):
 
 
 class AIUsageCreate(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None  # the person, or None for a family book's own spend (book_id)
+    book_id: Optional[str] = None
     feature_type: AIFeatureType
     provider: AIProviderType
     model_name: str
@@ -36,7 +37,8 @@ class AIUsageCreate(BaseModel):
 
 class AIUsageResponse(BaseModel):
     id: str
-    user_id: str
+    user_id: Optional[str] = None  # the person whose spend it is; None for a family book's own spend
+    book_id: Optional[str] = None  # the family book whose own spend it is (user_id None)
     feature_type: AIFeatureType
     provider: AIProviderType
     model_name: str
@@ -53,7 +55,10 @@ class AIUsageResponse(BaseModel):
 
 
 class UserAIUsageStats(BaseModel):
-    user_id: str
+    # One spender: a person (user_id), a family book's own spend (book_id; user_name "Family · <name>") or every
+    # deleted family's spend (both None, user_name "Deleted family").
+    user_id: Optional[str] = None
+    book_id: Optional[str] = None
     user_name: str
     user_email: str
     total_requests: int

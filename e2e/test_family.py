@@ -2495,10 +2495,11 @@ def section_ai():
         try:
             ah = test_plans.admin_login(c, admins["super_admin"])
             r = c.get("/api/admin/ai-usage/users", headers=ah, params={"limit": 100, "start_date": started.isoformat()})
-            row = next((u for u in (r.json() if r.status_code == 200 else []) if u.get("user_id") == book), None)
-            check(row is not None and row.get("user_name") == f"Family · {fam_name}"
+            row = next((u for u in (r.json() if r.status_code == 200 else []) if u.get("book_id") == book), None)
+            check(row is not None and row.get("user_id") is None and row.get("user_name") == f"Family · {fam_name}"
                   and "book.invalid" not in (row.get("user_email") or "") and M["email"] in (row.get("user_email") or ""),
-                  "ai: the admin AI usage report labels the book's row 'Family · <name>' with the owner's e-mail",
+                  "ai: the admin AI usage report labels the book's row (book_id set, user_id null) 'Family · <name>' "
+                  "with the owner's e-mail",
                   (r.status_code, row))
             r = c.get("/api/admin/ai-usage/stats", headers=ah, params={"start_date": started.isoformat()})
             people = db.sql("SELECT count(DISTINCT a.user_id) n FROM ai_usage a JOIN users u ON u.id = a.user_id "
@@ -2506,7 +2507,7 @@ def section_ai():
             book_rows = db.sql("SELECT count(*) n FROM ai_usage WHERE book_id = %s AND created_at >= %s",
                                book, started)[0]["n"]
             check(r.status_code == 200 and book_rows > 0 and r.json().get("total_users") == people,
-                  "ai: the admin AI page's Active Users count leaves the book user out",
+                  "ai: the admin AI page's Active Users count is people only (the book's own spend has no user)",
                   (r.status_code, r.json().get("total_users") if r.status_code == 200 else r.text[:200], people, book_rows))
         finally:
             db.admins.delete_many({"email": admins["super_admin"]})

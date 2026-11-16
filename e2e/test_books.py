@@ -1283,9 +1283,220 @@ def section_notification_links():
         _drop_people(made)
 
 
+# ------------------------------------------------------------------------------------------------------- AI spend
+def _admin_headers(c):
+    """A super admin of our own -> (headers, email to delete)."""
+    import admin_utils
+    email, pw = f"bk-admin-{uuid.uuid4().hex[:8]}@example.com", "bk-admin-pass-1"
+    db.admins.insert_one({"_id": str(uuid.uuid4()), "name": "books admin", "email": email,
+                          "password": admin_utils.get_password_hash(pw), "role": "super_admin",
+                          "created_at": datetime.now(UTC), "last_login": None})
+    r = c.post("/api/admin/login", json={"email": email, "password": pw})
+    return {"Authorization": "Bearer " + r.json().get("access_token", "")}, email
+
+
+def _book_spend(book_id, *costs, feature="weekly_insight"):
+    """ai_usage rows of a family book's own AI work (book_id, user_id NULL) -> their ids."""
+    ids = []
+    for cost in costs:
+        ids.append(str(uuid.uuid4()))
+        db.sql("INSERT INTO ai_usage (id, book_id, feature_type, provider, model_name, estimated_cost_usd) "
+               "VALUES (%s, %s, %s, 'openai', 'gpt-test', %s)", ids[-1], book_id, feature, Decimal(str(cost)))
+    return ids
+
+
+def section_ai_spend():
+    """AI spend per book (Task 6). A family book's own AI work is recorded on ai_usage.book_id with user_id NULL (that
+    write is checked in the jobs section: 'family insight spend is on the book'); the owner's cost cap counts the
+    book's spend; deleting a family (or its last owner's account) keeps its spend in the admin totals as one
+    "Deleted family" row; the admin report labels a family book's row and lists its records. Needs the stub server."""
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _api_people(c, tag, made)
+    started = (datetime.now(UTC) - timedelta(seconds=5)).isoformat()
+    window = {"start_date": started}
+    ah, admin_email = _admin_headers(c)
+
+    def users_report():
+        r = c.get("/api/admin/ai-usage/users", headers=ah, params={**window, "limit": 100})
+        check(r.status_code == 200, "ai spend: GET /api/admin/ai-usage/users answers 200", f"{r.status_code} {r.text[:200]}")
+        return r.json() if r.status_code == 200 else []
+
+    def deleted_cost():
+        rows = [u for u in users_report() if u.get("user_name") == "Deleted family"]
+        check(len(rows) <= 1 and all(u.get("user_id") is None and u.get("book_id") is None for u in rows),
+              "ai spend: at most one 'Deleted family' row, with no user_id and no book_id", rows)
+        return rows[0]["total_cost_usd"] if rows else 0.0
+
+    def total_cost():
+        r = c.get("/api/admin/ai-usage/stats", headers=ah, params=window)
+        check(r.status_code == 200, "ai spend: GET /api/admin/ai-usage/stats answers 200", f"{r.status_code} {r.text[:200]}")
+        return r.json().get("total_cost_usd") if r.status_code == 200 else None
+
+    def family(owner, name):
+        r = c.post("/api/family", json={"name": name}, headers=owner["h"])
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        return fid, ((_books_of(family_id=fid) or [{}])[0].get("id") if fid else None)
+
+    def spend_of(ids):
+        return float(db.sql("SELECT coalesce(sum(estimated_cost_usd), 0) n FROM ai_usage WHERE id = ANY(%s)", ids)[0]["n"])
+
+    def still_unowned(ids):
+        rows = db.sql("SELECT user_id, book_id FROM ai_usage WHERE id = ANY(%s)", ids)
+        return len(rows) == len(ids) and all(r["user_id"] is None and r["book_id"] is None for r in rows)
+
+    try:
+        O, R = register("Spendo", "plus"), register("Spendr", "plus")
+        if not (O and R):
+            return
+        fid, fbook = family(O, f"Spend {tag}")
+        check(bool(fbook), "ai spend: O (Plus) owns a family book", (fid, fbook))
+        if not fbook:
+            return
+
+        # ---- owner cap counts the book
+        async def caps():
+            from plans import quota, store
+            from sql import users as users_db
+            stubenv.patch_loaded_modules()
+            await store.load()
+            owner = await users_db.get_user(O["id"])
+            return (await quota.over_cost_cap(owner), await quota.family_over_cost_cap(owner, fbook),
+                    store.cost_cap("plus"))
+        cap = _backend_async(caps)[2]
+        own_id = str(uuid.uuid4())
+        db.sql("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, estimated_cost_usd) "
+               "VALUES (%s, %s, 'chat', 'openai', 'gpt-test', %s)", own_id, O["id"], Decimal(str(round(cap * 0.6, 6))))
+        before = _backend_async(caps)[:2]
+        cap_ids = _book_spend(fbook, round(cap * 0.6, 6))
+        after = _backend_async(caps)[:2]
+        check(before == (False, False) and after == (False, True),
+              "owner cap counts the book: the owner's spend (60% of the cap) plus the book's (60%) puts the family over "
+              "the cap; the owner alone stays under it", (cap, before, after))
+        db.sql("DELETE FROM ai_usage WHERE id = ANY(%s)", [own_id, *cap_ids])
+
+        # ---- admin book detail
+        detail_ids = _book_spend(fbook, 0.01, 0.02)
+        r = c.get(f"/api/admin/ai-usage/book/{fbook}", headers=ah)
+        got = r.json() if r.status_code == 200 else []
+        check(r.status_code == 200 and sorted(x.get("id") for x in got) == sorted(detail_ids)
+              and all(x.get("book_id") == fbook and x.get("user_id") is None for x in got),
+              "admin book detail: GET /api/admin/ai-usage/book/{id} lists that book's rows (book_id set, user_id null)",
+              (r.status_code, r.text[:300]))
+        r = c.get(f"/api/admin/ai-usage/book/{fbook}", headers=ah, params={"feature_type": "chat"})
+        check(r.status_code == 200 and r.json() == [], "admin book detail: a feature filter applies",
+              (r.status_code, r.text[:200]))
+        r = c.get(f"/api/admin/ai-usage/book/no-such-book-{tag}", headers=ah)
+        check(r.status_code == 200 and r.json() == [], "admin book detail: an unknown book lists nothing",
+              (r.status_code, r.text[:200]))
+        report = users_report()
+        row = next((u for u in report if u.get("book_id") == fbook), None)
+        check(row is not None and row.get("user_id") is None and row.get("user_name") == f"Family · Spend {tag}"
+              and O["email"] in (row.get("user_email") or "") and abs(row.get("total_cost_usd", 0) - 0.03) < 1e-6,
+              "admin book detail: the users list shows the book as 'Family · <name>' with book_id set and the owner's "
+              "e-mail", row)
+        prow = next((u for u in report if u.get("user_id") == O["id"]), None)
+        check(prow is None or prow.get("book_id") is None, "admin book detail: a person's row has book_id null", prow)
+        auto_ids = _book_spend(fbook, 0.01, feature="budget_auto_create")
+        r = c.get("/api/admin/ai-usage/stats/budgets", headers=ah, params=window)
+        auto = (r.json() if r.status_code == 200 else {}).get("budget_auto_create", {})
+        check(r.status_code == 200 and auto.get("requests") == 1 and auto.get("unique_users") == 0
+              and auto.get("unique_books") == 1,
+              "admin book detail: the budget feature stats count a family book's AI budget under books, not users",
+              (r.status_code, auto))
+
+        # ---- deleting a family keeps its spend
+        spent = detail_ids + auto_ids + _book_spend(fbook, 0.25, 0.5)
+        cost = spend_of(spent)
+        total0, gone0 = total_cost(), deleted_cost()
+        r = c.request("DELETE", "/api/family", headers=O["h"], json={"confirm_name": f"Spend {tag}"})
+        check(r.status_code == 200, "deleting a family keeps its spend: the owner deletes the family (200)",
+              f"{r.status_code} {r.text[:200]}")
+        check(still_unowned(spent), "deleting a family keeps its spend: the family's ai_usage rows remain, user_id and "
+                                    "book_id NULL", db.sql("SELECT user_id, book_id FROM ai_usage WHERE id = ANY(%s)", spent))
+        total1, gone1 = total_cost(), deleted_cost()
+        check(abs((gone1 - gone0) - cost) < 1e-3,
+              "deleting a family keeps its spend: GET /api/admin/ai-usage/users has one 'Deleted family' row carrying "
+              "its cost", (gone0, gone1, cost))
+        check(total0 is not None and total1 is not None and abs(total1 - total0) < 1e-3,
+              "deleting a family keeps its spend: the /api/admin/ai-usage/stats total cost is unchanged by the delete",
+              (total0, total1))
+        everything = float(db.sql("SELECT coalesce(sum(estimated_cost_usd), 0) n FROM ai_usage WHERE created_at >= %s",
+                                  started)[0]["n"])
+        check(total1 is not None and abs(total1 - everything) < 1e-3,
+              "deleting a family keeps its spend: the stats total counts every row (people's, books' and deleted "
+              "families' spend)", (total1, everything))
+
+        # ---- the owner's own account deletion, last member of a family with spend, notices and chats
+        S, Q = register("Spends", "plus"), register("Spendq", "plus")
+        fid3, fbook3 = family(S, f"Solo spend {tag}")
+        _join_family(c, S, Q)
+        budget = {"name": f"Spend family {tag}", "period": "custom", "currency": "usd", "total_budget": 100,
+                  "start_date": (datetime.now(UTC).date() - timedelta(days=1)).isoformat(),
+                  "end_date": (datetime.now(UTC).date() + timedelta(days=5)).isoformat(),
+                  "category_budgets": [{"main_category": "Transportation", "allocated_amount": 100}]}
+        rb = c.post("/api/budgets", headers={**S["h"], **FAMILY}, json=budget)
+        chats = [c.post("/api/chat/stream", headers={**u["h"], **FAMILY}, json={"message": f"family {tag}"}).status_code
+                 for u in (S, Q)]
+        sessions = db.sql("SELECT count(*) n FROM chat_sessions WHERE book_id = %s", fbook3)[0]["n"] if fbook3 else 0
+        q_notes = [n for n in c.get("/api/notifications", headers=Q["h"], params={"limit": 100}).json()
+                   if n.get("type") in ("family_invite", "budget_started")]
+        rl = c.post("/api/family/leave", headers=Q["h"])
+        check(bool(fbook3) and rb.status_code == 200 and chats == [200, 200] and sessions == 2 and len(q_notes) == 2
+              and all(n.get("subject_id") for n in q_notes) and rl.status_code == 200,
+              "owner account deletion: S's family has a budget, S's and Q's family chats and Q's family notices; Q left",
+              (fbook3, rb.status_code, chats, sessions, q_notes, rl.status_code))
+        spent3 = _book_spend(fbook3, 0.125, 0.375)
+        own3 = float(db.sql("SELECT coalesce(sum(estimated_cost_usd), 0) n FROM ai_usage WHERE user_id = %s",
+                            S["id"])[0]["n"])
+        total2, gone2 = total_cost(), deleted_cost()
+        r = c.request("DELETE", "/api/auth/delete-account", headers=S["h"], json={"password": "secret123"})
+        check(r.status_code == 200 and not db.sql("SELECT 1 FROM families WHERE id = %s", fid3),
+              "owner account deletion: the last member deletes their account (200) and the family goes with it",
+              f"{r.status_code} {r.text[:200]}")
+        if r.status_code == 200:
+            made.remove(S["id"])
+        total3, gone3 = total_cost(), deleted_cost()
+        check(still_unowned(spent3) and abs((gone3 - gone2) - spend_of(spent3)) < 1e-3,
+              "owner account deletion: the family's spend stays, in the 'Deleted family' row", (gone2, gone3))
+        check(total2 is not None and total3 is not None and abs((total2 - total3) - own3) < 1e-3,
+              "owner account deletion: the admin total keeps the family's spend (it drops by the owner's own spend only)",
+              (total2, total3, own3))
+        r = c.get("/api/notifications", headers=Q["h"], params={"limit": 100})
+        after_notes = [n for n in (r.json() if r.status_code == 200 else []) if n.get("id") in {x["id"] for x in q_notes}]
+        check(r.status_code == 200 and len(after_notes) == 2 and all(n.get("subject_id") is None for n in after_notes),
+              "owner account deletion: Q's notices about the family stay listed, subject_id null",
+              (r.status_code, after_notes))
+        check(not db.sql("SELECT 1 FROM chat_sessions WHERE book_id = %s", fbook3)
+              and c.get("/api/chat/history", headers=Q["h"]).status_code == 200,
+              "owner account deletion: the family's chats go with its book; Q's own chat still answers")
+
+        # ---- the owner's account deletion with an active member: the family is handed over, its spend stays on it
+        fid4, fbook4 = family(Q, f"Handed {tag}")
+        _join_family(c, Q, R)
+        spent4 = _book_spend(fbook4, 0.0625)
+        r = c.request("DELETE", "/api/auth/delete-account", headers=Q["h"], json={"password": "secret123"})
+        if r.status_code == 200:
+            made.remove(Q["id"])
+        owner4 = db.sql("SELECT user_id FROM family_members WHERE family_id = %s AND role = 'owner' AND status = 'active'",
+                        fid4)
+        kept = db.sql("SELECT book_id FROM ai_usage WHERE id = ANY(%s)", spent4)
+        row4 = next((u for u in users_report() if u.get("book_id") == fbook4), None)
+        check(r.status_code == 200 and owner4 == [{"user_id": R["id"]}] and kept == [{"book_id": fbook4}]
+              and row4 is not None and R["email"] in (row4.get("user_email") or ""),
+              "owner account deletion: with an active member the family is handed over (R owns it) and its spend stays "
+              "on the book, shown with the new owner's e-mail", (r.status_code, owner4, kept, row4))
+    finally:
+        _drop_people(made)
+        db.admins.delete_many({"email": admin_email})
+
+
 SECTIONS = {"schema": section_schema, "migration": section_migration, "books_in_requests": section_books_in_requests,
             "api_shape": section_api_shape, "books_api": section_books_api, "jobs": section_jobs,
-            "notification_links": section_notification_links}
+            "notification_links": section_notification_links, "ai_spend": section_ai_spend}
 
 
 def main():
