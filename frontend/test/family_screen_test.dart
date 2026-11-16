@@ -25,6 +25,7 @@ import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/settings/edit_profile_screen.dart';
 import 'package:frontend/screens/settings/settings_screen.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_opener.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -204,14 +205,14 @@ FamilyOverview _overview({
 FamilyInvite _received({String id = 'inv1', String family = 'Tun family', String by = 'Ko Tun'}) =>
     FamilyInvite(id: id, familyId: 'tf', familyName: family, invitedBy: by, expiresAt: DateTime(2026, 11, 27));
 
-AppNotification _notice(String type, {String? goalId, String? book, String title = 'A notice'}) =>
+AppNotification _notice(String type, {String? subjectId, String? book, String title = 'A notice'}) =>
     AppNotification.fromJson({
       'id': 'n-$type',
       'user_id': 'u1',
       'type': type,
       'title': title,
       'message': 'Something happened',
-      'goal_id': goalId,
+      'subject_id': subjectId,
       'goal_name': null,
       'currency': null,
       'created_at': '2026-11-14T08:00:00Z',
@@ -713,7 +714,7 @@ void main() {
 
   group('notifications', () {
     test('extra.book and the family types are read', () {
-      final n = _notice('budget_threshold', goalId: 'b1', book: 'family');
+      final n = _notice('budget_threshold', subjectId: 'b1', book: 'family');
       expect(n.book, 'family');
       expect(n.isFamilyBook, isTrue);
       expect(_notice('budget_threshold').isFamilyBook, isFalse);
@@ -741,7 +742,7 @@ void main() {
     testWidgets('family_invite opens the invitations', (tester) async {
       await _pump(tester, NotificationsScreen(),
           family: _FakeFamily(mine: [_received()]),
-          notifications: _FakeNotifications([_notice('family_invite', goalId: 'inv1', title: 'Family invitation')]));
+          notifications: _FakeNotifications([_notice('family_invite', subjectId: 'inv1', title: 'Family invitation')]));
       await _tapAndSettle(tester, find.text('Family invitation'));
       expect(find.byType(FamilyInvitationsScreen), findsOneWidget);
     });
@@ -755,7 +756,7 @@ void main() {
           books: books,
           budgets: budgets,
           notifications: _FakeNotifications([
-            _notice('budget_threshold', goalId: 'b1', book: 'family', title: 'Family budget'),
+            _notice('budget_threshold', subjectId: 'b1', book: 'family', title: 'Family budget'),
           ]));
       await _tapAndSettle(tester, find.text('Family budget'));
       expect(books.mode, BookMode.family);
@@ -770,7 +771,7 @@ void main() {
           family: _FakeFamily(overview: _overview()),
           books: books,
           goals: goals,
-          notifications: _FakeNotifications([_notice('goal_achieved', goalId: 'g1', title: 'Goal reached')]));
+          notifications: _FakeNotifications([_notice('goal_achieved', subjectId: 'g1', title: 'Goal reached')]));
       await _tapAndSettle(tester, find.text('Goal reached'));
       expect(books.mode, BookMode.personal);
       expect(goals.fetchedIn, [BookMode.personal]);
@@ -780,7 +781,7 @@ void main() {
   group('opening a notice (list and push)', () {
     Budget budget() => Budget.fromJson({
           'id': 'b1',
-          'user_id': 'u1',
+          'book_id': 'u1',
           'name': 'Family food',
           'period': 'monthly',
           'start_date': '2026-11-01T00:00:00Z',
@@ -824,7 +825,7 @@ void main() {
         budgetPage: (b) => Scaffold(body: Text('budget ${b.name}')),
       );
       var closed = 0;
-      final opened = opener.open('budget_exceeded', goalId: 'b1', family: true, onClosed: () => closed++);
+      final opened = opener.open('budget_exceeded', subjectId: 'b1', family: true, onClosed: () => closed++);
       await tester.pumpAndSettle();
       expect(await opened, isTrue);
       expect(find.text('budget Family food'), findsOneWidget);
@@ -853,7 +854,7 @@ void main() {
           budgetPage: (b) => Scaffold(body: Text('budget ${b.name}')),
         );
         // A personal notice from Family mode, or a family one from Personal.
-        final opened = opener.open('budget_exceeded', goalId: 'b1', family: from == BookMode.personal);
+        final opened = opener.open('budget_exceeded', subjectId: 'b1', family: from == BookMode.personal);
         await tester.pump();
         expect(budgets.fetchedIn, [from == BookMode.personal ? BookMode.family : BookMode.personal]);
 
@@ -878,8 +879,8 @@ void main() {
         goals: _Goals(),
       );
       // No navigator yet / signed out: kept.
-      expect(opener.openPush('budget_exceeded', goalId: 'b1', family: true, signedIn: false), isFalse);
-      expect(opener.openPush('budget_exceeded', goalId: 'b1', family: true, signedIn: true), isFalse);
+      expect(opener.openPush('budget_exceeded', subjectId: 'b1', family: true, signedIn: false), isFalse);
+      expect(opener.openPush('budget_exceeded', subjectId: 'b1', family: true, signedIn: true), isFalse);
     });
 
     testWidgets('push gate with a navigator', (tester) async {
@@ -896,10 +897,10 @@ void main() {
       );
       // The family isn't known yet: a remembered Family mode may still be
       // applied (and would close what was opened), so wait.
-      expect(opener.openPush('budget_exceeded', goalId: 'b1', family: true, signedIn: true), isFalse);
-      expect(opener.openPush('goal_achieved', goalId: 'g1', family: false, signedIn: true), isFalse);
+      expect(opener.openPush('budget_exceeded', subjectId: 'b1', family: true, signedIn: true), isFalse);
+      expect(opener.openPush('goal_achieved', subjectId: 'g1', family: false, signedIn: true), isFalse);
       // Not about a book: opens now.
-      expect(opener.openPush('family_invite', goalId: 'inv1', family: false, signedIn: true), isTrue);
+      expect(opener.openPush('family_invite', subjectId: 'inv1', family: false, signedIn: true), isTrue);
       await tester.pumpAndSettle();
       expect(find.byType(FamilyInvitationsScreen), findsOneWidget);
       navigatorKey.currentState!.pop();
@@ -907,28 +908,43 @@ void main() {
 
       // Known, not in a family: a family push is dropped; a personal one opens.
       family.known(inFamily: false);
-      expect(opener.openPush('budget_exceeded', goalId: 'b1', family: true, signedIn: true), isTrue);
+      expect(opener.openPush('budget_exceeded', subjectId: 'b1', family: true, signedIn: true), isTrue);
       await tester.pumpAndSettle();
       expect(budgets.fetchedIn, isEmpty);
       expect(books.mode, BookMode.personal);
-      expect(opener.openPush('budget_exceeded', goalId: 'b1', family: false, signedIn: true), isTrue);
+      expect(opener.openPush('budget_exceeded', subjectId: 'b1', family: false, signedIn: true), isTrue);
       await tester.pumpAndSettle();
       expect(budgets.fetchedIn, [BookMode.personal]);
 
       // In a family: the family push switches to Family, then opens.
       family.known(inFamily: true);
-      expect(opener.openPush('budget_exceeded', goalId: 'b1', family: true, signedIn: true), isTrue);
+      expect(opener.openPush('budget_exceeded', subjectId: 'b1', family: true, signedIn: true), isTrue);
       await tester.pumpAndSettle();
       expect(budgets.fetchedIn, [BookMode.personal, BookMode.family]);
       expect(books.mode, BookMode.family);
 
       // A failed family request: personal pushes don't wait for ever.
       family.failed();
-      expect(opener.openPush('goal_achieved', goalId: 'g1', family: false, signedIn: true), isTrue);
+      expect(opener.openPush('goal_achieved', subjectId: 'g1', family: false, signedIn: true), isTrue);
       // Nothing to open for this type: done.
       expect(opener.openPush('system_broadcast', family: false, signedIn: true), isTrue);
     });
 
+    test('push data with subject_id opens the goal', () {
+      final taps = <PushTap>[];
+      final fcm = FCMService();
+      fcm.setOpenFromPushHandler((tap) {
+        taps.add(tap);
+        return true;
+      });
+      addTearDown(() => fcm.setOpenFromPushHandler(null));
+      fcm.handleNotificationNavigationForTest({'type': 'goal_achieved', 'subject_id': 'g1', 'book': 'family'});
+      expect(taps, hasLength(1));
+      expect((taps.single.type, taps.single.subjectId, taps.single.family), ('goal_achieved', 'g1', true));
+      // No subject: an empty id opens the screen for the type, not one item.
+      fcm.handleNotificationNavigationForTest({'type': 'goal_achieved', 'subject_id': ''});
+      expect(taps.last.subjectId, isNull);
+    });
     test('push tap payloads carry the type, the id and the book', () {
       expect(pushTapPayload('budget_exceeded', 'b1', 'family'), 'budget_exceeded|b1|family');
       expect(pushTapPayload('goal_achieved', 'g1', null), 'goal_achieved|g1|');
@@ -936,12 +952,12 @@ void main() {
       expect(pushTapPayload('system_broadcast', null, null), isNull, reason: 'opens nothing');
 
       final family = parsePushTapPayload('budget_exceeded|b1|family')!;
-      expect((family.type, family.goalId, family.family), ('budget_exceeded', 'b1', true));
+      expect((family.type, family.subjectId, family.family), ('budget_exceeded', 'b1', true));
       final personal = parsePushTapPayload('goal_achieved|g1|')!;
-      expect((personal.type, personal.goalId, personal.family), ('goal_achieved', 'g1', false));
+      expect((personal.type, personal.subjectId, personal.family), ('goal_achieved', 'g1', false));
       // The older custom insight payload still reads.
       final old = parsePushTapPayload('custom_insight_ready|r1')!;
-      expect((old.type, old.goalId, old.family), ('custom_insight_ready', 'r1', false));
+      expect((old.type, old.subjectId, old.family), ('custom_insight_ready', 'r1', false));
       expect(parsePushTapPayload('3f2a9c0e-notification-id'), isNull);
       expect(parsePushTapPayload(null), isNull);
     });

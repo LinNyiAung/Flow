@@ -31,7 +31,7 @@ class _FakeChat {
 
 Insight _insight({String? mm, bool locked = false, TranslationUnavailable? unavailable}) => Insight(
       id: 'i1',
-      userId: 'u1',
+      bookId: 'u1',
       content: 'English text',
       contentMm: mm,
       generatedAt: DateTime.utc(2026, 11, 2),
@@ -270,7 +270,7 @@ void main() {
     test('translation_locked is read from the response', () {
       final i = Insight.fromJson({
         'id': 'i',
-        'user_id': 'u',
+        'book_id': 'u',
         'content': 'English',
         'content_mm': null,
         'generated_at': '2026-11-02T00:00:00Z',
@@ -282,7 +282,7 @@ void main() {
 
       final plain = Insight.fromJson({
         'id': 'i',
-        'user_id': 'u',
+        'book_id': 'u',
         'content': 'English',
         'generated_at': '2026-11-02T00:00:00Z',
       });
@@ -293,7 +293,7 @@ void main() {
     test('translation_unavailable is read from the response (an object, or null)', () {
       final refused = Insight.fromJson({
         'id': 'i',
-        'user_id': 'u',
+        'book_id': 'u',
         'content': 'English',
         'content_mm': null,
         'generated_at': '2026-11-02T00:00:00Z',
@@ -315,7 +315,7 @@ void main() {
 
       final none = Insight.fromJson({
         'id': 'i',
-        'user_id': 'u',
+        'book_id': 'u',
         'content': 'English',
         'generated_at': '2026-11-02T00:00:00Z',
         'translation_unavailable': null,
@@ -397,7 +397,7 @@ void main() {
     test('next_insight_at is read from the response (an instant, or missing)', () {
       final withDate = Insight.fromJson({
         'id': 'i',
-        'user_id': 'u',
+        'book_id': 'u',
         'content': 'English',
         'generated_at': '2026-11-02T00:00:00Z',
         'next_insight_at': '2026-11-09T22:30:00Z',
@@ -406,7 +406,7 @@ void main() {
 
       final none = Insight.fromJson({
         'id': 'i',
-        'user_id': 'u',
+        'book_id': 'u',
         'content': 'English',
         'generated_at': '2026-11-02T00:00:00Z',
         'next_insight_at': null,
@@ -414,7 +414,7 @@ void main() {
       expect(none.nextInsightAt, isNull);
       expect(Insight.fromJson({
         'id': 'i',
-        'user_id': 'u',
+        'book_id': 'u',
         'content': 'English',
         'generated_at': '2026-11-02T00:00:00Z',
       }).nextInsightAt, isNull);

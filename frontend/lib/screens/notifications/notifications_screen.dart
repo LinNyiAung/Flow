@@ -195,7 +195,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // itself: the family screens. Refreshed on return if still open.
       await opener.open(
         notification.type.name,
-        goalId: notification.goalId,
+        subjectId: notification.subjectId,
         family: notification.isFamilyBook,
         onClosed: () {
           if (mounted) _refreshNotifications();

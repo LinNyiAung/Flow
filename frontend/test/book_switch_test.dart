@@ -67,7 +67,7 @@ Map<String, dynamic> _overview({bool readOnly = false}) => {
 
 Map<String, dynamic> _txJson(String id) => {
       'id': id,
-      'user_id': 'u1',
+      'book_id': 'u1',
       'type': 'outflow',
       'main_category': 'Food',
       'sub_category': 'Groceries',

@@ -115,7 +115,7 @@ Transaction _lunch() {
   final d = DateTime(2026, 11, 10, 12);
   return Transaction(
     id: 't1',
-    userId: 'u1',
+    bookId: 'u1',
     type: TransactionType.outflow,
     mainCategory: 'Food & Daily Living',
     subCategory: 'Restaurants',

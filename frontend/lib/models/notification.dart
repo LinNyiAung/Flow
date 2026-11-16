@@ -37,16 +37,16 @@ enum NotificationType {
   // An admin closed the user's upgrade request without changing the plan.
   // ignore: constant_identifier_names
   upgrade_request_declined,
-  // A custom insight finished; `goal_id` is the report's id.
+  // A custom insight finished; `subject_id` is the report's id.
   // ignore: constant_identifier_names
   custom_insight_ready,
   // A custom insight could not be made (or was refused).
   // ignore: constant_identifier_names
   custom_insight_failed,
-  // You were invited to a family; `goal_id` is the invite's id, `goal_name` the family's name.
+  // You were invited to a family; `subject_id` is the invite's id, `goal_name` the family's name.
   // ignore: constant_identifier_names
   family_invite,
-  // Someone joined your family (sent to its admins); `goal_id` is the family's id.
+  // Someone joined your family (sent to its admins); `subject_id` is the family's id.
   // ignore: constant_identifier_names
   family_invite_accepted,
   // An admin removed you from the family.
@@ -125,7 +125,7 @@ class AppNotification {
   final NotificationType type;
   final String title;
   final String message;
-  final String? goalId;
+  final String? subjectId;
   final String? goalName;
   final String? currency;  // NEW - add currency field
   final DateTime createdAt;
@@ -141,7 +141,7 @@ class AppNotification {
     required this.type,
     required this.title,
     required this.message,
-    this.goalId,
+    this.subjectId,
     this.goalName,
     this.currency,  // NEW
     required this.createdAt,
@@ -165,7 +165,7 @@ class AppNotification {
       ),
       title: json['title'],
       message: json['message'],
-      goalId: json['goal_id'],
+      subjectId: json['subject_id'],
       goalName: json['goal_name'],
       currency: json['currency'],  // NEW
       createdAt: parseInstant(json['created_at']),
@@ -181,7 +181,7 @@ class AppNotification {
       type: type,
       title: title,
       message: message,
-      goalId: goalId,
+      subjectId: subjectId,
       goalName: goalName,
       currency: currency,
       createdAt: createdAt,
@@ -197,7 +197,7 @@ class AppNotification {
       'type': type.name,
       'title': title,
       'message': message,
-      'goal_id': goalId,
+      'subject_id': subjectId,
       'goal_name': goalName,
       'currency': currency,  // NEW
       'created_at': createdAt.toIso8601String(),

@@ -181,7 +181,7 @@ class _MyAppState extends State<MyApp> {
   /// kept and tried again after sign-in or once the family is loaded.
   bool _openFromPush(PushTap tap) => _notificationOpener.openPush(
         tap.type,
-        goalId: tap.goalId,
+        subjectId: tap.subjectId,
         family: tap.family,
         signedIn: _authProvider.isAuthenticated,
       );

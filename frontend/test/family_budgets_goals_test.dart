@@ -73,7 +73,7 @@ final _day = DateTime(2026, 11, 1);
 
 Budget _budget() => Budget(
       id: 'b1',
-      userId: 'u1',
+      bookId: 'u1',
       name: 'Groceries',
       period: BudgetPeriod.monthly,
       startDate: DateTime(2026, 11, 1),
@@ -92,7 +92,7 @@ Budget _budget() => Budget(
 
 Goal _goal({double current = 50, DateTime? targetDate, GoalStatus status = GoalStatus.active}) => Goal(
       id: 'g1',
-      userId: 'u1',
+      bookId: 'u1',
       name: 'Holiday',
       targetAmount: 200,
       currentAmount: current,

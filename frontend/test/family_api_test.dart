@@ -40,7 +40,7 @@ http.Response _refusal(int status, String code, String message) => _json({
 
 Map<String, dynamic> _tx({Map<String, dynamic>? addedBy, List<String>? forWhom, String? transferId}) => {
       'id': 't1',
-      'user_id': 'u1',
+      'book_id': 'u1',
       'type': 'outflow',
       'main_category': 'Food',
       'sub_category': 'Groceries',

@@ -37,7 +37,7 @@ Budget _nearLimit() {
   final now = DateTime.now();
   return Budget(
     id: 'b1',
-    userId: 'u1',
+    bookId: 'u1',
     name: 'Monthly essentials',
     period: BudgetPeriod.monthly,
     startDate: DateTime(now.year, now.month, 1),

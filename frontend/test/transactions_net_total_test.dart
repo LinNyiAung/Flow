@@ -5,7 +5,7 @@ import 'package:frontend/screens/transactions/transactions_list_screen.dart';
 
 Transaction _t(TransactionType type, double amount, Currency currency) => Transaction(
       id: 'x',
-      userId: 'u',
+      bookId: 'u',
       type: type,
       mainCategory: 'Food',
       subCategory: 'Lunch',

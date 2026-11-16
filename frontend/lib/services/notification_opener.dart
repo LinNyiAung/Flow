@@ -52,20 +52,20 @@ class NotificationOpener {
   final Widget Function(Budget budget) budgetPage;
   final Widget Function(Goal goal) goalPage;
 
-  /// Opens the screen for a notice of [type] ([goalId]: the budget, goal,
+  /// Opens the screen for a notice of [type] ([subjectId]: the budget, goal,
   /// report or invitation it is about; [family]: it carries the family
   /// marker). [onClosed] runs when that screen is closed. Completes with
   /// false when there is nothing to open (an unknown type, a budget or goal
   /// that no longer exists), or when the book was switched again while the
   /// budget or goal was being fetched (it would open in the wrong book).
-  Future<bool> open(String type, {String? goalId, bool family = false, VoidCallback? onClosed}) async {
+  Future<bool> open(String type, {String? subjectId, bool family = false, VoidCallback? onClosed}) async {
     if (type == NotificationType.family_invite.name) {
       return _push(MaterialPageRoute<void>(builder: (_) => const FamilyInvitationsScreen()), onClosed);
     }
     if (type == NotificationType.family_invite_accepted.name || type == NotificationType.family_owner.name) {
       return _push(MaterialPageRoute<void>(builder: (_) => const FamilyScreen()), onClosed);
     }
-    final target = _bookTarget(type, goalId);
+    final target = _bookTarget(type, subjectId);
     if (target == null) return false;
 
     final books = this.books;
@@ -95,7 +95,7 @@ class NotificationOpener {
   /// A push about a book waits until the family is known (or failed to
   /// load): until then a remembered Family mode may still be applied, and
   /// that switch would close the screen just opened.
-  bool openPush(String type, {String? goalId, required bool family, required bool signedIn}) {
+  bool openPush(String type, {String? subjectId, required bool family, required bool signedIn}) {
     if (!notificationOpensSomething(type)) return true;
     if (!signedIn || navigatorKey.currentState == null) return false;
     final known = this.family;
@@ -107,14 +107,14 @@ class NotificationOpener {
         return false;
       }
     }
-    unawaited(open(type, goalId: goalId, family: family));
+    unawaited(open(type, subjectId: subjectId, family: family));
     return true;
   }
 
   /// The screen for a notice about one book's money, built once the mode is
   /// that book's; null when this type opens nothing.
-  Future<Route<Object?>?> Function()? _bookTarget(String type, String? goalId) {
-    final id = goalId == null || goalId.isEmpty ? null : goalId;
+  Future<Route<Object?>?> Function()? _bookTarget(String type, String? subjectId) {
+    final id = subjectId == null || subjectId.isEmpty ? null : subjectId;
     if (type.startsWith('budget_')) {
       if (id == null) return null;
       return () async {

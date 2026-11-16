@@ -25,7 +25,7 @@ final _lastMonth = DateTime(_now.year, _now.month - 1, 1, 12);
 
 Transaction _tx(TransactionType type, String category, double amount, DateTime date) => Transaction(
       id: '$category-$amount-${date.month}',
-      userId: 'u1',
+      bookId: 'u1',
       type: type,
       mainCategory: category,
       subCategory: 'Other',

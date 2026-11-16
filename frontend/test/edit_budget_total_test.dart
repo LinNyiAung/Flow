@@ -47,7 +47,7 @@ Budget _budget({double total = 1500}) {
   final now = DateTime.now();
   return Budget(
     id: 'b1',
-    userId: 'u1',
+    bookId: 'u1',
     name: 'November',
     period: BudgetPeriod.monthly,
     startDate: DateTime(now.year, now.month, 1),

@@ -886,7 +886,7 @@ void main() {
             types.add(insightType);
             return Insight(
               id: 'i1',
-              userId: 'u1',
+              bookId: 'u1',
               content: '## Summary\nEnglish text',
               generatedAt: DateTime.utc(2026, 11, 2),
             );
@@ -984,7 +984,7 @@ void main() {
       expect(payload, 'custom_insight_ready|report-1');
       final parsed = parseCustomInsightPayload(payload)!;
       expect(parsed.type, 'custom_insight_ready');
-      expect(parsed.goalId, 'report-1');
+      expect(parsed.subjectId, 'report-1');
     });
 
     test('push payload: failed, and a missing id', () {
@@ -992,9 +992,9 @@ void main() {
       final none = parseCustomInsightPayload(customInsightPayload('custom_insight_ready', null));
       expect(customInsightPayload('custom_insight_ready', null), 'custom_insight_ready|');
       expect(none!.type, 'custom_insight_ready');
-      expect(none.goalId, isNull);
+      expect(none.subjectId, isNull);
       // No separator at all still reads.
-      expect(parseCustomInsightPayload('custom_insight_failed')!.goalId, isNull);
+      expect(parseCustomInsightPayload('custom_insight_failed')!.subjectId, isNull);
     });
 
     test('push payload: other pushes are not custom insight payloads', () {
@@ -1014,7 +1014,7 @@ void main() {
             'type': type,
             'title': 't',
             'message': 'm',
-            'goal_id': 'report-1',
+            'subject_id': 'report-1',
             'goal_name': null,
             'currency': null,
             'created_at': '2026-11-02T08:15:00+00:00',
@@ -1023,7 +1023,7 @@ void main() {
 
       final ready = parse('custom_insight_ready');
       expect(ready.type, NotificationType.custom_insight_ready);
-      expect(ready.goalId, 'report-1');
+      expect(ready.subjectId, 'report-1');
       expect(parse('custom_insight_failed').type, NotificationType.custom_insight_failed);
       expect(NotificationType.custom_insight_ready.name, 'custom_insight_ready');
       // An unknown newer type still falls back instead of breaking the list.

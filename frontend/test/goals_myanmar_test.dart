@@ -61,7 +61,7 @@ final _overdueDate = DateTime(_now.year, _now.month, _now.day - 4);
 
 Goal _goal(String id, String name, {DateTime? targetDate}) => Goal(
       id: id,
-      userId: 'u1',
+      bookId: 'u1',
       name: name,
       targetAmount: 2900,
       currentAmount: 750,

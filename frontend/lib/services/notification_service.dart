@@ -115,7 +115,7 @@ class NotificationService {
       title: notification.title,
       body: notification.message,
       type: notification.type,
-      payload: notification.goalId,
+      payload: notification.subjectId,
     );
   }
 

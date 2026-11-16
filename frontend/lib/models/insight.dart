@@ -35,7 +35,7 @@ class TranslationUnavailable {
 
 class Insight {
   final String id;
-  final String userId;
+  final String bookId;
   final String content;
   final String? contentMm; // Myanmar translation
   final DateTime generatedAt;
@@ -56,7 +56,7 @@ class Insight {
 
   Insight({
     required this.id,
-    required this.userId,
+    required this.bookId,
     required this.content,
     this.contentMm,
     required this.generatedAt,
@@ -69,7 +69,7 @@ class Insight {
   factory Insight.fromJson(Map<String, dynamic> json) {
     return Insight(
       id: json['id'],
-      userId: json['user_id'],
+      bookId: json['book_id'],
       content: json['content'],
       contentMm: json['content_mm'],
       generatedAt: parseInstantOrNull(json['generated_at']) ?? DateTime.now(),

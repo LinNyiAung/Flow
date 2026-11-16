@@ -23,7 +23,7 @@ final _now = DateTime.now();
 
 Goal _goal({GoalStatus status = GoalStatus.active}) => Goal(
       id: 'g1',
-      userId: 'u1',
+      bookId: 'u1',
       name: 'Emergency fund',
       targetAmount: 8000,
       currentAmount: status == GoalStatus.achieved ? 8000 : 1000,

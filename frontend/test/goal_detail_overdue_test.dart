@@ -12,7 +12,7 @@ final _now = DateTime.now();
 
 Goal _goal({DateTime? targetDate, double progress = 12.5}) => Goal(
       id: 'g1',
-      userId: 'u1',
+      bookId: 'u1',
       name: 'Emergency fund',
       targetAmount: 8000,
       currentAmount: 1000,

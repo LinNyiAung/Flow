@@ -70,7 +70,7 @@ Map<String, dynamic> _txJson({
 }) =>
     {
       'id': id,
-      'user_id': 'u1',
+      'book_id': 'u1',
       'type': type,
       'main_category': 'Food & Daily Living',
       'sub_category': 'Restaurants',
@@ -176,7 +176,7 @@ Transaction _entry({
   final d = DateTime(2026, 11, 10, 12);
   return Transaction(
     id: id,
-    userId: 'u1',
+    bookId: 'u1',
     type: type,
     mainCategory: transferId == null ? 'Food & Daily Living' : 'Transfer',
     subCategory: transferId == null ? 'Restaurants' : 'Family wallet',
@@ -424,7 +424,7 @@ final _thisMonth = DateTime(_now.year, _now.month, 1, 12);
 
 Transaction _chartTx(TransactionType type, String category, double amount, {String? transferId}) => Transaction(
       id: '$category-$amount',
-      userId: 'u1',
+      bookId: 'u1',
       type: type,
       mainCategory: category,
       subCategory: 'Other',
@@ -1105,7 +1105,7 @@ void main() {
 extension on Transaction {
   Transaction copyWithAmount(double amount) => Transaction(
         id: id,
-        userId: userId,
+        bookId: bookId,
         type: type,
         mainCategory: mainCategory,
         subCategory: subCategory,

@@ -18,7 +18,7 @@ Transaction _tx(
 }) =>
     Transaction(
       id: '${date.toIso8601String()}-$amount-${currency.name}',
-      userId: 'u1',
+      bookId: 'u1',
       type: type,
       mainCategory: 'Food',
       subCategory: 'Lunch',

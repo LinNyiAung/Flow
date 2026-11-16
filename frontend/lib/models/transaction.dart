@@ -9,7 +9,7 @@ enum TransactionType { inflow, outflow }
 
 class Transaction {
   final String id;
-  final String userId;
+  final String bookId;
   final TransactionType type;
   final String mainCategory;
   final String subCategory;
@@ -34,7 +34,7 @@ class Transaction {
 
   Transaction({
     required this.id,
-    required this.userId,
+    required this.bookId,
     required this.type,
     required this.mainCategory,
     required this.subCategory,
@@ -57,7 +57,7 @@ class Transaction {
   factory Transaction.fromJson(Map<String, dynamic> json) {
     return Transaction(
       id: json['id'],
-      userId: json['user_id'],
+      bookId: json['book_id'],
       type: json['type'] == 'inflow'
           ? TransactionType.inflow
           : TransactionType.outflow,
@@ -95,7 +95,7 @@ class Transaction {
     if (forUpdate) {
       data.remove('created_at');
       data.remove('updated_at');
-      data.remove('user_id');
+      data.remove('book_id');
       data.remove('id');
     }
     return data;

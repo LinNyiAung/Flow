@@ -9,7 +9,7 @@ enum GoalStatus { active, achieved }
 
 class Goal {
   final String id;
-  final String userId;
+  final String bookId;
   final String name;
   final double targetAmount;
   final double currentAmount;
@@ -24,7 +24,7 @@ class Goal {
 
   Goal({
     required this.id,
-    required this.userId,
+    required this.bookId,
     required this.name,
     required this.targetAmount,
     required this.currentAmount,
@@ -41,7 +41,7 @@ class Goal {
   factory Goal.fromJson(Map<String, dynamic> json) {
     return Goal(
       id: json['id'],
-      userId: json['user_id'],
+      bookId: json['book_id'],
       name: json['name'],
       targetAmount: json['target_amount'].toDouble(),
       currentAmount: json['current_amount'].toDouble(),

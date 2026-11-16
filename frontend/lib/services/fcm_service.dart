@@ -169,18 +169,21 @@ class FCMService {
     if (tap != null) {
       _handleNotificationNavigation({
         'type': tap.type,
-        'goal_id': tap.goalId,
+        'subject_id': tap.subjectId,
         if (tap.family) 'book': 'family',
       });
     }
     print('📨 Local notification tapped: ${response.payload}');
   }
 
+  @visibleForTesting
+  void handleNotificationNavigationForTest(Map<String, dynamic> data) => _handleNotificationNavigation(data);
+
   void _handleNotificationNavigation(Map<String, dynamic> data) {
     final notificationType = data['type'];
-    final goalId = data['goal_id'];
+    final subjectId = data['subject_id'];
 
-    print('Navigate to: type=$notificationType, goalId=$goalId');
+    print('Navigate to: type=$notificationType, subjectId=$subjectId');
 
     // The app was opened from a plan notice's push: the plan may have changed.
     if (notificationRefreshesPlan(notificationType as String?)) {
@@ -195,7 +198,7 @@ class FCMService {
     if (notificationOpensSomething(notificationType)) {
       _pendingOpen = (
         type: notificationType!,
-        goalId: goalId is String && goalId.isNotEmpty ? goalId : null,
+        subjectId: subjectId is String && subjectId.isNotEmpty ? subjectId : null,
         family: data['book'] == 'family',
       );
       retryPendingOpen();
@@ -263,7 +266,7 @@ class FCMService {
       notification.title,
       notification.body,
       notificationDetails,
-      payload: pushTapPayload(notificationType, message.data['goal_id'], message.data['book']) ??
+      payload: pushTapPayload(notificationType, message.data['subject_id'], message.data['book']) ??
           message.data['notification_id'],
     );
   }

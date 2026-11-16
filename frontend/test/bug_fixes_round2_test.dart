@@ -20,7 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _goalJson({required String targetDate, String status = 'active'}) => {
       'id': 'g1',
-      'user_id': 'u1',
+      'book_id': 'u1',
       'name': 'New phone',
       'target_amount': 1000,
       'current_amount': 250,
@@ -41,7 +41,7 @@ Map<String, dynamic> _budgetJson({
 }) =>
     {
       'id': 'b1',
-      'user_id': 'u1',
+      'book_id': 'u1',
       'name': 'October',
       'period': 'monthly',
       'start_date': start,

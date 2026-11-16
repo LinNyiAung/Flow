@@ -45,7 +45,7 @@ class CategoryBudget {
 
 class Budget {
   final String id;
-  final String userId;
+  final String bookId;
   final String name;
   final BudgetPeriod period;
   final DateTime startDate;
@@ -67,7 +67,7 @@ class Budget {
 
   Budget({
     required this.id,
-    required this.userId,
+    required this.bookId,
     required this.name,
     required this.period,
     required this.startDate,
@@ -122,7 +122,7 @@ class Budget {
   factory Budget.fromJson(Map<String, dynamic> json) {
     return Budget(
       id: json['id'],
-      userId: json['user_id'],
+      bookId: json['book_id'],
       name: json['name'],
       period: BudgetPeriod.values.firstWhere((e) => e.name == json['period']),
       startDate: parseWallClock(json['start_date']),

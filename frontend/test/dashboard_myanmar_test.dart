@@ -91,7 +91,7 @@ Budget _budget() {
   final now = DateTime.now();
   return Budget(
     id: 'b1',
-    userId: 'u1',
+    bookId: 'u1',
     name: 'Monthly essentials',
     period: BudgetPeriod.monthly,
     startDate: DateTime(now.year, now.month, 1),
@@ -113,7 +113,7 @@ Goal _goal() {
   final now = DateTime.now();
   return Goal(
     id: 'g1',
-    userId: 'u1',
+    bookId: 'u1',
     name: 'New laptop',
     targetAmount: 5800,
     currentAmount: 1200,
@@ -130,7 +130,7 @@ Transaction _salary() {
   final now = DateTime.now();
   return Transaction(
     id: 't1',
-    userId: 'u1',
+    bookId: 'u1',
     type: TransactionType.inflow,
     mainCategory: 'Employment Income',
     subCategory: 'Salary',
