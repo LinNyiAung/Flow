@@ -4,11 +4,13 @@ Every financial route takes `book: Book = Depends(get_book)` and reads and write
 The book is resolved on the server from the X-Book header and the caller's own membership, never from a client-supplied
 user id:
 
-- no X-Book, "" or "personal": the caller's personal book (id = their user id);
-- "family": the family the caller is an active member of (id = its hidden book user), else 409 no_family;
+- no X-Book, "" or "personal": the caller's personal book (id = its books.id, loaded with the caller by
+  get_current_user as `personal_book_id`; never the caller's user id);
+- "family": the book of the family the caller is an active member of (books.family_id), else 409 no_family;
 - anything else: 400 invalid_book.
 
-Quotas, plan checks and notifications settings stay on `book.person`; only the data id changes.
+`Book.id` is always a books.id. Quotas, plan checks and notifications settings stay on `book.person`; only the data id
+changes.
 
 Refusals are HTTPException(status, {"code", "message"}) with the message in the caller's language (the
 family_<code>_msg keys of notification_service.NOTIFICATION_TRANSLATIONS), as in families.service.
@@ -21,6 +23,7 @@ from fastapi import Depends, Header, HTTPException
 from families.service import family_is_read_only
 from notification_service import translate
 from plans.access import user_language
+from sql import books as books_db
 from sql import families as fdb
 from utils import get_current_user
 
@@ -42,8 +45,10 @@ class Book:
 
     @classmethod
     def personal(cls, person: dict) -> "Book":
-        """The person's own book (what get_book gives without X-Book)."""
-        return cls(id=person["_id"], kind="personal", person=person, family=None, member=None, read_only=False)
+        """The person's own book (what get_book gives without X-Book); `person` is get_current_user's dict, which
+        carries `personal_book_id`."""
+        return cls(id=person["personal_book_id"], kind="personal", person=person, family=None, member=None,
+                   read_only=False)
 
 
 def _fail(user: Mapping[str, Any], status: int, code: str):
@@ -66,9 +71,10 @@ async def get_book(current_user: dict = Depends(get_current_user),
         _fail(current_user, 400, "invalid_book")
     member = await fdb.active_membership(current_user["_id"])
     family = await fdb.get_family(member["family_id"]) if member else None
-    if member is None or family is None:
+    book_id = await books_db.family_book_id(family["id"]) if family else None
+    if member is None or family is None or book_id is None:
         _fail(current_user, 409, "no_family")
-    return Book(id=family["book_user_id"], kind="family", person=current_user, family=family, member=member,
+    return Book(id=book_id, kind="family", person=current_user, family=family, member=member,
                 read_only=await family_is_read_only(family))
 
 

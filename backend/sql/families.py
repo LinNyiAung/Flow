@@ -9,40 +9,48 @@ from typing import Any, Dict, List, Optional, Sequence
 from sqlalchemy import and_, delete, exists, func, insert, or_, select, update
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
-from sql.tables import (families as f, family_invites as fi, family_members as fm, transaction_beneficiaries as tb,
-                        transactions as t, users)
+from sql.tables import (books as bk, families as f, family_invites as fi, family_members as fm,
+                        transaction_beneficiaries as tb, transactions as t, users)
 
 ADMIN_ROLES = ("owner", "admin")
 
 
 # ---- families ----
 
-async def insert_family(family_id: str, name: str, book_user_id: str) -> None:
-    await execute(insert(f).values(id=family_id, name=name, book_user_id=book_user_id))
+async def insert_family(family_id: str, name: str) -> None:
+    """The families row only: create the family's book with it, in the same transaction (books.create_family_book)."""
+    await execute(insert(f).values(id=family_id, name=name))
 
 
 async def get_family(family_id: str) -> Optional[Dict[str, Any]]:
     return await fetch_one(select(f).where(f.c.id == family_id))
 
 
-async def family_for_book(book_user_id: str) -> Optional[Dict[str, Any]]:
-    """The family whose hidden book user this is, or None (a person's id)."""
-    return await fetch_one(select(f).where(f.c.book_user_id == book_user_id))
+async def delete_family(family_id: str) -> int:
+    """Delete the family; its book (and so all the book's data), members and invites cascade. Personal books are
+    untouched (a transfer's personal leg stays in its person's history)."""
+    return await execute(delete(f).where(f.c.id == family_id))
+
+
+async def family_for_book(book_id: str) -> Optional[Dict[str, Any]]:
+    """The family whose book this is, or None (a personal book, or not a book id)."""
+    return await fetch_one(select(f).select_from(f.join(bk, bk.c.family_id == f.c.id)).where(bk.c.id == book_id))
 
 
 async def books_with_paid_owner(plans: Sequence[str]) -> List[Dict[str, Any]]:
     """Every family whose active owner's stored plan is one of `plans` (the scheduled insight jobs), oldest first:
-    `book_user_id`, `family_id`, `family_name` and `owner`, the owner's user fields that effective_plan and
-    quota.over_cost_cap read (`_id`, subscription_type, subscription_expires_at, usage_reset_at). The caller still
+    `book_id` (the family book), `family_id`, `family_name` and `owner`, the owner's user fields that effective_plan
+    and quota.over_cost_cap read (`_id`, subscription_type, subscription_expires_at, usage_reset_at). The caller still
     checks the owner's effective plan (an expired paid plan is stored as paid until the expiry job runs)."""
-    stmt = (select(f.c.book_user_id, f.c.id.label("family_id"), f.c.name.label("family_name"),
+    stmt = (select(bk.c.id.label("book_id"), f.c.id.label("family_id"), f.c.name.label("family_name"),
                    users.c.id.label("owner_id"), users.c.subscription_type, users.c.subscription_expires_at,
                    users.c.usage_reset_at)
-            .select_from(f.join(fm, and_(fm.c.family_id == f.c.id, fm.c.role == "owner", fm.c.status == "active"))
+            .select_from(f.join(bk, bk.c.family_id == f.c.id)
+                         .join(fm, and_(fm.c.family_id == f.c.id, fm.c.role == "owner", fm.c.status == "active"))
                          .join(users, users.c.id == fm.c.user_id))
-            .where(users.c.subscription_type.in_(list(plans)), users.c.kind == "person")
+            .where(users.c.subscription_type.in_(list(plans)))
             .order_by(f.c.created_at, f.c.id))
-    return [{"book_user_id": r["book_user_id"], "family_id": r["family_id"], "family_name": r["family_name"],
+    return [{"book_id": r["book_id"], "family_id": r["family_id"], "family_name": r["family_name"],
              "owner": {"_id": r["owner_id"], "subscription_type": r["subscription_type"],
                        "subscription_expires_at": r["subscription_expires_at"],
                        "usage_reset_at": r["usage_reset_at"]}}
@@ -118,20 +126,20 @@ async def admin_user_ids(family_id: str) -> List[str]:
     return [r["user_id"] for r in rows]
 
 
-async def account_user_ids_for_book(book_user_id: str) -> List[str]:
-    """User ids of the active account members of the family whose book user this is, in join order (who a family
-    book's notifications go to); [] when it isn't a book user."""
-    rows = await fetch_all(select(fm.c.user_id).select_from(fm.join(f, f.c.id == fm.c.family_id))
-                           .where(f.c.book_user_id == book_user_id, fm.c.status == "active", fm.c.kind == "account",
+async def account_user_ids_for_book(book_id: str) -> List[str]:
+    """User ids of the active account members of the family whose book this is, in join order (who a family book's
+    notifications go to); [] when it isn't a family book."""
+    rows = await fetch_all(select(fm.c.user_id).select_from(fm.join(bk, bk.c.family_id == fm.c.family_id))
+                           .where(bk.c.id == book_id, fm.c.status == "active", fm.c.kind == "account",
                                   fm.c.user_id.isnot(None))
                            .order_by(fm.c.joined_at, fm.c.id))
     return [r["user_id"] for r in rows]
 
 
-async def active_member_user_id(book_user_id: str, member_id: str) -> Optional[str]:
+async def active_member_user_id(book_id: str, member_id: str) -> Optional[str]:
     """The user id of this member of the book's family while it is an active account member, else None."""
-    return await fetch_value(select(fm.c.user_id).select_from(fm.join(f, f.c.id == fm.c.family_id))
-                             .where(f.c.book_user_id == book_user_id, fm.c.id == member_id, fm.c.status == "active",
+    return await fetch_value(select(fm.c.user_id).select_from(fm.join(bk, bk.c.family_id == fm.c.family_id))
+                             .where(bk.c.id == book_id, fm.c.id == member_id, fm.c.status == "active",
                                     fm.c.kind == "account", fm.c.user_id.isnot(None)))
 
 
@@ -212,26 +220,26 @@ async def beneficiaries_for(transaction_ids: List[str]) -> Dict[str, List[str]]:
     return out
 
 
-async def outflow_shares(book_user_id: str, currency: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+async def outflow_shares(book_id: str, currency: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
     """The book's outflows in `currency` dated within [date_from, date_to], transfers left out: one row per
     (entry, member it was for) with `id`, `amount` and `member_id` (None for a Whole-family entry). An entry's members
     come in the family's join order (stable: the breakdown gives an entry's leftover to its first member)."""
     stmt = (select(t.c.id, t.c.amount, tb.c.member_id)
             .select_from(t.outerjoin(tb, tb.c.transaction_id == t.c.id).outerjoin(fm, fm.c.id == tb.c.member_id))
-            .where(t.c.user_id == book_user_id, t.c.type == "outflow", t.c.currency == currency,
+            .where(t.c.book_id == book_id, t.c.type == "outflow", t.c.currency == currency,
                    t.c.transfer_id.is_(None), t.c.date >= date_from, t.c.date <= date_to)
             .order_by(t.c.id, fm.c.joined_at, fm.c.id))
     return await fetch_all(stmt)
 
 
-async def transfer_totals(book_user_id: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+async def transfer_totals(book_id: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
     """The family book's transfer legs dated within [date_from, date_to], summed per mover, direction and currency:
     `member_id` (the leg's added_by_member_id, the member who moved it), `type` (inflow: into the family wallet;
     outflow: out of it), `currency` and `total`. Only the family's own legs: nobody's personal book is read."""
     stmt = (select(t.c.added_by_member_id.label("member_id"), t.c.type, t.c.currency,
                    func.sum(t.c.amount).label("total"))
             .select_from(t.outerjoin(fm, fm.c.id == t.c.added_by_member_id))
-            .where(t.c.user_id == book_user_id, t.c.transfer_id.isnot(None), t.c.date >= date_from,
+            .where(t.c.book_id == book_id, t.c.transfer_id.isnot(None), t.c.date >= date_from,
                    t.c.date <= date_to)
             .group_by(t.c.added_by_member_id, fm.c.joined_at, t.c.type, t.c.currency)
             .order_by(fm.c.joined_at.nulls_last(), t.c.added_by_member_id, t.c.type, t.c.currency))

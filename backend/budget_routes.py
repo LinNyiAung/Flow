@@ -30,7 +30,7 @@ from plans.access import user_language
 
 
 from sql import budgets as budgets_db
-from sql import users as users_db
+from sql import books as books_db
 
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
@@ -254,7 +254,7 @@ async def create_budget(
             )
 
         # Mark AI data as stale
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
         # Get updated budget
         updated_budget = await budgets_db.get_budget(budget_id, book.id)
@@ -478,7 +478,7 @@ async def update_budget(
         await update_budget_spent_amounts(book.id, budget_id)
 
         # Mark AI data as stale
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
         updated_budget = await budgets_db.get_budget(budget_id, book.id)
         if not updated_budget:  # deleted meanwhile
@@ -524,7 +524,7 @@ async def delete_budget(
             )
 
         # Mark AI data as stale
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
         return {"message": "Budget deleted successfully"}
 

@@ -12,6 +12,7 @@ from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import insights as insights_db
+from sql import books as books_db
 from sql import users as users_db
 from tz_utils import (
     app_today, app_wall_clock_now, as_utc, get_app_timezone, previous_week_range,
@@ -89,21 +90,23 @@ async def _job_targets(feature: str) -> list:
         logger.error(f"❌ Could not list family books for {feature}: {type(e).__name__}: {e}")
         books = []
     return ([(u["_id"], u, None) for u in users]
-            + [(b["book_user_id"], b["owner"], b["book_user_id"]) for b in books])
+            + [(b["book_id"], b["owner"], b["book_id"]) for b in books])
 
 
-async def _insight_profile(user: Optional[dict]) -> Optional[dict]:
-    """The profile an insight prompt shows (USER, DEFAULT CURRENCY). A family's book user has no real profile: its
-    insight uses the family's name and the owner's default currency (the book's own when the owner is gone). A person
-    (or None) is returned as it is."""
-    if not user or user.get("kind") != "family_book":
-        return user
-    family = await families_db.family_for_book(user["_id"])
-    if not family:
-        return user
-    owner = await families_db.owner_user(family["id"])
-    return {**user, "name": family["name"],
-            "default_currency": (owner or {}).get("default_currency") or user.get("default_currency") or "usd"}
+async def _insight_profile(book_id: str) -> Optional[dict]:
+    """The profile an insight prompt shows (USER, DEFAULT CURRENCY) for a book: a personal book's person (the users
+    row); a family book's family name with its owner's settings (books_db.book_profile; default currency usd when the
+    owner's account is gone). None when it isn't a book (e.g. a person's id)."""
+    book = await books_db.get_book_row(book_id)
+    if book is None:
+        return None
+    profile = await books_db.book_profile(book_id)
+    if book["kind"] == "personal":
+        return profile
+    family = await families_db.get_family(book["family_id"])
+    owner = profile or {}
+    return {**owner, "name": (family or {}).get("name") or "Family",
+            "default_currency": owner.get("default_currency") or "usd"}
 
 
 def _has_content(text) -> bool:
@@ -299,7 +302,7 @@ async def generate_weekly_insight(user_id: str, notify: bool = False, background
         prev_week_start, prev_week_end = get_previous_week_date_range()
 
         # [FIX] Added await
-        user = await _insight_profile(await users_db.get_user(user_id))
+        user = await _insight_profile(user_id)
         if not user:
             logger.error(f"User not found: {user_id}")
             return None
@@ -1053,7 +1056,7 @@ async def generate_monthly_insight(user_id: str, notify: bool = False, backgroun
         prev_month_start, prev_month_end = get_previous_month_date_range()
 
         # [FIX] Added await
-        user = await _insight_profile(await users_db.get_user(user_id))
+        user = await _insight_profile(user_id)
         if not user:
             logger.error(f"User not found: {user_id}")
             return None

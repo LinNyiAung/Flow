@@ -10,6 +10,7 @@ from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import notifications as notifications_db
 from sql import notification_prefs as prefs_db
+from sql import books as books_db
 from sql import users as users_db
 from plans.access import format_day
 from tz_utils import (
@@ -337,13 +338,7 @@ async def create_notification(
 
     extra: additional fields stored on the notification document (e.g. dedupe keys);
     they are not sent in the push payload, except the family marker `book` (see family_marker).
-
-    A family book user is refused (nothing is stored or pushed, None is returned): a family book's notices go to its
-    members through create_notification_from_key, and per-entry notices are never sent for it.
     """
-    if await users_db.is_book_user(user_id):
-        print(f"❌ Refused notification {notification_type} for family book user {user_id} (not a person)")
-        return None
 
     # [FIX] Added await
     if not await should_send_notification(user_id, notification_type):
@@ -419,11 +414,14 @@ async def create_notification(
 
 
 async def notification_recipients(user_id: str) -> Tuple[bool, List[str]]:
-    """(is_book, recipients): a person's notices go to that person; a family book's go to the family's active account
-    members (who may be none)."""
-    if await users_db.is_book_user(user_id):
+    """(is_book, recipients) of a book's notices: a personal book's go to its person; a family book's go to the
+    family's active account members (who may be none). A person's id (not a book) is its own recipient."""
+    book = await books_db.get_book_row(user_id)
+    if book is not None and book["kind"] == "family":
         return True, await families_db.account_user_ids_for_book(user_id)
-    return False, [user_id]
+    if book is not None:  # a personal book: its person
+        return False, [book["person_id"]]
+    return False, [user_id]  # a person's id (callers not yet passing a book id)
 
 
 FAMILY_MARKER = {"book": "family"}
@@ -758,7 +756,7 @@ async def notify_budget_auto_created(user_id: str, budget_id: str, budget_name: 
 
 async def check_large_transaction(user_id: str, transaction: Dict, user_spending_profile: Dict = None):
     """Check if a transaction is unusually large and notify (never for a family book: no per-entry notices)"""
-    if await users_db.is_book_user(user_id):
+    if await books_db.is_family_book(user_id):
         return
     amount = transaction["amount"]
     transaction_type = transaction["type"]
@@ -808,7 +806,7 @@ async def analyze_unusual_spending(user_id: str):
     """Analyze spending patterns and notify about unusual activity (never for a family book: no per-entry notices)"""
     from collections import defaultdict
 
-    if await users_db.is_book_user(user_id):
+    if await books_db.is_family_book(user_id):
         return
 
     now = datetime.now(UTC)
@@ -889,7 +887,7 @@ async def _detect_recurring_payments_for_user(user_id: str, now: datetime, today
     """Detect monthly recurring outflows for one user and send due-soon reminders (never for a family book)."""
     from collections import defaultdict
 
-    if await users_db.is_book_user(user_id):
+    if await books_db.is_family_book(user_id):
         return
 
     lang = await get_user_language(user_id)

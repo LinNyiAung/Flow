@@ -5,10 +5,14 @@ Sections:
   migration -- the books migration on a database seeded in the old shape (hidden book users): every row lands on the
     right book, balances and goal totals don't change, transfer legs still pair, notices map by type; then down and
     up again keeps every balance (Task 1).
+  books_in_requests -- registration and family creation create the books, a person row without a book gets one on
+    its first request, a person id finds no book data, the freshness flag and book_profile work on books, and deleting
+    a family (or its lone owner's account) deletes its book (Task 2). Needs the stub server on 127.0.0.1:8765.
 """
 import os
 import sys
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -410,7 +414,191 @@ def _check_upgraded(ids, sums, goals, label):
               {"got": got, "want": want})
 
 
-SECTIONS = {"schema": section_schema, "migration": section_migration}
+# ----------------------------------------------------------------------------------------------- books in requests
+BASE = "http://127.0.0.1:8765"
+
+
+def _backend_async(coro_fn):
+    """Run backend async code (its DB engine binds to the loop, so one asyncio.run per call and a fresh engine)."""
+    import asyncio
+
+    async def go():
+        from sql import db as sqldb
+        try:
+            return await coro_fn()
+        finally:
+            await sqldb.dispose_engine()
+    return asyncio.run(go())
+
+
+def _books_of(person_id=None, family_id=None):
+    if person_id is not None:
+        return db.sql("SELECT id, kind FROM books WHERE person_id = %s", person_id)
+    return db.sql("SELECT id, kind FROM books WHERE family_id = %s", family_id)
+
+
+def _seed_tx(book_id, amount="10.00", type_="inflow"):
+    tx_id = str(uuid.uuid4())
+    db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, currency, date) "
+           "VALUES (%s, %s, %s, 'Food', 'Groceries', %s, 'usd', now())", tx_id, book_id, type_, Decimal(amount))
+    return tx_id
+
+
+def section_books_in_requests():
+    import bcrypt
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []  # user ids to delete at the end (their personal books and families go with them)
+
+    def register(name, plan="free"):
+        """A verified account on `plan` registered through the API: {"id", "email", "h"}."""
+        email = f"bk-{name.lower()}-{tag}@example.com"
+        r = c.post("/api/auth/register", json={"name": name, "email": email, "password": "secret123"})
+        if r.status_code != 200:
+            check(False, f"books in requests: register {name}", f"{r.status_code} {r.text[:200]}")
+            return None
+        uid = db.sql("SELECT id FROM users WHERE email = %s", email)[0]["id"]
+        made.append(uid)
+        expires = None if plan == "free" else datetime.now(UTC) + timedelta(days=30)
+        db.sql("UPDATE users SET is_verified = true, subscription_type = %s, subscription_expires_at = %s, "
+               "trial_ends_at = NULL WHERE id = %s", plan, expires, uid)
+        token = c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json().get("access_token")
+        return {"id": uid, "email": email, "h": {"Authorization": f"Bearer {token}"}}
+
+    try:
+        # ---- register creates one personal book
+        A = register("Ann")
+        if A is None:
+            return
+        books = _books_of(person_id=A["id"])
+        check(len(books) == 1 and books[0]["kind"] == "personal",
+              "register creates one personal book: exactly one personal book for the new user", books)
+        bookA = books[0]["id"] if books else None
+        check(bookA is not None and bookA != A["id"], "register creates one personal book: its id is not the user id",
+              (bookA, A["id"]))
+
+        # ---- creating a family creates one family book
+        O = register("Owner", "plus")
+        r = c.post("/api/family", json={"name": f"Fam {tag}"}, headers=O["h"])
+        check(r.status_code == 200 and (r.json().get("family") or {}).get("id"),
+              "creating a family creates one family book: POST /api/family answers 200", f"{r.status_code} {r.text[:200]}")
+        family_id = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        fbooks = _books_of(family_id=family_id) if family_id else []
+        check(len(fbooks) == 1 and fbooks[0]["kind"] == "family",
+              "creating a family creates one family book: exactly one family book for the family", fbooks)
+        bookF = fbooks[0]["id"] if fbooks else None
+        check(bookF is not None and not db.sql("SELECT 1 FROM users WHERE id = %s", bookF),
+              "creating a family creates one family book: the family book is not a users row")
+
+        # ---- user without a book gets one (a person row written by older code or by a test, P2)
+        N = f"bk-{tag}-nobook"
+        email_n = f"{N}@example.com"  # the login validator refuses reserved domains such as .test
+        pw_hash = bcrypt.hashpw(b"secret123", bcrypt.gensalt()).decode()
+        db.sql("INSERT INTO users (id, name, email, password, is_verified) VALUES (%s, 'No Book', %s, %s, true)",
+               N, email_n, pw_hash)
+        made.append(N)
+        check(not _books_of(person_id=N), "user without a book gets one: the seeded person has no book yet")
+        r = c.post("/api/auth/login", json={"email": email_n, "password": "secret123"})
+        check(r.status_code == 200, "user without a book gets one: login works", f"{r.status_code} {r.text[:200]}")
+        hn = {"Authorization": f"Bearer {(r.json().get('access_token') if r.status_code == 200 else None) or 'none'}"}
+        r = c.get("/api/auth/me", headers=hn)
+        check(r.status_code == 200, "user without a book gets one: an authenticated request answers 200",
+              f"{r.status_code} {r.text[:200]}")
+        c.get("/api/auth/me", headers=hn)  # a second request must not create another one
+        nb = _books_of(person_id=N)
+        check(len(nb) == 1 and nb[0]["kind"] == "personal" and nb[0]["id"] != N,
+              "user without a book gets one: now exactly one personal book exists", nb)
+
+        # ---- a person id is not a book id
+        if bookA:
+            _seed_tx(bookA, "12.00")
+
+            async def by_ids():
+                from sql import transactions as transactions_db
+                return (await transactions_db.find_transactions(A["id"]),
+                        await transactions_db.find_transactions(bookA))
+            try:
+                by_person, by_book = _backend_async(by_ids)
+                check(by_person == [] and len(by_book) == 1,
+                      "a person id is not a book id: find_transactions(<A's user id>) finds nothing, A's book finds the entry",
+                      (len(by_person), len(by_book)))
+            except Exception as e:  # noqa: BLE001
+                check(False, "a person id is not a book id: find_transactions by id runs", repr(e))
+
+        # ---- the freshness flag lives on the book (personal and family)
+        def stale(book_id):
+            row = db.sql("SELECT ai_data_stale FROM books WHERE id = %s", book_id)
+            return row[0]["ai_data_stale"] if row else None
+
+        for label, book_id in (("personal", bookA), ("family", bookF)):
+            if not book_id:
+                continue
+
+            async def flag(book_id=book_id):
+                from sql import books as books_db
+                await books_db.mark_ai_data_stale(book_id)
+                marked = stale(book_id)
+                return marked, await books_db.claim_ai_data_fresh(book_id), await books_db.claim_ai_data_fresh(book_id)
+            try:
+                marked, first, second = _backend_async(flag)
+                check(marked is True, f"book freshness flag ({label}): mark_ai_data_stale sets the book's ai_data_stale", marked)
+                check(first is True and second is False,
+                      f"book freshness flag ({label}): claim_ai_data_fresh is True once, then False", (first, second))
+                check(stale(book_id) is False, f"book freshness flag ({label}): the flag is cleared")
+            except Exception as e:  # noqa: BLE001
+                check(False, f"book freshness flag ({label}): the books helpers run", repr(e))
+
+        # ---- the money lock is the book's row lock; book_profile is the book's settings person
+        if bookA and bookF:
+            async def profiles():
+                from sql import books as books_db
+                return (await books_db.book_profile(bookA), await books_db.book_profile(bookF),
+                        await books_db.book_profile(A["id"]), await books_db.get_book_row(bookF))
+            try:
+                pa, pf, pnone, rowf = _backend_async(profiles)
+                check((pa or {}).get("_id") == A["id"] and (pf or {}).get("_id") == O["id"] and pnone is None,
+                      "book_profile: a personal book's person, a family book's owner, None for a person id",
+                      ((pa or {}).get("_id"), (pf or {}).get("_id"), pnone))
+                check(rowf and rowf["kind"] == "family" and rowf["family_id"] == family_id and rowf["person_id"] is None,
+                      "get_book_row: the family book's row", rowf)
+            except Exception as e:  # noqa: BLE001
+                check(False, "book_profile / get_book_row run", repr(e))
+
+        # ---- deleting a family deletes its book
+        if family_id and bookF:
+            tx_f = _seed_tx(bookF, "7.00")
+            r = c.request("DELETE", "/api/family", json={"confirm_name": f"Fam {tag}"}, headers=O["h"])
+            check(r.status_code == 200, "deleting a family deletes its book: DELETE /api/family answers 200",
+                  f"{r.status_code} {r.text[:200]}")
+            check(not db.sql("SELECT 1 FROM books WHERE id = %s", bookF) and not _books_of(family_id=family_id),
+                  "deleting a family deletes its book: no family book row is left")
+            check(not db.sql("SELECT 1 FROM transactions WHERE id = %s", tx_f),
+                  "deleting a family deletes its book: its transactions are gone")
+            check(len(_books_of(person_id=O["id"])) == 1, "deleting a family deletes its book: the owner's personal book stays")
+
+        # ---- an owner alone deleting their account takes the family and its book along
+        S = register("Solo", "plus")
+        r = c.post("/api/family", json={"name": f"Solo {tag}"}, headers=S["h"])
+        solo_family = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        solo_book = (_books_of(family_id=solo_family) or [{}])[0].get("id") if solo_family else None
+        check(solo_book is not None, "owner's account deletion: the solo owner's family has a book", r.text[:200])
+        if solo_book:
+            r = c.request("DELETE", "/api/auth/delete-account", json={"password": "secret123"}, headers=S["h"])
+            check(r.status_code == 200, "owner's account deletion: DELETE /api/auth/delete-account answers 200",
+                  f"{r.status_code} {r.text[:200]}")
+            check(not db.sql("SELECT 1 FROM families WHERE id = %s", solo_family)
+                  and not db.sql("SELECT 1 FROM books WHERE id = %s", solo_book)
+                  and not _books_of(person_id=S["id"]),
+                  "owner's account deletion: the family, its book and the personal book are gone")
+    finally:
+        if made:
+            db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+
+
+SECTIONS = {"schema": section_schema, "migration": section_migration, "books_in_requests": section_books_in_requests}
 
 
 def main():

@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from recurrence_models import RecurrenceConfig, RecurrenceFrequency
 from sql import families as families_db
 from sql import transactions as transactions_db
-from sql import users as users_db
+from sql import books as books_db
 from sql.db import transaction as db_transaction
 from notification_service import create_notification, family_marker
 from tz_utils import app_today
@@ -208,14 +208,16 @@ def due_occurrences(
 
 
 async def _notice_recipient(transaction: dict) -> Tuple[Optional[str], Optional[dict]]:
-    """(who, extra) for a recurring entry's notices: its owner (extra None), or for a family book's entry only the
-    member who added it, while that member is an active account member (else nobody), with the family marker as
-    extra. Never the book user, never every member."""
-    owner = transaction["user_id"]
-    if not await users_db.is_book_user(owner):
-        return owner, None
+    """(who, extra) for a recurring entry's notices: a personal book's person (extra None), or for a family book's
+    entry only the member who added it, while that member is an active account member (else nobody), with the family
+    marker as extra. Never every member."""
+    book = await books_db.get_book_row(transaction["book_id"])
+    if book is None:
+        return None, None
+    if book["kind"] == "personal":
+        return book["person_id"], None
     member_id = transaction.get("added_by_member_id")
-    who = await families_db.active_member_user_id(owner, member_id) if member_id else None
+    who = await families_db.active_member_user_id(book["id"], member_id) if member_id else None
     return who, family_marker()
 
 
@@ -373,7 +375,7 @@ async def _refresh_user_after_recurring(user_id: str, per_currency: Dict[str, Li
     """Mark AI data stale and recompute affected budgets."""
     from budget_service import update_budgets_in_range  # local import: avoid import cycles
 
-    await users_db.mark_ai_data_stale(user_id)
+    await books_db.mark_ai_data_stale(user_id)
     for currency, dates in per_currency.items():
         if not dates:
             continue

@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
-from utils import get_current_user, get_user_balance, get_user_money_lock
+from utils import get_current_user, get_book_balance, get_book_money_lock
 from families.book import Book, clean_for_whom, get_book, refuse, require_change_entry, require_writable
 from plans import quota, voice_token
 from goal_routes import to_cents
@@ -39,7 +39,7 @@ from notification_service import check_large_transaction
 
 from sql import families as families_db
 from sql import transactions as transactions_db
-from sql import users as users_db
+from sql import books as books_db
 from sql.categories import get_categories_doc
 from sql.db import transaction as db_transaction
 
@@ -412,7 +412,7 @@ async def _ensure_goal_allocations_covered(user_id: str, old_tx: dict, new_value
     Reject (400) deleting/editing an inflow when that would make a currency's
     available_balance (balance - allocated_to_goals) negative while money is allocated
     to goals. new_values = {"type", "amount", "currency"} after the edit, None for delete.
-    Must be called while holding get_user_money_lock(user_id).
+    Must be called while holding get_book_money_lock(user_id).
     """
     if old_tx.get("type") != TransactionType.INFLOW.value:
         return
@@ -429,7 +429,7 @@ async def _ensure_goal_allocations_covered(user_id: str, old_tx: dict, new_value
     for currency, delta in deltas.items():
         if delta >= 0:
             continue
-        balance = await get_user_balance(user_id, currency)
+        balance = await get_book_balance(user_id, currency)
         allocated = to_cents(balance.get("allocated_to_goals", 0))
         if allocated <= 0:
             continue
@@ -486,7 +486,7 @@ async def create_transaction(
         await transactions_db.insert_transaction(new_transaction)
         if for_whom:
             await families_db.set_beneficiaries(transaction_id, for_whom)
-    await users_db.mark_ai_data_stale(book.id)
+    await books_db.mark_ai_data_stale(book.id)
 
     # Check for large transaction
     try:
@@ -579,7 +579,7 @@ async def disable_transaction_recurrence(
             detail="Transaction not found or recurrence not enabled"
         )
 
-    await users_db.mark_ai_data_stale(book.id)
+    await books_db.mark_ai_data_stale(book.id)
 
     return {"message": "Recurrence disabled successfully"}
 
@@ -618,7 +618,7 @@ async def disable_parent_transaction_recurrence(
             detail="Parent transaction not found"
         )
 
-    await users_db.mark_ai_data_stale(book.id)
+    await books_db.mark_ai_data_stale(book.id)
 
     return {"message": "Parent transaction recurrence disabled successfully"}
 
@@ -765,7 +765,7 @@ async def update_transaction(
         or _cents_or_zero(new_amount) != _cents_or_zero(transaction.get("amount"))
     )
 
-    async with get_user_money_lock(book.id):
+    async with get_book_money_lock(book.id):
         if money_changed:
             await _ensure_goal_allocations_covered(
                 book.id,
@@ -777,7 +777,7 @@ async def update_transaction(
             updated_transaction = await transactions_db.update_transaction(transaction_id, book.id, update_data)
             if updated_transaction and for_whom is not None:
                 await families_db.set_beneficiaries(transaction_id, for_whom)
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
     if not updated_transaction:  # deleted meanwhile
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
@@ -814,12 +814,12 @@ async def delete_transaction(
     _not_a_transfer(book, transaction, "use_transfer_undo")
     require_change_entry(book, transaction)
 
-    async with get_user_money_lock(book.id):
+    async with get_book_money_lock(book.id):
         # Deleting an inflow must not leave money "allocated to goals" that no longer exists.
         await _ensure_goal_allocations_covered(book.id, transaction, None)
 
         deleted = await transactions_db.delete_transaction(transaction_id, book.id)
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
     if deleted == 0:
         raise HTTPException(
@@ -1189,7 +1189,7 @@ async def batch_create_transactions(
 
         # 3. Post-processing (budgets in the background, AI data stale)
         background_tasks.add_task(update_all_user_budgets, book.id)
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
     people = await _entry_people(book, new_transactions)
     return [_transaction_response(doc, people) for doc in new_transactions]

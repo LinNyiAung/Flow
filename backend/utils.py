@@ -9,6 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_chatbot import financial_chatbot
 from plans.access import LOCKED, PlanError, effective_plan, user_language
 from plans.catalog import PAID_PLANS
+from sql import books as books_db
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import users as users_db
@@ -87,11 +88,13 @@ def verify_token(token: str) -> str:
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Get current authenticated (and e-mail verified) user"""
+    """Get current authenticated (and e-mail verified) user: the users row plus `personal_book_id`, the id of the
+    person's personal book (loaded in the same query; a person row without one, e.g. written by older code, gets it
+    here)."""
     payload = _decode_user_token(credentials.credentials)
     email = payload["sub"]
-    user = await users_db.get_user_by_email(email)
-    if not user or user.get("kind", "person") != "person":  # a family-book user can never authenticate
+    user = await users_db.get_user_with_book_by_email(email)
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     # Token must belong to this exact account (e.g. not a deleted + re-registered one).
@@ -127,6 +130,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
     if user.get("is_verified") is False:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+    if user.get("personal_book_id") is None:
+        user["personal_book_id"] = await books_db.ensure_personal_book(user["_id"])
     return user
 
 
@@ -149,23 +154,23 @@ def ensure_utc_datetime(dt) -> datetime:
     return dt
 
 
-async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict:
+async def get_book_balance(book_id: str, currency: Optional[str] = None) -> dict:
     """
-    Per-currency balance, computed live (exact SQL sums over indexed rows; nothing cached,
+    Per-currency balance of a book, computed live (exact SQL sums over indexed rows; nothing cached,
     so it can never be stale): balance = inflow - outflow + transfers in - transfers out, available = balance - goals.
     total_inflow / total_outflow are income and spending only (transfers between a personal wallet and the family
-    wallet are neither).
+    wallet are neither). A book with no entries shows its settings person's default currency (books_db.book_profile:
+    a family book's owner); no such book: {"balances": {}}.
     """
-    user = await users_db.get_user(user_id)
-    if not user:
-        return {"balances": {}}
-
-    tx_map = {res["currency"]: res for res in await transactions_db.currency_totals(user_id)}
-    allocated_map = {g["_id"]: g["total_allocated"] for g in await goals_db.allocated_by_currency(user_id)}
+    tx_map = {res["currency"]: res for res in await transactions_db.currency_totals(book_id)}
+    allocated_map = {g["_id"]: g["total_allocated"] for g in await goals_db.allocated_by_currency(book_id)}
 
     all_currencies = set(tx_map) | set(allocated_map)
-    if not all_currencies:
-        all_currencies = {user.get("default_currency", "usd")}
+    if not all_currencies:  # nothing recorded (rows always belong to a book, so only now can it be no book at all)
+        if await books_db.get_book_row(book_id) is None:
+            return {"balances": {}}
+        profile = await books_db.book_profile(book_id) or {}
+        all_currencies = {profile.get("default_currency") or "usd"}
 
     balances = {}
     for curr in all_currencies:
@@ -191,45 +196,45 @@ async def get_user_balance(user_id: str, currency: Optional[str] = None) -> dict
     return {"balances": balances}
 
 
-# Per-user lock serializing operations that move money between "available balance"
+# Per-book lock serializing operations that move money between "available balance"
 # and goals (goal contributions, goal creation with initial contribution, editing /
-# deleting inflows). The database row lock works across all server processes; the
-# in-process lock in front of it just queues same-user requests of one process in
-# memory instead of each holding a pooled connection while it waits.
-_user_money_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = weakref.WeakValueDictionary()
+# deleting inflows, transfers). The database row lock (on the books row) works across all
+# server processes; the in-process lock in front of it just queues same-book requests of
+# one process in memory instead of each holding a pooled connection while it waits.
+_book_money_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = weakref.WeakValueDictionary()
 
 
-def _process_money_lock(user_id: str) -> asyncio.Lock:
-    """The in-process lock of this user (held strongly by whoever is using it)."""
-    lock = _user_money_locks.get(user_id)
+def _process_money_lock(book_id: str) -> asyncio.Lock:
+    """The in-process lock of this book (held strongly by whoever is using it)."""
+    lock = _book_money_locks.get(book_id)
     if lock is None:
         lock = asyncio.Lock()
-        _user_money_locks[user_id] = lock
+        _book_money_locks[book_id] = lock
     return lock
 
 
 @asynccontextmanager
-async def get_user_money_lock(user_id: str) -> AsyncIterator[None]:
-    """`async with get_user_money_lock(uid):` - the block is serialized per user and its
+async def get_book_money_lock(book_id: str) -> AsyncIterator[None]:
+    """`async with get_book_money_lock(book_id):` - the block is serialized per book and its
     database writes commit (or roll back) together."""
-    async with _process_money_lock(user_id):
-        async with users_db.money_lock(user_id):
+    async with _process_money_lock(book_id):
+        async with books_db.money_lock(book_id):
             yield
 
 
 @asynccontextmanager
-async def get_users_money_locks(user_ids: Iterable[str]) -> AsyncIterator[None]:
-    """`async with get_users_money_locks(ids):` - several users' money locks for one block whose database writes
-    commit (or roll back) together, in the same order as get_user_money_lock: every in-process lock first (sorted id
-    order, so two blocks over the same users can't deadlock), only then one transaction (a pooled connection), and the
+async def get_books_money_locks(book_ids: Iterable[str]) -> AsyncIterator[None]:
+    """`async with get_books_money_locks(ids):` - several books' money locks for one block whose database writes
+    commit (or roll back) together, in the same order as get_book_money_lock: every in-process lock first (sorted id
+    order, so two blocks over the same books can't deadlock), only then one transaction (a pooled connection), and the
     row locks in the same sorted order inside it."""
-    ids = sorted(set(user_ids))
+    ids = sorted(set(book_ids))
     async with AsyncExitStack() as process_locks:
-        for uid in ids:
-            await process_locks.enter_async_context(_process_money_lock(uid))
+        for book_id in ids:
+            await process_locks.enter_async_context(_process_money_lock(book_id))
         async with transaction(), AsyncExitStack() as row_locks:  # the row locks end before the transaction does
-            for uid in ids:
-                await row_locks.enter_async_context(users_db.money_lock(uid))
+            for book_id in ids:
+                await row_locks.enter_async_context(books_db.money_lock(book_id))
             yield
 
 

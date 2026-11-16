@@ -12,10 +12,10 @@ async def insert_insight(doc: Dict[str, Any]) -> None:
     await execute(insert(i).values(**insight_row(doc)))
 
 
-async def latest(user_id: str, insight_type: str, real_only: bool = False,
+async def latest(book_id: str, insight_type: str, real_only: bool = False,
                  ai_provider: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Latest stored insight for the type (of any provider unless ai_provider is given); real_only skips placeholders."""
-    stmt = select(i).where(i.c.user_id == user_id, i.c.insight_type == insight_type)
+    stmt = select(i).where(i.c.book_id == book_id, i.c.insight_type == insight_type)
     if ai_provider:
         stmt = stmt.where(i.c.ai_provider == ai_provider)
     if real_only:
@@ -27,8 +27,8 @@ async def set_translation(insight_id: str, content_mm: str) -> None:
     await execute(update(i).where(i.c.id == insight_id).values(content_mm=content_mm))
 
 
-async def delete_for_user(user_id: str, ai_provider: Optional[str] = None, insight_type: Optional[str] = None) -> int:
-    stmt = delete(i).where(i.c.user_id == user_id)
+async def delete_for_user(book_id: str, ai_provider: Optional[str] = None, insight_type: Optional[str] = None) -> int:
+    stmt = delete(i).where(i.c.book_id == book_id)
     if ai_provider:
         stmt = stmt.where(i.c.ai_provider == ai_provider)
     if insight_type:

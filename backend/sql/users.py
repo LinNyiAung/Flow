@@ -1,25 +1,16 @@
 """User accounts: lookups, updates and the atomic (conditional) updates the auth flows need."""
-import secrets
-import uuid
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
-from passlib.context import CryptContext
-from sqlalchemy import and_, delete, func, insert, or_, select, true, update
+from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.sql import ColumnElement
 
 from plans.catalog import PAID_PLANS
 from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, write_returning
 from sql.docs import row_to_doc, rows_to_docs
-from sql.tables import users
+from sql.tables import books, users
 
 _COLUMNS = {c.name for c in users.columns}
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# TEMPORARY until the books plan removes IS_PERSON (Task 2): users.kind is gone with the books migration, so users holds
-# people only and the filter is always true. Kept only so this module still imports during the P1 red window.
-IS_PERSON = true()
 
 
 def _values(fields: Dict[str, Any]) -> Dict[str, Any]:
@@ -71,26 +62,27 @@ async def get_user_by_email(email: Optional[str]) -> Optional[Dict[str, Any]]:
     return row_to_doc(await fetch_one(select(users).where(func.lower(users.c.email) == normalized)))
 
 
-async def get_person(user_id: str) -> Optional[Dict[str, Any]]:
-    """Like get_user, but a family-book user counts as not found (admin screens)."""
-    user = await get_user(user_id)
-    return user if user and user.get("kind", "person") == "person" else None
-
-
-async def is_book_user(user_id: str) -> bool:
-    return bool(await fetch_value(select(func.count()).select_from(users).where(
-        users.c.id == user_id, users.c.kind == "family_book")))
+async def get_user_with_book_by_email(email: Optional[str]) -> Optional[Dict[str, Any]]:
+    """get_user_by_email plus `personal_book_id`, the person's personal book (None when they have none yet), in one
+    query (the per-request lookup of get_current_user)."""
+    normalized = (email or "").strip().lower()
+    if not normalized:
+        return None
+    stmt = (select(users, books.c.id.label("personal_book_id"))
+            .select_from(users.outerjoin(books, books.c.person_id == users.c.id))
+            .where(func.lower(users.c.email) == normalized))
+    return row_to_doc(await fetch_one(stmt))
 
 
 async def count_users(*conditions: ColumnElement) -> int:
-    stmt = select(func.count()).select_from(users).where(IS_PERSON)
+    stmt = select(func.count()).select_from(users)
     if conditions:
         stmt = stmt.where(*conditions)
     return await fetch_value(stmt)
 
 
 async def user_ids(*conditions: ColumnElement) -> List[str]:
-    stmt = select(users.c.id).where(IS_PERSON).order_by(users.c.created_at)
+    stmt = select(users.c.id).order_by(users.c.created_at)
     if conditions:
         stmt = stmt.where(*conditions)
     return [r["id"] for r in await fetch_all(stmt)]
@@ -99,7 +91,7 @@ async def user_ids(*conditions: ColumnElement) -> List[str]:
 async def list_fields(columns: Iterable[str], *conditions: ColumnElement) -> List[Dict[str, Any]]:
     """Selected columns of the users matching the conditions, as documents ("_id" + fields)."""
     cols = [users.c.id] + [users.c[c] for c in columns if c != "id"]
-    stmt = select(*cols).where(IS_PERSON).order_by(users.c.created_at)
+    stmt = select(*cols).order_by(users.c.created_at)
     if conditions:
         stmt = stmt.where(*conditions)
     return rows_to_docs(await fetch_all(stmt))
@@ -109,7 +101,7 @@ async def admin_list(search: Optional[str], subscription_type: Optional[str], sk
                      now: Optional[datetime] = None) -> List[Dict[str, Any]]:
     """Users for the admin list. `subscription_type` filters by the plan a user has at `now` (an expired Plus is free)."""
     now = now or datetime.now(timezone.utc)
-    stmt = select(users).where(IS_PERSON)
+    stmt = select(users)
     if search and search.strip():
         # Literal (not pattern) substring match, case-insensitive.
         needle = search.strip().lower()
@@ -125,17 +117,6 @@ async def admin_list(search: Optional[str], subscription_type: Optional[str], sk
 async def insert_user(doc: Dict[str, Any]) -> None:
     """Raises sqlalchemy.exc.IntegrityError if the e-mail is taken (case-insensitively)."""
     await execute(insert(users).values(**_values(doc)))
-
-
-async def create_book_user(family_id: str, *, conn=None) -> str:
-    """Insert the hidden users row that owns a family's data; returns its id. It can never log in: the
-    password hash is of a random secret that is thrown away, and the e-mail is on a reserved domain."""
-    user_id = str(uuid.uuid4())
-    await execute(insert(users).values(
-        id=user_id, name="Family book", email=f"family-{family_id}@book.invalid",
-        password=_pwd_context.hash(secrets.token_urlsafe(32)), kind="family_book", is_verified=True,
-        subscription_type="free", language="en"), conn)
-    return user_id
 
 
 async def update_user(user_id: str, *conditions: ColumnElement, **fields: Any) -> int:
@@ -245,15 +226,6 @@ async def claim_plan_reminder(user_id: str, kind: str, expires_at: datetime, now
                              **{column.name: expires_at}) > 0
 
 
-async def claim_ai_data_fresh(user_id: str) -> bool:
-    """ai_data_stale True -> False; True if this call cleared it."""
-    return await update_user(user_id, users.c.ai_data_stale.is_(True), ai_data_stale=False) > 0
-
-
-async def mark_ai_data_stale(user_id: str) -> None:
-    await update_user(user_id, ai_data_stale=True)
-
-
 async def downgrade_if_unchanged(user_id: str, stored_expiry: datetime, ended_at: datetime) -> bool:
     """Plus/pro -> free only if the expiry is still the one the job read (an admin extension wins)."""
     return await update_user(user_id, users.c.subscription_type.in_(PAID_PLANS),
@@ -273,16 +245,3 @@ async def set_device_token(user_id: str, token: str) -> int:
 
 async def clear_device_token(user_id: str) -> None:
     await update_user(user_id, fcm_token=None)
-
-
-# ------------------------------------------------------------------ money lock
-@asynccontextmanager
-async def money_lock(user_id: str) -> AsyncIterator[None]:
-    """
-    Serialize one user's money-moving operations across every server process: holds the
-    user's row lock (SELECT ... FOR UPDATE) for the whole block. All database calls in the
-    block run in that one transaction, so the block also commits or rolls back as a unit.
-    """
-    async with transaction() as conn:
-        await conn.execute(select(users.c.id).where(users.c.id == user_id).with_for_update())
-        yield

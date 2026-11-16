@@ -16,7 +16,7 @@ from starlette.background import BackgroundTask
 from finite_utils import SafeJSONResponse, json_safe
 
 from firebase_service import initialize_firebase
-from utils import ensure_paid, get_current_user, get_user_balance
+from utils import ensure_paid, get_current_user, get_book_balance
 from families.book import Book, get_book, require_admin, require_writable
 from families.service import owner_plan
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
@@ -40,6 +40,7 @@ from notification_service import (
 
 from database import initialize_admin, initialize_categories
 from sql.categories import get_categories_doc
+from sql import books as books_db
 from sql import users as users_db
 from sql import notification_prefs as prefs_db
 from sql import notifications as notifications_db
@@ -266,7 +267,7 @@ async def get_balance(
     If currency is specified, returns balance for that currency only.
     Otherwise returns balances for all currencies.
     """
-    return await get_user_balance(book.id, currency.value if currency else None)
+    return await get_book_balance(book.id, currency.value if currency else None)
 
 
 # ==================== AI CHATBOT ====================
@@ -376,7 +377,7 @@ async def stream_chat_with_ai(
     # Clearing the ai_data_stale flag with a conditional update first means a data
     # change that lands after this point re-sets the flag and is picked up next time.
     try:
-        if await users_db.claim_ai_data_fresh(data_id):
+        if await books_db.claim_ai_data_fresh(data_id):
             _invalidate_ai_caches(data_id)
             print(f"🔄 AI data was stale for book {data_id}; invalidated cached vector stores")
     except Exception as e:

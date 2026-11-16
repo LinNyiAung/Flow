@@ -32,7 +32,6 @@ from sql import budgets as budgets_db
 from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import plans as plans_db
-from sql import users as users_db
 from sql.db import transaction
 from tz_utils import app_today, as_utc, day_bounds_utc, get_app_timezone, utc_now
 
@@ -367,7 +366,7 @@ async def run_report(report_id: str) -> dict | None:
         # A family book's report (R21): the prompt shows the family's profile (its name, the owner's currency) as the
         # family's weekly and monthly insights do, and the AI cost is recorded under the person who asked, as for a
         # family chat. A personal report: the person, both ways.
-        user = await insight_profile(await users_db.get_user(uid)) or {}
+        user = await insight_profile(uid) or {}
         goals = await goals_db.list_goals(uid)
         budgets = await budgets_db.budgets_overlapping(uid, *day_bounds_utc(start, end))
         context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))

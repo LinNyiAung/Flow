@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Path
 
 from models import Currency
 from families.book import Book, get_book, require_admin, require_writable
-from utils import get_user_balance, get_user_money_lock
+from utils import get_book_balance, get_book_money_lock
 from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
@@ -16,7 +16,7 @@ from notification_service import (
 )
 
 from sql import goals as goals_db
-from sql import users as users_db
+from sql import books as books_db
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
@@ -55,10 +55,10 @@ async def create_goal(
 
     # Serialize with other balance-moving operations of this user so two concurrent
     # requests can't both allocate the same available balance.
-    async with get_user_money_lock(book.id):
+    async with get_book_money_lock(book.id):
         if initial > 0:
             # Check (inside the lock) that the user has enough available balance
-            balance_data = await get_user_balance(book.id, goal_data.currency.value)
+            balance_data = await get_book_balance(book.id, goal_data.currency.value)
             available_balance = to_cents(balance_data["available_balance"])
             if initial > available_balance:
                 raise HTTPException(
@@ -91,7 +91,7 @@ async def create_goal(
         await goals_db.insert_goal(new_goal)
 
         # AI data stale (same transaction as the goal)
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
     progress = (current_amount / new_goal["target_amount"] * 100) if new_goal["target_amount"] > 0 else 0
 
@@ -244,7 +244,7 @@ async def update_goal(
 
     updated_goal = await goals_db.update_goal(goal_id, update_data)
 
-    await users_db.mark_ai_data_stale(book.id)
+    await books_db.mark_ai_data_stale(book.id)
 
     return GoalResponse(
         id=updated_goal["_id"],
@@ -279,7 +279,7 @@ async def contribute_to_goal(
 
     # Serialize all balance-moving operations of this user (database row lock, so across
     # workers too): two concurrent contributions can't both spend the same available balance.
-    async with get_user_money_lock(book.id):
+    async with get_book_money_lock(book.id):
         # 1. READ (inside the lock): Fetch the goal state
         goal = await goals_db.get_goal(goal_id, book.id)
 
@@ -309,7 +309,7 @@ async def contribute_to_goal(
                 )
 
             # Re-read balance inside the lock
-            balance_data = await get_user_balance(book.id, goal_currency)
+            balance_data = await get_book_balance(book.id, goal_currency)
             available_balance = to_cents(balance_data["available_balance"])
 
             if amount > available_balance:
@@ -353,7 +353,7 @@ async def contribute_to_goal(
             )
 
         # AI data stale (same transaction as the contribution)
-        await users_db.mark_ai_data_stale(book.id)
+        await books_db.mark_ai_data_stale(book.id)
 
     # --- POST-UPDATE ACTIONS ---
     new_progress = (new_amount / goal["target_amount"] * 100) if goal["target_amount"] > 0 else 0
@@ -416,7 +416,7 @@ async def delete_goal(
             detail="Failed to delete goal"
         )
 
-    await users_db.mark_ai_data_stale(book.id)
+    await books_db.mark_ai_data_stale(book.id)
 
     return {
         "message": "Goal deleted successfully",

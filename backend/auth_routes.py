@@ -42,6 +42,7 @@ from models import (
 from config import settings
 from plans.access import effective_plan, is_trial
 from plans.catalog import PAID_PLANS
+from sql import books as books_db
 from sql import users as users_db
 from sql.db import transaction
 from families import service as families_service
@@ -111,9 +112,7 @@ async def find_user_by_email(email: Optional[str]) -> Optional[dict]:
     the exact match hits first; legacy mixed-case accounts fall back to an anchored,
     escaped case-insensitive regex.
     """
-    user = await users_db.get_user_by_email(email)
-    # A family-book user is a hidden row: it can't log in, reset a password or verify an e-mail.
-    return None if user and user.get("kind", "person") != "person" else user
+    return await users_db.get_user_by_email(email)
 
 
 def build_user_response(user: dict) -> UserResponse:
@@ -185,7 +184,9 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks):
     }
 
     try:
-        await users_db.insert_user(new_user)
+        async with transaction():  # the person and their personal book, or neither
+            await users_db.insert_user(new_user)
+            await books_db.create_personal_book(user_id)
     except IntegrityError:
         # Lost a race with a concurrent registration of the same address (unique
         # case-insensitive index email_unique_ci).

@@ -38,10 +38,10 @@ async def _list(stmt) -> List[Dict[str, Any]]:
 
 
 # ------------------------------------------------------------------ reads
-async def get_budget(budget_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+async def get_budget(budget_id: str, book_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     stmt = select(b).where(b.c.id == budget_id)
-    if user_id is not None:
-        stmt = stmt.where(b.c.user_id == user_id)
+    if book_id is not None:
+        stmt = stmt.where(b.c.book_id == book_id)
     docs = await _list(stmt)
     return docs[0] if docs else None
 
@@ -50,10 +50,10 @@ async def budget_currency(budget_id: str) -> Optional[str]:
     return await fetch_value(select(b.c.currency).where(b.c.id == budget_id))
 
 
-async def list_budgets(user_id: str, *, currency: Optional[str] = None,
+async def list_budgets(book_id: str, *, currency: Optional[str] = None,
                        period: Optional[str] = None) -> List[Dict[str, Any]]:
-    """The user's budgets, newest first."""
-    stmt = select(b).where(b.c.user_id == user_id)
+    """The book's budgets, newest first."""
+    stmt = select(b).where(b.c.book_id == book_id)
     if currency is not None:
         stmt = stmt.where(b.c.currency == currency)
     if period is not None:
@@ -61,46 +61,46 @@ async def list_budgets(user_id: str, *, currency: Optional[str] = None,
     return await _list(stmt.order_by(b.c.created_at.desc(), b.c.id))
 
 
-async def budgets_overlapping(user_id: str, start: datetime, end: datetime,
+async def budgets_overlapping(book_id: str, start: datetime, end: datetime,
                               currency: Optional[str] = None) -> List[Dict[str, Any]]:
     """Budgets whose window overlaps [start, end] (start == end: windows containing that moment), newest first."""
-    stmt = select(b).where(b.c.user_id == user_id, b.c.start_date <= end, b.c.end_date >= start)
+    stmt = select(b).where(b.c.book_id == book_id, b.c.start_date <= end, b.c.end_date >= start)
     if currency is not None:
         stmt = stmt.where(b.c.currency == currency)
     return await _list(stmt.order_by(b.c.created_at.desc(), b.c.id))
 
 
-async def created_since(user_id: str, start: datetime, end: datetime, since: datetime) -> bool:
+async def created_since(book_id: str, start: datetime, end: datetime, since: datetime) -> bool:
     """True when a budget whose window overlaps [start, end] was created after `since`. updated_at is not used: every
     spend recompute (budget_service.update_budget_spent_amounts, also run by the chatbot) moves it, so it does not tell
     a user's edit. A deleted budget leaves no trace."""
     return bool(await fetch_value(select(exists().where(
-        b.c.user_id == user_id, b.c.start_date <= end, b.c.end_date >= start, b.c.created_at > since))))
+        b.c.book_id == book_id, b.c.start_date <= end, b.c.end_date >= start, b.c.created_at > since))))
 
 
-async def has_budget_containing(user_id: str, moment: datetime) -> bool:
+async def has_budget_containing(book_id: str, moment: datetime) -> bool:
     return bool(await fetch_value(select(exists().where(
-        b.c.user_id == user_id, b.c.start_date <= moment, b.c.end_date >= moment))))
+        b.c.book_id == book_id, b.c.start_date <= moment, b.c.end_date >= moment))))
 
 
-async def count_budgets(user_id: Optional[str] = None) -> int:
+async def count_budgets(book_id: Optional[str] = None) -> int:
     stmt = select(func.count()).select_from(b)
-    if user_id is not None:
-        stmt = stmt.where(b.c.user_id == user_id)
+    if book_id is not None:
+        stmt = stmt.where(b.c.book_id == book_id)
     return await fetch_value(stmt)
 
 
-async def find_child(user_id: str, parent_id: str) -> Optional[Dict[str, Any]]:
+async def find_child(book_id: str, parent_id: str) -> Optional[Dict[str, Any]]:
     """{"_id": ...} of a budget auto-created from parent_id, or None."""
-    row = await fetch_one(select(b.c.id).where(b.c.user_id == user_id, b.c.parent_budget_id == parent_id).limit(1))
+    row = await fetch_one(select(b.c.id).where(b.c.book_id == book_id, b.c.parent_budget_id == parent_id).limit(1))
     return {"_id": row["id"]} if row else None
 
 
-async def find_existing_next(user_id: str, parent_id: str, name: str, period: str, currency: str,
+async def find_existing_next(book_id: str, parent_id: str, name: str, period: str, currency: str,
                              day_start: datetime, day_end: datetime) -> Optional[Dict[str, Any]]:
     """A child of parent_id, or a same name/period/currency budget starting in [day_start, day_end)."""
     row = await fetch_one(select(b.c.id, b.c.parent_budget_id).where(
-        b.c.user_id == user_id,
+        b.c.book_id == book_id,
         or_(b.c.parent_budget_id == parent_id,
             (b.c.name == name) & (b.c.period == period) & (b.c.currency == currency)
             & (b.c.start_date >= day_start) & (b.c.start_date < day_end)),
@@ -140,7 +140,7 @@ async def insert_budget(doc: Dict[str, Any]) -> None:
             await conn.execute(insert(a), allocations)
 
 
-async def update_budget(budget_id: str, fields: Dict[str, Any], *, user_id: Optional[str] = None,
+async def update_budget(budget_id: str, fields: Dict[str, Any], *, book_id: Optional[str] = None,
                         expected_updated_at: Any = _ANY) -> int:
     """Apply fields (incl. "category_budgets", which replaces the allocations). With
     expected_updated_at, only writes if the budget was not modified since (optimistic lock).
@@ -148,8 +148,8 @@ async def update_budget(budget_id: str, fields: Dict[str, Any], *, user_id: Opti
     fields = dict(fields)
     categories = fields.pop("category_budgets", None)
     stmt = update(b).where(b.c.id == budget_id)
-    if user_id is not None:
-        stmt = stmt.where(b.c.user_id == user_id)
+    if book_id is not None:
+        stmt = stmt.where(b.c.book_id == book_id)
     if expected_updated_at is not _ANY:
         stmt = stmt.where(b.c.updated_at == expected_updated_at)
     values = _values(fields)
@@ -165,9 +165,9 @@ async def update_budget(budget_id: str, fields: Dict[str, Any], *, user_id: Opti
     return updated
 
 
-async def delete_budget(budget_id: str, user_id: str) -> int:
+async def delete_budget(budget_id: str, book_id: str) -> int:
     """Delete a budget (its allocations cascade; a parent's rolled_over_to pointing at it is cleared)."""
-    return await execute(delete(b).where(b.c.id == budget_id, b.c.user_id == user_id))
+    return await execute(delete(b).where(b.c.id == budget_id, b.c.book_id == book_id))
 
 
 _FLAGS = {"started_notified", "ending_soon_notified"}

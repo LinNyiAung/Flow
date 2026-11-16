@@ -23,19 +23,19 @@ async def insert_goal(doc: Dict[str, Any]) -> None:
     await execute(insert(g).values(**_values(doc)))
 
 
-async def get_goal(goal_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+async def get_goal(goal_id: str, book_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     stmt = select(g).where(g.c.id == goal_id)
-    if user_id is not None:
-        stmt = stmt.where(g.c.user_id == user_id)
+    if book_id is not None:
+        stmt = stmt.where(g.c.book_id == book_id)
     return row_to_doc(await fetch_one(stmt))
 
 
-async def list_goals(user_id: Optional[str] = None, *, status: Optional[str] = None, currency: Optional[str] = None,
+async def list_goals(book_id: Optional[str] = None, *, status: Optional[str] = None, currency: Optional[str] = None,
                      target_between: Optional[Tuple[datetime, datetime]] = None) -> List[Dict[str, Any]]:
-    """Goals newest first, filtered by any of user / status / currency / target-date window."""
+    """Goals newest first, filtered by any of book / status / currency / target-date window."""
     stmt = select(g)
-    if user_id is not None:
-        stmt = stmt.where(g.c.user_id == user_id)
+    if book_id is not None:
+        stmt = stmt.where(g.c.book_id == book_id)
     if status is not None:
         stmt = stmt.where(g.c.status == status)
     if currency is not None:
@@ -45,11 +45,11 @@ async def list_goals(user_id: Optional[str] = None, *, status: Optional[str] = N
     return rows_to_docs(await fetch_all(stmt.order_by(g.c.created_at.desc(), g.c.id)))
 
 
-async def changed_since(user_id: str, since: datetime) -> bool:
-    """True when one of the user's goals was created or edited after `since` (a deleted goal leaves no trace). Only the
+async def changed_since(book_id: str, since: datetime) -> bool:
+    """True when one of the book's goals was created or edited after `since` (a deleted goal leaves no trace). Only the
     user's own actions move updated_at (editing the goal, adding to or taking from it); no job updates goals."""
     return bool(await fetch_value(select(exists().where(
-        g.c.user_id == user_id, (g.c.created_at > since) | (g.c.updated_at > since)))))
+        g.c.book_id == book_id, (g.c.created_at > since) | (g.c.updated_at > since)))))
 
 
 async def update_goal(goal_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -63,23 +63,23 @@ async def update_amount_if_unchanged(goal_id: str, original_amount: float, field
     return await execute(stmt)
 
 
-async def delete_goal(goal_id: str, user_id: str) -> int:
-    return await execute(delete(g).where(g.c.id == goal_id, g.c.user_id == user_id))
+async def delete_goal(goal_id: str, book_id: str) -> int:
+    return await execute(delete(g).where(g.c.id == goal_id, g.c.book_id == book_id))
 
 
-async def count_goals(user_id: Optional[str] = None) -> int:
+async def count_goals(book_id: Optional[str] = None) -> int:
     stmt = select(func.count()).select_from(g)
-    if user_id is not None:
-        stmt = stmt.where(g.c.user_id == user_id)
+    if book_id is not None:
+        stmt = stmt.where(g.c.book_id == book_id)
     return await fetch_value(stmt)
 
 
-async def user_has_goals(user_id: str) -> bool:
-    return bool(await fetch_value(select(exists().where(g.c.user_id == user_id))))
+async def user_has_goals(book_id: str) -> bool:
+    return bool(await fetch_value(select(exists().where(g.c.book_id == book_id))))
 
 
-async def allocated_by_currency(user_id: str) -> List[Dict[str, Any]]:
+async def allocated_by_currency(book_id: str) -> List[Dict[str, Any]]:
     """[{"_id": currency, "total_allocated": float}] (sum of current_amount per currency)."""
     rows = await fetch_all(select(g.c.currency.label("_id"), func.sum(g.c.current_amount).label("total_allocated"))
-                           .where(g.c.user_id == user_id).group_by(g.c.currency))
+                           .where(g.c.book_id == book_id).group_by(g.c.currency))
     return [{"_id": r["_id"], "total_allocated": float(r["total_allocated"] or 0)} for r in rows]

@@ -36,6 +36,7 @@ from notification_service import translate
 from plans import store
 from plans.access import effective_plan, user_language
 from plans.catalog import PAID_PLANS
+from sql import books as books_db
 from sql import families as fdb
 from sql import users as users_db
 from sql.db import transaction
@@ -185,7 +186,7 @@ async def overview(user: Mapping[str, Any]) -> Dict[str, Any]:
 # ---- the family ----
 
 async def create_family(user: Mapping[str, Any], name: str) -> Dict[str, Any]:
-    """The family, its hidden book user and the caller as owner, in one transaction."""
+    """The family, its family book and the caller as owner, in one transaction."""
     if effective_plan(user) not in PAID_PLANS:
         _fail(user, "plan_required")
     if await fdb.active_membership(user["_id"]):
@@ -193,8 +194,8 @@ async def create_family(user: Mapping[str, Any], name: str) -> Dict[str, Any]:
     family_id = str(uuid.uuid4())
     try:
         async with transaction():
-            book_id = await users_db.create_book_user(family_id)
-            await fdb.insert_family(family_id, name, book_id)
+            await fdb.insert_family(family_id, name)
+            await books_db.create_family_book(family_id)
             await fdb.insert_member(str(uuid.uuid4()), family_id, _own_name(user), "account", "owner", user["_id"])
     except IntegrityError:  # a concurrent create or join won the one-family-per-person index
         _fail(user, "already_in_family")
@@ -209,13 +210,13 @@ async def rename_family(user: Mapping[str, Any], name: str) -> Dict[str, Any]:
 
 
 async def delete_family(user: Mapping[str, Any], confirm_name: str) -> Dict[str, Any]:
-    """Owner only, with the family name typed exactly. Deleting the book user cascades to the family and all its data;
+    """Owner only, with the family name typed exactly. Deleting the family cascades to its book and all its data;
     personal books are untouched."""
     me, family = await _context(user)
     _require_owner(user, me)
     if (confirm_name or "").strip() != family["name"].strip():
         _fail(user, "confirm_mismatch")
-    await users_db.delete_user(family["book_user_id"])
+    await fdb.delete_family(family["id"])
     return {"family": None}
 
 
@@ -273,7 +274,7 @@ async def _notify(user_id: Optional[str], kind: str, key: str, ref_id: str, ref_
         return
     try:
         person = await users_db.get_user(user_id)
-        if not person or person.get("kind", "person") != "person":
+        if not person:
             return
         lang = user_language(person)
         await notification_service.create_notification(
@@ -360,7 +361,7 @@ async def before_account_delete(user_id: str) -> Optional[Dict[str, Any]]:
     - The owner: the longest-standing active admin (joined_at, then id), else the longest-standing active account
       member, becomes the owner. The old owner is demoted, made former, then the heir promoted, in that order (one
       active owner per family). The heir's plan doesn't matter: on Free the family is simply read-only. With no other
-      active account member (placeholders and former members don't count), the family is deleted with its book user.
+      active account member (placeholders and former members don't count), the family is deleted with its book.
 
     Locks the user row first (no create or join can point a new member row at it until the account is gone), then
     the family row, and re-reads the member rows under the lock. Returns the handover to announce once committed
@@ -385,7 +386,7 @@ async def before_account_delete(user_id: str) -> Optional[Dict[str, Any]]:
     others = [m for m in await fdb.list_members(family["id"])  # oldest first
               if m["id"] != me["id"] and m["kind"] == "account" and m["status"] == "active" and m["user_id"]]
     if not others:
-        await users_db.delete_user(family["book_user_id"])  # cascades to the family and all its data
+        await fdb.delete_family(family["id"])  # cascades to its book and all its data
         logger.info("Family %s deleted with its last account member's account", family["id"])
         return None
     heir = next((m for m in others if m["role"] == "admin"), others[0])
@@ -423,8 +424,6 @@ async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Opt
     email = email.strip().lower()
     now = _now()
     invitee = await users_db.get_user_by_email(email)
-    if invitee and invitee.get("kind", "person") != "person":
-        invitee = None
     async with transaction():
         await fdb.lock_family(family["id"])
         max_members, _ = await _writable_limits(user, family["id"])

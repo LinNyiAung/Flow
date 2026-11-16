@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,8 +25,14 @@ from sql import tables as T  # noqa: E402
 
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 TABLES = {"users", "transactions", "goals", "budgets", "notifications", "notification_preferences", "insights",
-          "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories", "app_versions",
-          "families", "family_members", "family_invites", "transaction_beneficiaries"}
+          "custom_insights", "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories",
+          "app_versions", "families", "family_members", "family_invites", "transaction_beneficiaries", "books"}
+
+# Book data is keyed by book_id (a books.id, never a person's id). Suites written when it was keyed by the person keep
+# saying `user_id`: on these tables a `user_id` key, in an insert or a filter, means that person's personal book (created
+# when the person has none yet, as get_current_user does). A value that is no person's id (e.g. a family book's id)
+# passes through unchanged.
+BOOK_DATA = {"transactions", "goals", "budgets", "insights", "custom_insights"}
 
 
 # Mongo field path -> column, per table (only the non-obvious ones).
@@ -76,6 +83,30 @@ class PgCollection:
         self.pk = "user_id" if name == "notification_preferences" else ("type" if name == "categories" else "id")
 
     # ----------------------------------------------------------- translation
+    def _book_of(self, value: Any) -> Any:
+        """A person's id -> their personal book id (creating the book when missing); anything else unchanged."""
+        if not isinstance(value, str):
+            return value
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT id FROM books WHERE person_id = %s", (value,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            cur.execute("SELECT 1 FROM users WHERE id = %s", (value,))
+            if cur.fetchone() is None:
+                return value  # not a person: already a book id (or nothing)
+            cur.execute("INSERT INTO books (id, kind, person_id) VALUES (%s, 'personal', %s) "
+                        "ON CONFLICT (person_id) WHERE person_id IS NOT NULL DO NOTHING", (str(uuid.uuid4()), value))
+            cur.execute("SELECT id FROM books WHERE person_id = %s", (value,))
+            return cur.fetchone()[0]
+
+    def _book_cond(self, cond: Any) -> Any:
+        """A filter condition on `user_id` (a value, or {$in: [...], $ne: ..., ...}) with the ids as book ids."""
+        if isinstance(cond, dict):
+            return {op: ([self._book_of(x) for x in v] if isinstance(v, (list, tuple, set)) else self._book_of(v))
+                    for op, v in cond.items()}
+        return self._book_of(cond)
+
     def _col(self, field: str) -> str:
         if field == "_id":
             return self.pk
@@ -104,6 +135,8 @@ class PgCollection:
                 for _, p in subs:
                     params += p
                 continue
+            if field == "user_id" and self.name in BOOK_DATA:
+                field, cond = "book_id", self._book_cond(cond)
             col = sql.Identifier(self._col(field))
             cname = self._col(field)
             if isinstance(cond, dict) and any(k.startswith("$") for k in cond):
@@ -146,6 +179,10 @@ class PgCollection:
         return D.row_to_doc(row)
 
     def _to_row(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        if self.name in BOOK_DATA and "user_id" in doc:
+            person = doc["user_id"]
+            doc = {k: v for k, v in doc.items() if k != "user_id"}
+            doc.setdefault("book_id", self._book_of(person))
         if self.name == "transactions":
             row = D.transaction_row(doc)
         elif self.name == "insights":

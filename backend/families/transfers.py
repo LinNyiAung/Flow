@@ -4,10 +4,10 @@ aren't income or spending", "Undoing a transfer").
 A transfer is one linked pair of transactions sharing a transfer_id: an outflow in the source book and an inflow in the
 destination book, with the same date, currency, amount and description, main_category "Transfer" and sub_category
 "Family wallet". It only moves money between the two balances: every income and spending figure leaves rows with a
-transfer_id out (sql.transactions), the balance counts them (utils.get_user_balance).
+transfer_id out (sql.transactions), the balance counts them (utils.get_book_balance).
 
 Money never appears or disappears: both legs are written, and removed, together in one database transaction while
-holding both books' money locks (utils.get_users_money_locks: the in-process locks first, then the transaction, then
+holding both books' money locks (utils.get_books_money_locks: the in-process locks first, then the transaction, then
 the row locks, each in sorted id order so two transfers between the same books can't deadlock).
 
 Refusals are HTTPException(status, {"code", "message"}) in the caller's language, as in families.book.
@@ -23,8 +23,8 @@ from families.book import Book, get_book, refuse, require_writable
 from goal_routes import to_cents
 from sql import transactions as transactions_db
 from sql import families as fdb
-from sql import users as users_db
-from utils import get_user_balance, get_users_money_locks
+from sql import books as books_db
+from utils import get_book_balance, get_books_money_locks
 
 MAIN_CATEGORY = "Transfer"
 SUB_CATEGORY = "Family wallet"
@@ -83,16 +83,16 @@ async def create_transfer(person: dict, direction: Direction, amount: float, cur
     personal = leg(person["_id"], "outflow" if to_family else "inflow", None)
     family = leg(book.id, "inflow" if to_family else "outflow", book.member["id"])
 
-    async with get_users_money_locks((person["_id"], book.id)):  # one transaction: both legs or neither
+    async with get_books_money_locks((person["_id"], book.id)):  # one transaction: both legs or neither
         await _still_in(book)
-        available = (await get_user_balance(source, currency))["available_balance"]
+        available = (await get_book_balance(source, currency))["available_balance"]
         if to_cents(amount) > to_cents(available):
             refuse(person, 400, "transfer_insufficient")
         await transactions_db.insert_transaction(personal)
         await transactions_db.insert_transaction(family)
 
     for book_id in (person["_id"], book.id):
-        await users_db.mark_ai_data_stale(book_id)
+        await books_db.mark_ai_data_stale(book_id)
     _refresh(background_tasks, (personal, family))
     return {"transfer_id": transfer_id, "personal_transaction_id": personal["_id"],
             "family_transaction_id": family["_id"]}
@@ -122,7 +122,7 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
         refuse(person, 403, "not_allowed")  # a family the caller is no longer in
     require_writable(book)
 
-    async with get_users_money_locks(x["user_id"] for x in legs):  # one transaction: both legs or neither
+    async with get_books_money_locks(x["user_id"] for x in legs):  # one transaction: both legs or neither
         legs = await transactions_db.transfer_legs(transfer_id)
         if not legs:
             refuse(person, 404, "transfer_not_found")  # undone meanwhile
@@ -132,7 +132,7 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
         await transactions_db.delete_transfer(transfer_id)
 
     for book_id in {x["user_id"] for x in legs}:
-        await users_db.mark_ai_data_stale(book_id)
+        await books_db.mark_ai_data_stale(book_id)
     _refresh(background_tasks, legs)
     return {"message": "Transfer undone", "transfer_id": transfer_id}
 
@@ -140,6 +140,6 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
 async def _check_destination(person: dict, legs: List[Dict[str, Any]]) -> None:
     """The book the money went to (the inflow leg) must still have it available."""
     inflow = next(x for x in legs if x["type"] == "inflow")
-    available = (await get_user_balance(inflow["user_id"], inflow["currency"]))["available_balance"]
+    available = (await get_book_balance(inflow["user_id"], inflow["currency"]))["available_balance"]
     if to_cents(available) < to_cents(inflow["amount"]):
         refuse(person, 400, "transfer_insufficient")
