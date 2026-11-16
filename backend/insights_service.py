@@ -22,7 +22,7 @@ from tz_utils import (
 from ai_chatbot import FinancialDataProcessor
 from budget_service import get_running_budgets
 import logging
-from typing import Optional
+from typing import List, Optional, Tuple
 from ai_providers import errors as _errors
 from ai_providers import runner as _runner
 from ai_providers import settings as _ai_settings
@@ -53,44 +53,46 @@ def get_previous_week_date_range():
 USER_PLAN_FIELDS = ["subscription_type", "subscription_expires_at", "usage_reset_at"]
 
 
-async def _skip_user(user: dict, feature: str, book_user_id: Optional[str] = None) -> bool:
-    """True when a scheduled insight job (`feature`: insight_weekly / insight_monthly) must skip this user: their paid
-    plan has ended (they count as Free at once, without waiting for the hourly expiry job), the owner locked that
-    insight type on their plan, or their AI spend this month has reached their plan's hidden cost cap.
+async def _skip_user(user: dict, feature: str, book_id: str, is_family: bool) -> bool:
+    """True when a scheduled insight job (`feature`: insight_weekly / insight_monthly) must skip book `book_id`, whose
+    plan user is `user`: their paid plan has ended (they count as Free at once, without waiting for the hourly expiry
+    job), the owner locked that insight type on their plan, or their AI spend this month has reached their plan's
+    hidden cost cap.
 
-    book_user_id: the job is for this family book and `user` is its owner; the cap then counts the owner's spend plus
-    the book's own (ruling R16, quota.family_over_cost_cap)."""
+    is_family: `book_id` is a family book and `user` its owner; the cap then counts the owner's spend plus the book's
+    own (ruling R16, quota.family_over_cost_cap)."""
     plan = effective_plan(user)
     if plan not in PAID_PLANS:
-        logger.info(f"⏭️ Skipping user {user['_id']} - subscription expired")
+        logger.info(f"⏭️ Skipping book {book_id} of user {user['_id']} - subscription expired")
         return True
     if plan_store.limits(plan)[feature].mode == "locked":
-        logger.info(f"⏭️ Skipping user {user['_id']} - {feature} is locked on the {plan} plan")
+        logger.info(f"⏭️ Skipping book {book_id} of user {user['_id']} - {feature} is locked on the {plan} plan")
         return True
-    if await (quota.family_over_cost_cap(user, book_user_id) if book_user_id else quota.over_cost_cap(user)):
-        logger.info(f"⏭️ Skipping user {user['_id']} - monthly AI cost cap reached")
+    if await (quota.family_over_cost_cap(user, book_id) if is_family else quota.over_cost_cap(user)):
+        logger.info(f"⏭️ Skipping book {book_id} of user {user['_id']} - monthly AI cost cap reached")
         return True
     return False
 
 
-async def _job_targets(feature: str) -> list:
-    """What a scheduled insight job (`feature`: insight_weekly / insight_monthly) generates for: (data_id, plan_user,
-    book_user_id) triples, where plan_user is the user whose plan and cost cap _skip_user checks.
+async def _job_targets(feature: str) -> List[Tuple[str, dict, bool]]:
+    """What a scheduled insight job (`feature`: insight_weekly / insight_monthly) generates for: (book_id, plan_user,
+    is_family) triples, where plan_user is the user whose plan and cost cap _skip_user checks.
 
-    - every paid person: (their id, themselves, None);
-    - every family whose owner is on a paid plan (sql.families.books_with_paid_owner; list_fields leaves book users
-      out on purpose): (the family's book user id, the owner, the book user id). A family insight is stored and
-      notified under the book (the notice fans out to the members), counts against nobody's allowance, and is skipped
-      like the owner's own (plan ended or locked type), or when the owner's spend plus the book's reaches the owner's
-      monthly cost cap (R16)."""
+    - every paid person's personal book: (the book, the person, False). A person without a personal book yet (a row
+      written by older code, P2) has no data to report on and is left out; their book is made on their next request;
+    - every family book whose owner is on a paid plan (sql.families.books_with_paid_owner): (the family book, the
+      owner, True). A family insight is stored and notified under the book (the notice fans out to the members),
+      counts against nobody's allowance, and is skipped like the owner's own (plan ended or locked type), or when the
+      owner's spend plus the book's reaches the owner's monthly cost cap (R16)."""
     users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
+    personal = await books_db.personal_book_ids([u["_id"] for u in users])
     try:
         books = await families_db.books_with_paid_owner(PAID_PLANS)
     except Exception as e:  # noqa: BLE001  the personal insights must still run
         logger.error(f"❌ Could not list family books for {feature}: {type(e).__name__}: {e}")
         books = []
-    return ([(u["_id"], u, None) for u in users]
-            + [(b["book_id"], b["owner"], b["book_id"]) for b in books])
+    return ([(personal[u["_id"]], u, False) for u in users if u["_id"] in personal]
+            + [(b["book_id"], b["owner"], True) for b in books])
 
 
 async def _insight_profile(book_id: str) -> Optional[dict]:
@@ -186,18 +188,18 @@ def is_rate_limit_error(exc: Optional[BaseException]) -> bool:
 
 # Stored insights always have non-blank content (enforced by the database; legacy
 # documents with content None / "" were never migrated, as the code treated them as missing).
-# One insight per user and period, whichever provider wrote it: reads take the newest row.
-async def latest_valid_insight(user_id: str, insight_type: str):
-    """Latest stored insight (placeholder or real) of any provider, or None."""
-    return await insights_db.latest(user_id, insight_type)
+# One insight per book and period, whichever provider wrote it: reads take the newest row.
+async def latest_valid_insight(book_id: str, insight_type: str):
+    """Latest stored insight (placeholder or real) of the book, of any provider, or None."""
+    return await insights_db.latest(book_id, insight_type)
 
 
-async def _latest_real_insight(user_id: str, insight_type: str):
-    """Latest stored non-placeholder insight of any provider for the type (None if none)."""
-    return await insights_db.latest(user_id, insight_type, real_only=True)
+async def _latest_real_insight(book_id: str, insight_type: str):
+    """Latest stored non-placeholder insight of the book, of any provider, for the type (None if none)."""
+    return await insights_db.latest(book_id, insight_type, real_only=True)
 
 
-async def user_has_insight_data(user_id: str, insight_type: str = "weekly") -> bool:
+async def book_has_insight_data(book_id: str, insight_type: str = "weekly") -> bool:
     """
     Same notion of "has activity" as generate_*_insight: transactions in the last complete
     period OR in the current period-to-date (a brand-new user's first week), any goals, or
@@ -210,20 +212,20 @@ async def user_has_insight_data(user_id: str, insight_type: str = "weekly") -> b
         ranges = (get_week_date_range(), current_week_to_date_range())
 
     for start, end in ranges:
-        if await transactions_db.has_transactions_between(user_id, start, end):
+        if await transactions_db.has_transactions_between(book_id, start, end):
             return True
-    if await goals_db.user_has_goals(user_id):
+    if await goals_db.user_has_goals(book_id):
         return True
     # Cheap pre-check (any budget whose window contains now) before the refreshing lookup.
     wall_now = app_wall_clock_now()
-    if not await budgets_db.has_budget_containing(user_id, wall_now):
+    if not await budgets_db.has_budget_containing(book_id, wall_now):
         return False
-    return len(await get_running_budgets(user_id)) > 0
+    return len(await get_running_budgets(book_id)) > 0
 
 
-async def _todays_placeholder(user_id: str, insight_type: str):
+async def _todays_placeholder(book_id: str, insight_type: str):
     """The latest stored insight for the type if it is a placeholder generated today (app timezone)."""
-    latest = await latest_valid_insight(user_id, insight_type)
+    latest = await latest_valid_insight(book_id, insight_type)
     if not latest or not latest.get("is_placeholder") or not latest.get("generated_at"):
         return None
     generated_on = as_utc(latest["generated_at"]).astimezone(get_app_timezone()).date()
@@ -249,15 +251,19 @@ def _feature_prompt_call(feature: str, system: str, user: str, max_tokens: dict,
     return call
 
 
-async def run_insight_model(feature: str, system_prompt: str, context: str, user_id: str, label: str,
+async def run_insight_model(feature: str, system_prompt: str, context: str, label: str, *,
+                            user_id: Optional[str] = None, book_id: Optional[str] = None,
                             background: bool = False) -> _runner.RunResult:
     """Run the insight feature on its provider chain; the RunResult carries the completion and the answering target.
 
-    The runner tracks usage. Raises InsightAIError when every provider failed (or the request itself failed).
+    The runner tracks usage under exactly one of `user_id` (a person: a personal book's insight, or the person who
+    asked for a custom insight) and `book_id` (a family book's own weekly / monthly insight; see books_db.spend_owner).
+    Raises InsightAIError when every provider failed (or the request itself failed).
     """
+    who = f"user {user_id}" if user_id else f"book {book_id}"
     try:
         result = await _runner.run(
-            feature, user_id=user_id, background=background,
+            feature, user_id=user_id, book_id=book_id, background=background,
             call=_feature_prompt_call(feature, system_prompt, context, INSIGHT_MAX_TOKENS[feature], INSIGHT_TEMPERATURE),
         )
     except AllProvidersFailed as e:
@@ -271,29 +277,32 @@ async def run_insight_model(feature: str, system_prompt: str, context: str, user
 
     c, t = result.completion, result.target
     if c.finish == "length":
-        logger.warning(f"⚠️ {label} for user {user_id} hit the output limit on {t.provider}/{t.model}")
+        logger.warning(f"⚠️ {label} for {who} hit the output limit on {t.provider}/{t.model}")
     logger.info(
-        f"🔢 [{t.provider.upper()} TOKEN USAGE - {label}] User: {user_id} | "
+        f"🔢 [{t.provider.upper()} TOKEN USAGE - {label}] {who} | "
         f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
         + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
     )
     return result
 
 
-async def _call_insight_model(feature: str, system_prompt: str, context: str, user_id: str, label: str,
+async def _call_insight_model(feature: str, system_prompt: str, context: str, label: str, *,
+                              user_id: Optional[str] = None, book_id: Optional[str] = None,
                               background: bool = False):
     """run_insight_model as (content, provider, in, out, total), for the weekly and monthly insights."""
-    result = await run_insight_model(feature, system_prompt, context, user_id, label, background=background)
+    result = await run_insight_model(feature, system_prompt, context, label, user_id=user_id, book_id=book_id,
+                                     background=background)
     c, t = result.completion, result.target
     return c.text, t.provider, c.input_tokens, c.output_tokens, c.input_tokens + c.output_tokens
 
 
-async def generate_weekly_insight(user_id: str, notify: bool = False, background: bool = False):
+async def generate_weekly_insight(book_id: str, notify: bool = False, background: bool = False):
     """
-    Generate weekly insight for a specific user, on the "insight_weekly" provider chain.
+    Generate the weekly insight of a book, on the "insight_weekly" provider chain. Its AI spend is the book's person's
+    (a personal book) or the family book's own (books_db.spend_owner).
 
     notify: send the "weekly insights ready" notification. Off by default; the scheduled
-    all-users job sends exactly one notification per user. background: the scheduled job
+    all-books job sends exactly one notification per book. background: the scheduled job
     (the runner retries a rate-limited provider before moving on).
     """
     try:
@@ -301,18 +310,18 @@ async def generate_weekly_insight(user_id: str, notify: bool = False, background
         week_start, week_end = get_week_date_range()
         prev_week_start, prev_week_end = get_previous_week_date_range()
 
-        # [FIX] Added await
-        user = await _insight_profile(user_id)
+        book = await books_db.get_book_row(book_id)
+        user = await _insight_profile(book_id) if book else None
         if not user:
-            logger.error(f"User not found: {user_id}")
+            logger.error(f"Book not found: {book_id}")
             return None
 
         # Get financial data processor for other data (goals/budgets)
-        processor = FinancialDataProcessor(user_id)
+        processor = FinancialDataProcessor(book_id)
 
         # [FIX] Added await (Function updated to async below)
-        current_week_data = await get_financial_summary(user_id, week_start, week_end)
-        prev_week_data = await get_financial_summary(user_id, prev_week_start, prev_week_end)
+        current_week_data = await get_financial_summary(book_id, week_start, week_end)
+        prev_week_data = await get_financial_summary(book_id, prev_week_start, prev_week_end)
 
         # Note: Assuming processor methods handle async internally or return data synchronously for now.
         # If FinancialDataProcessor uses the same database.py, these might need updates too.
@@ -330,25 +339,25 @@ async def generate_weekly_insight(user_id: str, notify: bool = False, background
             # a period-to-date insight; (2) a returning user with real insight history keeps
             # seeing their latest real insight (no placeholder is stored over it).
             ptd_start, ptd_end = current_week_to_date_range()
-            ptd_data = await get_financial_summary(user_id, ptd_start, ptd_end)
+            ptd_data = await get_financial_summary(book_id, ptd_start, ptd_end)
             if _tx_count(ptd_data) > 0:
-                logger.info(f"ℹ️  No activity last week for user {user_id}; generating week-to-date insight")
+                logger.info(f"ℹ️  No activity last week for book {book_id}; generating week-to-date insight")
                 period_to_date = True
                 prev_week_data = current_week_data  # last complete week = comparison baseline
                 current_week_data = ptd_data
                 week_start, week_end = ptd_start, ptd_end
                 has_activity = True
             else:
-                latest_real = await _latest_real_insight(user_id, "weekly")
+                latest_real = await _latest_real_insight(book_id, "weekly")
                 if latest_real:
-                    logger.info(f"ℹ️  Quiet week for user {user_id}; keeping latest real weekly insight")
+                    logger.info(f"ℹ️  Quiet week for book {book_id}; keeping latest real weekly insight")
                     # is_reused is transient (not stored): callers must not announce it as new.
                     return {**latest_real, "is_reused": True}
 
         if not has_activity:
-            logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
+            logger.info(f"ℹ️  No financial activity found for book {book_id}, returning placeholder insight")
             # Don't pile up a new placeholder on every request: reuse today's.
-            existing_placeholder = await _todays_placeholder(user_id, "weekly")
+            existing_placeholder = await _todays_placeholder(book_id, "weekly")
             if existing_placeholder:
                 return existing_placeholder
             insight_id = str(uuid.uuid4())
@@ -389,7 +398,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
             new_insight = {
                 "_id": insight_id,
-                "book_id": user_id,
+                "book_id": book_id,
                 "content": placeholder_content,
                 "content_mm": None,
                 "generated_at": now,
@@ -407,7 +416,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             return new_insight
 
         # [FIX] Added await
-        previous_insight = await _latest_real_insight(user_id, "weekly")
+        previous_insight = await _latest_real_insight(book_id, "weekly")
 
         # Build context
         context = _build_weekly_context(
@@ -425,11 +434,12 @@ Start by adding your first transaction or creating a financial goal. The more da
         system_prompt = _build_weekly_system_prompt()
 
         insights_content, ai_provider, input_tokens, output_tokens, total_tokens = await _call_insight_model(
-            "insight_weekly", system_prompt, context, user_id, "Weekly Insight", background=background,
+            "insight_weekly", system_prompt, context, "Weekly Insight", background=background,
+            **books_db.spend_owner(book),
         )
 
         if not _has_content(insights_content):
-            logger.error(f"❌ {ai_provider} returned empty weekly insight for user {user_id}; not saving")
+            logger.error(f"❌ {ai_provider} returned empty weekly insight for book {book_id}; not saving")
             return None
 
         insight_id = str(uuid.uuid4())
@@ -437,7 +447,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
         new_insight = {
             "_id": insight_id,
-            "book_id": user_id,
+            "book_id": book_id,
             "content": insights_content,
             "content_mm": None,
             "generated_at": now,
@@ -460,31 +470,31 @@ Start by adding your first transaction or creating a financial goal. The more da
         # [FIX] Added await
         await insights_db.insert_insight(new_insight)
         if notify:
-            await notify_weekly_insights_generated(user_id)
-        logger.info(f"✅ Weekly insight generated for user {user_id} using {ai_provider}")
+            await notify_weekly_insights_generated(book_id)
+        logger.info(f"✅ Weekly insight generated for book {book_id} using {ai_provider}")
         return new_insight
 
     except InsightAIError as e:
         # Propagate so routes can map it (429 for provider rate limits, 502/503 otherwise);
         # the scheduled job catches it per user and moves on.
-        logger.error(f"AI error generating weekly insight for user {user_id}: {e}")
+        logger.error(f"AI error generating weekly insight for book {book_id}: {e}")
         raise
     except Exception as e:
-        logger.error(f"Error generating weekly insight for user {user_id}: {str(e)}")
+        logger.error(f"Error generating weekly insight for book {book_id}: {str(e)}")
         import traceback
         traceback.print_exc()
         return None
 
 
 
-async def get_financial_summary(user_id, start_date, end_date):
+async def get_financial_summary(book_id, start_date, end_date):
     """
     Financial totals per currency and the top 5 spending categories per currency, summed in
     the database (summary stats instead of raw rows). Income and spending only: transfers are left out.
     """
-    summary = await transactions_db.currency_totals(user_id, date_from=start_date, date_to=end_date)
+    summary = await transactions_db.currency_totals(book_id, date_from=start_date, date_to=end_date)
     top_items = {}
-    for c in await transactions_db.category_totals(user_id, type_="outflow", date_from=start_date, date_to=end_date):
+    for c in await transactions_db.category_totals(book_id, type_="outflow", date_from=start_date, date_to=end_date):
         items = top_items.setdefault(c["currency"], [])
         if len(items) < 5:
             items.append({"category": f"{c['main_category']} > {c['sub_category']}", "amount": c["total"]})
@@ -761,14 +771,14 @@ Total Transactions: {total_tx}
 
 
 async def generate_weekly_insights_for_all_users():
-    """Generate weekly insights for all Plus and Pro users, and for the family books of Plus and Pro owners, using
-    Bounded Concurrency (_job_targets).
+    """Generate weekly insights for the personal books of all Plus and Pro users, and for the family books of Plus and
+    Pro owners, using Bounded Concurrency (_job_targets).
 
     Free users are never included (weekly insights are locked for them), a Plus or Pro plan that has ended counts as
     Free, a plan whose insight_weekly the owner locked is skipped, and a user at their plan's hidden monthly cost cap
     is skipped for the rest of the month. A family book is checked the same way on its owner. The jobs never use
-    an allowance; their spend lands in ai_usage (the runner records it with the user id, a family's under its book)
-    and a person's counts towards their cap.
+    an allowance; their spend lands in ai_usage (a personal book's under its person, which counts towards their cap; a
+    family book's under ai_usage.book_id).
     """
     logger.info("🔄 Starting weekly insights generation (Concurrent Mode)...")
 
@@ -788,44 +798,44 @@ async def generate_weekly_insights_for_all_users():
     success_count = 0
     error_count = 0
 
-    async def process_user_weekly(user_id, plan_user, book_user_id):
+    async def process_book_weekly(book_id, plan_user, is_family):
         nonlocal success_count, error_count
 
         async with sem:  # Wait for a free slot in the semaphore
             try:
-                if await _skip_user(plan_user, "insight_weekly", book_user_id):
+                if await _skip_user(plan_user, "insight_weekly", book_id, is_family):
                     return
 
                 # One insight per user, on the insight_weekly provider chain (background: the
                 # runner retries a rate-limited provider before falling back).
                 try:
-                    result = await generate_weekly_insight(user_id, notify=False, background=True)
+                    result = await generate_weekly_insight(book_id, notify=False, background=True)
                 except Exception as e:
-                    logger.error(f"❌ Error generating weekly insight for {user_id}: {str(e)}")
+                    logger.error(f"❌ Error generating weekly insight for {book_id}: {str(e)}")
                     error_count += 1
                     return
                 if not result:
-                    logger.warning(f"⚠️ Failed to generate weekly insight for user {user_id} (Returned None)")
+                    logger.warning(f"⚠️ Failed to generate weekly insight for book {book_id} (Returned None)")
                     error_count += 1
                     return
-                logger.info(f"✅ Generated weekly insight for user {user_id} ({result.get('ai_provider')})")
+                logger.info(f"✅ Generated weekly insight for book {book_id} ({result.get('ai_provider')})")
                 success_count += 1
 
                 # One "insights ready" notification, only for a new real (non-placeholder)
                 # insight (a reused older insight returned for a quiet period is not "new").
                 if not result.get("is_placeholder") and not result.get("is_reused"):
                     try:
-                        await notify_weekly_insights_generated(user_id)
+                        await notify_weekly_insights_generated(book_id)
                     except Exception as notify_error:
-                        logger.error(f"⚠️ Failed to send weekly insights notification to {user_id}: {notify_error}")
+                        logger.error(f"⚠️ Failed to send weekly insights notification to {book_id}: {notify_error}")
 
             except Exception as e:
-                logger.error(f"❌ Critical error processing user {user_id}: {str(e)}")
+                logger.error(f"❌ Critical error processing book {book_id}: {str(e)}")
                 error_count += 1
 
     # 3. Create and run all tasks
     # This fires off the workers, which will respect the semaphore limit
-    tasks = [process_user_weekly(*target) for target in targets]
+    tasks = [process_book_weekly(*target) for target in targets]
     await asyncio.gather(*tasks)
 
     logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
@@ -989,11 +999,13 @@ def _translation_call(english_content: str):
 
 async def translate_insight_to_myanmar(
     english_content: str,
-    user_id: str = None,
+    user_id: Optional[str] = None,
     is_placeholder: bool = None,
+    book_id: Optional[str] = None,
 ) -> str:
     """
-    Translate English insights to Myanmar, on the "insight_translation" provider chain.
+    Translate English insights to Myanmar, on the "insight_translation" provider chain. The AI spend is recorded under
+    `user_id` (the person) or, for a family book's own insight, `book_id` (the family book).
 
     Pass the insight's stored is_placeholder flag: placeholders get a canned translation
     and are never sent to the paid translation API. If the model output is truncated the
@@ -1011,7 +1023,8 @@ async def translate_insight_to_myanmar(
 
         feature = "insight_translation"
         try:
-            result = await _runner.run(feature, user_id=user_id, call=_translation_call(english_content))
+            result = await _runner.run(feature, user_id=user_id, book_id=book_id,
+                                       call=_translation_call(english_content))
         except AllProvidersFailed as e:
             raise _ai_error(e, feature, "Translation") from e
         return result.completion.text
@@ -1042,12 +1055,13 @@ def get_previous_month_date_range():
     return month_before_previous_range()
 
 
-async def generate_monthly_insight(user_id: str, notify: bool = False, background: bool = False):
+async def generate_monthly_insight(book_id: str, notify: bool = False, background: bool = False):
     """
-    Generate monthly insight for a specific user, on the "insight_monthly" provider chain.
+    Generate the monthly insight of a book, on the "insight_monthly" provider chain. Its AI spend is the book's
+    person's (a personal book) or the family book's own (books_db.spend_owner).
 
     notify: send the "monthly insights ready" notification. Off by default; the scheduled
-    all-users job sends exactly one notification per user. background: the scheduled job
+    all-books job sends exactly one notification per book. background: the scheduled job
     (the runner retries a rate-limited provider before moving on).
     """
     try:
@@ -1055,18 +1069,18 @@ async def generate_monthly_insight(user_id: str, notify: bool = False, backgroun
         month_start, month_end = get_month_date_range()
         prev_month_start, prev_month_end = get_previous_month_date_range()
 
-        # [FIX] Added await
-        user = await _insight_profile(user_id)
+        book = await books_db.get_book_row(book_id)
+        user = await _insight_profile(book_id) if book else None
         if not user:
-            logger.error(f"User not found: {user_id}")
+            logger.error(f"Book not found: {book_id}")
             return None
 
         # Get financial data processor
-        processor = FinancialDataProcessor(user_id)
+        processor = FinancialDataProcessor(book_id)
 
         # [FIX] Added await (Function is now async)
-        current_month_data = await get_financial_summary(user_id, month_start, month_end)
-        prev_month_data = await get_financial_summary(user_id, prev_month_start, prev_month_end)
+        current_month_data = await get_financial_summary(book_id, month_start, month_end)
+        prev_month_data = await get_financial_summary(book_id, prev_month_start, prev_month_end)
 
         # Get goals & budgets
         goals = await processor.get_user_goals()
@@ -1081,24 +1095,24 @@ async def generate_monthly_insight(user_id: str, notify: bool = False, backgroun
             # Nothing in the last complete month: month-to-date insight if the current month
             # has transactions, else keep the latest real insight (no placeholder over history).
             ptd_start, ptd_end = current_month_to_date_range()
-            ptd_data = await get_financial_summary(user_id, ptd_start, ptd_end)
+            ptd_data = await get_financial_summary(book_id, ptd_start, ptd_end)
             if _tx_count(ptd_data) > 0:
-                logger.info(f"ℹ️  No activity last month for user {user_id}; generating month-to-date insight")
+                logger.info(f"ℹ️  No activity last month for book {book_id}; generating month-to-date insight")
                 period_to_date = True
                 prev_month_data = current_month_data  # last complete month = comparison baseline
                 current_month_data = ptd_data
                 month_start, month_end = ptd_start, ptd_end
                 has_activity = True
             else:
-                latest_real = await _latest_real_insight(user_id, "monthly")
+                latest_real = await _latest_real_insight(book_id, "monthly")
                 if latest_real:
-                    logger.info(f"ℹ️  Quiet month for user {user_id}; keeping latest real monthly insight")
+                    logger.info(f"ℹ️  Quiet month for book {book_id}; keeping latest real monthly insight")
                     return {**latest_real, "is_reused": True}
 
         if not has_activity:
-            logger.info(f"ℹ️  No financial activity found for user {user_id}, returning placeholder insight")
+            logger.info(f"ℹ️  No financial activity found for book {book_id}, returning placeholder insight")
             # Don't pile up a new placeholder on every request: reuse today's.
-            existing_placeholder = await _todays_placeholder(user_id, "monthly")
+            existing_placeholder = await _todays_placeholder(book_id, "monthly")
             if existing_placeholder:
                 return existing_placeholder
 
@@ -1141,7 +1155,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
             new_insight = {
                 "_id": insight_id,
-                "book_id": user_id,
+                "book_id": book_id,
                 "content": placeholder_content,
                 "content_mm": None,
                 "generated_at": now,
@@ -1159,7 +1173,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             return new_insight
 
         # [FIX] Added await
-        previous_insight = await _latest_real_insight(user_id, "monthly")
+        previous_insight = await _latest_real_insight(book_id, "monthly")
 
         # Build context
         context = _build_monthly_context(
@@ -1177,11 +1191,12 @@ Start by adding your first transaction or creating a financial goal. The more da
         system_prompt = _build_monthly_system_prompt()
 
         insights_content, ai_provider, input_tokens, output_tokens, total_tokens = await _call_insight_model(
-            "insight_monthly", system_prompt, context, user_id, "Monthly Insight", background=background,
+            "insight_monthly", system_prompt, context, "Monthly Insight", background=background,
+            **books_db.spend_owner(book),
         )
 
         if not _has_content(insights_content):
-            logger.error(f"❌ {ai_provider} returned empty monthly insight for user {user_id}; not saving")
+            logger.error(f"❌ {ai_provider} returned empty monthly insight for book {book_id}; not saving")
             return None
 
         insight_id = str(uuid.uuid4())
@@ -1189,7 +1204,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
         new_insight = {
             "_id": insight_id,
-            "book_id": user_id,
+            "book_id": book_id,
             "content": insights_content,
             "content_mm": None,
             "generated_at": now,
@@ -1211,15 +1226,15 @@ Start by adding your first transaction or creating a financial goal. The more da
         # [FIX] Added await
         await insights_db.insert_insight(new_insight)
         if notify:
-            await notify_monthly_insights_generated(user_id)
-        logger.info(f"✅ Monthly insight generated for user {user_id} using {ai_provider}")
+            await notify_monthly_insights_generated(book_id)
+        logger.info(f"✅ Monthly insight generated for book {book_id} using {ai_provider}")
         return new_insight
 
     except InsightAIError as e:
-        logger.error(f"AI error generating monthly insight for user {user_id}: {e}")
+        logger.error(f"AI error generating monthly insight for book {book_id}: {e}")
         raise
     except Exception as e:
-        logger.error(f"Error generating monthly insight for user {user_id}: {str(e)}")
+        logger.error(f"Error generating monthly insight for book {book_id}: {str(e)}")
         import traceback
         traceback.print_exc()
         return None
@@ -1513,43 +1528,43 @@ async def generate_monthly_insights_for_all_users():
     success_count = 0
     error_count = 0
 
-    async def process_user_monthly(user_id, plan_user, book_user_id):
+    async def process_book_monthly(book_id, plan_user, is_family):
         nonlocal success_count, error_count
 
         async with sem:
             try:
-                if await _skip_user(plan_user, "insight_monthly", book_user_id):
+                if await _skip_user(plan_user, "insight_monthly", book_id, is_family):
                     return
 
                 # One insight per user, on the insight_monthly provider chain (background: the
                 # runner retries a rate-limited provider before falling back).
                 try:
-                    result = await generate_monthly_insight(user_id, notify=False, background=True)
+                    result = await generate_monthly_insight(book_id, notify=False, background=True)
                 except Exception as e:
-                    logger.error(f"❌ Error generating monthly insight for {user_id}: {str(e)}")
+                    logger.error(f"❌ Error generating monthly insight for {book_id}: {str(e)}")
                     error_count += 1
                     return
                 if not result:
-                    logger.warning(f"⚠️ Failed to generate monthly insight for user {user_id} (Returned None)")
+                    logger.warning(f"⚠️ Failed to generate monthly insight for book {book_id} (Returned None)")
                     error_count += 1
                     return
-                logger.info(f"✅ Generated monthly insight for user {user_id} ({result.get('ai_provider')})")
+                logger.info(f"✅ Generated monthly insight for book {book_id} ({result.get('ai_provider')})")
                 success_count += 1
 
                 # One "insights ready" notification, only for a new real (non-placeholder)
                 # insight (a reused older insight returned for a quiet period is not "new").
                 if not result.get("is_placeholder") and not result.get("is_reused"):
                     try:
-                        await notify_monthly_insights_generated(user_id)
+                        await notify_monthly_insights_generated(book_id)
                     except Exception as notify_error:
-                        logger.error(f"⚠️ Failed to send monthly insights notification to {user_id}: {notify_error}")
+                        logger.error(f"⚠️ Failed to send monthly insights notification to {book_id}: {notify_error}")
 
             except Exception as e:
-                logger.error(f"❌ Critical error processing user {user_id}: {str(e)}")
+                logger.error(f"❌ Critical error processing book {book_id}: {str(e)}")
                 error_count += 1
 
     # 3. Run all tasks
-    tasks = [process_user_monthly(*target) for target in targets]
+    tasks = [process_book_monthly(*target) for target in targets]
     await asyncio.gather(*tasks)
 
     logger.info(f"✅ Monthly insights generation completed: {success_count} successful, {error_count} errors")

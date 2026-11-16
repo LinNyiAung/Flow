@@ -21,7 +21,7 @@ import recurring_transaction_service as rts  # noqa: E402
 import notification_service as ns  # noqa: E402
 import insights_service as ins  # noqa: E402
 B = __import__("pgcompat").async_collection("budgets")  # budgets live in PostgreSQL
-from utils import get_user_balance  # noqa: E402
+from utils import get_book_balance  # noqa: E402
 T = __import__("pgcompat").async_collection("transactions")  # transactions live in PostgreSQL
 I = __import__("pgcompat").async_collection("insights")  # insights live in PostgreSQL
 G = __import__("pgcompat").async_collection("goals")  # goals live in PostgreSQL
@@ -33,6 +33,8 @@ stubenv.patch_loaded_modules()
 HERE = os.path.dirname(os.path.abspath(__file__))
 state = json.load(open(os.path.join(HERE, "api_results.json")))["state"]
 A = state["A_id"]
+# A's personal book: the jobs and helpers that take a book are called with it (notifications stay keyed by A).
+BOOK_A = __import__("pgcompat").get_db().sql("SELECT id FROM books WHERE person_id = %s", A)[0]["id"]
 RESULTS = []
 
 
@@ -66,7 +68,7 @@ async def main():
     parent = await T.find_one({"_id": state["rec_parent"]})
     before_children = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
     currency = parent.get("currency", "usd")
-    outflow_before = (await get_user_balance(A, currency))["total_outflow"]
+    outflow_before = (await get_book_balance(BOOK_A, currency))["total_outflow"]
     exc, out, na = await run_job("recurring", rts.check_and_create_recurring_transactions)
     after_children = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
     rec("recurring job ran without exception", "PASS" if exc is None else "FAIL", repr(exc) if exc else "")
@@ -75,7 +77,7 @@ async def main():
     if after_children - before_children < 3:
         rec("daily recurrence catches up at most 1 occurrence per run (stays behind permanently)", "BUG",
             f"created {after_children - before_children} of 3 due")
-    outflow_after = (await get_user_balance(A, currency))["total_outflow"]
+    outflow_after = (await get_book_balance(BOOK_A, currency))["total_outflow"]
     expected = (after_children - before_children) * parent["amount"] * (1 if parent["type"] == "outflow" else 0)
     if parent["type"] == "outflow" and abs(outflow_after - outflow_before - expected) > 0.005:
         rec("auto-created recurring tx not reflected in the dashboard balance", "BUG",
@@ -153,7 +155,7 @@ async def main():
     await T.delete_many({"_id": {"$in": ["netflix-1", "netflix-2", "netflix-3", "nodesc"]}})
 
     # ---------------- unusual spending
-    exc, out, na = await run_job("unusual", ns.analyze_unusual_spending, A)
+    exc, out, na = await run_job("unusual", ns.analyze_unusual_spending, BOOK_A)
     rec("analyze_unusual_spending", "PASS" if exc is None else "FAIL", repr(exc) if exc else "")
 
     # ---------------- weekly insights for all users (trial user A has expiry)
@@ -174,7 +176,7 @@ async def main():
 
     # ---------------- monthly insight directly (missing await claim)
     # One insight per user on the insight_monthly provider chain (no provider argument any more).
-    exc, out, na = await run_job("monthly-one", ins.generate_monthly_insight, A)
+    exc, out, na = await run_job("monthly-one", ins.generate_monthly_insight, BOOK_A)
     mi = await I.count_documents({"user_id": A, "insight_type": "monthly"})
     rec("monthly insight saved with a working AI", "PASS" if mi else "BUG", "" if mi else "no monthly insight document created even though AI answered")
     coroutine_err = [l for l in out.splitlines() if "coroutine" in l]
@@ -185,7 +187,7 @@ async def main():
 
     # ---------------- un-awaited notify in weekly insight path
     n0 = await N.count_documents({"user_id": A})
-    exc, out, na = await run_job("weekly-one", ins.generate_weekly_insight, A)
+    exc, out, na = await run_job("weekly-one", ins.generate_weekly_insight, BOOK_A)
     await asyncio.sleep(0.5)
     n1 = await N.count_documents({"user_id": A})
     wi = await I.count_documents({"user_id": A, "insight_type": "weekly", "is_placeholder": False})

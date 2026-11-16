@@ -302,14 +302,16 @@ async def _reservation(row: dict) -> quota.Reservation:
 async def _give_back(row: dict) -> None:
     """Inside the transaction that moved `row` out of pending: give its use back if it ended refused / failed.
 
-    The decrement is a savepoint of that transaction (plans_db.decrement_counters), so a failing one (malformed counter
-    keys, a bad counter row) is rolled back and logged alone and the status change still commits. A cancellation is
-    not caught: it rolls back the whole transaction and the row stays pending for the sweeper."""
+    Finding whose use it was (_asker, a read for a personal book's report) and the decrement run in a savepoint of that
+    transaction, so a failing one (no such book, malformed counter keys, a bad counter row) is rolled back and logged
+    alone and the status change still commits. A cancellation is not caught: it rolls back the whole transaction and
+    the row stays pending for the sweeper."""
     if row["status"] == "ready":
         return
     try:
-        reservation = await _reservation(row)
-        await plans_db.decrement_counters(reservation.user_id, reservation.keys)
+        async with transaction():  # inside the caller's transaction(): a savepoint
+            reservation = await _reservation(row)
+            await plans_db.decrement_counters(reservation.user_id, reservation.keys)
     except Exception:  # noqa: BLE001
         logger.exception("Could not give back the use of custom insight %s", row["_id"])
 
@@ -384,7 +386,8 @@ async def run_report(report_id: str) -> dict | None:
         budgets = await budgets_db.budgets_overlapping(book_id, *day_bounds_utc(start, end))
         context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))
         result = await asyncio.wait_for(
-            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, await _asker(row), "Custom Insight", background=True),
+            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, "Custom Insight", user_id=await _asker(row),
+                              background=True),
             timeout=MODEL_TIMEOUT.total_seconds())
         text = (result.completion.text or "").strip()
         if is_off_topic(text):

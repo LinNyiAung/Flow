@@ -10,14 +10,14 @@ never a user id, so a person's id passed where a book id belongs finds nothing (
 """
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional, Sequence
 
 from sqlalchemy import insert, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from sql import families as families_db
 from sql import users as users_db
-from sql.db import execute, fetch_one, fetch_value, transaction
+from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction
 from sql.tables import books as b
 
 _ROW = (b.c.id, b.c.kind, b.c.person_id, b.c.family_id, b.c.ai_data_stale)
@@ -53,6 +53,14 @@ async def personal_book_id(person_id: str) -> Optional[str]:
     return await fetch_value(select(b.c.id).where(b.c.person_id == person_id))
 
 
+async def personal_book_ids(person_ids: Sequence[str]) -> Dict[str, str]:
+    """{person id: their personal book id} in one query; a person without a book is left out."""
+    if not person_ids:
+        return {}
+    rows = await fetch_all(select(b.c.person_id, b.c.id).where(b.c.person_id.in_(list(person_ids))))
+    return {r["person_id"]: r["id"] for r in rows}
+
+
 async def family_book_id(family_id: str) -> Optional[str]:
     return await fetch_value(select(b.c.id).where(b.c.family_id == family_id))
 
@@ -75,6 +83,15 @@ async def book_profile(book_id: str) -> Optional[Dict[str, Any]]:
     if row["kind"] == "personal":
         return await users_db.get_user(row["person_id"])
     return await families_db.owner_user(row["family_id"])
+
+
+def spend_owner(book: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Whose AI spend the book's own AI work (its weekly / monthly insights, their translations, its AI-made budgets)
+    is, as ai_providers.runner.run's user_id / book_id keywords: a personal book's person (user_id), or a family book
+    itself (book_id: ai_usage.book_id, user_id NULL). `book` is its row (get_book_row)."""
+    if book["kind"] == "personal":
+        return {"user_id": book["person_id"], "book_id": None}
+    return {"user_id": None, "book_id": book["id"]}
 
 
 # ------------------------------------------------------------------ Ko Toe Pwar's freshness flag

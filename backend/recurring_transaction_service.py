@@ -371,18 +371,18 @@ async def _process_recurring_transaction(
     return created
 
 
-async def _refresh_user_after_recurring(user_id: str, per_currency: Dict[str, List[datetime]]) -> None:
+async def _refresh_book_after_recurring(book_id: str, per_currency: Dict[str, List[datetime]]) -> None:
     """Mark AI data stale and recompute affected budgets."""
     from budget_service import update_budgets_in_range  # local import: avoid import cycles
 
-    await books_db.mark_ai_data_stale(user_id)
+    await books_db.mark_ai_data_stale(book_id)
     for currency, dates in per_currency.items():
         if not dates:
             continue
         try:
-            await update_budgets_in_range(user_id, min(dates), max(dates), currency)
+            await update_budgets_in_range(book_id, min(dates), max(dates), currency)
         except Exception as e:
-            logger.error(f"Budget refresh after recurring creation failed for user {user_id}: {e}")
+            logger.error(f"Budget refresh after recurring creation failed for book {book_id}: {e}")
 
 
 async def check_and_create_recurring_transactions():
@@ -392,7 +392,7 @@ async def check_and_create_recurring_transactions():
     parents = await transactions_db.recurring_parents()
 
     created_count = 0
-    # user_id -> currency -> [occurrence dates]
+    # book_id -> currency -> [occurrence dates]
     affected: Dict[str, Dict[str, List[datetime]]] = defaultdict(lambda: defaultdict(list))
 
     for transaction in parents:
@@ -402,11 +402,11 @@ async def check_and_create_recurring_transactions():
             # One bad row must never abort the whole job.
             logger.exception(f"Error processing recurring transaction {transaction.get('_id')}: {e}")
 
-    for user_id, per_currency in affected.items():
+    for book_id, per_currency in affected.items():
         try:
-            await _refresh_user_after_recurring(user_id, per_currency)
+            await _refresh_book_after_recurring(book_id, per_currency)
         except Exception as e:
-            logger.exception(f"Error refreshing user {user_id} after recurring creation: {e}")
+            logger.exception(f"Error refreshing book {book_id} after recurring creation: {e}")
 
     if created_count > 0:
         logger.info(f"✅ Created {created_count} recurring transactions")
@@ -414,14 +414,14 @@ async def check_and_create_recurring_transactions():
     return created_count
 
 
-async def disable_recurrence_for_transaction(transaction_id: str, user_id: str) -> bool:
+async def disable_recurrence_for_transaction(transaction_id: str, book_id: str) -> bool:
     """Disable recurrence for a specific transaction"""
-    return await transactions_db.disable_recurrence(transaction_id, user_id)
+    return await transactions_db.disable_recurrence(transaction_id, book_id)
 
 
-async def disable_recurrence_for_parent(parent_transaction_id: str, user_id: str) -> bool:
+async def disable_recurrence_for_parent(parent_transaction_id: str, book_id: str) -> bool:
     """Disable recurrence for a parent transaction (when editing an auto-created one)"""
-    disabled = await transactions_db.disable_recurrence(parent_transaction_id, user_id)
+    disabled = await transactions_db.disable_recurrence(parent_transaction_id, book_id)
 
     if disabled:
         parent_tx = await transactions_db.get_transaction(parent_transaction_id)

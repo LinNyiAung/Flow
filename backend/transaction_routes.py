@@ -28,7 +28,7 @@ from recurring_transaction_service import (
     rearmed_recurrence_pointer, recurrence_schedule_key,
 )
 from recurrence_models import RecurrenceConfig, RecurrencePreviewRequest, TransactionRecurrence
-from budget_service import update_all_user_budgets, update_relevant_budgets
+from budget_service import update_all_book_budgets, update_relevant_budgets
 from models import (
     AddedBy, Currency, MultipleTransactionExtraction,TextExtractionRequest, TransactionExtraction,
     TransactionCreate, TransactionResponse, TransactionType,
@@ -502,7 +502,7 @@ async def create_transaction(
 
         background_tasks.add_task(
             check_large_transaction,
-            user_id=book.id,
+            book_id=book.id,
             transaction=new_transaction,
             user_spending_profile=user_profile
         )
@@ -1188,7 +1188,7 @@ async def batch_create_transactions(
                 await families_db.set_beneficiaries(transaction_id, item_for_whom)
 
         # 3. Post-processing (budgets in the background, AI data stale)
-        background_tasks.add_task(update_all_user_budgets, book.id)
+        background_tasks.add_task(update_all_book_budgets, book.id)
         await books_db.mark_ai_data_stale(book.id)
 
     people = await _entry_people(book, new_transactions)

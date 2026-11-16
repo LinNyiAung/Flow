@@ -293,14 +293,14 @@ async def save_chat_session(user_id: str, user_message: str, ai_response: str, b
         print(f"Error saving chat session: {e}")
 
 
-def _invalidate_ai_caches(user_id: str) -> None:
-    """Drop the chatbot's cached vector store for the user (it rebuilds lazily)."""
+def _invalidate_ai_caches(book_id: str) -> None:
+    """Drop the chatbot's cached vector store for the book (it rebuilds lazily)."""
     if financial_chatbot is None:
         return
     try:
-        financial_chatbot.refresh_user_data(user_id)
+        financial_chatbot.refresh_book_data(book_id)
     except Exception as e:
-        print(f"⚠️ Failed to invalidate AI cache for user {user_id}: {e}")
+        print(f"⚠️ Failed to invalidate AI cache for book {book_id}: {e}")
 
 
 def _sse(payload: dict) -> str:
@@ -411,7 +411,7 @@ async def stream_chat_with_ai(
             try:
                 # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
                 async with aclosing(financial_chatbot.stream_chat(
-                    user_id=book_id,
+                    book_id=book_id,
                     message=chat_request.message,
                     chat_history=chat_history,
                     response_style=response_style,
@@ -527,7 +527,7 @@ async def refresh_ai_data(
     chatbot."""
     try:
         if financial_chatbot:
-            financial_chatbot.refresh_user_data(book.id)
+            financial_chatbot.refresh_book_data(book.id)
         return {"message": "AI data refreshed successfully"}
     except Exception as e:
         print(f"Refresh AI data error: {str(e)}")
@@ -540,13 +540,14 @@ async def refresh_ai_data(
 # ==================== AI INSIGHTS ====================
 
 
-async def _generate_insight(user_id: str, insight_type: str):
-    """One insight on the insight_weekly / insight_monthly provider chain (the admin AI settings decide)."""
+async def _generate_insight(book_id: str, insight_type: str):
+    """One insight of the book on the insight_weekly / insight_monthly provider chain (the admin AI settings decide).
+    Its AI spend is the book's (insights_service: a personal book's person, or the family book itself)."""
     from insights_service import generate_weekly_insight, generate_monthly_insight
 
     if insight_type == "monthly":
-        return await generate_monthly_insight(user_id)
-    return await generate_weekly_insight(user_id)
+        return await generate_monthly_insight(book_id)
+    return await generate_weekly_insight(book_id)
 
 
 def _is_new_real_insight(insight: Optional[dict]) -> bool:
@@ -601,7 +602,7 @@ def _translation_kwargs(book: Book) -> dict:
     the owner's cost cap, and its AI cost is recorded under the book."""
     if not book.is_family:
         return {}
-    return {"counted": False, "cost_user_id": book.id,
+    return {"counted": False, "cost_book_id": book.id,
             "before_call": lambda: _require_owner_under_cost_cap(book, "insight_translation")}
 
 
@@ -657,14 +658,14 @@ def _needs_translation_call(insight: dict) -> bool:
 
 
 async def _ensure_myanmar_translation(insight: dict, user: dict, *, counted: bool = True,
-                                      cost_user_id: Optional[str] = None,
+                                      cost_book_id: Optional[str] = None,
                                       before_call: Optional[Callable[[], Awaitable[None]]] = None) -> dict:
     """Translate (and cache) content_mm if missing. Placeholders never hit the paid API and a stored translation costs
     nothing; only a real translation call is reserved on the user's plan (the cost cap applies) and counted.
 
     counted False (a family insight, R10): nothing is reserved or counted; `before_call` (awaited only when an AI call
-    is needed) may refuse it instead (the owner's cost cap). cost_user_id: whose AI usage the call is recorded as
-    (default: the user)."""
+    is needed) may refuse it instead (the owner's cost cap). cost_book_id: a family book, when the call's AI usage is
+    the book's own (ai_usage.book_id) rather than the user's (the default)."""
     if not _needs_translation_call(insight):
         if insight.get("content_mm"):
             return insight
@@ -682,7 +683,8 @@ async def _ensure_myanmar_translation(insight: dict, user: dict, *, counted: boo
     try:
         myanmar_content = await translate_insight_to_myanmar(
             insight["content"],
-            user_id=cost_user_id or user["_id"],
+            user_id=None if cost_book_id else user["_id"],
+            book_id=cost_book_id,
             # None (legacy docs without the flag) falls back to text detection
             is_placeholder=insight.get("is_placeholder"),
         )
@@ -802,13 +804,13 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict], book_id: str
       counted); with none stored the 429 PlanError is raised. An owner-locked insight is still a 403.
     `latest` is the newest stored insight. `book_id`: the user's personal book.
     """
-    from insights_service import _latest_real_insight, user_has_insight_data
+    from insights_service import _latest_real_insight, book_has_insight_data
 
     real = await _latest_real_insight(book_id, "monthly")
     this_month = periods.period_start("month", datetime.now(UTC))
     if real and real.get("generated_at") and periods.period_start("month", as_utc(real["generated_at"])) == this_month:
         return real
-    if latest and latest.get("is_placeholder") and not await user_has_insight_data(book_id, "monthly"):
+    if latest and latest.get("is_placeholder") and not await book_has_insight_data(book_id, "monthly"):
         return real or latest
 
     error: Optional[Exception] = None
@@ -868,7 +870,7 @@ async def get_insights(
     plan_translates = not _translation_locked(plan_user)
     translation_locked = language == "mm" and not plan_translates
     try:
-        from insights_service import latest_valid_insight, user_has_insight_data, _latest_real_insight
+        from insights_service import latest_valid_insight, book_has_insight_data, _latest_real_insight
 
         # Legacy insights with content None / "" are treated as missing (skipped here).
         latest_insight = await latest_valid_insight(book_id, insight_type)
@@ -885,7 +887,7 @@ async def get_insights(
         # week), the latest real insight is shown instead of the welcome text.
         if latest_insight and latest_insight.get("is_placeholder"):
             try:
-                if await user_has_insight_data(book_id, insight_type):
+                if await book_has_insight_data(book_id, insight_type):
                     print(f"🔄 Replacing placeholder {insight_type} insight for book {book_id} (book now has data)")
                     regenerated = None
                     try:

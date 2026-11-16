@@ -246,7 +246,7 @@ OUTCOMES = ("used", "rejected", "cancelled")
 
 
 async def track_ai_usage(
-    user_id: str,
+    user_id: str | None,
     feature_type: AIFeatureType,
     provider: AIProviderType,
     model_name: str,
@@ -263,14 +263,22 @@ async def track_ai_usage(
     served_model: str | None = None,
     cost_estimated: bool = False,
     outcome: str = "used",
+    book_id: str | None = None,
 ):
     """Track AI API usage and cost. `fallback_from` names the provider that failed before this one answered.
+
+    Whose spend it is, exactly one of: `user_id`, the person (their own AI work, and work on their personal book), or
+    `book_id`, a family book (its weekly / monthly insights, their translations and its AI-made budgets; the row's
+    user_id is then NULL).
 
     The keyword-only details (see calculate_cost) are stored with the row so a later price change can be re-applied
     exactly (scripts/recalculate_ai_costs.py). `outcome`: "used" (the answer the user got), "rejected" (billed, but
     refused/empty/unparseable, so the next provider was asked) or "cancelled" (a stream that ended early after text
     started). `cost_estimated`: the tokens or the duration were estimated rather than reported by the provider.
     """
+    if bool(user_id) == bool(book_id):
+        logger.error(f"Error tracking AI usage: exactly one of user_id ({user_id}) and book_id ({book_id}) must be set")
+        return None
     try:
         # SDK usage fields can be None; normalize so cost math/logging never fails
         input_tokens = int(input_tokens or 0)
@@ -298,7 +306,8 @@ async def track_ai_usage(
         # Create usage record
         usage_record = {
             "_id": str(uuid.uuid4()),
-            "user_id": user_id,
+            "user_id": user_id or None,
+            "book_id": book_id or None,
             "feature_type": feature_type.value,
             "provider": provider.value,
             "model_name": model_name,
@@ -320,7 +329,7 @@ async def track_ai_usage(
         await ai_usage_db.insert_usage(usage_record)
 
         logger.info(
-            f"💰 [AI USAGE TRACKED] User: {user_id} | "
+            f"💰 [AI USAGE TRACKED] {f'User: {user_id}' if user_id else f'Book: {book_id}'} | "
             f"Feature: {feature_type.value} | Provider: {provider.value} | "
             f"Tokens: {total_tokens:,} | Cost: ${estimated_cost:.6f} | Outcome: {usage_record['outcome']}"
         )

@@ -371,7 +371,7 @@ async def run(t):
                     "status": "completed", "is_active": False, "auto_create_enabled": auto_create,
                     "auto_create_with_ai": auto_create, "created_at": now, "updated_at": now}
 
-            # The transaction POST queues the server's update_all_user_budgets as a background task, which recomputes
+            # The transaction POST queues the server's update_all_book_budgets as a background task, which recomputes
             # every budget of the user and starts auto-create for a completed one. Had it listed the parent, the server
             # would claim it and this test's own auto_create_next_budget call would return None (flaky). So a probe
             # budget over the same window (auto-create off) is in place before the POST, the parent is inserted only

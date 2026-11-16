@@ -631,8 +631,9 @@ def migration_checks():
             check(ok, "migration_applied: new tables and ai_usage.fallback_from exist", f"{sorted(have)} {sorted(cols)}")
             try:
                 conn.execute("INSERT INTO users (id, name, email, password) VALUES ('t3-user','t','t3@x.test','x')")
-                conn.execute("INSERT INTO insights (id, user_id, insight_type, ai_provider, content) "
-                             "VALUES ('t3-ins','t3-user','weekly','claude','hello')")
+                conn.execute("INSERT INTO books (id, kind, person_id) VALUES ('t3-book','personal','t3-user')")
+                conn.execute("INSERT INTO insights (id, book_id, insight_type, ai_provider, content) "
+                             "VALUES ('t3-ins','t3-book','weekly','claude','hello')")
                 check(True, "migration_applied: insights accept ai_provider='claude'")
             except Exception as e:  # noqa: BLE001
                 check(False, "migration_applied: insights accept ai_provider='claude'", repr(e))
@@ -3365,7 +3366,9 @@ async def _chat_inprocess_checks(uid):
     from ai_providers import health, runner, settings
     from ai_providers.errors import AllProvidersFailed
     from ai_providers.types import Completion, Target
+    from sql import books as books_db
 
+    book = await books_db.ensure_personal_book(uid)  # the chat is about the user's personal book
     saved = (settings._env, dict(settings._env_units), settings._panel)
     health.reset()
     stubenv.clear_fake_ai()
@@ -3375,7 +3378,7 @@ async def _chat_inprocess_checks(uid):
 
         async def collect(**kw):
             items = []
-            async for item in financial_chatbot.stream_chat(uid, "How much did I spend?", **kw):
+            async for item in financial_chatbot.stream_chat(book, "How much did I spend?", person_id=uid, **kw):
                 items.append(item)
             return items
 
@@ -3427,7 +3430,7 @@ async def _chat_inprocess_checks(uid):
 
         try:
             runner.run_stream = fake("one", "two", runner.RunResult("onetwo", t, None, Completion("onetwo", 1, 1, "stop")))
-            gen = financial_chatbot.stream_chat(uid, "hi")
+            gen = financial_chatbot.stream_chat(book, "hi", person_id=uid)
             first = await gen.__anext__()
             await gen.aclose()
             check(first == ("one", None) and closed == ["chat"],
@@ -3653,9 +3656,12 @@ async def _insight_inprocess_checks(uid):
     import insights_service as ins
     from ai_providers import health, runner, settings
     from ai_providers.types import FeatureSetting, Target
+    from sql import books as books_db
     from sql.db import fetch_all, fetch_value
     from sql.tables import insights as insights_t
     from sqlalchemy import func, select
+
+    book = await books_db.ensure_personal_book(uid)  # the user's insights are their personal book's
 
     stubenv.patch_loaded_modules()
     saved = (settings._env, dict(settings._env_units), settings._panel)
@@ -3673,7 +3679,7 @@ async def _insight_inprocess_checks(uid):
 
     async def count(insight_type):
         return await fetch_value(select(func.count()).select_from(insights_t).where(
-            insights_t.c.user_id == uid, insights_t.c.insight_type == insight_type))
+            insights_t.c.book_id == book, insights_t.c.insight_type == insight_type))
 
     def use(feature, provider, model):
         settings.set_panel_cache({feature: FeatureSetting(Target(provider, model), None, "panel")})
@@ -3698,7 +3704,7 @@ async def _insight_inprocess_checks(uid):
                                      ("insight_monthly", ins.generate_monthly_insight, {"openai": 3000, "gemini": 8192, "claude": 12000})):
             for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
                 use(feature, provider, model)
-                row = await gen(uid)
+                row = await gen(book)
                 kw = stubenv.LAST_KWARGS[provider]
                 if provider == "openai":
                     got = (kw.get("max_completion_tokens"), kw.get("temperature"), kw["messages"][0]["content"][:40])
@@ -3816,7 +3822,7 @@ async def _insight_inprocess_checks(uid):
             health.reset()
             stubenv.set_fake_ai(claude=kind)
             try:
-                await ins.generate_weekly_insight(uid)
+                await ins.generate_weekly_insight(book)
                 err = None
             except Exception as e:  # noqa: BLE001
                 err = e
@@ -3836,7 +3842,7 @@ async def _insight_inprocess_checks(uid):
         from families.book import Book
         orig_weekly = ins.generate_weekly_insight
 
-        async def weekly_fails(user_id):
+        async def weekly_fails(book_id):
             raise RuntimeError("upstream refused key sk-proj-t9MANUALkey1234567 for this request")
         ins.generate_weekly_insight = weekly_fails
         out = io.StringIO()
@@ -3844,7 +3850,8 @@ async def _insight_inprocess_checks(uid):
             with contextlib.redirect_stdout(out):
                 # the route reads the plan from the user (the route is Plus and Pro only)
                 res = await backend_main.manually_generate_weekly_insights(
-                    book=Book.personal({"_id": uid, "subscription_type": "plus", "subscription_expires_at": None}))
+                    book=Book.personal({"_id": uid, "personal_book_id": book, "subscription_type": "plus",
+                                        "subscription_expires_at": None}))
         finally:
             ins.generate_weekly_insight = orig_weekly
         printed = out.getvalue()
@@ -4018,6 +4025,7 @@ async def _budget_inprocess_checks(uid):
     from ai_providers.errors import AllProvidersFailed, UnusableAnswer
     from ai_providers.types import Completion, FeatureSetting, Target
     from budget_models import AIBudgetRequest
+    from sql import books as books_db
     from sql.db import fetch_all
     from sql.tables import ai_usage
 
@@ -4026,8 +4034,9 @@ async def _budget_inprocess_checks(uid):
     health.reset()
     stubenv.clear_fake_ai()
     now = datetime.now(UTC)
+    book = await books_db.ensure_personal_book(uid)  # the budgets are the user's personal book's; the AI cost the user's
     # the route now reserves a budget_suggestion use: this is the test's Plus user (5 a month), as in the HTTP checks
-    plus_user = {"_id": uid, "subscription_type": "plus"}
+    plus_user = {"_id": uid, "personal_book_id": book, "subscription_type": "plus"}
     parent = {"start_date": now - timedelta(days=30), "end_date": now + timedelta(days=1), "currency": "usd",
               "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100.0, "spent_amount": 60.0,
                                     "percentage_used": 60.0, "is_exceeded": False}],
@@ -4037,7 +4046,7 @@ async def _budget_inprocess_checks(uid):
         settings.set_panel_cache({feature: FeatureSetting(Target(provider, model), backups, "panel")})
 
     async def auto(feature="budget_auto_create"):
-        return await bs._generate_ai_category_budgets(uid, bs.BudgetPeriod.MONTHLY, now, now + timedelta(days=30), parent)
+        return await bs._generate_ai_category_budgets(book, bs.BudgetPeriod.MONTHLY, now, now + timedelta(days=30), parent)
 
     async def usage(feature):
         return await fetch_all(select(ai_usage).where(ai_usage.c.user_id == uid, ai_usage.c.feature_type == feature)
@@ -4060,7 +4069,7 @@ async def _budget_inprocess_checks(uid):
                 if feature == "budget_auto_create":
                     out = await auto()
                 else:
-                    out = (await bs.BudgetAnalyzer(uid).generate_ai_suggestions(
+                    out = (await bs.BudgetAnalyzer(book, ai_user_id=uid).generate_ai_suggestions(
                         bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")).category_budgets
                 kw = stubenv.LAST_KWARGS[provider]
                 if provider == "openai":
@@ -4115,12 +4124,12 @@ async def _budget_inprocess_checks(uid):
 
         use("budget_suggestion", "claude", "claude-sonnet-5-5")
         stubenv.set_fake_ai(claude="server")
-        s = await bs.BudgetAnalyzer(uid).generate_ai_suggestions(bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")
+        s = await bs.BudgetAnalyzer(book, ai_user_id=uid).generate_ai_suggestions(bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")
         check(s.category_budgets and s.category_budgets[0].allocated_amount != 450
               and "Ko Toe Pwar can't answer right now, so these suggestions use simple rules instead." in s.warnings,
               "budget suggest: every provider failing -> basic suggestions plus a warning naming Ko Toe Pwar",
               ([x.allocated_amount for x in s.category_budgets], s.warnings))
-        s = await bs.BudgetAnalyzer(uid, "my").generate_ai_suggestions(bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")
+        s = await bs.BudgetAnalyzer(book, "my", ai_user_id=uid).generate_ai_suggestions(bs.BudgetPeriod.MONTHLY, now, None, 3, None, None, "usd")
         check("ကိုတိုးပွား ယခု မဖြေနိုင်သေးသဖြင့် ဤအကြံပြုချက်များကို ရိုးရှင်းသော စည်းမျဉ်းများဖြင့် တွက်ထားပါသည်။" in s.warnings,
               "budget suggest: a Myanmar user gets that warning in Myanmar", s.warnings)
         stubenv.clear_fake_ai()

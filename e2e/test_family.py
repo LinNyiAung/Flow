@@ -2081,7 +2081,7 @@ def section_notifications():
         inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
         if inv:
             c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
-        book = (db.sql("SELECT f.book_user_id b FROM families f JOIN family_members m ON m.family_id = f.id "
+        book = (db.sql("SELECT b.id b FROM books b JOIN family_members m ON m.family_id = b.family_id "
                        "WHERE m.user_id = %s AND m.status = 'active'", M["id"]) or [{}])[0].get("b")
         d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
         check(book and d_mid, "notifications: Mum (owner, en) and Dad (member, my) share a family", (book, d_mid))
@@ -2093,7 +2093,7 @@ def section_notifications():
 
         # ---- per-entry notices are never sent for a family book ----
         def seed(days_ago, amount, main, sub, desc=None):
-            db.sql("INSERT INTO transactions (id, user_id, type, main_category, sub_category, amount, currency, date, "
+            db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, currency, date, "
                    "description) VALUES (%s, %s, 'outflow', %s, %s, %s, 'mmk', %s, %s)", str(uuid.uuid4()), book, main,
                    sub, amount, noon - timedelta(days=days_ago), desc)
         for d in (9, 12, 15, 18, 22, 26):
@@ -2108,7 +2108,7 @@ def section_notifications():
         async def payment_reminders():
             import notification_service as ns
             from tz_utils import app_today
-            await ns._detect_recurring_payments_for_user(book, datetime.now(UTC), app_today())
+            await ns._detect_recurring_payments_for_book(book, datetime.now(UTC), app_today())
         _backend_async(payment_reminders)
         time.sleep(2)  # the large-entry check runs as a background task
         per_entry = [n["type"] for uid in (book, M["id"], D["id"]) for n in notes(uid)]
@@ -2328,8 +2328,13 @@ def section_ai():
     def ai_rows(uid, feature):
         return db.sql("SELECT count(*) n FROM ai_usage WHERE user_id = %s AND feature_type = %s", uid, feature)[0]["n"]
 
+    def book_ai_rows(feature):
+        """The family book's own AI usage rows of `feature` (ai_usage.book_id, user_id NULL)."""
+        return db.sql("SELECT count(*) n FROM ai_usage WHERE book_id = %s AND user_id IS NULL AND feature_type = %s",
+                      book, feature)[0]["n"]
+
     def book_insights(kind):
-        return db.sql("SELECT count(*) n FROM insights WHERE user_id = %s AND insight_type = %s AND is_placeholder = false",
+        return db.sql("SELECT count(*) n FROM insights WHERE book_id = %s AND insight_type = %s AND is_placeholder = false",
                       book, kind)[0]["n"]
 
     def run_job(kind):
@@ -2352,7 +2357,8 @@ def section_ai():
             c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
         view = c.post("/api/family/placeholders", headers=M["h"], json={"display_name": grandma}).json()
         gm = next((m["id"] for m in view.get("members", []) if m["display_name"] == grandma), None)
-        book = (db.sql("SELECT book_user_id b FROM families WHERE name = %s", fam_name) or [{}])[0].get("b")
+        book = (db.sql("SELECT b.id b FROM families f JOIN books b ON b.family_id = f.id WHERE f.name = %s", fam_name)
+                or [{}])[0].get("b")
         check(book and gm, "ai: Mum (Plus, owner), Dad (Free) and the placeholder Grandma share a family", (book, gm))
         db.sql("UPDATE users SET default_currency = 'thb', language = 'my' WHERE id = %s", D["id"])
         db.sql("UPDATE users SET default_currency = 'mmk' WHERE id = %s", M["id"])
@@ -2434,14 +2440,14 @@ def section_ai():
 
         # ---- over HTTP: allowance and cost on the asker ----
         d_uses, m_uses = chat_uses(D["id"]), chat_uses(M["id"])
-        d_cost, b_cost = ai_rows(D["id"], "chat"), ai_rows(book, "chat")
+        d_cost, b_cost = ai_rows(D["id"], "chat"), book_ai_rows("chat")
         ok = chat(D, True, f"family question {tag}")
         check(ok and chat_uses(D["id"]) == d_uses + 1 and chat_uses(M["id"]) == m_uses,
               "ai: Dad's family chat uses Dad's own chat allowance (not Mum's)",
               (ok, d_uses, chat_uses(D["id"]), m_uses, chat_uses(M["id"])))
-        check(ai_rows(D["id"], "chat") == d_cost + 1 and ai_rows(book, "chat") == b_cost,
+        check(ai_rows(D["id"], "chat") == d_cost + 1 and book_ai_rows("chat") == b_cost,
               "ai: Dad's family chat AI cost is recorded under Dad (his cost cap applies), none under the book",
-              (d_cost, ai_rows(D["id"], "chat"), b_cost, ai_rows(book, "chat")))
+              (d_cost, ai_rows(D["id"], "chat"), b_cost, book_ai_rows("chat")))
 
         # ---- chat history: private to each person, per book ----
         chat(M, False, f"mum personal {tag}")
@@ -2465,9 +2471,12 @@ def section_ai():
         run_job("weekly")
         check(book_insights("weekly") == 1, "ai: the weekly job makes one family insight under the book for a Plus owner",
               book_insights("weekly"))
-        dn = db.sql("SELECT type, book FROM notifications WHERE user_id = %s AND type = 'weekly_insights_generated'",
+        check(book_ai_rows("weekly_insight") == 1,
+              "ai: the weekly job's family insight spend is recorded on the book (ai_usage.book_id, user_id NULL)",
+              book_ai_rows("weekly_insight"))
+        dn = db.sql("SELECT type, book_id FROM notifications WHERE user_id = %s AND type = 'weekly_insights_generated'",
                     D["id"])
-        check(len(dn) == 1 and dn[0]["book"] == "family", "ai: Dad is told the family weekly insights are ready", dn)
+        check(len(dn) == 1 and dn[0]["book_id"] == book, "ai: Dad is told the family weekly insights are ready", dn)
         run_job("monthly")
         check(book_insights("monthly") == 1, "ai: the monthly job makes one family insight for a paid owner",
               book_insights("monthly"))
@@ -2490,8 +2499,8 @@ def section_ai():
                   (r.status_code, row))
             r = c.get("/api/admin/ai-usage/stats", headers=ah, params={"start_date": started.isoformat()})
             people = db.sql("SELECT count(DISTINCT a.user_id) n FROM ai_usage a JOIN users u ON u.id = a.user_id "
-                            "WHERE a.created_at >= %s AND u.kind = 'person'", started)[0]["n"]
-            book_rows = db.sql("SELECT count(*) n FROM ai_usage WHERE user_id = %s AND created_at >= %s",
+                            "WHERE a.created_at >= %s", started)[0]["n"]
+            book_rows = db.sql("SELECT count(*) n FROM ai_usage WHERE book_id = %s AND created_at >= %s",
                                book, started)[0]["n"]
             check(r.status_code == 200 and book_rows > 0 and r.json().get("total_users") == people,
                   "ai: the admin AI page's Active Users count leaves the book user out",
@@ -2499,7 +2508,7 @@ def section_ai():
         finally:
             db.admins.delete_many({"email": admins["super_admin"]})
 
-        db.sql("DELETE FROM insights WHERE user_id = %s", book)
+        db.sql("DELETE FROM insights WHERE book_id = %s", book)
         db.sql("UPDATE users SET subscription_type = 'free' WHERE id = %s", M["id"])
         run_job("weekly")
         run_job("monthly")
@@ -2529,12 +2538,18 @@ def section_ai():
         r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
         check(r.status_code == 200 and r.json().get("book_id") == book,
               "ai: under the cap again, Dad's family GET makes the family's monthly insight", f"{r.status_code} {r.text[:200]}")
+        b_monthly, b_mm, d_mm = book_ai_rows("monthly_insight"), book_ai_rows("translation"), ai_rows(D["id"], "translation")
+        r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly", "language": "mm"})
+        check(r.status_code == 200 and r.json().get("content_mm") and b_monthly >= 1
+              and book_ai_rows("translation") == b_mm + 1 and ai_rows(D["id"], "translation") == d_mm,
+              "ai: the on-demand family insight and its Myanmar translation are spend on the book, not on Dad",
+              (r.status_code, b_monthly, b_mm, book_ai_rows("translation"), d_mm, ai_rows(D["id"], "translation")))
 
         # ---- R16: the book's own AI spend counts toward the owner's cap ----
-        db.sql("DELETE FROM insights WHERE user_id = %s", book)
+        db.sql("DELETE FROM insights WHERE book_id = %s", book)
         mum_spend = db.sql("SELECT coalesce(sum(estimated_cost_usd), 0) n FROM ai_usage WHERE user_id = %s", M["id"])[0]["n"]
         book_row = str(uuid.uuid4())
-        db.sql("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, estimated_cost_usd) "
+        db.sql("INSERT INTO ai_usage (id, book_id, feature_type, provider, model_name, estimated_cost_usd) "
                "VALUES (%s, %s, 'weekly_insight', 'openai', 'gpt-test', 2)", book_row, book)
         try:
             run_job("weekly")
@@ -2559,7 +2574,7 @@ def section_ai():
             seen = []
             orig = ins._call_insight_model
 
-            async def fake_call(feature, system_prompt, context, user_id, label, **kw):
+            async def fake_call(feature, system_prompt, context, label, **kw):
                 seen.append((feature, context))
                 return "## Fake family insight", "gemini", 1, 1, 2
             ins._call_insight_model = fake_call
@@ -2596,8 +2611,8 @@ def section_ai():
                 "counter_keys": cis.counter_keys(res, family=True), "figures": await cis.compute_figures(book, start, today)})
             orig = cis.run_insight_model
 
-            async def fake(feature, system_prompt, context, user_id, label, **kw):
-                seen.update(context=context, user_id=user_id)
+            async def fake(feature, system_prompt, context, label, **kw):
+                seen.update(context=context, user_id=kw.get("user_id"), book_id=kw.get("book_id"))
                 text = "## Summary\nok"
                 return RunResult(text, Target(provider="claude", model="claude-test"), None, Completion(text, 1, 1, "stop"))
             cis.run_insight_model = fake
@@ -2615,9 +2630,9 @@ def section_ai():
               and "Family book" not in ctx,
               "ai: a family custom insight's prompt names the family and uses the owner's currency",
               (status_, seen.get("error"), ctx[:160]))
-        check(seen.get("user_id") == D["id"],
+        check(seen.get("user_id") == D["id"] and seen.get("book_id") is None,
               "ai: a family custom insight's AI cost is recorded under the person who asked (Dad), not the book",
-              {k: v for k, v in seen.items() if k in ("user_id", "error")})
+              {k: v for k, v in seen.items() if k in ("user_id", "book_id", "error")})
     finally:
         _cleanup_people(made)
 
@@ -2829,7 +2844,7 @@ def section_account_deletion():
         r = c.post("/api/family", headers=owner["h"], json={"name": name})
         fid = (r.json().get("family") or {}).get("id") if r.status_code == 200 else None
         if fid:
-            books.append(db.sql("SELECT book_user_id FROM families WHERE id = %s", fid)[0]["book_user_id"])
+            books.append(_family_book(fid))
         return fid, (r.json().get("me") or {}).get("member_id") if r.status_code == 200 else None
 
     def join(owner, person, joined_at=None):
@@ -2903,8 +2918,9 @@ def section_account_deletion():
         dad = next((m for m in v.get("members", []) if m["id"] == d_mid), {})
         check(dad.get("status") == "former" and dad.get("display_name") == "Dad" and v.get("me", {}).get("role") == "owner",
               "account deletion: the family view shows Dad as a former member, Mum still the owner", dad)
-        check(not db.sql("SELECT 1 FROM transactions WHERE user_id = %s", D["id"]),
-              "account deletion: Dad's personal entries are gone")
+        check(not db.sql("SELECT 1 FROM transactions WHERE book_id = %s", D["book"])
+              and not db.sql("SELECT 1 FROM books WHERE id = %s", D["book"]),
+              "account deletion: Dad's personal book and entries are gone")
 
         # ---- the owner deletes with admins: the longest-standing admin becomes owner ----
         P = register("Pa", "plus")
@@ -3000,15 +3016,14 @@ def section_account_deletion():
         fid4, _ = create(S, f"Solo family {tag}")
         c.post("/api/family/placeholders", headers=S["h"], json={"display_name": "Cat"})
         tx(S, amount=9)
-        book4 = db.sql("SELECT book_user_id FROM families WHERE id = %s", fid4)
-        book4 = book4[0]["book_user_id"] if book4 else None
+        book4 = _family_book(fid4)
         r = self_delete(S)
         check(r.status_code == 200, "account deletion: the owner alone deletes their account", f"{r.status_code} {r.text[:200]}")
         check(not db.sql("SELECT 1 FROM families WHERE id = %s", fid4)
               and not db.sql("SELECT 1 FROM family_members WHERE family_id = %s", fid4)
-              and not db.sql("SELECT 1 FROM users WHERE id = %s", book4)
-              and not db.sql("SELECT 1 FROM transactions WHERE user_id = %s", book4),
-              "account deletion: the family, its members, book user and entries are deleted")
+              and not db.sql("SELECT 1 FROM books WHERE id = %s", book4)
+              and not db.sql("SELECT 1 FROM transactions WHERE book_id = %s", book4),
+              "account deletion: the family, its members, book and entries are deleted")
 
         # ---- the owner with only former members left (admin path): the family is gone ----
         T = register("Tun", "plus")
@@ -3024,7 +3039,7 @@ def section_account_deletion():
               "account deletion: the member who left sees no family")
     finally:
         if books:
-            db.sql("DELETE FROM users WHERE id = ANY(%s)", books)
+            db.sql("DELETE FROM books WHERE id = ANY(%s)", books)
         _cleanup_people(made)
         db.admins.delete_many({"email": sup_email})
 

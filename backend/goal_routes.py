@@ -360,14 +360,14 @@ async def contribute_to_goal(
 
     if amount > 0:
         await check_goal_notifications(
-            user_id=book.id,
+            book_id=book.id,
             goal_id=goal_id,
             old_progress=old_progress,
             new_progress=new_progress,
             goal_name=goal["name"]
         )
         await check_milestone_amount(
-            user_id=book.id,
+            book_id=book.id,
             goal_id=goal_id,
             old_amount=original_amount,
             new_amount=new_amount,

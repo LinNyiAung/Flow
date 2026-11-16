@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-# Per-user stores are throwaway and in-process, so LangChain's in-memory store is
+# Per-book stores are throwaway and in-process, so LangChain's in-memory store is
 # enough (replaces chromadb, whose open advisories all sit in its HTTP server).
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
@@ -115,24 +115,24 @@ class _StoreEntry:
         self.retired = False   # removed from the cache; delete once refs == 0
 
 
-class UserVectorStoreCache:
+class BookVectorStoreCache:
     """
-    Bounded per-process cache of per-user in-memory vector stores.
+    Bounded per-process cache of per-book in-memory vector stores (keyed by book id: a personal or a family book).
 
-    - LRU-capped (default 200 users).
+    - LRU-capped (default 200 books).
     - Entries are only valid for the app-timezone calendar day they were built on, because the
       documents embed relative labels ("TODAY", "N days ago", days remaining) that are
       computed at build time. A new day forces a rebuild.
-    - Concurrent first builds for the same user are serialized with an asyncio.Lock
-      (striped by user id so the lock table stays bounded), so only one store is built.
+    - Concurrent first builds for the same book are serialized with an asyncio.Lock
+      (striped by book id so the lock table stays bounded), so only one store is built.
     - Requests lease a store via acquire()/release. A store that leaves the cache
       (eviction, day rollover, invalidation, replacement) is only deleted once no request
       is using it any more, and the blocking delete_collection runs in a worker thread.
     """
 
-    def __init__(self, max_users: int = 200, lock_stripes: int = 64):
+    def __init__(self, max_books: int = 200, lock_stripes: int = 64):
         self._stores: "OrderedDict[str, _StoreEntry]" = OrderedDict()
-        self._max_users = max_users
+        self._max_books = max_books
         self._locks = [asyncio.Lock() for _ in range(lock_stripes)]
 
     @staticmethod
@@ -140,11 +140,11 @@ class UserVectorStoreCache:
         # Calendar day in the app timezone (same "today" the documents' labels use).
         return app_today().isoformat()
 
-    def _lock_for(self, user_id: str) -> asyncio.Lock:
-        return self._locks[hash(user_id) % len(self._locks)]
+    def _lock_for(self, book_id: str) -> asyncio.Lock:
+        return self._locks[hash(book_id) % len(self._locks)]
 
-    def __contains__(self, user_id) -> bool:
-        return self._get_entry(user_id) is not None
+    def __contains__(self, book_id) -> bool:
+        return self._get_entry(book_id) is not None
 
     def __len__(self) -> int:
         return len(self._stores)
@@ -163,60 +163,60 @@ class UserVectorStoreCache:
         if entry.retired and entry.refs <= 0:
             _schedule_vector_store_delete(entry.store)
 
-    def _get_entry(self, user_id: str) -> Optional[_StoreEntry]:
-        entry = self._stores.get(user_id)
+    def _get_entry(self, book_id: str) -> Optional[_StoreEntry]:
+        entry = self._stores.get(book_id)
         if entry is None:
             return None
         if entry.built_on != self._today_key():
-            self.invalidate(user_id)
+            self.invalidate(book_id)
             return None
-        self._stores.move_to_end(user_id)
+        self._stores.move_to_end(book_id)
         return entry
 
-    def get(self, user_id: str):
+    def get(self, book_id: str):
         """Unleased lookup (the store may be retired at any time; prefer acquire())."""
-        entry = self._get_entry(user_id)
+        entry = self._get_entry(book_id)
         return entry.store if entry is not None else None
 
-    def _put_entry(self, user_id: str, store) -> _StoreEntry:
-        old = self._stores.pop(user_id, None)
+    def _put_entry(self, book_id: str, store) -> _StoreEntry:
+        old = self._stores.pop(book_id, None)
         if old is not None and old.store is store:
             entry = old
         else:
             if old is not None:
                 self._retire(old)
             entry = _StoreEntry(store, self._today_key())
-        self._stores[user_id] = entry
-        while len(self._stores) > self._max_users:
-            evicted_user, evicted = self._stores.popitem(last=False)
+        self._stores[book_id] = entry
+        while len(self._stores) > self._max_books:
+            evicted_book, evicted = self._stores.popitem(last=False)
             self._retire(evicted)
-            print(f"🧹 Evicted vector store for user {evicted_user} (LRU cap {self._max_users})")
+            print(f"🧹 Evicted vector store for book {evicted_book} (LRU cap {self._max_books})")
         return entry
 
-    def put(self, user_id: str, store) -> None:
-        self._put_entry(user_id, store)
+    def put(self, book_id: str, store) -> None:
+        self._put_entry(book_id, store)
 
-    def invalidate(self, user_id: str) -> bool:
-        entry = self._stores.pop(user_id, None)
+    def invalidate(self, book_id: str) -> bool:
+        entry = self._stores.pop(book_id, None)
         if entry is None:
             return False
         self._retire(entry)
         return True
 
-    async def acquire(self, user_id: str, builder):
+    async def acquire(self, book_id: str, builder):
         """
-        Lease the user's store, building it once via `await builder()` if needed.
+        Lease the book's store, building it once via `await builder()` if needed.
         Returns (store_or_None, release); call release() when done using the store.
         """
-        entry = self._get_entry(user_id)
+        entry = self._get_entry(book_id)
         if entry is None:
-            async with self._lock_for(user_id):
-                entry = self._get_entry(user_id)  # another coroutine may have built it meanwhile
+            async with self._lock_for(book_id):
+                entry = self._get_entry(book_id)  # another coroutine may have built it meanwhile
                 if entry is None:
                     store = await builder()
                     if store is None:
                         return None, (lambda: None)
-                    entry = self._put_entry(user_id, store)
+                    entry = self._put_entry(book_id, store)
         # No await between lookup/insert and the increment, so it can't be retired+deleted in between.
         entry.refs += 1
         released = False
@@ -229,9 +229,9 @@ class UserVectorStoreCache:
 
         return entry.store, release
 
-    async def get_or_build(self, user_id: str, builder):
+    async def get_or_build(self, book_id: str, builder):
         """Unleased variant of acquire() (kept for compatibility)."""
-        store, release = await self.acquire(user_id, builder)
+        store, release = await self.acquire(book_id, builder)
         release()
         return store
 
@@ -250,10 +250,10 @@ _LANGUAGE_NAMES = {"en": "English", "my": "Myanmar"}
 
 
 class FinancialDataProcessor:
-    """Processes user's financial data for RAG"""
+    """Processes a book's financial data for RAG (a personal or a family book)"""
 
-    def __init__(self, user_id: str):
-        self.user_id = user_id
+    def __init__(self, book_id: str):
+        self.book_id = book_id
 
 
     def ensure_utc_datetime(self, dt) -> datetime:
@@ -271,9 +271,9 @@ class FinancialDataProcessor:
 
         try:
             transactions = await transactions_db.find_transactions(
-                self.user_id, date_from=cutoff_date, limit=limit, include_transfers=False)
+                self.book_id, date_from=cutoff_date, limit=limit, include_transfers=False)
 
-            print(f"Found {len(transactions)} transactions for user {self.user_id} (Limit: {limit}, Days: {days_back})")
+            print(f"Found {len(transactions)} transactions for book {self.book_id} (Limit: {limit}, Days: {days_back})")
             return transactions
         except Exception as e:
             print(f"Error fetching transactions: {e}")
@@ -284,8 +284,8 @@ class FinancialDataProcessor:
         """Get user's financial goals"""
         try:
             # [FIX] Async find
-            goals = await goals_db.list_goals(self.user_id)
-            print(f"Found {len(goals)} goals for user {self.user_id}")
+            goals = await goals_db.list_goals(self.book_id)
+            print(f"Found {len(goals)} goals for book {self.book_id}")
             return goals
         except Exception as e:
             print(f"Error fetching goals: {e}")
@@ -300,8 +300,8 @@ class FinancialDataProcessor:
         (e.g. still "upcoming" after the start date) don't hide a running budget.
         """
         try:
-            budgets = await get_running_budgets(self.user_id, recompute=True)
-            print(f"Found {len(budgets)} running budgets for user {self.user_id}")
+            budgets = await get_running_budgets(self.book_id, recompute=True)
+            print(f"Found {len(budgets)} running budgets for book {self.book_id}")
             return budgets
         except Exception as e:
             print(f"Error fetching budgets: {e}")
@@ -315,13 +315,13 @@ class FinancialDataProcessor:
             result = {
                 "currency_stats": [
                     {**s, "_id": s["currency"], "total_amount_sum": s["amount_sum"]}
-                    for s in await transactions_db.currency_totals(self.user_id)
+                    for s in await transactions_db.currency_totals(self.book_id)
                 ],
                 "category_stats": [
                     {"_id": {"currency": c["currency"], "type": c["type"],
                              "category": f"{c['main_category']} > {c['sub_category']}"},
                      "total": c["total"]}
-                    for c in await transactions_db.category_totals(self.user_id)
+                    for c in await transactions_db.category_totals(self.book_id)
                 ],
             }
 
@@ -366,7 +366,7 @@ class FinancialDataProcessor:
                 if len(target_dict) < 10:
                     target_dict[cat_name] = amount
 
-            print(f"✅ Generated summary for user {self.user_id}")
+            print(f"✅ Generated summary for book {self.book_id}")
 
             return {
                 "currencies": currency_summaries,
@@ -385,7 +385,7 @@ class FinancialDataProcessor:
         month (the family's transfer legs per mover), which are labelled as moves and never counted as income or
         spending. Nobody's personal book is read.
         """
-        family = await families_db.family_for_book(self.user_id)
+        family = await families_db.family_for_book(self.book_id)
         if not family:
             return ""
         members = await families_db.list_members(family["id"])
@@ -412,7 +412,7 @@ class FinancialDataProcessor:
             for row in breakdown["rows"]:
                 former = " (former member)" if row["status"] == "former" else ""
                 lines.append(f"  - {row['display_name']}{former}: {_money(currency, row['amount'])}")
-        moves = await families_db.transfer_totals(self.user_id, date_from, date_to)
+        moves = await families_db.transfer_totals(self.book_id, date_from, date_to)
         lines.append("Moves between wallets this month (transfers between a member's personal wallet and the family "
                      "wallet; NOT income or spending, never count them as either):")
         if not moves:
@@ -510,7 +510,7 @@ class FinancialDataProcessor:
                 page_content=goals_text,
                 metadata={
                     "type": "goals_overview",
-                    "user_id": self.user_id,
+                    "book_id": self.book_id,
                     "priority": "high"
                 }
             ))
@@ -592,7 +592,7 @@ class FinancialDataProcessor:
                 page_content=budgets_text,
                 metadata={
                     "type": "budgets_overview",
-                    "user_id": self.user_id,
+                    "book_id": self.book_id,
                     "priority": "high"
                 }
             ))
@@ -631,7 +631,7 @@ class FinancialDataProcessor:
             page_content=chronological_text,
             metadata={
                 "type": "chronological_index",
-                "user_id": self.user_id,
+                "book_id": self.book_id,
                 "priority": "critical"
             }
         ))
@@ -678,7 +678,7 @@ class FinancialDataProcessor:
             page_content=summary_text,
             metadata={
                 "type": "summary",
-                "user_id": self.user_id
+                "book_id": self.book_id
             }
         ))
 
@@ -735,7 +735,7 @@ class FinancialDataProcessor:
                 page_content=goal_text,
                 metadata={
                     "type": "goal_detail",
-                    "user_id": self.user_id,
+                    "book_id": self.book_id,
                     "goal_id": goal["_id"],
                     "goal_name": goal["name"],
                     "goal_status": goal["status"],
@@ -817,7 +817,7 @@ class FinancialDataProcessor:
                 page_content=budget_text,
                 metadata={
                     "type": "budget_detail",
-                    "user_id": self.user_id,
+                    "book_id": self.book_id,
                     "budget_id": budget["_id"],
                     "budget_name": budget["name"],
                     "currency": currency
@@ -883,7 +883,7 @@ class FinancialDataProcessor:
                 page_content=daily_text,
                 metadata={
                     "type": "daily_summary",
-                    "user_id": self.user_id,
+                    "book_id": self.book_id,
                     "date": date_str,
                     "days_ago": days_ago
                 }
@@ -926,7 +926,7 @@ class FinancialDataProcessor:
                     page_content=category_text,
                     metadata={
                         "type": "category",
-                        "user_id": self.user_id,
+                        "book_id": self.book_id,
                         "category": category,
                         "currency": currency
                     }
@@ -965,12 +965,12 @@ class FinancialChatbot:
             separators=["\n\n", "\n", " ", ""]
         )
         # Bounded LRU cache, rebuilt daily (relative dates) and on invalidation.
-        self.user_vector_stores = UserVectorStoreCache(
-            max_users=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
+        self.book_vector_stores = BookVectorStoreCache(
+            max_books=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
         )
 
-    async def _build_vector_store(self, user_id: str) -> Optional[InMemoryVectorStore]:
-        processor = FinancialDataProcessor(user_id)
+    async def _build_vector_store(self, book_id: str) -> Optional[InMemoryVectorStore]:
+        processor = FinancialDataProcessor(book_id)
         documents = await processor.create_financial_documents()
 
         if not documents or not self.embeddings:
@@ -997,22 +997,22 @@ class FinancialChatbot:
             print(f"❌ Error creating vector store: {e}")
             return None
 
-    async def _get_or_create_vector_store(self, user_id: str):
+    async def _get_or_create_vector_store(self, book_id: str):
         """
-        Lease (building once, even under concurrent requests) the user's vector store.
+        Lease (building once, even under concurrent requests) the book's vector store.
         Returns (store_or_None, release); call release() when done querying it.
         """
-        return await self.user_vector_stores.acquire(
-            user_id, lambda: self._build_vector_store(user_id)
+        return await self.book_vector_stores.acquire(
+            book_id, lambda: self._build_vector_store(book_id)
         )
 
-    def refresh_user_data(self, user_id: str):
+    def refresh_book_data(self, book_id: str):
         """
-        Invalidate user's vector store cache. 
+        Invalidate the book's vector store cache.
         The next call to stream_chat will automatically rebuild it.
         """
-        if self.user_vector_stores.invalidate(user_id):
-            print(f"🗑️ Invalidated cache for user {user_id}")
+        if self.book_vector_stores.invalidate(book_id):
+            print(f"🗑️ Invalidated cache for book {book_id}")
 
     def _build_system_prompt(self, today: str, response_style: str = "normal", family: bool = False) -> str:
         """Build the chat system prompt (persona, Myanmar language support, response style); same for every provider.
@@ -1297,29 +1297,28 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
         return prompt
 
-    async def stream_chat(self, user_id: str, message: str, chat_history: Optional[List[Dict]] = None,
-                          response_style: str = "normal", feature: str = "chat", person_id: Optional[str] = None):
+    async def stream_chat(self, book_id: str, message: str, chat_history: Optional[List[Dict]] = None,
+                          response_style: str = "normal", feature: str = "chat", *, person_id: str):
         """
         Stream a chat answer from `feature`'s provider chain ("chat", or Pro's "chat_advanced": same persona, prompt
         and max tokens, its own providers), with RAG context and response style.
 
-        user_id: the book the answer is about (the person's own id, or a family's book user id). person_id: the person
-        asking (default user_id): the prompt's profile (name, language, default currency) is theirs, and the runner
-        records the AI usage under them, so a family chat counts toward the asker's own cost cap. A family book adds
-        the FAMILY section and the Family-mode rules; nobody's personal data is read for it.
+        book_id: the book the answer is about (the person's personal book, or a family book). person_id: the person
+        asking: the prompt's profile (name, language, default currency) is theirs, and the runner records the AI usage
+        under them, so a family chat counts toward the asker's own cost cap. A family book adds the FAMILY section and
+        the Family-mode rules; nobody's personal data is read for it.
 
         Yields (chunk, None) for each text chunk, then ("", usage) once, where usage has input_tokens,
         output_tokens, total_tokens, model_name, provider and fallback_from. The runner has already recorded
         the usage. Raises ChatServiceError (safe user_message) on any failure, including every provider failing.
         """
-        person_id = person_id or user_id
         try:
             # [FIX] Direct await (no to_thread needed for DB)
             user = await users_db.get_user(person_id)
             if not user:
                 raise ChatServiceError("We couldn't load your account. Please log in again.")
 
-            processor = FinancialDataProcessor(user_id)
+            processor = FinancialDataProcessor(book_id)
 
             # [FIX] Fetch data concurrently using native async methods
             summary, goals, budgets, family_text = await asyncio.gather(
@@ -1391,7 +1390,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             context = ""
 
             # [FIX] Await directly (it handles threading internally now)
-            vector_store, release_vector_store = await self._get_or_create_vector_store(user_id)
+            vector_store, release_vector_store = await self._get_or_create_vector_store(book_id)
 
             if vector_store:
                 try:

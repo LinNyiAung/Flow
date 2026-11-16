@@ -246,7 +246,7 @@ async def create_budget(
 
         if is_active:
             await notify_budget_started(
-                user_id=book.id,
+                book_id=book.id,
                 budget_id=budget_id,
                 budget_name=budget_data.name,
                 total_budget=budget_data.total_budget,

@@ -119,10 +119,11 @@ def _rows(c: Completion, outcome: str) -> list[tuple[Completion, str]]:
     return [(r, (r.outcome or outcome) if outcome == "used" else outcome) for r in c.requests if _billed(r)]
 
 
-async def _track(feature: str, user_id: str | None, t: Target, c: Completion, fallback_from: str | None,
-                 outcome: str) -> None:
-    """The usage rows for this answer (nothing without a user)."""
-    if not user_id:
+async def _track(feature: str, user_id: str | None, book_id: str | None, t: Target, c: Completion,
+                 fallback_from: str | None, outcome: str) -> None:
+    """The usage rows for this answer, recorded on the person (user_id) or a family book (book_id); nothing without
+    either."""
+    if not (user_id or book_id):
         return
     for r, row_outcome in _rows(c, outcome):
         await track_ai_usage(user_id, FEATURES[feature].usage_type, AIProviderType(t.provider), t.model,
@@ -130,7 +131,7 @@ async def _track(feature: str, user_id: str | None, t: Target, c: Completion, fa
                              fallback_from=fallback_from, audio_seconds=r.audio_seconds,
                              audio_input_tokens=r.audio_input_tokens, cached_input_tokens=r.cached_input_tokens,
                              cache_write_tokens=r.cache_write_tokens, served_model=r.served_model,
-                             cost_estimated=r.estimated, outcome=row_outcome)
+                             cost_estimated=r.estimated, outcome=row_outcome, book_id=book_id)
 
 
 # Usage writes run as tasks so a cancelled request still completes them (the caller awaits them shielded, or, on the
@@ -153,20 +154,20 @@ def _spawn_write(coro) -> asyncio.Task:
     return task
 
 
-async def _record(feature: str, user_id: str | None, t: Target, c: Completion, fallback_from: str | None,
-                  outcome: str) -> None:
+async def _record(feature: str, user_id: str | None, book_id: str | None, t: Target, c: Completion,
+                  fallback_from: str | None, outcome: str) -> None:
     """Write the usage rows of this answer. If the caller is cancelled meanwhile the write still completes (shielded
     task), so a billed answer is recorded exactly once."""
-    if user_id:
-        await asyncio.shield(_spawn_write(_track(feature, user_id, t, c, fallback_from, outcome)))
+    if user_id or book_id:
+        await asyncio.shield(_spawn_write(_track(feature, user_id, book_id, t, c, fallback_from, outcome)))
 
 
-async def _rejected(feature: str, user_id: str | None, t: Target, c: Completion | None,
+async def _rejected(feature: str, user_id: str | None, book_id: str | None, t: Target, c: Completion | None,
                     failures: list[ProviderFailure]) -> None:
     """An answer that was billed but not used (refused, filtered, empty, unparseable): record what it cost, with
     the fallback_from of that attempt. No row when the answer carries no usage. Health is not touched."""
     if _billed(c):
-        await _record(feature, user_id, t, c, _fallback_from(failures), "rejected")
+        await _record(feature, user_id, book_id, t, c, _fallback_from(failures), "rejected")
 
 
 def _billed_before_error(e: BaseException) -> Completion | None:
@@ -175,13 +176,13 @@ def _billed_before_error(e: BaseException) -> Completion | None:
     return c if isinstance(c, Completion) else None
 
 
-def _record_cut_short(feature: str, user_id: str | None, t: Target, prompt: Prompt, parts: list[str],
-                      final: Completion | None, failures: list[ProviderFailure]) -> None:
+def _record_cut_short(feature: str, user_id: str | None, book_id: str | None, t: Target, prompt: Prompt,
+                      parts: list[str], final: Completion | None, failures: list[ProviderFailure]) -> None:
     """A stream that yielded text and then ended early (closed by its consumer, cancelled, or a provider error):
     the provider billed it, so schedule one usage row (outcome "cancelled"). Tokens are the provider's when it
     already reported them, else estimated: the prompt's characters // 4 in, the characters yielded // 4 out.
     Never awaits: this runs on the GeneratorExit / CancelledError path."""
-    if not user_id:
+    if not (user_id or book_id):
         return
     text = "".join(parts)
     if _billed(final) and not final.estimated:
@@ -190,12 +191,12 @@ def _record_cut_short(feature: str, user_id: str | None, t: Target, prompt: Prom
         c = Completion(text, (len(prompt.system) + len(prompt.user)) // 4, len(text) // 4, "stop",
                        served_model=final.served_model if final else None, estimated=True)
     try:
-        _spawn_write(_track(feature, user_id, t, c, _fallback_from(failures), "cancelled"))
+        _spawn_write(_track(feature, user_id, book_id, t, c, _fallback_from(failures), "cancelled"))
     except RuntimeError:  # no running loop (a generator finalised after the loop closed)
         logger.warning(f"Could not record the usage of a stream cut short ({t.provider}/{t.model})")
 
 
-async def _succeeded(feature: str, user_id: str | None, t: Target, c: Completion,
+async def _succeeded(feature: str, user_id: str | None, book_id: str | None, t: Target, c: Completion,
                      failures: list[ProviderFailure]) -> str | None:
     """Clear the target's cool-off, record the usage and the success; returns fallback_from. Both writes run as
     shielded tasks: a request cancelled from here on (a client that leaves as the answer completes) still records
@@ -203,12 +204,12 @@ async def _succeeded(feature: str, user_id: str | None, t: Target, c: Completion
     health.mark_success(t)
     fallback_from = _fallback_from(failures)
     persist = _spawn_write(health.persist_success(t))
-    await _record(feature, user_id, t, c, fallback_from, "used")
+    await _record(feature, user_id, book_id, t, c, fallback_from, "used")
     await asyncio.shield(persist)
     return fallback_from
 
 
-async def run(feature: str, *, user_id: str | None,
+async def run(feature: str, *, user_id: str | None, book_id: str | None = None,
               call: Callable[[ProviderClient, Target], Awaitable[Completion]],
               parse: Callable[[Completion], T] = lambda c: c,
               background: bool = False, allow_empty: bool = False) -> RunResult[T]:
@@ -219,6 +220,9 @@ async def run(feature: str, *, user_id: str | None,
     itself and propagates at once. With background=True a rate-limited target is retried twice (5 s, 10 s)
     before moving on. With allow_empty=True an empty answer that finished normally is a valid answer (silence
     transcribes to ""); it is still tracked as usage. Raises AllProvidersFailed when every target failed.
+
+    Whose usage it is: `user_id`, the person, or `book_id`, a family book (its insights, their translations and its
+    AI-made budgets); at most one is set, and with neither nothing is recorded.
     """
     failures: list[ProviderFailure] = []
     for t in _targets(feature):
@@ -235,12 +239,12 @@ async def run(feature: str, *, user_id: str | None,
                 value = parse(c)  # may raise UnusableAnswer
             except UnusableAnswer as e:
                 # billed even though unusable: the answer itself, or what a `call` passed with its UnusableAnswer
-                await _rejected(feature, user_id, t, c if c is not None else e.completion, failures)
+                await _rejected(feature, user_id, book_id, t, c if c is not None else e.completion, failures)
                 failures.append(_unusable(t, e))
                 break
             except Exception as e:
                 # requests a `call` was billed for before this error (e.g. translation chunks): record them
-                await _rejected(feature, user_id, t, _billed_before_error(e), failures)
+                await _rejected(feature, user_id, book_id, t, _billed_before_error(e), failures)
                 f = classify(e, t.provider, t.model)
                 if f is None:
                     raise  # request-level: no fallback, no health change
@@ -251,19 +255,20 @@ async def run(feature: str, *, user_id: str | None,
                 failures.append(f)
                 break
             else:
-                fallback_from = await _succeeded(feature, user_id, t, c, failures)
+                fallback_from = await _succeeded(feature, user_id, book_id, t, c, failures)
                 return RunResult(value, t, fallback_from, c)
     raise AllProvidersFailed(failures)
 
 
-async def run_stream(feature: str, *, user_id: str | None, prompt: Prompt) -> AsyncIterator[str | RunResult[str]]:
+async def run_stream(feature: str, *, user_id: str | None, prompt: Prompt,
+                     book_id: str | None = None) -> AsyncIterator[str | RunResult[str]]:
     """Yield text chunks, then one RunResult whose value is the full text.
 
     Same chain and rules as run(), but the next target is tried only while nothing has been yielded:
     once the first non-empty chunk is out, any error propagates. A refusal or an empty answer before
     the first chunk counts as unusable and moves on (its usage is recorded as "rejected").
     A stream that ends early after text went out (closed by the consumer, cancelled, or a provider error)
-    still records one usage row ("cancelled"; see _record_cut_short).
+    still records one usage row ("cancelled"; see _record_cut_short). `user_id` / `book_id`: as for run().
     """
     failures: list[ProviderFailure] = []
     for t in _targets(feature):
@@ -285,15 +290,15 @@ async def run_stream(feature: str, *, user_id: str | None, prompt: Prompt) -> As
                 _check_answer(final or Completion("", 0, 0, "stop"))
         except UnusableAnswer as e:
             if parts:
-                _record_cut_short(feature, user_id, t, prompt, parts, final, failures)
+                _record_cut_short(feature, user_id, book_id, t, prompt, parts, final, failures)
                 raise  # never stitch text from two providers together
-            await _rejected(feature, user_id, t, final, failures)
+            await _rejected(feature, user_id, book_id, t, final, failures)
             failures.append(_unusable(t, e))
             continue
         except Exception as e:
             f = classify(e, t.provider, t.model)
             if parts:
-                _record_cut_short(feature, user_id, t, prompt, parts, final, failures)
+                _record_cut_short(feature, user_id, book_id, t, prompt, parts, final, failures)
                 # Too late to switch providers, but a provider failure still counts towards cool-off and status.
                 if f is not None:
                     await _record_failure(f)
@@ -307,12 +312,12 @@ async def run_stream(feature: str, *, user_id: str | None, prompt: Prompt) -> As
             # The consumer closed the stream (GeneratorExit) or the request was cancelled (CancelledError) after
             # text went out: still record what the provider billed. Nothing yielded: nothing to record.
             if parts:
-                _record_cut_short(feature, user_id, t, prompt, parts, final, failures)
+                _record_cut_short(feature, user_id, book_id, t, prompt, parts, final, failures)
             raise
         text = "".join(parts)
         final = final or Completion("", 0, 0, "stop")
         c = replace(final, text=text)
-        fallback_from = await _succeeded(feature, user_id, t, c, failures)
+        fallback_from = await _succeeded(feature, user_id, book_id, t, c, failures)
         yield RunResult(text, t, fallback_from, c)
         return
     raise AllProvidersFailed(failures)

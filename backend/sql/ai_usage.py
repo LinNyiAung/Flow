@@ -33,6 +33,8 @@ def _f(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def insert_usage(doc: Dict[str, Any]) -> None:
+    """One usage row from ai_usage_service.track_ai_usage's record: its owner is `user_id` (a person) or `book_id` (a
+    family book's own AI work, user_id NULL)."""
     await execute(insert(ai_usage).values(**{("id" if k == "_id" else k): v for k, v in doc.items()}))
 
 

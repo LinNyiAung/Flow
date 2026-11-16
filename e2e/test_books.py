@@ -13,6 +13,10 @@ Sections:
   books_api -- through the API: a family's book answers 200 [] right after the family is created, a POST marks the
     right book stale, and a person seeded in the old shape and migrated sees the same transactions, balance, budgets
     and goals (Task 3). Needs the stub server.
+  jobs -- the scheduled jobs on books, in-process with the AI faked: the weekly insight job makes one insight per book
+    (paid persons' personal books, a paid owner's family book, nothing for Free) and records a family insight's spend
+    on the book; the recurring job writes a child in its parent's book and tells only the adder; a family's AI
+    auto-create budget follows the owner's plan; unusual spending skips family books (Task 4). Needs the stub server.
 """
 import os
 import sys
@@ -20,6 +24,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+# The jobs section runs the insight and budget jobs in-process: the stubenv fake AI must answer (as in the full suite).
+os.environ.setdefault("E2E_FAKE_AI", "1")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stubenv  # noqa: E402,F401
 
@@ -817,8 +823,220 @@ def _migrated_person_sees_the_same_data(c, tag, made, bcrypt):
           "migrated person sees the same data: GET /api/budgets shows the seeded budget", f"{r.status_code} {r.text[:200]}")
 
 
+# ------------------------------------------------------------------------------------------------------------ jobs
+def _join_family(c, owner, member):
+    """`member` accepts `owner`'s invitation to the owner's family (through the API)."""
+    c.post("/api/family/invites", headers=owner["h"], json={"email": member["email"]})
+    inv = next(iter(c.get("/api/family/invites/mine", headers=member["h"]).json().get("invites", [])), None)
+    if inv:
+        c.post(f"/api/family/invites/{inv['id']}/accept", headers=member["h"])
+
+
+def _seed_outflow(book_id, amount, days_ago, category="Food & Daily Living"):
+    db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, currency, date) "
+           "VALUES (%s, %s, 'outflow', %s, 'Groceries', %s, 'usd', now() - %s * interval '1 day')",
+           str(uuid.uuid4()), book_id, category, Decimal(str(amount)), days_ago)
+
+
+def section_jobs():
+    """The scheduled jobs work on books (Task 4), in-process with the stubenv fake AI answering."""
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _api_people(c, tag, made)
+    started = datetime.now(UTC) - timedelta(seconds=5)
+    try:
+        P1, P2, F = register("Jone", "plus"), register("Jtwo", "pro"), register("Jfree", "free")
+        if not (P1 and P2 and F):
+            return
+        r = c.post("/api/family", json={"name": f"Jobs {tag}"}, headers=P1["h"])
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        fbook = (_books_of(family_id=fid) or [{}])[0].get("id") if fid else None
+        _join_family(c, P1, P2)
+        joined = db.sql("SELECT 1 FROM family_members WHERE family_id = %s AND user_id = %s AND status = 'active'",
+                        fid, P2["id"])
+        check(bool(fbook) and bool(joined), "jobs: P1 (Plus) owns a family book and P2 (Pro) is a member", (fbook, joined))
+        if not (fbook and joined):
+            return
+        books = {"P1": P1["book"], "P2": P2["book"], "F": F["book"], "family": fbook}
+        for b in books.values():
+            _seed_tx(b, "40.00", "outflow")
+
+        # ---- weekly job covers each book once (and family insight spend is on the book)
+        ours = {P1["id"], P2["id"], F["id"]}
+
+        async def weekly():
+            import insights_service as ins
+            stubenv.patch_loaded_modules()
+            orig_list, orig_books = ins.users_db.list_fields, ins.families_db.books_with_paid_owner
+
+            async def only_people(fields, *where):  # the job runs on this test's people and family only
+                return [u for u in await orig_list(fields, *where) if u["_id"] in ours]
+
+            async def only_family(plans):
+                return [b for b in await orig_books(plans) if b["book_id"] == fbook]
+            ins.users_db.list_fields, ins.families_db.books_with_paid_owner = only_people, only_family
+            try:
+                targets = await ins._job_targets("insight_weekly")
+                await ins.generate_weekly_insights_for_all_users()
+            finally:
+                ins.users_db.list_fields, ins.families_db.books_with_paid_owner = orig_list, orig_books
+            return sorted((t[0], t[1]["_id"], t[2]) for t in targets)
+        try:
+            targets = _backend_async(weekly)
+        except Exception as e:  # noqa: BLE001
+            targets = repr(e)[:300]
+        want = sorted([(P1["book"], P1["id"], False), (P2["book"], P2["id"], False), (fbook, P1["id"], True)])
+        check(targets == want, "weekly job covers each book once: _job_targets is (book, plan user, is_family) for P1's "
+                               "and P2's personal books and P1's family book, nothing for Free", (targets, want))
+        counts = {name: db.sql("SELECT count(*) n FROM insights WHERE book_id = %s AND insight_type = 'weekly'", b)[0]["n"]
+                  for name, b in books.items()}
+        check(counts == {"P1": 1, "P2": 1, "F": 0, "family": 1},
+              "weekly job covers each book once: one weekly insight each for P1's, P2's and the family book, none for F",
+              counts)
+        spend = db.sql("SELECT user_id, book_id FROM ai_usage WHERE feature_type = 'weekly_insight' AND created_at >= %s "
+                       "AND (book_id = %s OR user_id = ANY(%s))", started, fbook, [P1["id"], P2["id"], F["id"]])
+        fam_rows = [s for s in spend if s["book_id"] == fbook]
+        p1_rows = [s for s in spend if s["user_id"] == P1["id"]]
+        check(fam_rows and all(s["user_id"] is None for s in fam_rows),
+              "family insight spend is on the book: the family weekly insight's ai_usage row has book_id = the family "
+              "book and user_id NULL", spend)
+        check(p1_rows and all(s["book_id"] is None for s in p1_rows),
+              "family insight spend is on the book: a personal weekly insight's row has user_id = the person and "
+              "book_id NULL", spend)
+
+        # ---- family AI budgets follow the owner
+        now = datetime.now(UTC)
+        window_end = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(seconds=1)
+        window_start = window_end.replace(day=1, hour=0, minute=0, second=0)
+        db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, currency, date) "
+               "VALUES (%s, %s, 'outflow', 'Food & Daily Living', 'Groceries', 20, 'usd', %s)",
+               str(uuid.uuid4()), fbook, window_start + timedelta(days=3, hours=12))
+
+        def rollover(label):
+            """A finished family budget (auto-create with AI) and the nightly rollover job -> (budget_auto_create calls
+            for the family book, the child's Food & Daily Living allocation, the job's AI usage rows of the book)."""
+            parent_id = f"bk-jobs-{label}-{tag}"
+            db.budgets.insert_one({
+                "_id": parent_id, "book_id": fbook, "name": f"Family {label}", "period": "monthly", "currency": "usd",
+                "start_date": window_start, "end_date": window_end,
+                "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50, "spent_amount": 0,
+                                      "percentage_used": 0, "is_exceeded": False}],
+                "total_budget": 50, "total_spent": 0, "remaining_budget": 50, "percentage_used": 0,
+                "status": "completed", "is_active": False, "auto_create_enabled": True, "auto_create_with_ai": True,
+                "created_at": now, "updated_at": now})
+
+            async def go():
+                import budget_service as bs
+                stubenv.patch_loaded_modules()
+                seen = []
+                orig = bs._runner.run
+
+                async def spy(feature, **kw):
+                    seen.append((feature, kw.get("user_id"), kw.get("book_id")))
+                    return await orig(feature, **kw)
+                bs._runner.run = spy
+                try:
+                    await bs.process_due_budget_rollovers()
+                finally:
+                    bs._runner.run = orig
+                return seen
+            seen = _backend_async(go)
+            calls = [s for s in seen if s[0] == "budget_auto_create" and fbook in (s[1], s[2])]
+            child = db.budgets.find_one({"parent_budget_id": parent_id})
+            alloc = next((x["allocated_amount"] for x in (child or {}).get("category_budgets", [])
+                          if x["main_category"] == "Food & Daily Living"), None)
+            usage = db.sql("SELECT user_id, book_id FROM ai_usage WHERE feature_type = 'budget_auto_create' "
+                           "AND created_at >= %s AND book_id = %s", started, fbook)
+            return calls, alloc, usage
+
+        try:
+            calls, alloc, usage = rollover("plus")
+        except Exception as e:  # noqa: BLE001
+            calls, alloc, usage = repr(e)[:300], None, []
+        check(isinstance(calls, list) and len(calls) == 1 and calls[0][1:] == (None, fbook) and alloc == 450,
+              "family AI budgets follow the owner: owner on Plus: the rollover makes one budget_auto_create call (spend "
+              "on the family book) and the next budget has the AI's allocations (450)", (calls, alloc))
+        check(len(usage) == 1 and usage[0]["user_id"] is None,
+              "family AI budgets follow the owner: the AI budget's ai_usage row has book_id = the family book and "
+              "user_id NULL", usage)
+        db.sql("UPDATE users SET subscription_type = 'free', subscription_expires_at = NULL WHERE id = %s", P1["id"])
+        try:
+            calls, alloc, _ = rollover("free")
+        except Exception as e:  # noqa: BLE001
+            calls, alloc = repr(e)[:300], None
+        finally:
+            db.sql("UPDATE users SET subscription_type = 'plus', subscription_expires_at = %s WHERE id = %s",
+                   datetime.now(UTC) + timedelta(days=30), P1["id"])
+        check(calls == [] and alloc == 40.0,
+              "family AI budgets follow the owner: owner on Free: no AI call, the non-AI amounts (40)", (calls, alloc))
+
+        # ---- unusual spending skips family books
+        for b in (fbook, P1["book"]):
+            for days in (10, 15, 20, 25, 30):
+                _seed_outflow(b, 10, days)
+            _seed_outflow(b, 300, 1)
+        db.sql("DELETE FROM notifications WHERE user_id = ANY(%s)", [P1["id"], P2["id"]])
+
+        async def unusual():
+            import notification_service as ns
+            stubenv.patch_loaded_modules()
+            await ns.analyze_unusual_spending(fbook)
+            await ns.analyze_all_unusual_spending()
+        try:
+            _backend_async(unusual)
+            err = None
+        except Exception as e:  # noqa: BLE001
+            err = repr(e)[:300]
+        # The family book's members are P1 and P2: a family notice would reach both, so P2 has none and P1 only the
+        # personal one.
+        notes = db.sql("SELECT user_id FROM notifications WHERE type = 'unusual_spending' AND user_id = ANY(%s)",
+                       [P1["id"], P2["id"]])
+        check(err is None and not [n for n in notes if n["user_id"] == P2["id"]],
+              "unusual spending skips family books: the family book's spike makes no unusual_spending notice", (err, notes))
+        check(len([n for n in notes if n["user_id"] == P1["id"]]) == 1,
+              "unusual spending skips family books: P1's personal book's spike makes P1's one notice (the job runs on "
+              "persons' personal books)", notes)
+
+        # ---- recurring job uses the entry's book (the notice goes to the adder only, R14)
+        start = (datetime.now(UTC) - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
+        r = c.post("/api/transactions", headers={**P2["h"], **FAMILY}, json={
+            "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+            "date": start.isoformat(), "amount": 5, "currency": "usd",
+            "recurrence": {"enabled": True, "config": {"frequency": "daily"}}})
+        parent = r.json().get("id") if r.status_code == 200 else None
+        check(parent is not None, "recurring job uses the entry's book: P2 adds a daily family entry",
+              f"{r.status_code} {r.text[:200]}")
+        if parent:
+            db.sql("DELETE FROM notifications WHERE user_id = ANY(%s)", [P1["id"], P2["id"]])
+            db.sql("UPDATE books SET ai_data_stale = false WHERE id = %s", fbook)
+
+            async def recurring():
+                import recurring_transaction_service as rts
+                stubenv.patch_loaded_modules()
+                await rts.check_and_create_recurring_transactions()
+            try:
+                _backend_async(recurring)
+                err = None
+            except Exception as e:  # noqa: BLE001
+                err = repr(e)[:300]
+            kids = db.sql("SELECT book_id FROM transactions WHERE parent_transaction_id = %s", parent)
+            check(err is None and len(kids) == 2 and all(k["book_id"] == fbook for k in kids),
+                  "recurring job uses the entry's book: the job creates the due children in the family book", (err, kids))
+            notes = db.sql("SELECT user_id FROM notifications WHERE type = 'recurring_transaction_created' "
+                           "AND user_id = ANY(%s)", [P1["id"], P2["id"]])
+            check(len(notes) == 1 and notes[0]["user_id"] == P2["id"],
+                  "recurring job uses the entry's book: only the adder (P2) is told (R14)", notes)
+            stale = db.sql("SELECT ai_data_stale s FROM books WHERE id = %s", fbook)[0]["s"]
+            check(stale is True, "recurring job uses the entry's book: the family book is marked stale", stale)
+    finally:
+        _drop_people(made)
+
+
 SECTIONS = {"schema": section_schema, "migration": section_migration, "books_in_requests": section_books_in_requests,
-            "api_shape": section_api_shape, "books_api": section_books_api}
+            "api_shape": section_api_shape, "books_api": section_books_api, "jobs": section_jobs}
 
 
 def main():

@@ -866,9 +866,14 @@ def t_delete_account():
     ok("delete account without password rejected", r.status_code in (400, 401, 422), r.status_code)
     r = c.request("DELETE", "/api/auth/delete-account", headers=H(tok), json={"password": "wrong"})
     ok("delete account with wrong password rejected", r.status_code in (400, 401, 403), r.status_code)
+    # The person's personal book (read before the delete): its data is keyed by book_id, not by the person.
+    book = db.sql("SELECT id FROM books WHERE person_id = %s", uid)[0]["id"]
     r = c.request("DELETE", "/api/auth/delete-account", headers=H(tok), json={"password": "secret123"})
     ok("delete account", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
-    left = {col: db[col].count_documents({"user_id": uid}) for col in ("transactions", "goals", "budgets", "feedback", "ai_usage", "notifications", "insights", "chat_sessions", "notification_preferences")}
+    left = {col: db[col].count_documents({"user_id": uid}) for col in ("feedback", "ai_usage", "notifications", "chat_sessions", "notification_preferences")}
+    left |= {col: db.sql(f"SELECT count(*) n FROM {col} WHERE book_id = %s", book)[0]["n"]
+             for col in ("transactions", "goals", "budgets", "insights", "custom_insights")}
+    left["books"] = db.sql("SELECT count(*) n FROM books WHERE id = %s", book)[0]["n"]
     bug("user data left behind after self-delete", any(left.values()), left)
     tok2, uid2, _, _ = register_verified("Del2", "del@example.com", "secret123")
     r = c.get("/api/auth/me", headers=H(tok))

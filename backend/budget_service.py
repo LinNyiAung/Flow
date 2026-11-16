@@ -11,9 +11,9 @@ from tz_utils import app_wall_clock_now
 from plans import quota
 from plans.access import effective_plan
 from plans.catalog import PAID_PLANS
+from sql import books as books_db
 from sql import budgets as budgets_db
 from sql import transactions as transactions_db
-from sql import users as users_db
 from sql import goals as goals_db
 from sql.categories import get_categories_doc
 from budget_models import (
@@ -161,10 +161,11 @@ def _parse_budget_answer(categories_structure: List[Dict]):
 class BudgetAnalyzer:
     """Analyzes user's financial data for AI budget suggestions"""
 
-    def __init__(self, user_id: str, language: str = "en", ai_user_id: Optional[str] = None):
-        self.user_id = user_id  # whose data (a person's book, or a family book user)
-        # Whose AI usage the suggestion is recorded as (the person asking, for the cost cap); defaults to user_id.
-        self.ai_user_id = ai_user_id or user_id
+    def __init__(self, book_id: str, language: str = "en", ai_user_id: Optional[str] = None):
+        self.book_id = book_id  # whose data (a personal or a family book)
+        # Whose AI usage the suggestion is recorded as (the person asking, for their cost cap). None: nothing is
+        # recorded (an analyzer used only for calculate_period_dates).
+        self.ai_user_id = ai_user_id
         # The user's app language ("en" / "my"), for the Ko Toe Pwar warning on the suggestions.
         self.language = language
         # True once generate_ai_suggestions returned the AI's answer; False for the rule-based suggestions that
@@ -177,7 +178,7 @@ class BudgetAnalyzer:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
 
         transactions = await transactions_db.find_transactions(
-            self.user_id, type_="outflow", currency=currency, date_from=cutoff_date, include_transfers=False
+            self.book_id, type_="outflow", currency=currency, date_from=cutoff_date, include_transfers=False
         )
 
         if len(transactions) < 10:
@@ -213,14 +214,14 @@ class BudgetAnalyzer:
             }
 
         income_transactions = await transactions_db.find_transactions(
-            self.user_id, type_="inflow", currency=currency, date_from=cutoff_date, include_transfers=False
+            self.book_id, type_="inflow", currency=currency, date_from=cutoff_date, include_transfers=False
         )
 
         total_income = sum(t["amount"] for t in income_transactions)
         monthly_income = total_income / months if income_transactions else 0
 
         # [FIX] Async find for goals
-        goals = await goals_db.list_goals(self.user_id, status="active", currency=currency)
+        goals = await goals_db.list_goals(self.book_id, status="active", currency=currency)
 
         total_goal_target = sum(g["target_amount"] for g in goals)
         total_goal_current = sum(g["current_amount"] for g in goals)
@@ -328,7 +329,7 @@ class BudgetAnalyzer:
                 )
                 self.used_ai = True
             except AllProvidersFailed as e:
-                logger.warning(f"AI budget suggestion unavailable for user {self.user_id}: {e}")
+                logger.warning(f"AI budget suggestion unavailable for book {self.book_id}: {e}")
                 if any(f.kind != "not_configured" for f in e.failures):
                     warnings.append(translate("budget_ai_rules_fallback_msg", self.language))
         if suggestions is None:
@@ -497,12 +498,12 @@ REMEMBER:
         except Exception as e:
             # The runner re-raises only request-level errors (the provider refused this request itself: no
             # fallback). Their text can carry provider details, so it is only logged, redacted.
-            logger.error(f"budget_suggestion request rejected for user {self.user_id}: "
+            logger.error(f"budget_suggestion request rejected for book {self.book_id}: "
                          f"{redact(f'{type(e).__name__}: {e}')}")
             raise AIRequestRejected() from e
         c, t = result.completion, result.target
         logger.info(
-            f"📊 [{t.provider.upper()} TOKEN USAGE - AI Budget Suggestion] User: {self.user_id} | "
+            f"📊 [{t.provider.upper()} TOKEN USAGE - AI Budget Suggestion] Book: {self.book_id} | "
             f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
             + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
         )
@@ -705,12 +706,12 @@ def is_budget_running(budget: Dict, current_date: Optional[datetime] = None) -> 
 
 
 async def get_running_budgets(
-    user_id: str,
+    book_id: str,
     currency: Optional[str] = None,
     recompute: bool = False,
 ) -> List[Dict]:
     """
-    The user's running budgets (newest first).
+    The book's running budgets (newest first).
 
     Candidates are selected by date window only (stored status can be stale, e.g. still
     "upcoming" after the start date), then each one is refreshed before deciding:
@@ -718,13 +719,13 @@ async def get_running_budgets(
     otherwise only budgets whose stored status/is_active are stale are recomputed.
     """
     wall_now = app_wall_clock_now()
-    candidates = await budgets_db.budgets_overlapping(user_id, wall_now, wall_now, currency)
+    candidates = await budgets_db.budgets_overlapping(book_id, wall_now, wall_now, currency)
 
     running: List[Dict] = []
     for budget in candidates:
         try:
             if recompute:
-                await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=dict(budget))
+                await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=dict(budget))
                 budget = await budgets_db.get_budget(budget["_id"]) or budget
             else:
                 budget = await refresh_budget_state_if_stale(budget)
@@ -736,7 +737,7 @@ async def get_running_budgets(
 
 
 async def update_budget_spent_amounts(
-    user_id: str,
+    book_id: str,
     budget_id: str,
     budget_doc: Optional[Dict] = None,
     trigger_auto_create: bool = True,
@@ -758,7 +759,7 @@ async def update_budget_spent_amounts(
             if attempt == 0 and budget_doc:
                 budget = budget_doc
             else:
-                budget = await budgets_db.get_budget(budget_id, user_id)
+                budget = await budgets_db.get_budget(budget_id, book_id)
 
             if not budget:
                 return
@@ -782,7 +783,7 @@ async def update_budget_spent_amounts(
             agg_results = [
                 {"_id": {"main": r["main_category"], "sub": r["sub_category"]}, "total_amount": r["total"]}
                 for r in await transactions_db.category_totals(
-                    user_id, type_="outflow", currency=budget_currency,
+                    book_id, type_="outflow", currency=budget_currency,
                     date_from=budget["start_date"], date_to=budget["end_date"],
                 )
             ]
@@ -885,7 +886,7 @@ async def update_budget_spent_amounts(
 
                     if new_pct != old_pct:
                         await check_budget_notifications(
-                            user_id=user_id,
+                            book_id=book_id,
                             budget_id=budget_id,
                             old_percentage=old_pct,
                             new_percentage=new_pct,
@@ -896,7 +897,7 @@ async def update_budget_spent_amounts(
                 # Check total budget notifications
                 if new_total_percentage != old_total_percentage:
                     await check_budget_notifications(
-                        user_id=user_id,
+                        book_id=book_id,
                         budget_id=budget_id,
                         old_percentage=old_total_percentage,
                         new_percentage=new_total_percentage,
@@ -955,7 +956,7 @@ async def update_budget_spent_amounts(
 
 async def _find_child_budget(budget: Dict) -> Optional[Dict]:
     """
-    Any budget auto-created from `budget` ({_id} only, or None). Queries by (user_id,
+    Any budget auto-created from `budget` ({_id} only, or None). Queries by (book_id,
     parent_budget_id) so it is served by the budgets indexes, not a collection scan.
     """
     return await budgets_db.find_child(budget["book_id"], budget["_id"])
@@ -984,7 +985,7 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
     selected once its child exists: the parent is then marked with rolled_over_to=<child
     id> (set by auto_create_next_budget, or backfilled here for budgets created before
     the marker existed), so each series only costs its latest budget per run. The child
-    check is an indexed (user_id, parent_budget_id) lookup, never a collection scan.
+    check is an indexed (book_id, parent_budget_id) lookup, never a collection scan.
     """
     wall_now = app_wall_clock_now()
     stats = {"candidates": 0, "created": 0, "skipped": 0, "not_created": 0, "failed": 0, "already_rolled_over": 0}
@@ -1042,27 +1043,27 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
     return stats
 
 
-async def update_relevant_budgets(user_id: str, transaction_date: datetime, transaction_currency: str):
+async def update_relevant_budgets(book_id: str, transaction_date: datetime, transaction_currency: str):
     """Update only budgets that are affected by the transaction"""
     if transaction_date.tzinfo is None:
         transaction_date = transaction_date.replace(tzinfo=timezone.utc)
 
     relevant_budgets = await budgets_db.budgets_overlapping(
-        user_id, transaction_date, transaction_date, transaction_currency
+        book_id, transaction_date, transaction_date, transaction_currency
     )
 
     for budget in relevant_budgets:
         # [FIX] Added await
-        await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)
+        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget)
 
 
-async def update_budgets_in_range(user_id: str, start: datetime, end: datetime, currency: str):
+async def update_budgets_in_range(book_id: str, start: datetime, end: datetime, currency: str):
     """Recompute every budget (of `currency`) whose period overlaps [start, end]."""
     start, end = _aware(start), _aware(end)
     if end < start:
         start, end = end, start
-    for budget in await budgets_db.budgets_overlapping(user_id, start, end, currency):
-        await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)
+    for budget in await budgets_db.budgets_overlapping(book_id, start, end, currency):
+        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget)
 
 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
@@ -1110,7 +1111,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     if budget["status"] != BudgetStatus.COMPLETED.value:
         return None
 
-    user_id = budget["book_id"]
+    book_id = budget["book_id"]
     currency = budget.get("currency", "usd")
     period = BudgetPeriod(budget["period"])
     old_start = _aware(budget["start_date"])
@@ -1121,7 +1122,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     next_start_date = (old_end + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Compute the real next period BEFORE any expensive work.
-    analyzer = BudgetAnalyzer(user_id)
+    analyzer = BudgetAnalyzer(book_id)
 
     def _period_after(start: datetime):
         if period == BudgetPeriod.CUSTOM:
@@ -1146,7 +1147,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     # same name/period/currency starting on the same day, means it was already created.
     day_start = new_start.replace(hour=0, minute=0, second=0, microsecond=0)
     existing = await budgets_db.find_existing_next(
-        user_id, budget_id, budget["name"], budget["period"], currency, day_start, day_start + timedelta(days=1)
+        book_id, budget_id, budget["name"], budget["period"], currency, day_start, day_start + timedelta(days=1)
     )
     if existing:
         if existing.get("parent_budget_id") == budget_id:
@@ -1163,7 +1164,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         was_ai = False  # whether the AI produced the categories, for the notification wording
         if budget.get("auto_create_with_ai", False):
             category_budgets, was_ai = await _ai_category_budgets(
-                user_id, period, new_start, new_end, parent_budget=budget
+                book_id, period, new_start, new_end, parent_budget=budget
             )
         else:
             category_budgets = []
@@ -1197,7 +1198,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
 
         new_budget = {
             "_id": new_budget_id,
-            "book_id": user_id,
+            "book_id": book_id,
             "name": budget['name'],
             "period": budget["period"],
             "start_date": new_start,
@@ -1226,10 +1227,10 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         await _mark_rolled_over(budget_id, new_budget_id)
 
         # Compute spend for the new period (transactions may already exist in it).
-        await update_budget_spent_amounts(user_id, new_budget_id)
+        await update_budget_spent_amounts(book_id, new_budget_id)
 
         await notify_budget_auto_created(
-            user_id=user_id,
+            book_id=book_id,
             budget_id=new_budget_id,
             budget_name=budget["name"],
             was_ai=was_ai
@@ -1250,41 +1251,46 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
 
 
 
-async def _owner_gets_ai_budgets(user_id: str) -> bool:
-    """True when the budget's owner is on Plus or Pro right now (an expired plan counts as Free) and is not over their
-    monthly cost cap. A failed lookup means no AI: the budget is still created, from the adjusted amounts."""
+async def _owner_gets_ai_budgets(book_id: str) -> bool:
+    """True when the book's owner (a personal book's person; a family book's owner, whose plan and cost cap the family
+    follows, R16) is on Plus or Pro right now (an expired plan counts as Free) and is not over their monthly cost cap
+    (for a family book: quota.family_over_cost_cap). A failed lookup means no AI: the budget is still created, from
+    the adjusted amounts."""
     try:
-        owner = await users_db.get_user(user_id)
+        book = await books_db.get_book_row(book_id)
+        owner = await books_db.book_profile(book_id) if book else None
         if owner is None or effective_plan(owner) not in PAID_PLANS:
             return False
+        if book["kind"] == "family":
+            return not await quota.family_over_cost_cap(owner, book_id)
         return not await quota.over_cost_cap(owner)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"Auto-create: cannot check the plan of user {user_id}, using the adjusted budgets: {e}")
+        logger.error(f"Auto-create: cannot check the plan of book {book_id}, using the adjusted budgets: {e}")
         return False
 
 
 async def _generate_ai_category_budgets(
-    user_id: str,
+    book_id: str,
     period: BudgetPeriod,
     start_date: datetime,
     end_date: datetime,
     parent_budget: Dict
 ) -> List[CategoryBudget]:
     """Generate AI-based category budgets"""
-    return (await _ai_category_budgets(user_id, period, start_date, end_date, parent_budget))[0]
+    return (await _ai_category_budgets(book_id, period, start_date, end_date, parent_budget))[0]
 
 
 async def _ai_category_budgets(
-    user_id: str,
+    book_id: str,
     period: BudgetPeriod,
     start_date: datetime,
     end_date: datetime,
     parent_budget: Dict
 ) -> Tuple[List[CategoryBudget], bool]:
     """The next budget's categories and whether the AI produced them (False for every non-AI result: no data to
-    analyse, an owner without the AI path, or a fallback after an AI failure)."""
+    analyse, an owner without the AI path, or a fallback after an AI failure). The AI call's spend is the book's
+    (books_db.spend_owner: a personal book's person, or the family book itself)."""
 
-    analyzer = BudgetAnalyzer(user_id)
     days_in_period = (end_date - start_date).days + 1
 
     # [FIX] Added await
@@ -1311,7 +1317,7 @@ async def _ai_category_budgets(
     parent_end = parent_budget["end_date"]
 
     transactions = await transactions_db.find_transactions(
-        user_id, type_="outflow", currency=parent_budget.get("currency", "usd"),
+        book_id, type_="outflow", currency=parent_budget.get("currency", "usd"),
         date_from=parent_start, date_to=parent_end, include_transfers=False,
     )
 
@@ -1329,7 +1335,7 @@ async def _ai_category_budgets(
 
     # The AI path is for owners on a paid plan who are under their cost cap; everyone else gets the non-AI adjusted
     # budgets, with no AI call. A scheduled job: it never uses an allowance, but its spend counts toward the cap.
-    if not await _owner_gets_ai_budgets(user_id):
+    if not await _owner_gets_ai_budgets(book_id):
         return _generate_adjusted_budgets(parent_budget, days_in_period), False
 
     # The budget_auto_create provider chain; if it gives no usable answer (none configured, all failing,
@@ -1395,13 +1401,13 @@ Provide realistic budget suggestions that learn from past spending patterns.
 REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list provided."""
 
         result = await _runner.run(
-            "budget_auto_create", user_id=user_id,
+            "budget_auto_create", **books_db.spend_owner(await books_db.get_book_row(book_id)),
             call=_budget_call("budget_auto_create", system_prompt, user_prompt),
             parse=_parse_budget_answer(categories_structure),
         )
         c, t = result.completion, result.target
         logger.info(
-            f"💰 [{t.provider.upper()} TOKEN USAGE - Auto Budget Creation] User: {user_id} | "
+            f"💰 [{t.provider.upper()} TOKEN USAGE - Auto Budget Creation] Book: {book_id} | "
             f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
             + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
         )
@@ -1449,10 +1455,10 @@ def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List
     return adjusted_budgets
 
 
-async def update_all_user_budgets(user_id: str):
-    """Update all budgets for a user (called after transaction changes)"""
-    budgets = await budgets_db.list_budgets(user_id)
+async def update_all_book_budgets(book_id: str):
+    """Update all budgets of the book (called after transaction changes)"""
+    budgets = await budgets_db.list_budgets(book_id)
 
     for budget in budgets:
         # [FIX] Added await
-        await update_budget_spent_amounts(user_id, budget["_id"], budget_doc=budget)
+        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget)

@@ -3,12 +3,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler  # [CHANGED]
 from apscheduler.triggers.cron import CronTrigger
 from recurring_transaction_service import check_and_create_recurring_transactions
 from notification_service import (
-    analyze_unusual_spending, 
-    check_approaching_target_dates, 
-    check_budget_period_notifications, 
+    analyze_all_unusual_spending,
+    check_approaching_target_dates,
+    check_budget_period_notifications,
     detect_and_notify_recurring_payments
 )
-from sql import users as users_db
 from budget_service import process_due_budget_rollovers
 from insights_service import generate_weekly_insights_for_all_users, generate_monthly_insights_for_all_users
 from custom_insights_service import fail_stuck_reports
@@ -31,15 +30,6 @@ def start_scheduler():
 
     # --- NO WRAPPERS NEEDED ---
     # We can now pass the async functions directly to the scheduler.
-    
-    # Special handling for user iteration (Async Cursor)
-    async def analyze_all_users_spending():
-        # [FIX] This now works because it runs on the main loop
-        for user_id in await users_db.user_ids():
-            try:
-                await analyze_unusual_spending(user_id)
-            except Exception as e:
-                print(f"Error analyzing spending for user {user_id}: {e}")
 
     # --- ADD JOBS ---
 
@@ -61,9 +51,9 @@ def start_scheduler():
         replace_existing=True
     )
     
-    # Check for unusual spending patterns daily at 8 AM
+    # Check for unusual spending patterns daily at 8 AM (every person's personal book; family books are left out)
     scheduler.add_job(
-        analyze_all_users_spending,
+        analyze_all_unusual_spending,
         trigger=CronTrigger(timezone=app_tz, hour=8, minute=0),
         id="analyze_unusual_spending",
         name="Analyze unusual spending patterns",
