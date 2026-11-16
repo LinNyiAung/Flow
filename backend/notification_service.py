@@ -324,21 +324,48 @@ async def should_send_notification(user_id: str, notification_type: str) -> bool
     return preferences.get(notification_type, True)
 
 
+# The type -> subject link table: the typed link (sql.notifications.SUBJECT_LINKS) that holds a notice's subject, by
+# its type; None: the type links no subject (it may still link its book). Every type appears. The books migration
+# (d846defddc6e) holds a frozen copy.
+NOTIFICATION_LINKS: Dict[str, Optional[str]] = {
+    **dict.fromkeys(("goal_progress", "goal_achieved", "goal_milestone", "goal_approaching_date"), "goal_id"),
+    **dict.fromkeys(("budget_threshold", "budget_exceeded", "budget_ending_soon", "budget_now_active", "budget_started",
+                     "budget_auto_created"), "budget_id"),
+    **dict.fromkeys(("large_transaction", "recurring_transaction_created", "recurring_transaction_ended",
+                     "recurring_transaction_disabled"), "transaction_id"),
+    **dict.fromkeys(("custom_insight_ready", "custom_insight_failed"), "custom_insight_id"),
+    "family_invite": "family_invite_id",
+    **dict.fromkeys(("family_invite_accepted", "family_removed", "family_owner"), "family_id"),
+    **dict.fromkeys(("unusual_spending", "payment_reminder", "weekly_insights_generated", "monthly_insights_generated",
+                     "subscription_expired", "trial_ending_soon", "trial_ends_today", "plan_ending_soon",
+                     "plan_ends_today", "plan_activated", "upgrade_request_declined", "system_broadcast",
+                     "admin_announcement"), None),
+}
+
+
 async def create_notification(
     user_id: str,
     notification_type: str,
     title: str,
     message: str,
-    goal_id: Optional[str] = None,
     goal_name: Optional[str] = None,
     currency: Optional[str] = None,
-    extra: Optional[dict] = None
+    extra: Optional[dict] = None,
+    links: Optional[Dict[str, Optional[str]]] = None,
 ) -> Optional[dict]:
     """Create a new notification (only if user has it enabled).
 
-    extra: additional fields stored on the notification document (e.g. dedupe keys);
-    they are not sent in the push payload, except the family marker `book` (see family_marker).
+    links: the notice's typed links (sql.notifications.LINKS): its subject under the link its type names
+    (NOTIFICATION_LINKS, e.g. {"budget_id": ...}) and the book it is about ({"book_id": ...}). A link whose row is
+    already gone is stored NULL, so a notice never fails the action that sent it.
+    extra: additional fields stored on the notification document (e.g. dedupe keys); not sent in the push payload.
+    The push data carries subject_id (the subject link stored, "" if none) and book = 'family' when the notice's book
+    is a family book (the app opens it in Family mode).
     """
+    links = {k: v for k, v in (links or {}).items() if v is not None}
+    subject = [k for k in links if k != "book_id"]
+    if set(links) - set(notifications_db.LINKS) or subject not in ([], [NOTIFICATION_LINKS.get(notification_type)]):
+        raise ValueError(f"A {notification_type} notice can't link {sorted(links)}")
 
     # [FIX] Added await
     if not await should_send_notification(user_id, notification_type):
@@ -352,7 +379,7 @@ async def create_notification(
         "type": notification_type,
         "title": title,
         "message": message,
-        "goal_id": goal_id,
+        **links,
         "goal_name": goal_name,
         "currency": currency,
         "created_at": datetime.now(UTC),
@@ -362,9 +389,10 @@ async def create_notification(
         for key, value in extra.items():
             notification.setdefault(key, value)
 
-    # [FIX] Added await
-    await notifications_db.insert_notification(notification)
+    notification = await notifications_db.insert_notification(notification)
     print(f"✅ Created notification {notification_type} for user {user_id}")
+    subject_id = next((notification[k] for k in notifications_db.SUBJECT_LINKS if notification.get(k)), None)
+    family = bool(notification.get("book_id")) and await books_db.is_family_book(notification["book_id"])
 
     # [FIX] Fetch user data ASYNC before starting the thread
     # This prevents running async DB calls inside the sync thread
@@ -378,13 +406,13 @@ async def create_notification(
                 fcm_data = {
                     "notification_id": notification_id,
                     "type": notification_type,
-                    "goal_id": goal_id or "",
+                    "subject_id": subject_id or "",
                     "goal_name": goal_name or "",
                     "currency": currency or "",
                 }
-                if notification.get("book"):
+                if family:
                     # A family book's notice: the app's push-tap handler switches to Family mode first.
-                    fcm_data["book"] = notification["book"]
+                    fcm_data["book"] = "family"
 
                 send_fcm_notification(
                     fcm_token=fcm_token,
@@ -425,15 +453,6 @@ async def notification_recipients(book_id: str) -> Tuple[bool, List[str]]:
     return False, [book["person_id"]]
 
 
-FAMILY_MARKER = {"book": "family"}
-
-
-def family_marker(extra: Optional[dict] = None) -> dict:
-    """`extra` plus the family book marker (stored in notifications.book, returned as extra.book by the API) for a
-    notice that belongs to a family book, so the app opens it in Family mode. Personal notices never carry it."""
-    return {**(extra or {}), **FAMILY_MARKER}
-
-
 def _for_language(value: Any, lang: str) -> Any:
     """A value that depends on the reader's language is passed as a callable taking the language."""
     return value(lang) if callable(value) else value
@@ -445,7 +464,7 @@ async def create_person_notification_from_key(
     title_key: str,
     msg_key: str,
     *,
-    goal_id: Optional[str] = None,
+    links: Optional[Dict[str, Optional[str]]] = None,
     goal_name: Any = None,
     currency: Optional[str] = None,
     extra: Optional[dict] = None,
@@ -453,8 +472,8 @@ async def create_person_notification_from_key(
 ) -> Optional[dict]:
     """create_notification for one person, with the title and message rendered from NOTIFICATION_TRANSLATIONS in that
     person's language. `goal_name` and the `fmt` values may be callables taking the language (e.g. a days phrase); the
-    templates' {goal_name} is the notification's goal_name. For a notice about a book, use
-    create_notification_from_key."""
+    templates' {goal_name} is the notification's goal_name. `links` as in create_notification. To tell everyone a
+    book's notice is for, use create_notification_from_key."""
     lang = await get_user_language(person_id)
     name = _for_language(goal_name, lang)
     values = {"goal_name": name, **{k: _for_language(v, lang) for k, v in fmt.items()}}
@@ -463,10 +482,10 @@ async def create_person_notification_from_key(
         notification_type=notification_type,
         title=translate(title_key, lang, **values),
         message=translate(msg_key, lang, **values),
-        goal_id=goal_id,
         goal_name=name,
         currency=currency,
         extra=extra,
+        links=links,
     )
 
 
@@ -476,28 +495,28 @@ async def create_notification_from_key(
     title_key: str,
     msg_key: str,
     *,
-    goal_id: Optional[str] = None,
+    subject: Optional[Dict[str, str]] = None,
     goal_name: Any = None,
     currency: Optional[str] = None,
     extra: Optional[dict] = None,
     **fmt: Any,
 ) -> List[dict]:
     """A book's notice, fanned out by the book's kind (notification_recipients), each one rendered in its reader's
-    language (create_person_notification_from_key).
+    language (create_person_notification_from_key) and linked to the book (book_id) and to `subject` (its typed link,
+    e.g. {"budget_id": ...}; see create_notification).
 
     A personal book: exactly one notification, for its person. A family book: one notification per active account
-    member, each subject to that member's preferences and device, and each marked as the family's (extra book =
-    'family', see family_marker). Returns the notifications stored (a member's failure is logged and skipped).
+    member, each subject to that member's preferences and device (its book_id is what marks it as the family's).
+    Returns the notifications stored (a member's failure is logged and skipped).
     """
     is_family, recipients = await notification_recipients(book_id)
-    if is_family:
-        extra = family_marker(extra)
+    links = {**(subject or {}), "book_id": book_id}
     sent: List[dict] = []
     for recipient in recipients:
         try:
             notification = await create_person_notification_from_key(
                 recipient, notification_type, title_key, msg_key,
-                goal_id=goal_id, goal_name=goal_name, currency=currency, extra=extra, **fmt,
+                links=links, goal_name=goal_name, currency=currency, extra=extra, **fmt,
             )
         except Exception as e:
             if not is_family:
@@ -522,13 +541,14 @@ async def check_goal_notifications(book_id: str, goal_id: str, old_progress: flo
             if milestone == 100:
                 await create_notification_from_key(
                     book_id, "goal_achieved", "goal_achieved_title", "goal_achieved_msg",
-                    goal_id=goal_id, goal_name=goal_name, currency=currency,
+                    subject={"goal_id": goal_id}, goal_name=goal_name, currency=currency,
                 )
             elif milestone in [25, 50, 75]:
                 emoji = "💪" if milestone == 25 else "🎯" if milestone == 50 else "🎉"
                 await create_notification_from_key(
                     book_id, "goal_progress", "goal_progress_title", "goal_progress_msg",
-                    goal_id=goal_id, goal_name=goal_name, currency=currency, milestone=milestone, emoji=emoji,
+                    subject={"goal_id": goal_id}, goal_name=goal_name, currency=currency, milestone=milestone,
+                    emoji=emoji,
                 )
 
 async def check_milestone_amount(book_id: str, goal_id: str, old_amount: float, new_amount: float, goal_name: str):
@@ -546,7 +566,7 @@ async def check_milestone_amount(book_id: str, goal_id: str, old_amount: float, 
         milestone_amount = new_milestone * milestone_interval
         await create_notification_from_key(
             book_id, "goal_milestone", "goal_milestone_title", "goal_milestone_msg",
-            goal_id=goal_id, goal_name=goal_name, currency=currency,
+            subject={"goal_id": goal_id}, goal_name=goal_name, currency=currency,
             amount=format_currency_amount(milestone_amount, currency),
         )
 
@@ -609,7 +629,7 @@ async def check_approaching_target_dates():
             await create_notification_from_key(
                 book_id, "goal_approaching_date", "goal_approaching_title",
                 "goal_approaching_msg_with_remaining" if remaining > 0 else "goal_approaching_msg_achieved",
-                goal_id=goal_id,
+                subject={"goal_id": goal_id},
                 goal_name=goal_name,
                 currency=currency,
                 extra={"reminder_threshold": threshold, "reminder_target_date": target_key},
@@ -630,13 +650,15 @@ async def check_budget_notifications(book_id: str, budget_id: str, old_percentag
     if old_percentage < 80 <= new_percentage < 100:
         await create_notification_from_key(
             book_id, "budget_threshold", "budget_threshold_title", "budget_threshold_msg",
-            goal_id=budget_id, goal_name=budget_name, currency=currency, label=budget_label, budget_name=budget_name,
+            subject={"budget_id": budget_id}, goal_name=budget_name, currency=currency, label=budget_label,
+            budget_name=budget_name,
         )
 
     if old_percentage < 100 <= new_percentage:
         await create_notification_from_key(
             book_id, "budget_exceeded", "budget_exceeded_title", "budget_exceeded_msg",
-            goal_id=budget_id, goal_name=budget_name, currency=currency, label=budget_label, budget_name=budget_name,
+            subject={"budget_id": budget_id}, goal_name=budget_name, currency=currency, label=budget_label,
+            budget_name=budget_name,
         )
 
 
@@ -682,7 +704,7 @@ async def check_budget_period_notifications():
             if not await budgets_db.claim_flag(budget_id, "ending_soon_notified", now):
                 continue
             _, recipients = await notification_recipients(book_id)
-            existing = await notifications_db.exists(recipients, "budget_ending_soon", goal_id=budget_id)
+            existing = await notifications_db.exists(recipients, "budget_ending_soon", budget_id=budget_id)
             if existing:
                 continue
 
@@ -693,7 +715,7 @@ async def check_budget_period_notifications():
                 await create_notification_from_key(
                     book_id, "budget_ending_soon", "budget_ending_soon_title",
                     "budget_ending_today_msg" if days_until_end == 0 else "budget_ending_soon_msg",
-                    goal_id=budget_id,
+                    subject={"budget_id": budget_id},
                     goal_name=budget_name,
                     currency=currency,
                     budget_name=budget_name,
@@ -743,7 +765,7 @@ async def notify_budget_now_active_once(budget: Dict) -> bool:
         return False
 
     _, recipients = await notification_recipients(book_id)
-    existing = await notifications_db.exists(recipients, ["budget_now_active", "budget_started"], goal_id=budget_id)
+    existing = await notifications_db.exists(recipients, ["budget_now_active", "budget_started"], budget_id=budget_id)
     if existing:
         return False
 
@@ -751,7 +773,7 @@ async def notify_budget_now_active_once(budget: Dict) -> bool:
     currency = budget.get("currency", "usd")
     await create_notification_from_key(
         book_id, "budget_now_active", "budget_now_active_title", "budget_now_active_msg",
-        goal_id=budget_id, goal_name=budget_name, currency=currency, budget_name=budget_name,
+        subject={"budget_id": budget_id}, goal_name=budget_name, currency=currency, budget_name=budget_name,
         amount=format_currency_amount(budget.get("total_budget") or 0, currency),
     )
     return True
@@ -761,7 +783,7 @@ async def notify_budget_started(book_id: str, budget_id: str, budget_name: str, 
     currency = await budgets_db.budget_currency(budget_id) or "usd"
     await create_notification_from_key(
         book_id, "budget_started", "budget_started_title", "budget_started_msg",
-        goal_id=budget_id, goal_name=budget_name, currency=currency, budget_name=budget_name, period=period,
+        subject={"budget_id": budget_id}, goal_name=budget_name, currency=currency, budget_name=budget_name, period=period,
         amount=format_currency_amount(total_budget, currency),
     )
 
@@ -772,7 +794,7 @@ async def notify_budget_auto_created(book_id: str, budget_id: str, budget_name: 
     await create_notification_from_key(
         book_id, "budget_auto_created", "budget_auto_created_title",
         "budget_auto_created_msg_ai" if was_ai else "budget_auto_created_msg",
-        goal_id=budget_id, goal_name=budget_name, currency=currency, budget_name=budget_name,
+        subject={"budget_id": budget_id}, goal_name=budget_name, currency=currency, budget_name=budget_name,
     )
 
 
@@ -827,9 +849,9 @@ async def check_large_transaction(book_id: str, transaction: Dict, user_spending
                 notification_type="large_transaction",
                 title=title,
                 message=message,
-                goal_id=transaction["_id"],
                 goal_name=f"Large {category} expense",
-                currency=currency
+                currency=currency,
+                links={"transaction_id": transaction["_id"], "book_id": book_id},
             )
 
 
@@ -910,9 +932,9 @@ async def analyze_unusual_spending(book_id: str):
                         notification_type="unusual_spending",
                         title=title,
                         message=message,
-                        goal_id=None,
                         goal_name=category,
-                        currency=currency
+                        currency=currency,
+                        links={"book_id": book_id},
                     )
 
 
@@ -998,9 +1020,9 @@ async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today
                 notification_type="payment_reminder",
                 title=title,
                 message=message,
-                goal_id=None,
                 goal_name=key,
-                currency=currency
+                currency=currency,
+                links={"book_id": book_id},
             )
 
 
@@ -1034,22 +1056,17 @@ async def _notify_insights_generated(book_id: str, notification_type: str, title
                                      goal_name_en: str, goal_name_my: str):
     """The "insights ready" notice of a book, at most once per hour per book.
 
-    A family book's notice goes to every active account member with goal_id = the book id: that tells it apart
-    from the member's own personal notice (goal_id None) in the hourly dedupe (the app doesn't read goal_id here).
+    The notice links its book (book_id): a family book's notice goes to every active account member, and the hourly
+    dedupe looks for this book's notice only, so a member's own personal notice doesn't hold the family's back.
     """
-    is_family, recipients = await notification_recipients(book_id)
+    _, recipients = await notification_recipients(book_id)
     since = datetime.now(UTC) - timedelta(hours=1)
-    if is_family:
-        duplicate = await notifications_db.exists(recipients, notification_type, goal_id=book_id, since=since)
-    else:
-        duplicate = await notifications_db.exists(recipients, notification_type, no_goal_id=True, since=since)
-    if duplicate:
+    if await notifications_db.exists(recipients, notification_type, book_id=book_id, since=since):
         print(f"Skipping duplicate {notification_type} notification for book {book_id}")
         return None
 
     await create_notification_from_key(
         book_id, notification_type, title_key, msg_key,
-        goal_id=book_id if is_family else None,
         goal_name=lambda lang: goal_name_en if lang == "en" else goal_name_my,
         currency=None,
     )
@@ -1069,38 +1086,46 @@ async def notify_weekly_insights_generated(book_id: str):
                                      "သင့်အတွက် ပြင်ဆင်ထားသော အပတ်စဉ်ထိုးထွင်းသိမြင်မှုများ")
 
 
-async def _notify_custom_insight(user_id: str, report_id: str, start: date, end: date,
-                                 notification_type: str, title_key: str, message_key: str, family: bool = False) -> None:
-    """Store one custom-insight notice. goal_id carries the report id (the app opens the report from it).
+async def _notify_custom_insight(book_id: str, report_id: str, start: date, end: date, asker: Optional[str],
+                                 notification_type: str, title_key: str, message_key: str) -> None:
+    """Store one custom-insight notice, linked to the report (custom_insight_id: the app opens it) and its book.
 
-    user_id is the person to tell (who asked for the report). family=True: the report is a family book's, so the
-    notice carries the family marker too.
+    asker: the person who asked for a family book's report, who alone is told; None: the book's notice goes to
+    whoever the book's notices go to (a personal book's person; every active member of a family book).
     Never raises: the report is already ready or failed, so a notice that cannot be stored is only logged.
     """
+    subject = {"custom_insight_id": report_id}
+
+    def report_range(lang: str) -> str:
+        return f"{format_day(start, lang)} – {format_day(end, lang)}"
     try:
-        await create_person_notification_from_key(
-            user_id, notification_type, title_key, message_key,
-            goal_id=report_id,
-            extra=family_marker() if family else None,
-            range=lambda lang: f"{format_day(start, lang)} – {format_day(end, lang)}",
-        )
+        if asker:
+            await create_person_notification_from_key(
+                asker, notification_type, title_key, message_key,
+                links={**subject, "book_id": book_id}, range=report_range,
+            )
+        else:
+            await create_notification_from_key(
+                book_id, notification_type, title_key, message_key, subject=subject, range=report_range,
+            )
     except Exception as e:
         print(f"❌ Could not send {notification_type} notification for report {report_id}: {e}")
 
 
-async def notify_custom_insight_ready(user_id: str, report_id: str, start: date, end: date,
-                                      family: bool = False) -> None:
-    """Tell the user their custom insight for start..end is ready (goal_id = the report id)."""
-    await _notify_custom_insight(user_id, report_id, start, end, "custom_insight_ready",
-                                 "custom_insight_ready_title", "custom_insight_ready_msg", family)
+async def notify_custom_insight_ready(book_id: str, report_id: str, start: date, end: date,
+                                      asker: Optional[str] = None) -> None:
+    """Tell the asker (see _notify_custom_insight) that the book's custom insight for start..end is ready."""
+    await _notify_custom_insight(book_id, report_id, start, end, asker, "custom_insight_ready",
+                                 "custom_insight_ready_title", "custom_insight_ready_msg")
 
 
-async def notify_custom_insight_failed(user_id: str, report_id: str, start: date, end: date, refused: bool,
-                                       family: bool = False) -> None:
-    """Tell the user their custom insight could not be made, and that it was not counted.
+async def notify_custom_insight_failed(book_id: str, report_id: str, start: date, end: date, refused: bool,
+                                       asker: Optional[str] = None) -> None:
+    """Tell the asker (see _notify_custom_insight) that the book's custom insight could not be made, and that it was
+    not counted.
 
-    refused=True: the question was off-topic (own message); same type and title as a plain failure. goal_id = the report id.
+    refused=True: the question was off-topic (own message); same type and title as a plain failure.
     """
-    await _notify_custom_insight(user_id, report_id, start, end, "custom_insight_failed",
+    await _notify_custom_insight(book_id, report_id, start, end, asker, "custom_insight_failed",
                                  "custom_insight_failed_title",
-                                 "custom_insight_refused_msg" if refused else "custom_insight_failed_msg", family)
+                                 "custom_insight_refused_msg" if refused else "custom_insight_failed_msg")

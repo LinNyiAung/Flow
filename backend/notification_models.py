@@ -33,10 +33,10 @@ class NotificationType(str, Enum):
     UPGRADE_REQUEST_DECLINED = "upgrade_request_declined"
     CUSTOM_INSIGHT_READY = "custom_insight_ready"
     CUSTOM_INSIGHT_FAILED = "custom_insight_failed"
-    FAMILY_INVITE = "family_invite"  # goal_id: the invite id, goal_name: the family name
-    FAMILY_INVITE_ACCEPTED = "family_invite_accepted"  # goal_id: the family id
-    FAMILY_REMOVED = "family_removed"  # goal_id: the family id
-    FAMILY_OWNER = "family_owner"  # goal_id: the family id (the owner's account was deleted; you own it now)
+    FAMILY_INVITE = "family_invite"  # subject_id: the invite id, goal_name: the family name
+    FAMILY_INVITE_ACCEPTED = "family_invite_accepted"  # subject_id: the family id
+    FAMILY_REMOVED = "family_removed"  # subject_id: the family id
+    FAMILY_OWNER = "family_owner"  # subject_id: the family id (the owner's account was deleted; you own it now)
 
 def parse_notification_type(value) -> NotificationType:
     """
@@ -68,7 +68,9 @@ class NotificationResponse(BaseModel):
     type: NotificationType
     title: str
     message: str
-    goal_id: Optional[str] = None
+    # The notice's subject (the goal, budget, entry, custom insight, invite or family it is about: the one typed link
+    # set); None when it has none or the thing was deleted.
+    subject_id: Optional[str] = None
     goal_name: Optional[str] = None
     currency: Optional[str] = None  # NEW - add currency field
     created_at: datetime

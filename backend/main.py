@@ -1214,12 +1214,12 @@ async def get_notifications(
                     type=parse_notification_type(n.get("type")),
                     title=n.get("title") or "",
                     message=n.get("message") or "",
-                    goal_id=n.get("goal_id"),
+                    subject_id=n.get("subject_id"),
                     goal_name=n.get("goal_name"),
                     currency=n.get("currency"),
                     created_at=n["created_at"],
                     is_read=bool(n.get("is_read", False)),
-                    extra={"book": n["book"]} if n.get("book") else None,
+                    extra={"book": "family"} if n.get("book_kind") == "family" else None,
                 ))
             except Exception as item_error:
                 # One malformed document must not break the whole list

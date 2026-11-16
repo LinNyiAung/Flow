@@ -17,6 +17,10 @@ Sections:
     (paid persons' personal books, a paid owner's family book, nothing for Free) and records a family insight's spend
     on the book; the recurring job writes a child in its parent's book and tells only the adder; a family's AI
     auto-create budget follows the owner's plan; unusual spending skips family books (Task 4). Needs the stub server.
+  notification_links -- each notice stores its subject in its typed link (and its book in book_id); the API and push
+    data carry subject_id and book, never goal_id; deleting the subject or the family keeps the notice unlinked; a
+    notice about a subject already gone is stored unlinked; insight notices dedupe per book (Task 5). Needs the stub
+    server.
 """
 import os
 import sys
@@ -1035,8 +1039,253 @@ def section_jobs():
         _drop_people(made)
 
 
+# ---------------------------------------------------------------------------------------------- notification links
+def section_notification_links():
+    """Each notice stores its subject in the typed link its type names (and its book in book_id); the API and the push
+    data carry subject_id and the family marker `book`, never goal_id; deleting the subject (or the family) keeps the
+    notice with its link cleared; a notice about a subject already gone is stored unlinked; insight notices dedupe per
+    book (Task 5). Needs the stub server."""
+    import json
+    import time
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _api_people(c, tag, made)
+    now = datetime.now(UTC).replace(microsecond=0)
+    today = now.date()
+
+    def rows(uid, type_):
+        return db.sql("SELECT * FROM notifications WHERE user_id = %s AND type = %s ORDER BY created_at, id", uid, type_)
+
+    def wait_for(fn, timeout=8.0):
+        end = time.time() + timeout
+        while True:
+            v = fn()
+            if v or time.time() > end:
+                return v
+            time.sleep(0.25)
+
+    def api(u, type_):
+        r = c.get("/api/notifications", headers=u["h"], params={"limit": 100})
+        return [n for n in (r.json() if r.status_code == 200 else []) if n.get("type") == type_]
+
+    def pushes(token):
+        if not os.path.exists(stubenv.OUTBOX):
+            return []
+        with open(stubenv.OUTBOX, encoding="utf-8") as f:
+            recs = [json.loads(line) for line in f if '"fcm_send"' in line]
+        return [(r.get("data") or {}) for r in recs if token in (r.get("fcm_token"), r.get("token"))]
+
+    def linked(uid, type_, link, subject, book):
+        """The person's one notice of this type holds `subject` in `link`, NULL in the other subject links, and
+        `book` in book_id."""
+        got = rows(uid, type_)
+        ok = (len(got) == 1 and got[0][link] == subject and got[0]["book_id"] == book
+              and all(got[0][x] is None for x in LINKS if x != link))
+        check(ok, f"each notice stores its typed link: {type_} -> {link} (other links NULL, book_id "
+                  f"{'the book' if book else 'NULL'})", [{k: g[k] for k in (*LINKS, 'book_id')} for g in got])
+
+    try:
+        P, Q = register("Linkp", "plus"), register("Linkq", "free")
+        if not (P and Q):
+            return
+        for u, name in ((P, "p"), (Q, "q")):
+            db.sql("UPDATE users SET fcm_token = %s WHERE id = %s", f"fcm-links-{name}-{tag}", u["id"])
+        r = c.post("/api/family", json={"name": f"Links {tag}"}, headers=P["h"])
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        fbook = (_books_of(family_id=fid) or [{}])[0].get("id") if fid else None
+        c.post("/api/family/invites", headers=P["h"], json={"email": Q["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=Q["h"]).json().get("invites", [])), {})
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=Q["h"])
+        check(bool(fbook) and bool(inv), "notification links: P owns a family and Q joined it by invite", (fbook, inv))
+        if not (fbook and inv):
+            return
+
+        # ---- each notice stores its typed link
+        r = c.post("/api/transactions", headers=P["h"], json={
+            "type": "inflow", "main_category": "Employment Income", "sub_category": "Salary", "date": now.isoformat(),
+            "amount": 1000, "currency": "usd"})
+        for _ in range(5):
+            _seed_tx(P["book"], "10.00", "outflow")
+        r = c.post("/api/goals", headers=P["h"], json={"name": f"Links goal {tag}", "target_amount": 100,
+                                                        "goal_type": "savings", "currency": "usd"})
+        gid = r.json().get("id") if r.status_code == 200 else None
+        r = c.post(f"/api/goals/{gid}/contribute", headers=P["h"], json={"amount": 100})
+        check(gid and r.status_code == 200, "notification links: P fills a personal goal", f"{r.status_code} {r.text[:200]}")
+        budget = {"name": f"Links budget {tag}", "period": "custom", "currency": "usd", "total_budget": 1000,
+                  "start_date": (today - timedelta(days=1)).isoformat(), "end_date": (today + timedelta(days=5)).isoformat(),
+                  "category_budgets": [{"main_category": "Transportation", "allocated_amount": 1000}]}
+        r = c.post("/api/budgets", headers=P["h"], json=budget)
+        bid = r.json().get("id") if r.status_code == 200 else None
+        r = c.post("/api/transactions", headers=P["h"], json={
+            "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+            "date": now.isoformat(), "amount": 300, "currency": "usd", "description": "Big shop"})
+        txid = r.json().get("id") if r.status_code == 200 else None
+        wait_for(lambda: rows(P["id"], "large_transaction"))
+        ci_own, ci_fam = f"ci-own-{tag}", f"ci-fam-{tag}"
+        for rid, book in ((ci_own, P["book"]), (ci_fam, fbook)):
+            db.sql("INSERT INTO custom_insights (id, book_id, start_date, end_date, status, content) "
+                   "VALUES (%s, %s, current_date - 7, current_date, 'ready', 'Report')", rid, book)
+
+        async def custom_ready():
+            import custom_insights_service as cis
+            stubenv.patch_loaded_modules()
+            base = {"status": "ready", "start_date": today - timedelta(days=7), "end_date": today}
+            await cis._notify(base | {"_id": ci_own, "book_id": P["book"], "counter_keys": []})
+            await cis._notify(base | {"_id": ci_fam, "book_id": fbook,
+                                      "counter_keys": [["insight_custom", "month", today.isoformat(), P["id"]]]})
+        _backend_async(custom_ready)
+
+        linked(P["id"], "goal_achieved", "goal_id", gid, P["book"])
+        linked(P["id"], "budget_started", "budget_id", bid, P["book"])
+        linked(P["id"], "large_transaction", "transaction_id", txid, P["book"])
+        own = [x for x in rows(P["id"], "custom_insight_ready") if x["custom_insight_id"] == ci_own]
+        fam = [x for x in rows(P["id"], "custom_insight_ready") if x["custom_insight_id"] == ci_fam]
+        check(len(own) == 1 and own[0]["book_id"] == P["book"] and len(fam) == 1 and fam[0]["book_id"] == fbook
+              and all(x[k] is None for x in own + fam for k in LINKS if k != "custom_insight_id"),
+              "each notice stores its typed link: custom_insight_ready -> custom_insight_id (book_id the report's book)",
+              (own, fam))
+        linked(Q["id"], "family_invite", "family_invite_id", inv["id"], None)
+        linked(P["id"], "family_invite_accepted", "family_id", fid, None)
+
+        # ---- API and push carry subject_id and book
+        r = c.post("/api/budgets", headers={**P["h"], **FAMILY}, json=budget | {"name": f"Links family {tag}"})
+        fbid = r.json().get("id") if r.status_code == 200 else None
+        check(fbid is not None, "API and push carry subject_id and book: P creates a family budget",
+              f"{r.status_code} {r.text[:200]}")
+        ag = api(P, "goal_achieved")
+        check(len(ag) == 1 and ag[0].get("subject_id") == gid and "goal_id" not in ag[0] and not ag[0].get("extra"),
+              "API and push carry subject_id and book: GET /api/notifications gives a personal notice subject_id and no "
+              "goal_id, no book marker", ag)
+        aq = api(Q, "budget_started")
+        check(len(aq) == 1 and aq[0].get("subject_id") == fbid and "goal_id" not in aq[0]
+              and (aq[0].get("extra") or {}).get("book") == "family",
+              "API and push carry subject_id and book: a family budget's notice has subject_id and extra.book = 'family'",
+              aq)
+        ai = api(Q, "family_invite")
+        check(len(ai) == 1 and ai[0].get("subject_id") == inv["id"] and not ai[0].get("extra"),
+              "API and push carry subject_id and book: the invite notice's subject_id is the invite id", ai)
+        qp = wait_for(lambda: [d for d in pushes(f"fcm-links-q-{tag}") if d.get("subject_id") == fbid])
+        check(len(qp) == 1 and qp[0].get("book") == "family" and "goal_id" not in qp[0],
+              "API and push carry subject_id and book: the family push data has subject_id and book = 'family', no "
+              "goal_id", pushes(f"fcm-links-q-{tag}"))
+        pp = wait_for(lambda: [d for d in pushes(f"fcm-links-p-{tag}") if d.get("subject_id") == bid])
+        check(len(pp) == 1 and "book" not in pp[0] and "goal_id" not in pp[0],
+              "API and push carry subject_id and book: a personal push has subject_id and no book, no goal_id",
+              pushes(f"fcm-links-p-{tag}"))
+        np_ = [d for d in pushes(f"fcm-links-p-{tag}") if d.get("type") == "large_transaction"]
+        check(len(np_) == 1 and np_[0].get("subject_id") == txid,
+              "API and push carry subject_id and book: the large-entry push's subject_id is the entry", np_)
+
+        # ---- a notice about a subject already gone is stored unlinked (never fails its caller)
+        gone = f"no-such-budget-{tag}"
+
+        async def about_gone():
+            import notification_service as ns
+            stubenv.patch_loaded_modules()
+            await ns.notify_budget_auto_created(P["book"], gone, f"Gone {tag}", False)
+        try:
+            _backend_async(about_gone)
+            err = None
+        except Exception as e:  # noqa: BLE001
+            err = repr(e)[:300]
+        ga = rows(P["id"], "budget_auto_created")
+        check(err is None and len(ga) == 1 and ga[0]["budget_id"] is None and ga[0]["book_id"] == P["book"]
+              and f"Gone {tag}" in ga[0]["message"],
+              "a notice about a subject already gone is stored with the link NULL, its caller unharmed", (err, ga))
+
+        # ---- insight notices dedupe per book
+        _seed_tx(fbook, "40.00", "outflow")
+        ours = {P["id"], Q["id"]}
+
+        async def weekly_twice():
+            import insights_service as ins
+            import notification_service as ns
+            stubenv.patch_loaded_modules()
+            orig_list, orig_books = ins.users_db.list_fields, ins.families_db.books_with_paid_owner
+
+            async def only_people(fields, *where):
+                return [u for u in await orig_list(fields, *where) if u["_id"] in ours]
+
+            async def only_family(plans):
+                return [b for b in await orig_books(plans) if b["book_id"] == fbook]
+            ins.users_db.list_fields, ins.families_db.books_with_paid_owner = only_people, only_family
+            try:
+                await ins.generate_weekly_insights_for_all_users()
+                await ins.generate_weekly_insights_for_all_users()
+            finally:
+                ins.users_db.list_fields, ins.families_db.books_with_paid_owner = orig_list, orig_books
+            for b in (P["book"], fbook):  # a direct repeat within the hour is dropped as well
+                await ns.notify_weekly_insights_generated(b)
+        try:
+            _backend_async(weekly_twice)
+            err = None
+        except Exception as e:  # noqa: BLE001
+            err = repr(e)[:300]
+        got = sorted(((x["user_id"], x["book_id"]) for u in (P, Q) for x in rows(u["id"], "weekly_insights_generated")),
+                     key=repr)
+        want = sorted([(P["id"], P["book"]), (P["id"], fbook), (Q["id"], fbook)], key=repr)
+        check(err is None and got == want,
+              "insight notices dedupe per book: the weekly job twice gives each recipient one notice per book (P: "
+              "personal and family; Q: family)", (err, got, want))
+
+        # ---- the dedupe reader on typed links, and the writer's type -> link table
+        async def readers():
+            import notification_service as ns
+            from sql import notifications as notifications_db
+            stubenv.patch_loaded_modules()
+            found = (await notifications_db.exists(P["id"], "goal_achieved", goal_id=gid),
+                     await notifications_db.exists(P["id"], "goal_achieved", budget_id=gid),
+                     await notifications_db.exists(P["id"], "weekly_insights_generated", no_subject=True),
+                     await notifications_db.exists(P["id"], "goal_achieved", no_subject=True))
+            try:
+                await ns.create_notification(P["id"], "goal_achieved", "t", "m", links={"budget_id": bid})
+                refused = None
+            except ValueError as e:
+                refused = str(e)
+            return found, refused
+        found, refused = _backend_async(readers)
+        check(found == (True, False, True, False),
+              "exists() matches the typed link given (goal_id, not budget_id) and no_subject means no subject link",
+              found)
+        check(refused is not None and not rows(P["id"], "goal_achieved")[1:],
+              "a writer can't store a subject under a link its type doesn't name (goal_achieved with budget_id)",
+              refused)
+
+        # ---- deleting the subject keeps the notice
+        before = api(P, "goal_achieved")
+        r = c.delete(f"/api/goals/{gid}", headers=P["h"])
+        after = api(P, "goal_achieved")
+        check(r.status_code == 200 and len(after) == 1 and before and after[0]["id"] == before[0]["id"]
+              and after[0]["message"] == before[0]["message"] and after[0]["title"] == before[0]["title"]
+              and after[0].get("subject_id") is None,
+              "deleting the subject keeps the notice: the goal's goal_achieved notice stays with its text, subject_id "
+              "null", (r.status_code, before, after))
+
+        # ---- deleting the family keeps its notices, links cleared
+        r = c.request("DELETE", "/api/family", headers=P["h"], json={"confirm_name": f"Links {tag}"})
+        fam_notes = [x for x in rows(Q["id"], "budget_started")]
+        check(r.status_code == 200 and len(fam_notes) == 1 and fam_notes[0]["budget_id"] is None
+              and fam_notes[0]["book_id"] is None,
+              "deleting the family keeps its notices: Q's family budget notice stays, budget_id and book_id NULL",
+              (r.status_code, r.text[:200], fam_notes))
+        aq = api(Q, "budget_started")
+        check(len(aq) == 1 and aq[0].get("subject_id") is None and not aq[0].get("extra"),
+              "deleting the family keeps its notices: the API lists it with subject_id null and no book marker", aq)
+        acc, invn = rows(P["id"], "family_invite_accepted"), rows(Q["id"], "family_invite")
+        check(len(acc) == 1 and acc[0]["family_id"] is None and len(invn) == 1 and invn[0]["family_invite_id"] is None,
+              "deleting the family keeps its notices: the joined and invite notices stay, family_id and "
+              "family_invite_id NULL", (acc, invn))
+    finally:
+        _drop_people(made)
+
+
 SECTIONS = {"schema": section_schema, "migration": section_migration, "books_in_requests": section_books_in_requests,
-            "api_shape": section_api_shape, "books_api": section_books_api, "jobs": section_jobs}
+            "api_shape": section_api_shape, "books_api": section_books_api, "jobs": section_jobs,
+            "notification_links": section_notification_links}
 
 
 def main():

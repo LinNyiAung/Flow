@@ -284,8 +284,8 @@ notifications = Table(
     Column("type", Text, nullable=False),
     Column("title", Text, nullable=False, server_default=""),
     Column("message", Text, nullable=False, server_default=""),
-    # The notice's subject: at most one typed link, set by `type` (sql.docs.NOTIFICATION_LINKS). SET NULL: a notice
-    # outlives the thing it was about and keeps its text, it just stops opening it.
+    # The notice's subject: at most one typed link, set by `type` (notification_service.NOTIFICATION_LINKS). SET NULL:
+    # a notice outlives the thing it was about and keeps its text, it just stops opening it.
     _notice_link("goal_id", "goals"),
     _notice_link("budget_id", "budgets"),
     _notice_link("transaction_id", "transactions"),

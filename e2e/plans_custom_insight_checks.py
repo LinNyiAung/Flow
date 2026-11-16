@@ -397,33 +397,43 @@ async def notification_checks(t, h):
     def notes(uid, kind):
         return list(h.db.notifications.find({"user_id": uid, "type": kind}))
 
-    rid = str(uuid.uuid4())
-    await ns.notify_custom_insight_ready(en_uid, rid, start, end)
+    def report(uid, status):
+        """A stored report of the person's book (a notice links it: custom_insight_id is a FK)."""
+        rid = str(uuid.uuid4())
+        h.db.sql("INSERT INTO custom_insights (id, book_id, start_date, end_date, status, content) "
+                 "VALUES (%s, %s, %s, %s, %s, %s)", rid, h.book(uid), start, end, status,
+                 "Report" if status == "ready" else None)
+        return rid
+
+    en_book, my_book = h.book(en_uid), h.book(my_uid)
+    rid = report(en_uid, "ready")
+    await ns.notify_custom_insight_ready(en_book, rid, start, end)
     got = notes(en_uid, "custom_insight_ready")
     row = got[0] if got else {}
-    check(len(got) == 1 and row["goal_id"] == rid and "Oct 6, 2026 – Nov 4, 2026" in row["message"]
+    check(len(got) == 1 and row["custom_insight_id"] == rid and row["book_id"] == en_book
+          and "Oct 6, 2026 – Nov 4, 2026" in row["message"]
           and row["title"] == "Your custom insight is ready 📊" and row["message"].endswith("Tap to read it."),
           "notify_custom_ready: stored with the report id and the date range", row)
 
-    fid = str(uuid.uuid4())
-    await ns.notify_custom_insight_failed(en_uid, fid, start, end, refused=False)
+    fid = report(en_uid, "failed")
+    await ns.notify_custom_insight_failed(en_book, fid, start, end, refused=False)
     got = notes(en_uid, "custom_insight_failed")
     f = got[0] if got else {}
     check(len(got) == 1 and f["type"] == "custom_insight_failed" and "wasn't counted" in f["message"]
-          and f["goal_id"] == fid and f["title"] == "Custom insight not created" and "Oct 6, 2026 – Nov 4, 2026" in f["message"],
+          and f["custom_insight_id"] == fid and f["title"] == "Custom insight not created"
+          and "Oct 6, 2026 – Nov 4, 2026" in f["message"],
           "notify_custom_failed: says it was not counted", f)
 
-    xid = str(uuid.uuid4())
-    await ns.notify_custom_insight_failed(en_uid, xid, start, end, refused=True)
-    r = next((n for n in notes(en_uid, "custom_insight_failed") if n["goal_id"] == xid), {})
+    xid = report(en_uid, "refused")
+    await ns.notify_custom_insight_failed(en_book, xid, start, end, refused=True)
+    r = next((n for n in notes(en_uid, "custom_insight_failed") if n["custom_insight_id"] == xid), {})
     # .get on f: when the plain failure notice above was not stored, this check must fail, not raise a KeyError
     check(r and r["title"] == f.get("title") and r["message"] != f.get("message") and "answer from your finances" in r["message"]
           and r["message"].endswith("It wasn't counted."),
           "notify_custom_refused: its own message, the failed type and title", r)
 
-    mid = str(uuid.uuid4())
-    await ns.notify_custom_insight_ready(my_uid, mid, start, end)
-    await ns.notify_custom_insight_failed(my_uid, str(uuid.uuid4()), start, end, refused=True)
+    await ns.notify_custom_insight_ready(my_book, report(my_uid, "ready"), start, end)
+    await ns.notify_custom_insight_failed(my_book, report(my_uid, "refused"), start, end, refused=True)
     mm = notes(my_uid, "custom_insight_ready")
     mm_row = mm[0] if mm else {"title": "", "message": ""}
     mm_fail = (notes(my_uid, "custom_insight_failed") or [{"title": "", "message": ""}])[0]
@@ -439,9 +449,9 @@ async def notification_checks(t, h):
     check(prefs.get("custom_insight_ready") is True and prefs.get("custom_insight_failed") is True,
           "notify_custom_prefs: both types are on by default", prefs)
 
-    try:
-        await ns.notify_custom_insight_ready("t9c-no-such-user", str(uuid.uuid4()), start, end)
-        await ns.notify_custom_insight_failed("t9c-no-such-user", str(uuid.uuid4()), start, end, refused=False)
+    try:  # a recipient that doesn't exist: the store fails (users FK)
+        await ns.notify_custom_insight_ready(en_book, rid, start, end, asker="t9c-no-such-user")
+        await ns.notify_custom_insight_failed(en_book, fid, start, end, refused=False, asker="t9c-no-such-user")
         swallowed = True
     except Exception as exc:  # noqa: BLE001
         swallowed = repr(exc)
@@ -490,7 +500,7 @@ async def generation_checks(t, h):
         return sorted(h.db.notifications.find({"user_id": uid}), key=lambda n: n["created_at"])
 
     def notes_for(uid, rid):
-        return [n for n in notes(uid) if n.get("goal_id") == rid]
+        return [n for n in notes(uid) if n.get("custom_insight_id") == rid]
 
     def answering(text, finish="stop"):
         """A stand-in for run_insight_model that answers `text` from Claude (finish: the completion's finish reason)."""
@@ -1495,7 +1505,8 @@ async def route_checks(t, h):
         reset_ai()
         check(r.status_code == 202 and d.get("status") == "refused" and d.get("content") is None and h.used(u) == 0,
               "off_topic_refused_over_http: refused, nothing counted", d)
-        check([n["type"] for n in h.db.notifications.find({"user_id": u, "goal_id": d.get("id")})] == ["custom_insight_failed"],
+        sent = h.db.notifications.find({"user_id": u, "custom_insight_id": d.get("id")})
+        check([n["type"] for n in sent] == ["custom_insight_failed"],
               "off_topic_notified_once")
 
         # ---- the list pages: 30 a page, newest first, `next_before` until the last page

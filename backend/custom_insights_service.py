@@ -332,17 +332,15 @@ async def _asker(row: dict) -> Optional[str]:
 
 
 async def _notify(row: dict) -> None:
-    """After the commit: the "ready" or "not created" notice (the notification functions log their own failures)."""
-    who = await _asker(row)
-    if who is None:
-        return
-    # A family book's report: the asker's notice carries the family marker as well (the fan-out adds it itself).
-    family = _family_asker(row) is not None
+    """After the commit: the "ready" or "not created" notice, linked to the report and its book (the notification
+    functions log their own failures). A family book's report tells the person who asked for it; a report with no
+    recorded asker (a personal book's) tells whoever the book's notices go to."""
+    asker = _family_asker(row)
     if row["status"] == "ready":
-        await notify_custom_insight_ready(who, row["_id"], row["start_date"], row["end_date"], family=family)
+        await notify_custom_insight_ready(row["book_id"], row["_id"], row["start_date"], row["end_date"], asker=asker)
     else:
-        await notify_custom_insight_failed(who, row["_id"], row["start_date"], row["end_date"],
-                                           refused=row["status"] == "refused", family=family)
+        await notify_custom_insight_failed(row["book_id"], row["_id"], row["start_date"], row["end_date"],
+                                           refused=row["status"] == "refused", asker=asker)
 
 
 async def _finish(report_id: str, status: str, **fields) -> dict | None:

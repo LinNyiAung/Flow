@@ -977,7 +977,6 @@ async def broadcast_notification(
                 "type": notification_type,
                 "title": broadcast_data.title,
                 "message": broadcast_data.message,
-                "goal_id": None,
                 "goal_name": None,
                 "currency": None,
                 "created_at": now,

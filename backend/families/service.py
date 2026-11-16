@@ -268,8 +268,10 @@ async def update_member(user: Mapping[str, Any], member_id: str, display_name: O
     return await overview(user)
 
 
-async def _notify(user_id: Optional[str], kind: str, key: str, ref_id: str, ref_name: str, **values: Any) -> None:
-    """One notification in the recipient's language; a failure is logged, never raised (the change is done)."""
+async def _notify(user_id: Optional[str], kind: str, key: str, subject: Dict[str, str], ref_name: str,
+                  **values: Any) -> None:
+    """One notification in the recipient's language, linked to `subject` (the invite or the family, e.g.
+    {"family_id": ...}); a failure is logged, never raised (the change is done)."""
     if not user_id:
         return
     try:
@@ -279,7 +281,7 @@ async def _notify(user_id: Optional[str], kind: str, key: str, ref_id: str, ref_
         lang = user_language(person)
         await notification_service.create_notification(
             user_id, kind, translate(f"{key}_title", lang), translate(f"{key}_msg", lang, **values),
-            goal_id=ref_id, goal_name=ref_name)
+            goal_name=ref_name, links=subject)
     except Exception:  # noqa: BLE001
         logger.exception("Could not send the %s notification", kind)
 
@@ -312,7 +314,7 @@ async def remove_member(user: Mapping[str, Any], member_id: str) -> Dict[str, An
                 _fail(user, "not_allowed")
             notify_user = target["user_id"]
     if notify_user:
-        await _notify(notify_user, "family_removed", "family_removed", family["id"], family["name"],
+        await _notify(notify_user, "family_removed", "family_removed", {"family_id": family["id"]}, family["name"],
                       family_name=family["name"])
     return await overview(user)
 
@@ -400,7 +402,7 @@ async def before_account_delete(user_id: str) -> Optional[Dict[str, Any]]:
 async def announce_new_owner(handover: Optional[Mapping[str, Any]]) -> None:
     """After before_account_delete's transaction committed: tell the new owner (family_owner). Never raises."""
     if handover:
-        await _notify(handover["user_id"], "family_owner", "family_owner", handover["family_id"],
+        await _notify(handover["user_id"], "family_owner", "family_owner", {"family_id": handover["family_id"]},
                       handover["family_name"], family_name=handover["family_name"])
 
 
@@ -447,8 +449,8 @@ async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Opt
         invite = await fdb.insert_invite(str(uuid.uuid4()), family["id"], email, me["id"], link_member_id,
                                          now + timedelta(days=INVITE_DAYS))
     if invitee:
-        await _notify(invitee["_id"], "family_invite", "family_invite", invite["id"], family["name"],
-                      inviter=me["display_name"], family_name=family["name"])
+        await _notify(invitee["_id"], "family_invite", "family_invite", {"family_invite_id": invite["id"]},
+                      family["name"], inviter=me["display_name"], family_name=family["name"])
     return _invite_json(invite)
 
 
@@ -518,8 +520,8 @@ async def accept_invite(user: Mapping[str, Any], invite_id: str) -> Dict[str, An
     name = _own_name(user)
     for admin_id in await fdb.admin_user_ids(family_id):
         if admin_id != uid:
-            await _notify(admin_id, "family_invite_accepted", "family_invite_accepted", family_id, family["name"],
-                          name=name, family_name=family["name"])
+            await _notify(admin_id, "family_invite_accepted", "family_invite_accepted", {"family_id": family_id},
+                          family["name"], name=name, family_name=family["name"])
     return await overview(user)
 
 

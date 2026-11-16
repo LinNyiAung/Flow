@@ -42,10 +42,10 @@ async def main():
     r = await c.get("/api/budgets", headers=H)
     print("status after list:", next(b["status"] for b in r.json() if b["id"] == bid))
     await ns.check_budget_period_notifications()
-    n = await N.count_documents({"user_id": carol["_id"], "type": STARTED, "goal_id": bid})
+    n = await N.count_documents({"user_id": carol["_id"], "type": STARTED, "budget_id": bid})
     print(("[PASS]" if n == 1 else "[BUG]") + f" exactly one 'budget now active' notification after list view + job: {n}")
     await ns.check_budget_period_notifications()
-    n2 = await N.count_documents({"user_id": carol["_id"], "type": STARTED, "goal_id": bid})
+    n2 = await N.count_documents({"user_id": carol["_id"], "type": STARTED, "budget_id": bid})
     print(("[PASS]" if n2 == 1 else "[BUG]") + f" a second job run doesn't send it again: {n2}")
     await c.delete(f"/api/budgets/{bid}", headers=H)
 
