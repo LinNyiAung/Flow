@@ -75,7 +75,7 @@ async def create_goal(
 
         new_goal = {
             "_id": goal_id,
-            "user_id": book.id,
+            "book_id": book.id,
             "name": goal_data.name,
             "target_amount": _money(target),
             "current_amount": current_amount,
@@ -97,7 +97,7 @@ async def create_goal(
 
     return GoalResponse(
         id=goal_id,
-        user_id=book.id,
+        book_id=book.id,
         name=goal_data.name,
         target_amount=new_goal["target_amount"],
         current_amount=current_amount,
@@ -128,7 +128,7 @@ async def get_goals(
     return [
         GoalResponse(
             id=g["_id"],
-            user_id=g["user_id"],
+            book_id=g["book_id"],
             name=g["name"],
             target_amount=g["target_amount"],
             current_amount=g["current_amount"],
@@ -189,7 +189,7 @@ async def get_goal(
 
     return GoalResponse(
         id=goal["_id"],
-        user_id=goal["user_id"],
+        book_id=goal["book_id"],
         name=goal["name"],
         target_amount=goal["target_amount"],
         current_amount=goal["current_amount"],
@@ -248,7 +248,7 @@ async def update_goal(
 
     return GoalResponse(
         id=updated_goal["_id"],
-        user_id=updated_goal["user_id"],
+        book_id=updated_goal["book_id"],
         name=updated_goal["name"],
         target_amount=updated_goal["target_amount"],
         current_amount=updated_goal["current_amount"],
@@ -378,7 +378,7 @@ async def contribute_to_goal(
 
     return GoalResponse(
         id=updated_goal["_id"],
-        user_id=updated_goal["user_id"],
+        book_id=updated_goal["book_id"],
         name=updated_goal["name"],
         target_amount=updated_goal["target_amount"],
         current_amount=updated_goal["current_amount"],

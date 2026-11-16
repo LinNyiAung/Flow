@@ -52,7 +52,7 @@ def _refresh(background_tasks: BackgroundTasks, legs: Iterable[Dict[str, Any]]) 
     budgets are recomputed the same way)."""
     for leg in legs:
         date = leg["date"] if leg["date"].tzinfo else leg["date"].replace(tzinfo=UTC)
-        background_tasks.add_task(update_relevant_budgets, leg["user_id"], date, leg["currency"])
+        background_tasks.add_task(update_relevant_budgets, leg["book_id"], date, leg["currency"])
 
 
 async def create_transfer(person: dict, direction: Direction, amount: float, currency: str, date: datetime,
@@ -68,22 +68,23 @@ async def create_transfer(person: dict, direction: Direction, amount: float, cur
     require_writable(book)
 
     to_family = direction == "to_family"
-    source = person["_id"] if to_family else book.id
+    personal_book = book.person["personal_book_id"]
+    source = personal_book if to_family else book.id
     transfer_id = str(uuid.uuid4())
     now = datetime.now(UTC)
     when = date if date.tzinfo else date.replace(tzinfo=UTC)
     note = (description or "").strip() or None
 
-    def leg(user_id: str, type_: str, added_by: Optional[str]) -> Dict[str, Any]:
-        return {"_id": str(uuid.uuid4()), "user_id": user_id, "type": type_, "main_category": MAIN_CATEGORY,
+    def leg(book_id: str, type_: str, added_by: Optional[str]) -> Dict[str, Any]:
+        return {"_id": str(uuid.uuid4()), "book_id": book_id, "type": type_, "main_category": MAIN_CATEGORY,
                 "sub_category": SUB_CATEGORY, "date": when, "description": note, "amount": amount,
                 "currency": currency, "created_at": now, "updated_at": now, "recurrence": None,
                 "transfer_id": transfer_id, "added_by_member_id": added_by}
 
-    personal = leg(person["_id"], "outflow" if to_family else "inflow", None)
+    personal = leg(personal_book, "outflow" if to_family else "inflow", None)
     family = leg(book.id, "inflow" if to_family else "outflow", book.member["id"])
 
-    async with get_books_money_locks((person["_id"], book.id)):  # one transaction: both legs or neither
+    async with get_books_money_locks((personal_book, book.id)):  # one transaction: both legs or neither
         await _still_in(book)
         available = (await get_book_balance(source, currency))["available_balance"]
         if to_cents(amount) > to_cents(available):
@@ -91,7 +92,7 @@ async def create_transfer(person: dict, direction: Direction, amount: float, cur
         await transactions_db.insert_transaction(personal)
         await transactions_db.insert_transaction(family)
 
-    for book_id in (person["_id"], book.id):
+    for book_id in (personal_book, book.id):
         await books_db.mark_ai_data_stale(book_id)
     _refresh(background_tasks, (personal, family))
     return {"transfer_id": transfer_id, "personal_transaction_id": personal["_id"],
@@ -112,17 +113,18 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
     legs = await transactions_db.transfer_legs(transfer_id)
     if not legs:
         refuse(person, 404, "transfer_not_found")
-    if not any(x["user_id"] == person["_id"] for x in legs):
+    personal_book = person["personal_book_id"]
+    if not any(x["book_id"] == personal_book for x in legs):
         refuse(person, 403, "not_allowed")  # someone else's transfer (its personal leg is in their book)
     if len(legs) != 2:
         refuse(person, 409, "transfer_gone")
-    family_leg = next(x for x in legs if x["user_id"] != person["_id"])
+    family_leg = next(x for x in legs if x["book_id"] != personal_book)
     book = await _family_book(person)
-    if book is None or family_leg["user_id"] != book.id:
+    if book is None or family_leg["book_id"] != book.id:
         refuse(person, 403, "not_allowed")  # a family the caller is no longer in
     require_writable(book)
 
-    async with get_books_money_locks(x["user_id"] for x in legs):  # one transaction: both legs or neither
+    async with get_books_money_locks(x["book_id"] for x in legs):  # one transaction: both legs or neither
         legs = await transactions_db.transfer_legs(transfer_id)
         if not legs:
             refuse(person, 404, "transfer_not_found")  # undone meanwhile
@@ -131,7 +133,7 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
         await _check_destination(person, legs)
         await transactions_db.delete_transfer(transfer_id)
 
-    for book_id in {x["user_id"] for x in legs}:
+    for book_id in {x["book_id"] for x in legs}:
         await books_db.mark_ai_data_stale(book_id)
     _refresh(background_tasks, legs)
     return {"message": "Transfer undone", "transfer_id": transfer_id}
@@ -140,6 +142,6 @@ async def undo_transfer(person: dict, transfer_id: str, background_tasks: Backgr
 async def _check_destination(person: dict, legs: List[Dict[str, Any]]) -> None:
     """The book the money went to (the inflow leg) must still have it available."""
     inflow = next(x for x in legs if x["type"] == "inflow")
-    available = (await get_book_balance(inflow["user_id"], inflow["currency"]))["available_balance"]
+    available = (await get_book_balance(inflow["book_id"], inflow["currency"]))["available_balance"]
     if to_cents(available) < to_cents(inflow["amount"]):
         refuse(person, 400, "transfer_insufficient")

@@ -272,16 +272,10 @@ async def get_balance(
 
 # ==================== AI CHATBOT ====================
 
-def _chat_book_id(book: Book) -> Optional[str]:
-    """The chat_sessions.book_id of a request's book (ruling R2): the family's book id in Family mode, None for the
-    personal book. Chat history is stored and read per (person, book_id): private to each person, per book."""
-    return book.id if book.is_family else None
-
-
-async def save_chat_session(user_id: str, user_message: str, ai_response: str, book_id: Optional[str] = None):
+async def save_chat_session(user_id: str, user_message: str, ai_response: str, book_id: str):
     """
-    Append one user/assistant exchange to the person's server-stored chat history about `book_id` (None: their
-    personal book).
+    Append one user/assistant exchange to the person's server-stored chat history about book `book_id` (their personal
+    book or their family's). Chat history is stored and read per (person, book): private to each person, per book.
 
     The server copy is the source of truth: client-supplied history is never written
     back (it may be stale, truncated or edited), only the new exchange is appended and
@@ -351,7 +345,7 @@ async def stream_chat_with_ai(
 
     The answer is about the request's book (its data, its AI-staleness flag); the allowance, the AI cost (so the cost
     cap) and the prompt's profile (name, language, default currency) are the person's. Chat history is stored per
-    person and book (_chat_book_id): a family chat is private to the person asking.
+    person and book (chat_sessions.book_id = book.id): a family chat is private to the person asking.
 
     Frames (each `data: <json>\\n\\n`):
       - meta (always first, once): {"chunk": "", "done": false, "mode_used": "standard"|"advanced",
@@ -372,14 +366,14 @@ async def stream_chat_with_ai(
     """
     current_user = book.person
     user_id = current_user["_id"]  # the person: allowance and chat history
-    data_id = book.id  # the book the answer is about
+    book_id = book.id  # the book the answer is about
 
     # Clearing the ai_data_stale flag with a conditional update first means a data
     # change that lands after this point re-sets the flag and is picked up next time.
     try:
-        if await books_db.claim_ai_data_fresh(data_id):
-            _invalidate_ai_caches(data_id)
-            print(f"🔄 AI data was stale for book {data_id}; invalidated cached vector stores")
+        if await books_db.claim_ai_data_fresh(book_id):
+            _invalidate_ai_caches(book_id)
+            print(f"🔄 AI data was stale for book {book_id}; invalidated cached vector stores")
     except Exception as e:
         print(f"⚠️ Failed to refresh stale AI data: {e}")
 
@@ -417,7 +411,7 @@ async def stream_chat_with_ai(
             try:
                 # aclosing: a client disconnect closes the chatbot's stream, and through it the provider's.
                 async with aclosing(financial_chatbot.stream_chat(
-                    user_id=data_id,
+                    user_id=book_id,
                     message=chat_request.message,
                     chat_history=chat_history,
                     response_style=response_style,
@@ -446,7 +440,7 @@ async def stream_chat_with_ai(
             if full_response:
                 # Saved BEFORE the "done" frame: the client may disconnect as soon as it
                 # sees done:true, which would cancel anything after the yield.
-                await save_chat_session(user_id, chat_request.message, full_response, _chat_book_id(book))
+                await save_chat_session(user_id, chat_request.message, full_response, book_id)
 
             await settle()  # the answer completed: the use is kept
             yield _sse({"chunk": "", "done": True, "full_response": full_response, "timestamp": datetime.now(UTC).isoformat()})
@@ -494,7 +488,7 @@ async def get_chat_history(
     """The caller's own chat history about the request's book: personal, or (X-Book: family) their own family-mode
     questions only, never another member's."""
     try:
-        messages = await chat_db.history(book.person["_id"], limit, _chat_book_id(book))
+        messages = await chat_db.history(book.person["_id"], limit, book.id)
 
         return [
             ChatMessage(
@@ -514,7 +508,7 @@ async def clear_chat_history(book: Book = Depends(get_book)):
     """Clear the caller's own chat history about the request's book (Family mode: only their own family-mode history;
     their personal history and other members' are kept)."""
     try:
-        deleted = await chat_db.clear(book.person["_id"], _chat_book_id(book))
+        deleted = await chat_db.clear(book.person["_id"], book.id)
         return {
             "message": f"Cleared {deleted} chat sessions",
             "deleted_count": deleted
@@ -624,17 +618,17 @@ async def _read_only_family_insight(book: Book, insight_type: str, language: Opt
     return _insight_response(insight, translation_locked=language == "mm", plan_translates=False)
 
 
-async def _generate_counted(user: dict, insight_type: str, data_id: Optional[str] = None):
-    """One on-demand insight of book `data_id` (default: the user's own), reserved on the plan first (a locked insight
-    type, the hidden cost cap or a used-up allowance raise PlanError, which no handler may swallow) and counted only
-    when the result is a new real insight.
+async def _generate_counted(user: dict, insight_type: str, book_id: str):
+    """One on-demand insight of book `book_id`, reserved on `user`'s plan first (a locked insight type, the hidden cost
+    cap or a used-up allowance raise PlanError, which no handler may swallow) and counted only when the result is a new
+    real insight.
 
     An included insight reserves nothing but is still refused at the cost cap. A placeholder, an older insight
     reused for a quiet period, an empty result or any failure gives the reservation back.
     """
     reservation = await quota.reserve(user, f"insight_{insight_type}")
     try:
-        insight = await _generate_insight(data_id or user["_id"], insight_type)
+        insight = await _generate_insight(book_id, insight_type)
     except BaseException:
         await quota.give_back(reservation)
         raise
@@ -782,7 +776,7 @@ def _insight_response(insight: dict, translation_locked: bool = False, plan_tran
         )
     return InsightResponse(
         id=insight["_id"],
-        user_id=insight["user_id"],
+        book_id=insight["book_id"],
         content=insight["content"],
         content_mm=insight.get("content_mm") if plan_translates else None,
         generated_at=insight["generated_at"],
@@ -793,7 +787,7 @@ def _insight_response(insight: dict, translation_locked: bool = False, plan_tran
     )
 
 
-async def _free_monthly_insight(user: dict, latest: Optional[dict], data_id: Optional[str] = None) -> dict:
+async def _free_monthly_insight(user: dict, latest: Optional[dict], book_id: str) -> dict:
     """The monthly insight a Free user sees: generated on demand, once per calendar month (app timezone).
 
     - A real (non-placeholder) monthly insight generated this month, by this on-demand call or by the scheduler while
@@ -806,22 +800,21 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict], data_id: Opt
       is surfaced, as for Plus and Pro.
     - If the month's use is gone or the hidden cost cap is reached, the latest older real insight is shown (200, nothing
       counted); with none stored the 429 PlanError is raised. An owner-locked insight is still a 403.
-    `latest` is the newest stored insight. `data_id`: the book (default: the user's own).
+    `latest` is the newest stored insight. `book_id`: the user's personal book.
     """
     from insights_service import _latest_real_insight, user_has_insight_data
 
-    user_id = data_id or user["_id"]
-    real = await _latest_real_insight(user_id, "monthly")
+    real = await _latest_real_insight(book_id, "monthly")
     this_month = periods.period_start("month", datetime.now(UTC))
     if real and real.get("generated_at") and periods.period_start("month", as_utc(real["generated_at"])) == this_month:
         return real
-    if latest and latest.get("is_placeholder") and not await user_has_insight_data(user_id, "monthly"):
+    if latest and latest.get("is_placeholder") and not await user_has_insight_data(book_id, "monthly"):
         return real or latest
 
     error: Optional[Exception] = None
     generated = None
     try:
-        generated = await _generate_counted(user, "monthly", user_id)
+        generated = await _generate_counted(user, "monthly", book_id)
     except PlanError as e:
         # Blocked from generating this month's insight (the month's use is gone, the hidden cost cap): an older real
         # insight costs nothing to show, so it is returned instead of the 429. With none stored the refusal stands.
@@ -831,7 +824,7 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict], data_id: Opt
         raise
     except Exception as e:  # AI down, rate limited, unusable answer: fall back to what is stored
         error = e
-        print(f"⚠️ Generating the monthly insight for user {user_id} failed "
+        print(f"⚠️ Generating the monthly insight for book {book_id} failed "
               f"({type(e).__name__}: {redact(str(e))}); falling back to the stored insight")
     if _insight_has_content(generated):
         return generated
@@ -869,7 +862,7 @@ async def get_insights(
     if book.read_only:
         return await _read_only_family_insight(book, insight_type, language)
     plan_user = await _insight_plan_user(book)  # the person, or (family) the person with the owner's plan
-    user_id = book.id
+    book_id = book.id
     if insight_type == "weekly":
         quota.require_unlocked(plan_user, "insight_weekly")  # outside the handlers below: a PlanError passes through
     plan_translates = not _translation_locked(plan_user)
@@ -878,11 +871,11 @@ async def get_insights(
         from insights_service import latest_valid_insight, user_has_insight_data, _latest_real_insight
 
         # Legacy insights with content None / "" are treated as missing (skipped here).
-        latest_insight = await latest_valid_insight(user_id, insight_type)
+        latest_insight = await latest_valid_insight(book_id, insight_type)
 
         if not book.is_family and effective_plan(plan_user) == "free" and insight_type == "monthly":
             # Free is never translated: English only, whatever language was asked for (no translation call).
-            latest_insight = await _free_monthly_insight(plan_user, latest_insight, user_id)
+            latest_insight = await _free_monthly_insight(plan_user, latest_insight, book_id)
             return _insight_response(latest_insight, translation_locked, plan_translates=False,
                                      next_insight_at=_next_insight_at(plan_user, insight_type))
 
@@ -892,34 +885,34 @@ async def get_insights(
         # week), the latest real insight is shown instead of the welcome text.
         if latest_insight and latest_insight.get("is_placeholder"):
             try:
-                if await user_has_insight_data(user_id, insight_type):
-                    print(f"🔄 Replacing placeholder {insight_type} insight for user {user_id} (user now has data)")
+                if await user_has_insight_data(book_id, insight_type):
+                    print(f"🔄 Replacing placeholder {insight_type} insight for book {book_id} (book now has data)")
                     regenerated = None
                     try:
                         regenerated = await _generate_for(book, plan_user, insight_type)
                     except Exception as gen_error:
                         # AI down / rate limited / the cost cap reached (a PlanError): something stored is still
                         # worth showing, and nothing was generated.
-                        print(f"⚠️ Regenerating {insight_type} insight for user {user_id} failed "
+                        print(f"⚠️ Regenerating {insight_type} insight for book {book_id} failed "
                               f"({type(gen_error).__name__}: {gen_error}); falling back to the stored insight")
                     if _insight_has_content(regenerated):
                         latest_insight = regenerated
                     else:
-                        latest_real = await _latest_real_insight(user_id, insight_type)
+                        latest_real = await _latest_real_insight(book_id, insight_type)
                         if latest_real:
                             latest_insight = latest_real
                         # else: keep showing the stored placeholder
                 else:
-                    latest_real = await _latest_real_insight(user_id, insight_type)
+                    latest_real = await _latest_real_insight(book_id, insight_type)
                     if latest_real:
                         latest_insight = latest_real
             except Exception as refresh_error:
-                print(f"⚠️ Placeholder refresh failed for user {user_id} "
+                print(f"⚠️ Placeholder refresh failed for book {book_id} "
                       f"({type(refresh_error).__name__}: {refresh_error}); showing the stored placeholder")
 
         if not latest_insight:
             # Nothing stored at all: generation errors are surfaced (429/503/500).
-            print(f"🔄 No {insight_type} insight found, generating the first one for user {user_id}")
+            print(f"🔄 No {insight_type} insight found, generating the first one for book {book_id}")
             latest_insight = await _generate_for(book, plan_user, insight_type)
             if not _insight_has_content(latest_insight):
                 raise HTTPException(

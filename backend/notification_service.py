@@ -563,7 +563,7 @@ async def check_approaching_target_dates():
             if threshold is None:
                 continue
 
-            user_id = goal["user_id"]
+            user_id = goal["book_id"]
             goal_id = goal["_id"]
             target_key = as_utc(target_date).date().isoformat()
 
@@ -651,7 +651,7 @@ async def check_budget_period_notifications():
             if not is_budget_ending_soon(days_until_end):
                 continue
 
-            user_id = budget["user_id"]
+            user_id = budget["book_id"]
             budget_id = budget["_id"]
 
             # Budget ids are per period, so one "ending soon" per budget ever. The flag is
@@ -716,7 +716,7 @@ async def notify_budget_now_active_once(budget: Dict) -> bool:
     Returns True if a notification was sent.
     """
     budget_id = budget["_id"]
-    user_id = budget["user_id"]
+    user_id = budget["book_id"]
     if not await budgets_db.claim_flag(budget_id, "started_notified", datetime.now(UTC)):
         return False
 

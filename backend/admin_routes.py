@@ -61,6 +61,7 @@ from sql import chat as chat_db
 from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import budgets as budgets_db
+from sql import books as books_db
 from sql.db import transaction
 from families import service as families_service
 from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsResponse, AIFeatureType, AIProviderType
@@ -560,10 +561,13 @@ async def get_all_users(
 
     user_list = []
     for user in users:
-        transaction_count = await transactions_db.count_transactions(user["_id"])
-        goals_count = await goals_db.count_goals(user["_id"])
+        # Counts and the last entry are the person's personal book (never their family's, and never every book: a
+        # None id would count them all).
+        book_id = await books_db.personal_book_id(user["_id"])
+        transaction_count = await transactions_db.count_transactions(book_id) if book_id else 0
+        goals_count = await goals_db.count_goals(book_id) if book_id else 0
 
-        last_tx_at = await transactions_db.latest_created_at(user["_id"])
+        last_tx_at = await transactions_db.latest_created_at(book_id) if book_id else None
         last_transaction = {"created_at": last_tx_at} if last_tx_at else None
         last_chat_at = await chat_db.latest_activity(user["_id"])
         last_chat = {"updated_at": last_chat_at} if last_chat_at else None
@@ -610,12 +614,14 @@ async def get_user_detail(
             detail="User not found"
         )
 
-    transaction_count = await transactions_db.count_transactions(user_id)
-    goals_count = await goals_db.count_goals(user_id)
-    budgets_count = await budgets_db.count_budgets(user_id)
+    # Book counts are the person's personal book (a None id would count every book); chat sessions are the person's.
+    book_id = await books_db.personal_book_id(user_id)
+    transaction_count = await transactions_db.count_transactions(book_id) if book_id else 0
+    goals_count = await goals_db.count_goals(book_id) if book_id else 0
+    budgets_count = await budgets_db.count_budgets(book_id) if book_id else 0
     chat_sessions_count = await chat_db.count_sessions(user_id)
 
-    last_tx_at = await transactions_db.latest_created_at(user_id)
+    last_tx_at = await transactions_db.latest_created_at(book_id) if book_id else None
     last_transaction = {"created_at": last_tx_at} if last_tx_at else None
     last_chat_at = await chat_db.latest_activity(user_id)
     last_chat = {"updated_at": last_chat_at} if last_chat_at else None

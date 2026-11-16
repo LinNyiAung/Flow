@@ -8,6 +8,11 @@ Sections:
   books_in_requests -- registration and family creation create the books, a person row without a book gets one on
     its first request, a person id finds no book data, the freshness flag and book_profile work on books, and deleting
     a family (or its lone owner's account) deletes its book (Task 2). Needs the stub server on 127.0.0.1:8765.
+  api_shape -- transactions, budgets, goals and insights (created, generated and listed) carry book_id, the personal
+    or the family book, and no user_id (Task 3). Needs the stub server.
+  books_api -- through the API: a family's book answers 200 [] right after the family is created, a POST marks the
+    right book stale, and a person seeded in the old shape and migrated sees the same transactions, balance, budgets
+    and goals (Task 3). Needs the stub server.
 """
 import os
 import sys
@@ -598,7 +603,222 @@ def section_books_in_requests():
             db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
 
 
-SECTIONS = {"schema": section_schema, "migration": section_migration, "books_in_requests": section_books_in_requests}
+# ------------------------------------------------------------------------------------------------ api shape, books api
+def _api_people(c, tag, made):
+    """register(name, plan) -> {"id", "email", "h", "book"}: a verified account on `plan` registered through the API,
+    with its personal book id; its id is added to `made`."""
+    def register(name, plan="free"):
+        email = f"bk-{name.lower()}-{tag}@example.com"
+        r = c.post("/api/auth/register", json={"name": name, "email": email, "password": "secret123"})
+        if r.status_code != 200:
+            check(False, f"register {name}", f"{r.status_code} {r.text[:200]}")
+            return None
+        uid = db.sql("SELECT id FROM users WHERE email = %s", email)[0]["id"]
+        made.append(uid)
+        expires = None if plan == "free" else datetime.now(UTC) + timedelta(days=30)
+        db.sql("UPDATE users SET is_verified = true, subscription_type = %s, subscription_expires_at = %s, "
+               "trial_ends_at = NULL WHERE id = %s", plan, expires, uid)
+        token = c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json().get("access_token")
+        book = (_books_of(person_id=uid) or [{}])[0].get("id")
+        return {"id": uid, "email": email, "h": {"Authorization": f"Bearer {token}"}, "book": book}
+    return register
+
+
+def _drop_people(made):
+    if made:
+        db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)
+        db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+
+
+FAMILY = {"X-Book": "family"}
+
+
+def section_api_shape():
+    """A created transaction, budget, goal and generated insight carry book_id (the personal book, or in Family mode
+    the family book) and no user_id key."""
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _api_people(c, tag, made)
+    now = datetime.now(UTC).replace(microsecond=0)
+    som = now.replace(day=1, hour=0, minute=0, second=0)
+    try:
+        P = register("Shape", "plus")
+        if P is None:
+            return
+        r = c.post("/api/family", json={"name": f"Shape {tag}"}, headers=P["h"])
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        fbook = (_books_of(family_id=fid) or [{}])[0].get("id") if fid else None
+        check(bool(P["book"]) and bool(fbook), "api shape: the person has a personal book and a family book",
+              (P["book"], fbook, r.status_code))
+
+        def creates(headers):
+            """{"transaction"|"budget"|"goal"|"insight"|"transaction list": (status, body)}."""
+            out = {}
+            r = c.post("/api/transactions", headers=headers, json={
+                "type": "inflow", "main_category": "Employment Income", "sub_category": "Salary",
+                "date": now.isoformat(), "amount": 100, "currency": "usd", "description": "shape"})
+            out["transaction"] = r
+            r = c.post("/api/budgets", headers=headers, json={
+                "name": "Shape B", "period": "monthly", "start_date": som.isoformat(), "currency": "usd",
+                "total_budget": 100, "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100}]})
+            out["budget"] = r
+            out["goal"] = c.post("/api/goals", headers=headers, json={
+                "name": "Shape G", "target_amount": 500, "goal_type": "savings", "currency": "usd"})
+            out["insight"] = c.get("/api/insights", headers=headers, params={"insight_type": "weekly"})
+            out["transaction list"] = c.get("/api/transactions", headers=headers)
+            out["budget list"] = c.get("/api/budgets", headers=headers)
+            out["goal list"] = c.get("/api/goals", headers=headers)
+            return out
+
+        for mode, headers, want in (("personal", P["h"], P["book"]), ("family", {**P["h"], **FAMILY}, fbook)):
+            for what, r in creates(headers).items():
+                body = r.json() if r.status_code == 200 else None
+                items = body if isinstance(body, list) else [body]
+                check(r.status_code == 200 and items and all(isinstance(x, dict) and x.get("book_id") == want
+                                                             and "user_id" not in x for x in items),
+                      f"api shape ({mode}): the {what} carries book_id = the {mode} book and no user_id",
+                      f"{r.status_code} {r.text[:240]}")
+    finally:
+        _drop_people(made)
+
+
+def section_books_api():
+    """Through the API: a person migrated from the old shape sees the same data; a write marks the right book's
+    freshness flag; a new family's book answers an empty list."""
+    import bcrypt
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _api_people(c, tag, made)
+    now = datetime.now(UTC).replace(microsecond=0)
+
+    def stale(book_id):
+        row = db.sql("SELECT ai_data_stale FROM books WHERE id = %s", book_id)
+        return row[0]["ai_data_stale"] if row else None
+
+    try:
+        # ---- X-Book: family right after creating a family: an empty list
+        O = register("Fowner", "plus")
+        if O is None:
+            return
+        r = c.post("/api/family", json={"name": f"Api {tag}"}, headers=O["h"])
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        fbook = (_books_of(family_id=fid) or [{}])[0].get("id") if fid else None
+        r = c.get("/api/transactions", headers={**O["h"], **FAMILY})
+        check(r.status_code == 200 and r.json() == [],
+              "books api: GET /api/transactions with X-Book: family right after creating a family is 200 []",
+              f"{r.status_code} {r.text[:200]}")
+
+        # ---- book freshness flag, through POST /api/transactions
+        def post_tx(headers):
+            return c.post("/api/transactions", headers=headers, json={
+                "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                "date": now.isoformat(), "amount": 3, "currency": "usd"})
+
+        if O["book"] and fbook:
+            db.sql("UPDATE books SET ai_data_stale = false WHERE id IN (%s, %s)", O["book"], fbook)
+            r = post_tx(O["h"])
+            check(r.status_code == 200 and stale(O["book"]) is True and stale(fbook) is False,
+                  "book freshness flag: a personal POST transaction marks the personal book stale (not the family's)",
+                  (r.status_code, stale(O["book"]), stale(fbook)))
+            db.sql("UPDATE books SET ai_data_stale = false WHERE id IN (%s, %s)", O["book"], fbook)
+            r = post_tx({**O["h"], **FAMILY})
+            check(r.status_code == 200 and stale(fbook) is True and stale(O["book"]) is False,
+                  "book freshness flag: a Family-mode POST transaction marks the family book stale (not the personal one)",
+                  (r.status_code, stale(fbook), stale(O["book"])))
+        else:
+            check(False, "book freshness flag: the owner has a personal and a family book", (O["book"], fbook))
+
+        # ---- a person id is not a book id (route level): another person's id in X-Book is refused
+        r = c.get("/api/transactions", headers={**O["h"], "X-Book": O["id"]})
+        check(r.status_code == 400, "a person id is not a book id: a user id as X-Book is refused (400)",
+              f"{r.status_code} {r.text[:200]}")
+
+        _migrated_person_sees_the_same_data(c, tag, made, bcrypt)
+    finally:
+        _drop_people(made)
+
+
+def _migrated_person_sees_the_same_data(c, tag, made, bcrypt):
+    """Seed a person's data in the old (522ad619de76) shape, upgrade, log in through the API: the transactions, balance,
+    budgets and goals are the seeded ones."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
+    import test_plans as t  # noqa: E402  (alembic helper)
+    from plans_subscription_checks import head_revision  # noqa: E402
+
+    head = head_revision()
+    pid = f"bk-{tag}-migrated"
+    email = f"bk-migrated-{tag}@example.com"
+    made.append(pid)
+    pw_hash = bcrypt.hashpw(b"secret123", bcrypt.gensalt()).decode()
+    seeded = (("inflow", "1000.00", "mmk"), ("outflow", "300.50", "mmk"), ("inflow", "50.00", "usd"),
+              ("outflow", "20.25", "usd"), ("inflow", "5.00", "usd"))
+    want = {}
+    for type_, amount, cur in seeded:
+        b = want.setdefault(cur, {"total_inflow": Decimal(0), "total_outflow": Decimal(0)})
+        b["total_inflow" if type_ == "inflow" else "total_outflow"] += Decimal(amount)
+    goal_amount = Decimal("12.75")
+    try:
+        ok, out = t.alembic("downgrade", BEFORE_BOOKS)
+        check(ok, f"migrated person sees the same data: downgrade to {BEFORE_BOOKS} runs", out)
+        if not ok:
+            return
+        q = db.sql
+        q("INSERT INTO users (id, name, email, password, kind, is_verified) VALUES (%s, 'Migrated', %s, %s, 'person', true)",
+          pid, email, pw_hash)
+        for type_, amount, cur in seeded:
+            q("INSERT INTO transactions (id, user_id, type, main_category, sub_category, amount, currency, date) "
+              "VALUES (%s, %s, %s, 'Food & Daily Living', 'Groceries', %s, %s, now() - interval '1 day')",
+              str(uuid.uuid4()), pid, type_, Decimal(amount), cur)
+        q("INSERT INTO goals (id, user_id, name, goal_type, target_amount, current_amount, currency, status) "
+          "VALUES (%s, %s, 'Old goal', 'savings', 100, %s, 'usd', 'active')", str(uuid.uuid4()), pid, goal_amount)
+        q("INSERT INTO budgets (id, user_id, name, period, currency, start_date, end_date, total_budget, status) "
+          "VALUES (%s, %s, 'Old budget', 'monthly', 'usd', now() - interval '5 days', now() + interval '25 days', 80, 'active')",
+          str(uuid.uuid4()), pid)
+    finally:
+        ok, out = t.alembic("upgrade", "head")
+        with t.connect() as conn:
+            at_head = t.current_revision(conn) == head
+        check(ok and at_head, "migrated person sees the same data: upgrade head runs", out)
+    if not (ok and at_head):
+        return
+
+    r = c.post("/api/auth/login", json={"email": email, "password": "secret123"})
+    check(r.status_code == 200, "migrated person sees the same data: login works", f"{r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    h = {"Authorization": f"Bearer {r.json().get('access_token')}"}
+    r = c.get("/api/transactions", headers=h, params={"limit": 100})
+    check(r.status_code == 200 and len(r.json()) == len(seeded),
+          "migrated person sees the same data: GET /api/transactions returns every seeded entry",
+          f"{r.status_code} {len(r.json()) if r.status_code == 200 else r.text[:200]}")
+    r = c.get("/api/dashboard/balance", headers=h)
+    got = (r.json().get("balances") or {}) if r.status_code == 200 else {}
+    ok_bal = set(got) == set(want)
+    for cur, w in want.items():
+        g = got.get(cur) or {}
+        alloc = goal_amount if cur == "usd" else Decimal(0)
+        bal = w["total_inflow"] - w["total_outflow"]
+        ok_bal = ok_bal and all(abs(Decimal(str(g.get(k, "nan"))) - v) < Decimal("0.001") for k, v in (
+            ("total_inflow", w["total_inflow"]), ("total_outflow", w["total_outflow"]), ("balance", bal),
+            ("allocated_to_goals", alloc), ("available_balance", bal - alloc)))
+    check(r.status_code == 200 and ok_bal, "migrated person sees the same data: the dashboard balance totals are the seeded ones",
+          (got, want))
+    r = c.get("/api/goals", headers=h)
+    check(r.status_code == 200 and [g.get("name") for g in r.json()] == ["Old goal"],
+          "migrated person sees the same data: GET /api/goals shows the seeded goal", f"{r.status_code} {r.text[:200]}")
+    r = c.get("/api/budgets", headers=h)
+    check(r.status_code == 200 and [b.get("name") for b in r.json()] == ["Old budget"],
+          "migrated person sees the same data: GET /api/budgets shows the seeded budget", f"{r.status_code} {r.text[:200]}")
+
+
+SECTIONS = {"schema": section_schema, "migration": section_migration, "books_in_requests": section_books_in_requests,
+            "api_shape": section_api_shape, "books_api": section_books_api}
 
 
 def main():

@@ -50,13 +50,14 @@ def migration_checks(t):
                   "custom_migration_up: upgrade re-creates the table and seeds Free/Plus locked, Pro 10 a month", out_up)
             indexes = {r[0]: r[1] for r in conn.execute(
                 "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'custom_insights'")}
-            pending = indexes.get("uq_custom_insights_pending_user", "")
-            check("UNIQUE" in pending and "status = 'pending'" in pending
-                  and "ix_custom_insights_user_created" in indexes
-                  and "(user_id, created_at DESC)" in indexes["ix_custom_insights_user_created"]
-                  and "ix_custom_insights_user_id" not in indexes and len(indexes) == 3,
-                  "custom_migration_indexes: the primary key, unique one-pending-per-user (partial) and newest-first per "
-                  "user (leading with user_id, so no separate user_id index)", indexes)
+            # The books migration (head) renamed them from user to book.
+            pending = indexes.get("uq_custom_insights_pending_book", "")
+            check("UNIQUE" in pending and "status = 'pending'" in pending and "(book_id)" in pending
+                  and "ix_custom_insights_book_created" in indexes
+                  and "(book_id, created_at DESC)" in indexes["ix_custom_insights_book_created"]
+                  and "ix_custom_insights_book_id" not in indexes and len(indexes) == 3,
+                  "custom_migration_indexes: the primary key, unique one-pending-per-book (partial) and newest-first per "
+                  "book (leading with book_id, so no separate book_id index)", indexes)
         finally:
             ok, out = t.alembic("upgrade", "head")  # whatever happened above, leave the database at head
             conn.execute("DELETE FROM users WHERE id = %s", (uid,))
@@ -66,13 +67,14 @@ def migration_checks(t):
 # ---------------------------------------------------------------- the table's own rules (CHECKs, defaults)
 def constraint_checks(t):
     check = t.check
-    ins = ("INSERT INTO custom_insights (id, user_id, start_date, end_date, preset, instruction, status, content, deleted_at) "
-           "VALUES (%s, 't9c-chk', %s, %s, %s, %s, %s, %s, %s)")
+    ins = ("INSERT INTO custom_insights (id, book_id, start_date, end_date, preset, instruction, status, content, deleted_at) "
+           "VALUES (%s, 't9c-chk-book', %s, %s, %s, %s, %s, %s, %s)")
+    book = ("INSERT INTO books (id, kind, person_id) VALUES ('t9c-chk-book', 'personal', 't9c-chk')", ())
 
     def ok(label, expect, start="2026-09-01", end="2026-09-30", preset=None, instruction=None, status="pending",
            content=None, deleted_at=None):
         with t.connect() as conn:
-            got = t.accepted(conn, t.new_user("t9c-chk"),
+            got = t.accepted(conn, t.new_user("t9c-chk"), book,
                              (ins, (str(uuid.uuid4()), start, end, preset, instruction, status, content, deleted_at)))
         check(got == expect, f"storage_constraint: {label} is {'accepted' if expect else 'rejected'}")
 
@@ -97,8 +99,9 @@ def constraint_checks(t):
         uid = "t9c-dflt"
         try:
             conn.execute(*t.new_user(uid))
-            conn.execute("INSERT INTO custom_insights (id, user_id, start_date, end_date) VALUES ('t9c-dflt-1', %s, "
-                         "'2026-09-01', '2026-09-30')", (uid,))
+            conn.execute("INSERT INTO books (id, kind, person_id) VALUES ('t9c-dflt-book', 'personal', %s)", (uid,))
+            conn.execute("INSERT INTO custom_insights (id, book_id, start_date, end_date) VALUES ('t9c-dflt-1', "
+                         "'t9c-dflt-book', '2026-09-01', '2026-09-30')")
             row = conn.execute("SELECT status, instruction_key, counter_keys, created_at, preset, instruction, content, "
                                "figures, completed_at, deleted_at FROM custom_insights WHERE id = 't9c-dflt-1'").fetchone()
             check(row is not None and row[0] == "pending" and row[1] == "" and row[2] == [] and row[3] is not None
@@ -119,11 +122,15 @@ async def storage_checks(t, h):
     s, e = date(2026, 9, 1), date(2026, 9, 30)
     keys = [["insight_custom", "month", "2026-11-01"]]
 
-    def doc(uid, **kw):
-        d = {"_id": str(uuid.uuid4()), "user_id": uid, "start_date": s, "end_date": e, "preset": None, "instruction": None,
-             "instruction_key": "", "counter_keys": keys, "created_at": now}
+    def doc(book_id, **kw):
+        d = {"_id": str(uuid.uuid4()), "book_id": book_id, "start_date": s, "end_date": e, "preset": None,
+             "instruction": None, "instruction_key": "", "counter_keys": keys, "created_at": now}
         d.update(kw)
         return d
+
+    def register_book(name):
+        """A registered person's personal book id (the data layer works on books)."""
+        return h.book(h.register(name)[0])
 
     async def make(uid, status, created_at, content=None, **kw):
         """A finished row: inserted pending, then moved out of pending."""
@@ -137,11 +144,9 @@ async def storage_checks(t, h):
     def ids(rows):
         return [r["_id"] for r in rows]
 
-    ua, _ = h.register("a")
-    ub, _ = h.register("b")
-    uc, _ = h.register("c")
+    ua, ub, uc = register_book("a"), register_book("b"), register_book("c")
 
-    # ---- one pending per user
+    # ---- one pending per book
     figs = {"currencies": {"usd": {"outflow": 12.5, "inflow": 0}}, "count": 2}
     a, a2, b = doc(ua, instruction="where did it go?", instruction_key="where did it go?"), doc(ua), doc(ub, figures=figs)
     check(await ci.insert_pending(a) is True and await ci.insert_pending(a2) is False
@@ -150,7 +155,7 @@ async def storage_checks(t, h):
           and await ci.has_pending(uc) is False, "storage_has_pending: true for a user with a pending row, false without")
 
     got = await ci.get(a["_id"])
-    check(got is not None and got["_id"] == a["_id"] and "id" not in got and got["user_id"] == ua
+    check(got is not None and got["_id"] == a["_id"] and "id" not in got and got["book_id"] == ua and "user_id" not in got
           and got["start_date"] == s and type(got["start_date"]) is date and got["end_date"] == e and type(got["end_date"]) is date
           and got["status"] == "pending" and got["instruction"] == "where did it go?"
           and got["instruction_key"] == "where did it go?" and got["preset"] is None and got["counter_keys"] == keys
@@ -172,8 +177,8 @@ async def storage_checks(t, h):
     await ci.finish(d["_id"], status="failed", now=now)  # uc has no pending row again
 
     # ---- get is scoped
-    check((await ci.get(a["_id"], user_id=ua)) is not None and await ci.get(a["_id"], user_id=ub) is None
-          and await ci.get("no-such-id") is None, "storage_get_scoped: user_id filters, an unknown id is None")
+    check((await ci.get(a["_id"], book_id=ua)) is not None and await ci.get(a["_id"], book_id=ub) is None
+          and await ci.get("no-such-id") is None, "storage_get_scoped: book_id filters, an unknown id is None")
 
     # ---- finish only from pending
     done = await ci.finish(a["_id"], status="ready", content="## Summary\nx", now=now, ai_provider="claude",
@@ -193,7 +198,7 @@ async def storage_checks(t, h):
 
     # ---- list_summaries: newest first, not deleted, limited, paged by (created_at, id)
     check(not hasattr(ci, "list_for_user"), "storage_list_for_user_removed: only list_summaries lists reports")
-    ul, _ = h.register("list")
+    ul = register_book("list")
     r1 = await make(ul, "ready", now - timedelta(hours=3))
     r2 = await make(ul, "ready", now - timedelta(hours=1))
     r3 = await make(ul, "failed", now - timedelta(hours=2))
@@ -218,7 +223,7 @@ async def storage_checks(t, h):
           "storage_list_hides_deleted: a hidden row is not listed, other users' rows never are")
 
     # ---- find_ready_match: the newest ready row with exactly these values
-    um, _ = h.register("match")
+    um = register_book("match")
     await make(um, "ready", now - timedelta(hours=5), instruction_key="k")
     ready2 = await make(um, "ready", now - timedelta(hours=2), instruction_key="k")
     await make(um, "failed", now - timedelta(hours=1), instruction_key="k")
@@ -234,7 +239,8 @@ async def storage_checks(t, h):
     check(await ci.find_ready_match(um, s, e, "pend") is None, "storage_find_ready_match: a pending row never matches")
 
     # ---- delete: ready removes, failed / refused hide and keep counting, pending is refused
-    ud, _ = h.register("del")
+    ud_person, _ = h.register("del")
+    ud = h.book(ud_person)
     day_start = now - timedelta(hours=12)
     ready_id = await make(ud, "ready", now - timedelta(minutes=50), instruction="my words", instruction_key="my words")
     failed_id = await make(ud, "failed", now - timedelta(minutes=40), content="partial text", instruction="secret question",
@@ -248,7 +254,7 @@ async def storage_checks(t, h):
           "storage_delete_ready_removes_row")
     check(await ci.delete_for_user(failed_id, ud, now) == "hidden" and failed_id not in ids(await ci.list_summaries(ud))
           and await ci.count_attempts_since(ud, day_start) == 2, "storage_delete_failed_hides_but_counts")
-    check(await ci.get(failed_id) is None and (await ci.get(failed_id, user_id=ud)) is None, "storage_get_skips_hidden: get() hides a hidden row")
+    check(await ci.get(failed_id) is None and (await ci.get(failed_id, book_id=ud)) is None, "storage_get_skips_hidden: get() hides a hidden row")
     with t.connect() as conn:
         null_figures = conn.execute("SELECT figures IS NULL FROM custom_insights WHERE id = %s", (failed_id,)).fetchone()[0]
     hidden = await ci.get(failed_id, include_deleted=True)
@@ -269,8 +275,7 @@ async def storage_checks(t, h):
           "storage_delete_missing: an already deleted, unknown or someone else's report is missing")
 
     # ---- fail_stuck: one UPDATE, once
-    us, _ = h.register("stuck")
-    uf, _ = h.register("fresh")
+    us, uf = register_book("stuck"), register_book("fresh")
     old = doc(us, created_at=now - timedelta(minutes=30), counter_keys=keys)
     fresh = doc(uf, created_at=now - timedelta(minutes=5))
     await ci.insert_pending(old)
@@ -279,7 +284,7 @@ async def storage_checks(t, h):
     swept_ours = [r for r in swept if r["_id"] in (old["_id"], fresh["_id"])]
     check(len(swept_ours) == 1 and swept_ours[0]["_id"] == old["_id"] and swept_ours[0]["status"] == "failed"
           and swept_ours[0]["completed_at"] == now and swept_ours[0]["counter_keys"] == keys
-          and swept_ours[0]["user_id"] == us and (await ci.get(fresh["_id"]))["status"] == "pending"
+          and swept_ours[0]["book_id"] == us and (await ci.get(fresh["_id"]))["status"] == "pending"
           and await ci.fail_stuck(now - timedelta(minutes=20), now) == []
           and await ci.finish(old["_id"], status="ready", content="late", now=now) is None,
           "storage_fail_stuck_once: returns the stuck row as failed once, then nothing; a fresh pending row stays; "
@@ -300,7 +305,7 @@ async def storage_checks(t, h):
           "storage_set_translation_ready_only: does nothing on a failed, refused or hidden row", mm)
 
     # ---- finish refuses a status that is not a way out of pending
-    up_, _ = h.register("fin")
+    up_ = register_book("fin")
     pid = doc(up_)
     await ci.insert_pending(pid)
     raised = []
@@ -314,7 +319,8 @@ async def storage_checks(t, h):
           "storage_finish_status_guard: finish(status='pending'/'done'/'') raises ValueError and leaves the row pending", raised)
 
     # ---- changed_since (transaction created or edited after the report)
-    ut, th = h.register("tx")
+    ut_person, th = h.register("tx")
+    ut = h.book(ut_person)
     tx_day = date(2026, 9, 15)
     s_bound = datetime(2026, 9, 1, tzinfo=UTC)
     e_bound = datetime(2026, 9, 30, 23, 59, 59, tzinfo=UTC)
@@ -342,11 +348,11 @@ async def storage_checks(t, h):
           and await transactions_db.changed_since(ut, s_bound, e_bound, edit_at) is False,
           "storage_changed_since: an edit (updated_at) after `since` counts, once `since` passes it it does not")
 
-    # ---- the user's custom insights go with the user
+    # ---- the user's custom insights go with the user (their personal book)
     with t.connect() as conn:
-        n_before = conn.execute("SELECT count(*) FROM custom_insights WHERE user_id = %s", (ud,)).fetchone()[0]
-        conn.execute("DELETE FROM users WHERE id = %s", (ud,))
-        n_after = conn.execute("SELECT count(*) FROM custom_insights WHERE user_id = %s", (ud,)).fetchone()[0]
+        n_before = conn.execute("SELECT count(*) FROM custom_insights WHERE book_id = %s", (ud,)).fetchone()[0]
+        conn.execute("DELETE FROM users WHERE id = %s", (ud_person,))
+        n_after = conn.execute("SELECT count(*) FROM custom_insights WHERE book_id = %s", (ud,)).fetchone()[0]
     check(n_before >= 3 and n_after == 0, "storage_cascade: deleting the user deletes their custom insights", (n_before, n_after))
 
     # ---- GET /api/plan shows the new feature
@@ -367,12 +373,12 @@ async def storage_checks(t, h):
           "plan_status_insight_custom: the counter helpers read and write the insight_custom counter")
 
 
-async def _pending_id(uid):
-    """The id of the user's pending row (the one the unique index allows)."""
+async def _pending_id(book_id):
+    """The id of the book's pending row (the one the unique index allows)."""
     from sql.db import fetch_value
     from sqlalchemy import select
     from sql.tables import custom_insights as c
-    return await fetch_value(select(c.c.id).where(c.c.user_id == uid, c.c.status == "pending"))
+    return await fetch_value(select(c.c.id).where(c.c.book_id == book_id, c.c.status == "pending"))
 
 
 # ---------------------------------------------------------------- notifications
@@ -502,10 +508,10 @@ async def generation_checks(t, h):
         r = await quota.reserve(user, "insight_custom")
         rid = str(uuid.uuid4())
         ok = await ci.insert_pending({
-            "_id": rid, "user_id": who, "start_date": start, "end_date": end, "preset": preset, "instruction": instruction,
-            "instruction_key": cis.instruction_key(preset, instruction),
-            "counter_keys": [[f, p, d.isoformat()] for f, p, d in r.keys],
-            "figures": await cis.compute_figures(who, start, end)})
+            "_id": rid, "book_id": h.book(who), "start_date": start, "end_date": end, "preset": preset,
+            "instruction": instruction, "instruction_key": cis.instruction_key(preset, instruction),
+            "counter_keys": cis.counter_keys(r, family=False),
+            "figures": await cis.compute_figures(h.book(who), start, end)})
         assert ok, "insert_pending refused: the user already has a pending report"
         r.commit()
         return rid
@@ -521,7 +527,7 @@ async def generation_checks(t, h):
         check(all(txs), "generation_setup: added the transactions", txs)
 
         # ---- figures and the range rules
-        f = await cis.compute_figures(uid, start, end)
+        f = await cis.compute_figures(h.book(uid), start, end)
         check(f.get("previous_start") == (today - timedelta(days=59)).isoformat()
               and f.get("previous_end") == (today - timedelta(days=30)).isoformat()
               and f.get("currencies") == [{
@@ -531,7 +537,7 @@ async def generation_checks(t, h):
                   "previous_income": 0.0, "previous_spending": 100.0, "income_change_pct": None, "spending_change_pct": 150.0}],
               "figures_computed_from_data: per currency income, spending, net, count, top categories and the change against "
               "the previous period (None when the previous amount is 0)", f)
-        check(await cis.compute_figures(uid, today - timedelta(days=400), today - timedelta(days=300)) == {
+        check(await cis.compute_figures(h.book(uid), today - timedelta(days=400), today - timedelta(days=300)) == {
                   "previous_start": (today - timedelta(days=501)).isoformat(),
                   "previous_end": (today - timedelta(days=401)).isoformat(), "currencies": []},
               "figures_empty_range: no transactions -> no currencies")
@@ -961,8 +967,9 @@ async def generation_checks(t, h):
         async def create(insert, get=real_get):
             ci.insert_pending, ci.get = insert, get
             try:
+                person = {**await users_db.get_user(u5), "personal_book_id": h.book(u5)}
                 await routes.create_custom_insight(routes.CustomInsightCreate(start_date=start, end_date=end), Response(),
-                                                   book=Book.personal(await users_db.get_user(u5)))
+                                                   book=Book.personal(person))
                 return "returned"
             except asyncio.CancelledError:
                 return "cancelled"
@@ -972,21 +979,21 @@ async def generation_checks(t, h):
         await cis.fail_stuck_reports()
         h.set_used(u5, 0)
         out = [await create(insert_then_stop)]
-        pend5 = await _pending_id(u5)
+        pend5 = await _pending_id(h.book(u5))
         out.append((pend5 is not None, h.used(u5)))
         with t.connect() as conn:
             conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = %s", (pend5,))
         await cis.fail_stuck_reports()
         out.append(h.used(u5))
         h.set_used(u5, 0)
-        out += [await create(stop_before_insert), (await _pending_id(u5) is not None, h.used(u5))]
+        out += [await create(stop_before_insert), (await _pending_id(h.book(u5)) is not None, h.used(u5))]
         h.set_used(u5, 0)
         out += [await create(insert_then_stop, get_fails), h.used(u5)]
         check(out == ["cancelled", (True, 1), 0, "cancelled", (False, 0), "cancelled", 1],
               "create_insert_error_gives_back_once: an error after the insert committed leaves the use with the row "
               "(the sweeper gives it back once); before the insert it is given back at once; when the row cannot be "
               "looked up it is not given back", out)
-        left = await _pending_id(u5)
+        left = await _pending_id(h.book(u5))
         if left:  # the last case's row: no job runs for it
             await ci.finish(left, status="failed", now=datetime.now(UTC))
 
@@ -1111,7 +1118,8 @@ async def route_checks(t, h):
 
     async def pending_row(uid, start, end):
         rid = str(uuid.uuid4())
-        assert await ci.insert_pending({"_id": rid, "user_id": uid, "start_date": start, "end_date": end, "instruction_key": ""})
+        assert await ci.insert_pending({"_id": rid, "book_id": h.book(uid), "start_date": start, "end_date": end,
+                                        "instruction_key": ""})
         return rid
 
     async def attempt_row(uid, status="failed"):
@@ -1221,17 +1229,17 @@ async def route_checks(t, h):
         def budget_row(uid, start_day, end_day):
             bid = str(uuid.uuid4())
             with t.connect() as conn:
-                conn.execute("INSERT INTO budgets (id, user_id, name, period, start_date, end_date, total_budget, status) "
+                conn.execute("INSERT INTO budgets (id, book_id, name, period, start_date, end_date, total_budget, status) "
                              "VALUES (%s, %s, 'Food', 'monthly', %s, %s, 100, 'active')",
-                             (bid, uid, datetime.combine(start_day, datetime.min.time(), tzinfo=UTC),
+                             (bid, h.book(uid), datetime.combine(start_day, datetime.min.time(), tzinfo=UTC),
                               datetime.combine(end_day, datetime.min.time(), tzinfo=UTC)))
             return bid
 
         def goal_row(uid):
             gid = str(uuid.uuid4())
             with t.connect() as conn:
-                conn.execute("INSERT INTO goals (id, user_id, name, goal_type, target_amount) VALUES (%s, %s, 'Trip', "
-                             "'savings', 500)", (gid, uid))
+                conn.execute("INSERT INTO goals (id, book_id, name, goal_type, target_amount) VALUES (%s, %s, 'Trip', "
+                             "'savings', 500)", (gid, h.book(uid)))
             return gid
 
         def edit_goal(gid):
@@ -1245,7 +1253,7 @@ async def route_checks(t, h):
         async def recompute(uid, bid):
             """The real spend recompute (what the chatbot and transaction edits run); True when it moved updated_at."""
             before_stamp = budget_stamp(bid)
-            await budget_service.update_budget_spent_amounts(uid, bid)
+            await budget_service.update_budget_spent_amounts(h.book(uid), bid)
             return budget_stamp(bid) > before_stamp
 
         def runner(hd, **kw):
@@ -1437,7 +1445,7 @@ async def route_checks(t, h):
         check(failed[0] not in [x["id"] for x in listed] and failed[1] in [x["id"] for x in listed]
               and next(x for x in listed if x["id"] == failed[1])["status"] == "failed",
               "list_hides_deleted_failed: the hidden failed report is gone from the list, the others stay", [x["id"] for x in listed])
-        sums = await ci.list_summaries(u)
+        sums = await ci.list_summaries(h.book(u))
         check(len(sums) == len(listed) and all(set(s) == {"_id", "start_date", "end_date", "preset", "instruction", "status",
                                                           "created_at", "completed_at", "has_myanmar"} for s in sums),
               "list_summaries_skip_text: no content, content_mm or figures are loaded", sums[:1])
@@ -1498,7 +1506,7 @@ async def route_checks(t, h):
 
         async def listed_row(uid, at, status="ready"):
             rid = str(uuid.uuid4())
-            assert await ci.insert_pending({"_id": rid, "user_id": uid, "start_date": today - timedelta(days=6),
+            assert await ci.insert_pending({"_id": rid, "book_id": h.book(uid), "start_date": today - timedelta(days=6),
                                             "end_date": today, "instruction_key": "", "created_at": at})
             await ci.finish(rid, status=status, now=at, content="## Summary\nx" if status == "ready" else None)
             return rid
@@ -1507,7 +1515,7 @@ async def route_checks(t, h):
         mine += [(tie_at, await listed_row(pg_u, tie_at)) for _ in range(20)]  # the page boundary falls among these
         hidden = await listed_row(pg_u, top - timedelta(minutes=5, seconds=30), status="failed")
         theirs = [await listed_row(pg_other, top - timedelta(minutes=3 * i)) for i in range(5)]
-        await ci.delete_for_user(hidden, pg_u, datetime.now(UTC))
+        await ci.delete_for_user(hidden, h.book(pg_u), datetime.now(UTC))
         expected = [rid for _, rid in sorted(mine, reverse=True)]  # created_at, then id, descending
         p1 = c.get(CREATE, headers=pgh)
         nb = p1.json().get("next_before") if p1.status_code == 200 else None
@@ -1675,7 +1683,13 @@ async def run(t):
                                                                "description": "t9c"})
         return r.json().get("id") if r.status_code == 200 else None
 
-    h = SimpleNamespace(c=c, db=db, AD=AD, register=register, set_plan=set_plan, used=used, set_used=set_used, add_tx=add_tx)
+    def book(uid):
+        """The person's personal book id (custom insights, transactions, budgets and goals are the book's)."""
+        rows = db.sql("SELECT id FROM books WHERE person_id = %s", uid)
+        return rows[0]["id"] if rows else None
+
+    h = SimpleNamespace(c=c, db=db, AD=AD, register=register, set_plan=set_plan, used=used, set_used=set_used, add_tx=add_tx,
+                        book=book)
     try:
         await storage_checks(t, h)
         await notification_checks(t, h)

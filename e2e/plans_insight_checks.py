@@ -15,7 +15,7 @@ import httpx
 
 BASE = "http://127.0.0.1:8765"
 PROVIDERS = ("openai", "gemini", "claude")
-RESPONSE_KEYS = {"id", "user_id", "content", "content_mm", "generated_at", "expires_at", "translation_locked",
+RESPONSE_KEYS = {"id", "book_id", "content", "content_mm", "generated_at", "expires_at", "translation_locked",
                  "translation_unavailable", "next_insight_at"}
 MYANMAR = re.compile("[က-႟]")
 
@@ -140,7 +140,7 @@ async def run(t):
               f"{r.status_code} {r.text[:160]} calls={len(calls)} used={used(fid, 'insight_monthly')}")
         check(set(j) == RESPONSE_KEYS and j.get("translation_locked") is False and j.get("content_mm") is None
               and j.get("translation_unavailable") is None,
-              "insight_response_shape: {id, user_id, content, content_mm, generated_at, expires_at, translation_locked, "
+              "insight_response_shape: {id, book_id, content, content_mm, generated_at, expires_at, translation_locked, "
               "translation_unavailable}; translation_locked is false unless Myanmar was requested and translation_unavailable "
               "is null unless a translation was refused", sorted(j))
         first_id = j.get("id")

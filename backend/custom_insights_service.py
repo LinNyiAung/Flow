@@ -21,6 +21,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime, time, timedelta, UTC
+from typing import Optional
 
 from insights_service import (
     InsightAIError, currency_label, get_financial_summary, goals_budgets_context, run_insight_model,
@@ -28,6 +29,7 @@ from insights_service import (
 )
 from notification_service import notify_custom_insight_failed, notify_custom_insight_ready
 from plans import quota
+from sql import books as books_db
 from sql import budgets as budgets_db
 from sql import custom_insights as ci
 from sql import goals as goals_db
@@ -139,12 +141,13 @@ def _change_pct(now: float, prev: float) -> float | None:
     return None if prev == 0 else round((now - prev) / prev * 100, 1)
 
 
-async def compute_figures(user_id: str, start: date, end: date) -> dict:
-    """The key figures of start..end and of the previous period of equal length, per currency with transactions in the
-    range (sorted by code). Stored with the report; the same figures go into the AI context and onto the app's cards."""
+async def compute_figures(book_id: str, start: date, end: date) -> dict:
+    """The key figures of the book's start..end and of the previous period of equal length, per currency with
+    transactions in the range (sorted by code). Stored with the report; the same figures go into the AI context and onto
+    the app's cards."""
     prev_start, prev_end = previous_period(start, end)
-    current = await get_financial_summary(user_id, *day_bounds_utc(start, end))
-    previous = await get_financial_summary(user_id, *day_bounds_utc(prev_start, prev_end))
+    current = await get_financial_summary(book_id, *day_bounds_utc(start, end))
+    previous = await get_financial_summary(book_id, *day_bounds_utc(prev_start, prev_end))
     prev_by_currency = {s["_id"]: s for s in previous["summary"]}
     top_by_currency = {c["_id"]: c["top_items"] for c in current["categories"]}
 
@@ -280,20 +283,20 @@ PREVIOUS PERIOD (same length, for comparison): {prev_start.strftime('%B %d, %Y')
 _running_reports: set[asyncio.Task] = set()  # strong references: the event loop only keeps weak ones
 
 
-def counter_keys(reservation: quota.Reservation, row_user_id: str) -> list:
-    """The counter_keys to store for a report owned by `row_user_id`: [feature, period, "YYYY-MM-DD"] lists, each with a
-    fourth item, the counted person's id, when that isn't the row's owner (a family book's report counts against the
-    person who asked for it)."""
-    extra = [reservation.user_id] if reservation.user_id != row_user_id else []
+def counter_keys(reservation: quota.Reservation, family: bool) -> list:
+    """The counter_keys to store for a report: [feature, period, "YYYY-MM-DD"] lists. A family book's report (`family`)
+    adds a fourth item to each, the counted person's id (it counts against the person who asked for it); a personal
+    book's report counts against the book's person."""
+    extra = [reservation.user_id] if family else []
     return [[f, p, d.isoformat(), *extra] for f, p, d in reservation.keys]
 
 
-def _reservation(row: dict) -> quota.Reservation:
+async def _reservation(row: dict) -> quota.Reservation:
     """The reservation the report was made with, rebuilt from its stored counter_keys ([feature, period, "YYYY-MM-DD"],
-    plus the counted person's id when it isn't the row's user_id: see counter_keys)."""
+    plus the counted person's id for a family book's report: see counter_keys)."""
     stored = row.get("counter_keys") or []
     keys = [(k[0], k[1], date.fromisoformat(k[2])) for k in stored]
-    return quota.Reservation(_asker(row), keys)
+    return quota.Reservation(await _asker(row), keys)
 
 
 async def _give_back(row: dict) -> None:
@@ -305,24 +308,34 @@ async def _give_back(row: dict) -> None:
     if row["status"] == "ready":
         return
     try:
-        reservation = _reservation(row)
+        reservation = await _reservation(row)
         await plans_db.decrement_counters(reservation.user_id, reservation.keys)
     except Exception:  # noqa: BLE001
         logger.exception("Could not give back the use of custom insight %s", row["_id"])
 
 
-def _asker(row: dict) -> str:
-    """Who to tell about the report: the person counted for it when the row records one (a family book's report:
-    counter_keys' 4th item, see counter_keys), else the row's user_id (a person, or a family book user, whose notice
-    then goes to every active account member)."""
-    return next((k[3] for k in row.get("counter_keys") or [] if len(k) > 3), row["user_id"])
+def _family_asker(row: dict) -> Optional[str]:
+    """The person a family book's report was counted for (counter_keys' 4th item, see counter_keys); None for a
+    personal book's report."""
+    return next((k[3] for k in row.get("counter_keys") or [] if len(k) > 3), None)
+
+
+async def _asker(row: dict) -> Optional[str]:
+    """Who asked for the report (whose use it counted, and who is told about it): for a family book's report the
+    person counter_keys records, else the person of the personal book it is in (None if that book is gone)."""
+    who = _family_asker(row)
+    if who is None:
+        who = (await books_db.get_book_row(row["book_id"]) or {}).get("person_id")
+    return who
 
 
 async def _notify(row: dict) -> None:
     """After the commit: the "ready" or "not created" notice (the notification functions log their own failures)."""
-    who = _asker(row)
+    who = await _asker(row)
+    if who is None:
+        return
     # A family book's report: the asker's notice carries the family marker as well (the fan-out adds it itself).
-    family = who != row["user_id"]
+    family = _family_asker(row) is not None
     if row["status"] == "ready":
         await notify_custom_insight_ready(who, row["_id"], row["start_date"], row["end_date"], family=family)
     else:
@@ -362,16 +375,16 @@ async def run_report(report_id: str) -> dict | None:
         row = await ci.get(report_id, include_deleted=True)
         if row is None or row["status"] != "pending":
             return row
-        uid, start, end = row["user_id"], row["start_date"], row["end_date"]
+        book_id, start, end = row["book_id"], row["start_date"], row["end_date"]
         # A family book's report (R21): the prompt shows the family's profile (its name, the owner's currency) as the
         # family's weekly and monthly insights do, and the AI cost is recorded under the person who asked, as for a
         # family chat. A personal report: the person, both ways.
-        user = await insight_profile(uid) or {}
-        goals = await goals_db.list_goals(uid)
-        budgets = await budgets_db.budgets_overlapping(uid, *day_bounds_utc(start, end))
+        user = await insight_profile(book_id) or {}
+        goals = await goals_db.list_goals(book_id)
+        budgets = await budgets_db.budgets_overlapping(book_id, *day_bounds_utc(start, end))
         context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))
         result = await asyncio.wait_for(
-            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, _asker(row), "Custom Insight", background=True),
+            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, await _asker(row), "Custom Insight", background=True),
             timeout=MODEL_TIMEOUT.total_seconds())
         text = (result.completion.text or "").strip()
         if is_off_topic(text):

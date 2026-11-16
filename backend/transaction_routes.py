@@ -358,7 +358,7 @@ def _transaction_response(t: dict, people: EntryPeople = _NO_PEOPLE) -> Transact
         amount = 0.0
     return TransactionResponse(
         id=t["_id"],
-        user_id=t["user_id"],
+        book_id=t["book_id"],
         type=TransactionType(t["type"]),
         main_category=t["main_category"],
         sub_category=t["sub_category"],
@@ -407,12 +407,12 @@ def _cents_or_zero(value) -> Decimal:
 
 
 # --- Goal allocation guard ---
-async def _ensure_goal_allocations_covered(user_id: str, old_tx: dict, new_values: Optional[dict]) -> None:
+async def _ensure_goal_allocations_covered(book_id: str, old_tx: dict, new_values: Optional[dict]) -> None:
     """
     Reject (400) deleting/editing an inflow when that would make a currency's
     available_balance (balance - allocated_to_goals) negative while money is allocated
     to goals. new_values = {"type", "amount", "currency"} after the edit, None for delete.
-    Must be called while holding get_book_money_lock(user_id).
+    Must be called while holding get_book_money_lock(book_id).
     """
     if old_tx.get("type") != TransactionType.INFLOW.value:
         return
@@ -429,7 +429,7 @@ async def _ensure_goal_allocations_covered(user_id: str, old_tx: dict, new_value
     for currency, delta in deltas.items():
         if delta >= 0:
             continue
-        balance = await get_book_balance(user_id, currency)
+        balance = await get_book_balance(book_id, currency)
         allocated = to_cents(balance.get("allocated_to_goals", 0))
         if allocated <= 0:
             continue
@@ -467,7 +467,7 @@ async def create_transaction(
 
     new_transaction = {
         "_id": transaction_id,
-        "user_id": book.id,
+        "book_id": book.id,
         "type": transaction_data.type.value,
         "main_category": transaction_data.main_category,
         "sub_category": transaction_data.sub_category,
@@ -1162,7 +1162,7 @@ async def batch_create_transactions(
 
         doc = {
             "_id": transaction_id,
-            "user_id": book.id,
+            "book_id": book.id,
             "type": transaction_data.type.value,
             "main_category": transaction_data.main_category,
             "sub_category": transaction_data.sub_category,

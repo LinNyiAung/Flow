@@ -45,7 +45,7 @@ class GoalContribution(BaseModel):
 
 class GoalResponse(BaseModel):
     id: str
-    user_id: str
+    book_id: str
     name: str
     target_amount: float
     current_amount: float

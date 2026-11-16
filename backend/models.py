@@ -169,7 +169,7 @@ class AddedBy(BaseModel):
 
 class TransactionResponse(BaseModel):
     id: str
-    user_id: str
+    book_id: str
     type: TransactionType
     main_category: str
     sub_category: str

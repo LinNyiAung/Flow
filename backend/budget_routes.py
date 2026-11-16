@@ -58,7 +58,7 @@ def _category_budget(cat: dict) -> CategoryBudget:
 def _budget_response(b: dict) -> BudgetResponse:
     return BudgetResponse(
         id=b["_id"],
-        user_id=b["user_id"],
+        book_id=b["book_id"],
         name=b["name"],
         period=BudgetPeriod(b["period"]),
         start_date=b["start_date"],
@@ -208,7 +208,7 @@ async def create_budget(
 
         new_budget = {
             "_id": budget_id,
-            "user_id": book.id,
+            "book_id": book.id,
             "name": budget_data.name,
             "period": budget_data.period.value,
             "start_date": start_date,
@@ -472,7 +472,7 @@ async def update_budget(
         if budget_data.auto_create_with_ai is not None:
             update_data["auto_create_with_ai"] = budget_data.auto_create_with_ai
 
-        await budgets_db.update_budget(budget_id, update_data, user_id=book.id)
+        await budgets_db.update_budget(budget_id, update_data, book_id=book.id)
 
         # Recalculate spent amounts / status (does not touch total_budget)
         await update_budget_spent_amounts(book.id, budget_id)

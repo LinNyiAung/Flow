@@ -129,7 +129,7 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     report needs a writable family (R10)."""
     require_writable(book)
     current_user = book.person
-    uid = book.id
+    book_id = book.id
     instruction = (data.instruction or "").strip() or None
     if instruction and (data.preset or len(instruction) > cis.MAX_INSTRUCTION_LENGTH):  # a preset OR an instruction
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_instruction")
@@ -143,12 +143,12 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
 
     quota.require_unlocked(current_user, cis.FEATURE)  # PlanError: 403 plan_feature_locked
 
-    figures = await cis.compute_figures(uid, data.start_date, data.end_date)
+    figures = await cis.compute_figures(book_id, data.start_date, data.end_date)
     if not figures["currencies"]:
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_no_data")
 
     key = cis.instruction_key(data.preset, instruction)
-    match = await ci.find_ready_match(uid, data.start_date, data.end_date, key)
+    match = await ci.find_ready_match(book_id, data.start_date, data.end_date, key)
     if match is not None:
         # Reusable only when nothing in the range was created or edited since, and the figures (which also see a deleted
         # transaction, or one moved out of the range) are the ones the report was written from. The "Check my budgets and
@@ -157,25 +157,25 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
         # moves on every spend recompute), nor are deleted goals or budgets.
         start_utc, end_utc = day_bounds_utc(data.start_date, data.end_date)
         since = match["created_at"]
-        changed = await transactions_db.changed_since(uid, start_utc, end_utc, since)
+        changed = await transactions_db.changed_since(book_id, start_utc, end_utc, since)
         if not changed and data.preset == GOALS_BUDGETS_PRESET:
-            changed = (await goals_db.changed_since(uid, since)
-                       or await budgets_db.created_since(uid, start_utc, end_utc, since))
+            changed = (await goals_db.changed_since(book_id, since)
+                       or await budgets_db.created_since(book_id, start_utc, end_utc, since))
         if not changed and match.get("figures") == figures:
             return {"report": _detail(match), "reused": True}  # 200: nothing reserved, nothing started
 
-    if await ci.has_pending(uid):
+    if await ci.has_pending(book_id):
         raise _error(current_user, status.HTTP_409_CONFLICT, "custom_insight_pending")
     now = utc_now()
-    if await ci.count_attempts_since(uid, cis.attempts_window_start(now)) >= cis.MAX_FAILED_ATTEMPTS_PER_DAY:
+    if await ci.count_attempts_since(book_id, cis.attempts_window_start(now)) >= cis.MAX_FAILED_ATTEMPTS_PER_DAY:
         raise _error(current_user, status.HTTP_429_TOO_MANY_REQUESTS, "custom_insight_attempts",
                      resets_at=cis.attempts_reset_at(now))
 
     reservation = await quota.reserve(current_user, cis.FEATURE)  # PlanError: limit reached, cost cap
     report_id = str(uuid.uuid4())
-    row = {"_id": report_id, "user_id": uid, "start_date": data.start_date, "end_date": data.end_date,
+    row = {"_id": report_id, "book_id": book_id, "start_date": data.start_date, "end_date": data.end_date,
            "preset": data.preset, "instruction": instruction, "instruction_key": key,
-           "counter_keys": cis.counter_keys(reservation, uid), "figures": figures,
+           "counter_keys": cis.counter_keys(reservation, book.is_family), "figures": figures,
            "created_at": utc_now()}
     try:
         inserted = await ci.insert_pending(row)
@@ -234,8 +234,8 @@ async def translate_custom_insight(report_id: str, book: Book = Depends(get_book
     Otherwise one use of insight_translation is reserved (PlanError when the plan locks it, at the cost cap or used up)
     and given back if the translation fails. The report is the book's; the use (and the AI cost) the person's."""
     current_user = book.person
-    uid = book.id
-    row = await ci.get(report_id, uid)
+    book_id = book.id
+    row = await ci.get(report_id, book_id)
     if row is None:
         raise _not_found()
     if row["status"] != "ready":
@@ -248,7 +248,7 @@ async def translate_custom_insight(report_id: str, book: Book = Depends(get_book
         content_mm = await translate_insight_to_myanmar(row["content"], user_id=current_user["_id"],
                                                         is_placeholder=False)
         wrote = await ci.set_translation(report_id, content_mm)
-        row = await ci.get(report_id, uid)
+        row = await ci.get(report_id, book_id)
     except InsightAIError as e:
         await quota.give_back(reservation)
         logger.error("Custom insight %s: translation failed: %s", report_id, e)

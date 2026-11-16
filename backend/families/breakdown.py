@@ -17,6 +17,7 @@ from datetime import datetime
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Mapping, Optional
 
+from sql import books as books_db
 from sql import families as fdb
 
 WHOLE_FAMILY = "Whole family"
@@ -71,5 +72,6 @@ def compute(currency: str, shares: List[Mapping[str, Any]], members: List[Mappin
 async def family_breakdown(family: Mapping[str, Any], currency: str, date_from: datetime,
                            date_to: datetime) -> Dict[str, Any]:
     """GET /api/family/breakdown for `family`, entries dated within [date_from, date_to]."""
-    shares = await fdb.outflow_shares(family["book_user_id"], currency, date_from, date_to)
+    book_id = await books_db.family_book_id(family["id"])
+    shares = await fdb.outflow_shares(book_id, currency, date_from, date_to) if book_id else []
     return compute(currency, shares, await fdb.list_members(family["id"]))

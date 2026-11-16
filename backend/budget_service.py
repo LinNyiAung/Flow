@@ -677,7 +677,7 @@ async def refresh_budget_state_if_stale(budget: Dict) -> Dict:
     if numbers_ok and budget.get("status") == derived["status"] and budget.get("is_active") == derived["is_active"]:
         return budget
     try:
-        await update_budget_spent_amounts(budget["user_id"], budget["_id"], budget_doc=dict(budget))
+        await update_budget_spent_amounts(budget["book_id"], budget["_id"], budget_doc=dict(budget))
         fresh = await budgets_db.get_budget(budget["_id"])
         if fresh:
             return fresh
@@ -958,7 +958,7 @@ async def _find_child_budget(budget: Dict) -> Optional[Dict]:
     Any budget auto-created from `budget` ({_id} only, or None). Queries by (user_id,
     parent_budget_id) so it is served by the budgets indexes, not a collection scan.
     """
-    return await budgets_db.find_child(budget["user_id"], budget["_id"])
+    return await budgets_db.find_child(budget["book_id"], budget["_id"])
 
 
 async def _mark_rolled_over(budget_id: str, child_id: str) -> None:
@@ -1018,7 +1018,7 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
             if budget.get("status") != BudgetStatus.COMPLETED.value or budget.get("is_active"):
                 # Persist the final spend/status first (no background auto-create: we do it below).
                 await update_budget_spent_amounts(
-                    budget["user_id"], budget_id, budget_doc=dict(budget), trigger_auto_create=False
+                    budget["book_id"], budget_id, budget_doc=dict(budget), trigger_auto_create=False
                 )
                 budget = await budgets_db.get_budget(budget_id) or budget
             if budget.get("status") != BudgetStatus.COMPLETED.value or not budget.get("auto_create_enabled"):
@@ -1110,7 +1110,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     if budget["status"] != BudgetStatus.COMPLETED.value:
         return None
 
-    user_id = budget["user_id"]
+    user_id = budget["book_id"]
     currency = budget.get("currency", "usd")
     period = BudgetPeriod(budget["period"])
     old_start = _aware(budget["start_date"])
@@ -1197,7 +1197,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
 
         new_budget = {
             "_id": new_budget_id,
-            "user_id": user_id,
+            "book_id": user_id,
             "name": budget['name'],
             "period": budget["period"],
             "start_date": new_start,

@@ -72,7 +72,7 @@ class BudgetUpdate(BaseModel):
 
 class BudgetResponse(BaseModel):
     id: str
-    user_id: str
+    book_id: str
     name: str
     period: BudgetPeriod
     start_date: datetime

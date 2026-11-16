@@ -389,7 +389,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
             new_insight = {
                 "_id": insight_id,
-                "user_id": user_id,
+                "book_id": user_id,
                 "content": placeholder_content,
                 "content_mm": None,
                 "generated_at": now,
@@ -437,7 +437,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
         new_insight = {
             "_id": insight_id,
-            "user_id": user_id,
+            "book_id": user_id,
             "content": insights_content,
             "content_mm": None,
             "generated_at": now,
@@ -1141,7 +1141,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
             new_insight = {
                 "_id": insight_id,
-                "user_id": user_id,
+                "book_id": user_id,
                 "content": placeholder_content,
                 "content_mm": None,
                 "generated_at": now,
@@ -1189,7 +1189,7 @@ Start by adding your first transaction or creating a financial goal. The more da
 
         new_insight = {
             "_id": insight_id,
-            "user_id": user_id,
+            "book_id": user_id,
             "content": insights_content,
             "content_mm": None,
             "generated_at": now,

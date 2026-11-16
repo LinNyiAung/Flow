@@ -2,7 +2,8 @@
 
 Sections:
   schema -- the tables / columns / indexes the family book needs (Task 1).
-  book users -- hidden, can't log in, left out of admin lists, stats, broadcasts, plan expiry and jobs (Task 2).
+  book users -- a family's book is a books row, never a person: no users row, so no login, and never in the admin
+    user list, the user stats, the broadcast recipients or user_ids() (Task 2; rewritten for the books table).
   family rules -- creating, inviting, joining, roles, removal, ownership, read-only (Task 3).
   book scope and privacy -- X-Book picks the book; no record is reachable from another book (Task 4).
   entries and breakdown -- who added an entry, who it was for, who may change it, the per-person breakdown, and
@@ -143,13 +144,18 @@ def _backend_async(coro_fn):
 
 
 def section_book_users():
+    """A family's book is a books row, never a person: no users row exists for it, so it can't log in, and it never
+    shows up in the admin user list, the user stats or the broadcast recipients."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
     os.chdir(stubenv.BACKEND)
     import test_plans  # noqa: E402  (admin helpers)
 
-    c = httpx.Client(base_url="http://127.0.0.1:8765", timeout=60)
-    made = test_plans.make_admins(db, ("super_admin",))
-    h = test_plans.admin_login(c, made["super_admin"])
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+    admins = test_plans.make_admins(db, ("super_admin",))
+    h = test_plans.admin_login(c, admins["super_admin"])
 
     def counts():
         u = c.get("/api/admin/stats/users", headers=h).json()
@@ -158,93 +164,56 @@ def section_book_users():
                                        "active_users_last_7_days")} | {"bc_total": b.get("total_users"),
                                                                        "bc_push": b.get("users_with_push_enabled")}
 
-    family_id = str(uuid.uuid4())
-    email = f"family-{family_id}@book.invalid"
-    book_id = None
     try:
+        O = register("Bookowner", "plus")
+        db.sql("UPDATE users SET fcm_token = 'owner-fcm-token' WHERE id = %s", O["id"])
         before = counts()
+        r = c.post("/api/family", headers=O["h"], json={"name": f"Books {tag}"})
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        book_id = (db.sql("SELECT id FROM books WHERE family_id = %s", fid) or [{}])[0].get("id") if fid else None
+        check(book_id is not None, "book users: creating a family creates its book", f"{r.status_code} {r.text[:200]}")
+        if not book_id:
+            return
+        check(not db.sql("SELECT 1 FROM users WHERE id = %s OR email LIKE %s", book_id, f"%{fid}%"),
+              "book users: the family book has no users row (nothing to log in as)")
+        # Entries in the family book make it look as active as possible to the counters.
+        c.post("/api/transactions", headers={**O["h"], **FAM}, json={
+            "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+            "date": datetime.now(UTC).isoformat(), "amount": 5, "currency": "usd"})
+        after = counts()
+        check(after == before, "book users: admin stats and broadcast counts don't change when a family (and its book) is made",
+              {k: (before[k], after[k]) for k in before if before[k] != after[k]})
 
-        async def make():
-            from sql import users as users_db
-            return await users_db.create_book_user(family_id)
-        book_id = _backend_async(make)
-
-        row = db.users.find_one({"_id": book_id}) or {}
-        check(row.get("kind") == "family_book" and row.get("email") == email and row.get("is_verified") is True
-              and row.get("subscription_type") == "free" and row.get("language") == "en",
-              "book users: create_book_user stores the agreed row", {k: row.get(k) for k in ("kind", "email", "is_verified", "subscription_type", "language")})
-        check(str(row.get("password", "")).startswith("$2"), "book users: the password is a bcrypt hash of a discarded secret")
-
-        # Make it look as attractive as possible to every listing, job and counter.
-        db.users.update_one({"_id": book_id}, {"$set": {"subscription_type": "plus", "fcm_token": "book-fcm-token",
-                                                         "subscription_expires_at": datetime.now(UTC) - timedelta(days=2)}})
-        db.sql("INSERT INTO transactions (id, user_id, type, main_category, sub_category, amount, currency, date) "
-               "VALUES (%s, %s, 'outflow', 'Food', 'Groceries', 5, 'usd', now())", str(uuid.uuid4()), book_id)
-        db.sql("INSERT INTO chat_sessions (id, user_id) VALUES (%s, %s)", str(uuid.uuid4()), book_id)
-
-        # Login: any password, and the e-mail in other cases, is the same 401 as an unknown account.
-        for pw in ("anything", "secret123", ""):
-            r = c.post("/api/auth/login", json={"email": email, "password": pw})
-            check(r.status_code in (401, 422), "book users: login as the book user is refused (401; 422 where the e-mail validator rejects .invalid)", f"{pw!r}: {r.status_code} {r.text[:120]}")
-        r = c.post("/api/auth/login", json={"email": email.upper(), "password": "anything"})
-        check(r.status_code in (401, 422), "book users: login is refused whatever the e-mail's case", r.status_code)
-
-        # Forgot password: the same generic answer as for an unknown e-mail, and no OTP is stored.
-        r = c.post("/api/auth/forgot-password/request-otp", json={"email": email})
-        stored = db.users.find_one({"_id": book_id}) or {}
-        check(r.status_code in (200, 422) and not stored.get("password_reset_otp"), "book users: forgot-password sets no OTP",
-              f"{r.status_code} otp={'set' if stored.get('password_reset_otp') else 'none'}")
-
-        # Past the request validators, the lookups themselves treat it as not found (login, reset and verify all use this).
-        async def lookup():
-            import auth_routes
-            return await auth_routes.find_user_by_email(email)
-        check(_backend_async(lookup) is None, "book users: auth_routes.find_user_by_email treats it as not found")
-
-        # A token minted for the book user (e.g. by a bug elsewhere) must not authenticate.
-        async def mint():
-            import auth_routes
-            user = await __import__("sql.users", fromlist=["x"]).get_user(book_id)
-            return auth_routes._issue_token(user)
-        token = _backend_async(mint)
-        r = c.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-        check(r.status_code == 401, "book users: a token issued for the book user is refused (401)", f"{r.status_code} {r.text[:120]}")
-
-        # Admin: list, search, detail, usage and the counters.
-        r = c.get("/api/admin/users", headers=h, params={"search": family_id, "limit": 100})
-        check(r.status_code == 200 and not any(u.get("email") == email for u in r.json()),
-              "book users: admin user search doesn't find it", r.status_code)
-        r = c.get("/api/admin/users", headers=h, params={"limit": 100, "subscription_type": "free"})
-        check(r.status_code == 200 and not any(u.get("email") == email for u in r.json()),
-              "book users: admin user list (free filter, where an expired Plus lands) doesn't include it", r.status_code)
+        r = c.get("/api/admin/users", headers=h, params={"search": fid, "limit": 100})
+        check(r.status_code == 200 and r.json() == [], "book users: admin user search by the family id finds no one",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/admin/users", headers=h, params={"limit": 100})
+        check(r.status_code == 200 and book_id not in {u.get("id") or u.get("_id") for u in r.json()},
+              "book users: the admin user list never lists the book", r.status_code)
         for path in (f"/api/admin/users/{book_id}", f"/api/admin/users/{book_id}/usage"):
             r = c.get(path, headers=h)
-            check(r.status_code == 404, f"book users: {path.split(book_id)[1] or 'detail'} admin read is a 404", r.status_code)
-        after = counts()
-        check(after == before, "book users: admin stats and broadcast counts are unchanged", {k: (before[k], after[k]) for k in before if before[k] != after[k]})
+            check(r.status_code == 404, f"book users: {path.split(book_id)[1] or 'detail'} admin read of the book id is a 404",
+                  r.status_code)
 
-        # The weekly/monthly all-user job selection and plan expiry.
+        # The old book-user e-mail logs nothing in, and a token naming the book's id is refused.
+        for email in (f"family-{fid}@book.invalid", f"family-{book_id}@book.invalid"):
+            r = c.post("/api/auth/login", json={"email": email, "password": "anything"})
+            check(r.status_code in (401, 422), "book users: login with the old book-user e-mail is refused",
+                  f"{r.status_code} {r.text[:120]}")
+
+        async def mint():
+            import auth_routes
+            return auth_routes._issue_token({"_id": book_id, "email": f"family-{fid}@book.invalid"})
+        r = c.get("/api/auth/me", headers={"Authorization": f"Bearer {_backend_async(mint)}"})
+        check(r.status_code == 401, "book users: a token naming the family book is refused (401)", f"{r.status_code} {r.text[:120]}")
+
         async def jobs():
-            from plans.catalog import PAID_PLANS
-            import subscription_service
             from sql import users as users_db
-            picked = await users_db.list_fields(["subscription_type"], users_db.users.c.subscription_type.in_(PAID_PLANS))
-            ids = await users_db.user_ids()
-            n = await subscription_service.expire_paid_plans()
-            return book_id in {u["_id"] for u in picked}, book_id in ids, n
-        in_picked, in_ids, _ = _backend_async(jobs)
-        check(not in_picked, "book users: the all-user insights selection (paid plans) skips it")
-        check(not in_ids, "book users: user_ids() (scheduler, daily jobs) skips it")
-        row = db.users.find_one({"_id": book_id}) or {}
-        check(row.get("subscription_type") == "plus", "book users: expire_paid_plans leaves an expired book user alone",
-              row.get("subscription_type"))
-
-        r = c.delete(f"/api/admin/users/{book_id}", headers=h)  # last: the old behaviour deletes the row
-        check(r.status_code == 404 and db.users.find_one({"_id": book_id}), "book users: admin can't delete it", r.status_code)
+            return book_id in await users_db.user_ids()
+        check(not _backend_async(jobs), "book users: user_ids() (scheduler, daily jobs, broadcasts) never holds the book")
     finally:
-        if book_id:
-            db.sql("DELETE FROM users WHERE id = %s", book_id)
-        db.admins.delete_many({"email": made["super_admin"]})
+        _cleanup_people(made)
+        db.admins.delete_many({"email": admins["super_admin"]})
 
 
 BASE = "http://127.0.0.1:8765"
@@ -260,7 +229,8 @@ def _code(r, status, code):
 
 
 def _registrar(c, tag, made):
-    """register(name, plan) -> {"id", "email", "name", "h"}: a verified account on `plan`, its id added to `made`."""
+    """register(name, plan) -> {"id", "email", "name", "h", "book"}: a verified account on `plan` with its personal
+    book's id, its id added to `made`."""
     def register(name, plan="free"):
         email = f"fam-{name.lower()}-{tag}@example.com"
         c.post("/api/auth/register", json={"name": name, "email": email, "password": "secret123"})
@@ -271,15 +241,39 @@ def _registrar(c, tag, made):
         expires = datetime.now(UTC) + timedelta(days=30) if plan != "free" else None
         db.sql("UPDATE users SET subscription_type = %s, subscription_expires_at = %s, trial_ends_at = NULL WHERE id = %s",
                plan, expires, uid)
-        return {"id": uid, "email": email, "name": name, "h": {"Authorization": f"Bearer {token}"}}
+        return {"id": uid, "email": email, "name": name, "h": {"Authorization": f"Bearer {token}"},
+                "book": _personal_book(uid)}
     return register
 
 
+def _personal_book(uid):
+    """A person's personal book id (None if they have none)."""
+    rows = db.sql("SELECT id FROM books WHERE person_id = %s", uid)
+    return rows[0]["id"] if rows else None
+
+
+def _family_book(fid):
+    """A family's book id (None if there is no such family)."""
+    rows = db.sql("SELECT id FROM books WHERE family_id = %s", fid) if fid else []
+    return rows[0]["id"] if rows else None
+
+
+def _book_flag(book_id):
+    """A book's ai_data_stale flag."""
+    return db.sql("SELECT ai_data_stale FROM books WHERE id = %s", book_id)[0]["ai_data_stale"]
+
+
+async def _person_with_book(uid):
+    """The person's user dict as get_current_user returns it (with personal_book_id), for calling routes in-process."""
+    from sql import users as users_db
+    user = await users_db.get_user(uid)
+    return {**user, "personal_book_id": _personal_book(uid)}
+
+
 def _cleanup_people(made):
-    """Delete the people in `made` and the book users of the families they were in (cascading to everything)."""
+    """Delete the people in `made` and the families they were in (cascading to their books and everything)."""
     if made:
-        db.sql("DELETE FROM users WHERE id IN (SELECT f.book_user_id FROM families f JOIN family_members m "
-               "ON m.family_id = f.id WHERE m.user_id = ANY(%s))", made)
+        db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)
         db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
 
 
@@ -362,8 +356,8 @@ def section_family_rules():
         m = member_of(view, user=A) or {}
         check(m.get("id") == a_mid and m.get("display_name") == "Aye" and m.get("kind") == "account" and m.get("status") == "active",
               "family rules: the owner member carries the user's name", m)
-        book = db.sql("SELECT u.kind FROM families f JOIN users u ON u.id = f.book_user_id WHERE f.id = %s", fid)
-        check(book and book[0]["kind"] == "family_book", "family rules: the family has its own book user", book)
+        book = db.sql("SELECT kind FROM books WHERE family_id = %s", fid)
+        check(book and book[0]["kind"] == "family", "family rules: the family has its own family book", book)
         r = c.post("/api/family", headers=A["h"], json={"name": "Second"})
         check(_code(r, 409, "already_in_family"), "family rules: creating a second family is refused (already_in_family)", r.status_code)
 
@@ -481,9 +475,9 @@ def section_family_rules():
         gone = db.sql("SELECT count(*) n FROM family_members WHERE id = %s", p1["id"])[0]["n"]
         check(r.status_code == 200 and gone == 0 and member_of(fam(A).json(), name="P1") is None,
               "family rules: removing a placeholder with no entries deletes it", f"{r.status_code} {gone}")
-        book_id = db.sql("SELECT book_user_id FROM families WHERE id = %s", fid)[0]["book_user_id"]
+        book_id = _family_book(fid)
         tx = str(uuid.uuid4())
-        db.sql("INSERT INTO transactions (id, user_id, type, main_category, sub_category, amount, currency, date) "
+        db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, currency, date) "
                "VALUES (%s, %s, 'outflow', 'Food', 'Groceries', 5, 'usd', now())", tx, book_id)
         db.sql("INSERT INTO transaction_beneficiaries (transaction_id, member_id) VALUES (%s, %s)", tx, p2["id"])
         r = c.delete(f"/api/family/members/{p2['id']}", headers=A["h"])
@@ -706,8 +700,7 @@ def section_book_scope():
             out.append(j)
         return out
 
-    def book_flag(uid):
-        return db.sql("SELECT ai_data_stale FROM users WHERE id = %s", uid)[0]["ai_data_stale"]
+    book_flag = _book_flag
 
     try:
         M = register("Mum", "plus")
@@ -716,7 +709,7 @@ def section_book_scope():
         r = c.post("/api/family", headers=M["h"], json={"name": f"Scope family {tag}"})
         fid = (r.json().get("family") or {}).get("id") if r.status_code == 200 else None
         m_mid = (r.json().get("me") or {}).get("member_id") if r.status_code == 200 else None
-        book_id = db.sql("SELECT book_user_id FROM families WHERE id = %s", fid)[0]["book_user_id"] if fid else None
+        book_id = _family_book(fid)
         c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
         inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
         r = c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"]) if inv else None
@@ -735,15 +728,15 @@ def section_book_scope():
             "amount": 5, "currency": "usd", "recurrence": {"enabled": True, "config": {"frequency": "monthly", "day_of_month": 1}}})
         dad_rec = rec.json().get("id") if rec.status_code == 200 else None
         dad_report = str(uuid.uuid4())
-        db.sql("INSERT INTO custom_insights (id, user_id, start_date, end_date, status, content) "
-               "VALUES (%s, %s, current_date - 7, current_date, 'ready', 'Dad''s private report')", dad_report, D["id"])
+        db.sql("INSERT INTO custom_insights (id, book_id, start_date, end_date, status, content) "
+               "VALUES (%s, %s, current_date - 7, current_date, 'ready', 'Dad''s private report')", dad_report, D["book"])
 
-        db.sql("UPDATE users SET ai_data_stale = false WHERE id IN (%s, %s)", M["id"], book_id)
+        db.sql("UPDATE books SET ai_data_stale = false WHERE id IN (%s, %s)", M["book"], book_id)
         r = tx(M, True, amount=40, currency="mmk")
         fam_tx = [r.json().get("id")] if r.status_code == 200 else []
-        check(r.status_code == 200 and r.json().get("user_id") == book_id,
+        check(r.status_code == 200 and r.json().get("book_id") == book_id,
               "book scope: a family POST transaction is stored under the book", f"{r.status_code} {r.text[:200]}")
-        check(book_flag(book_id) is True and book_flag(M["id"]) is False,
+        check(book_flag(book_id) is True and book_flag(M["book"]) is False,
               "book scope: a family write marks the book's AI data stale, not the person's")
         row = db.sql("SELECT added_by_member_id FROM transactions WHERE id = %s", fam_tx[0])[0] if fam_tx else {}
         check(row.get("added_by_member_id") == m_mid, "book scope: a family entry records who added it", row)
@@ -752,13 +745,13 @@ def section_book_scope():
         r = c.post("/api/transactions/batch-create", headers=H(D, True), json=[
             {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
              "date": now.isoformat(), "amount": 7, "currency": "usd"}])
-        check(r.status_code == 200 and all(t["user_id"] == book_id for t in r.json()),
+        check(r.status_code == 200 and all(t["book_id"] == book_id for t in r.json()),
               "book scope: a family batch-create is stored under the book", f"{r.status_code} {r.text[:200]}")
         fam_tx += [t["id"] for t in r.json()] if r.status_code == 200 else []
         fam_budget = budget(M, True, name="Family B").json().get("id")
         r = goal(M, True, name="Family G")
         fam_goal = r.json().get("id")
-        check(r.status_code == 200 and r.json().get("user_id") == book_id, "book scope: a family goal is stored under the book",
+        check(r.status_code == 200 and r.json().get("book_id") == book_id, "book scope: a family goal is stored under the book",
               f"{r.status_code} {r.text[:200]}")
         r = c.post(f"/api/goals/{fam_goal}/contribute", headers=H(D, True), json={"amount": 10})
         check(r.status_code == 200, "book scope: Dad contributes to the family goal from the family balance",
@@ -799,8 +792,8 @@ def section_book_scope():
               "book scope: Mum's personal list is only her own entries")
         r = c.get("/api/transactions", headers=H(D))
         dl = r.json() if r.status_code == 200 else []
-        check(set(dad_tx + [dad_rec]) <= {t["id"] for t in dl} and all(t["user_id"] == D["id"] for t in dl),
-              "book scope: Dad's personal list is only his own entries", [(t["id"], t["user_id"]) for t in dl])
+        check(set(dad_tx + [dad_rec]) <= {t["id"] for t in dl} and all(t["book_id"] == D["book"] for t in dl),
+              "book scope: Dad's personal list is only his own entries", [(t["id"], t.get("book_id")) for t in dl])
         check(ids(c.get("/api/budgets", headers=H(M))) == [mum_budget] and ids(c.get("/api/goals", headers=H(D))) == [dad_goal],
               "book scope: personal budgets and goals are each person's own")
         b = c.get("/api/dashboard/balance", headers=H(M), params={"currency": "usd"}).json()
@@ -846,7 +839,7 @@ def section_book_scope():
         # ---- insights: the book's, gated by the owner's plan ----
         r = c.get("/api/insights", headers=H(M, True), params={"insight_type": "weekly"})
         mum_ins = r.json() if r.status_code == 200 else {}
-        check(r.status_code == 200 and mum_ins.get("user_id") == book_id,
+        check(r.status_code == 200 and mum_ins.get("book_id") == book_id,
               "book scope: a family weekly insight is the book's", f"{r.status_code} {r.text[:200]}")
         r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "weekly"})
         check(r.status_code == 200 and r.json().get("id") == mum_ins.get("id"),
@@ -863,10 +856,10 @@ def section_book_scope():
             import custom_insights_service as cis
             from plans import quota
             r = quota.Reservation(D["id"], [("custom_insight", "month", now.date())])
-            fam_row = {"user_id": book_id, "counter_keys": cis.counter_keys(r, book_id)}
-            own_row = {"user_id": D["id"], "counter_keys": cis.counter_keys(r, D["id"])}
-            return (cis._reservation(fam_row).user_id, len(fam_row["counter_keys"][0]),
-                    cis._reservation(own_row).user_id, len(own_row["counter_keys"][0]))
+            fam_row = {"book_id": book_id, "counter_keys": cis.counter_keys(r, family=True)}
+            own_row = {"book_id": D["book"], "counter_keys": cis.counter_keys(r, family=False)}
+            return ((await cis._reservation(fam_row)).user_id, len(fam_row["counter_keys"][0]),
+                    (await cis._reservation(own_row)).user_id, len(own_row["counter_keys"][0]))
         got = _backend_async(give_back_target)
         check(got == (D["id"], 4, D["id"], 3),
               "book scope: a family custom insight's counter_keys name the asker (personal ones are unchanged)", got)
@@ -874,7 +867,7 @@ def section_book_scope():
         # ---- R10: family insights never count against anyone ----
         r = c.get("/api/insights", headers=H(M, True), params={"insight_type": "monthly"})
         fam_monthly = r.json().get("id") if r.status_code == 200 else None
-        check(r.status_code == 200 and r.json().get("user_id") == book_id, "book scope: a family monthly insight is the book's",
+        check(r.status_code == 200 and r.json().get("book_id") == book_id, "book scope: a family monthly insight is the book's",
               f"{r.status_code} {r.text[:200]}")
 
         def insight_uses(*uids):
@@ -882,7 +875,7 @@ def section_book_scope():
                           "AND feature LIKE 'insight%%'", list(uids))[0]["n"]
 
         def book_insights(kind=None):
-            return db.sql("SELECT count(*) n FROM insights WHERE user_id = %s AND (%s::text IS NULL OR insight_type = %s)",
+            return db.sql("SELECT count(*) n FROM insights WHERE book_id = %s AND (%s::text IS NULL OR insight_type = %s)",
                           book_id, kind, kind)[0]["n"]
 
         async def family_generation_uncounted():
@@ -893,12 +886,11 @@ def section_book_scope():
             from families.book import get_book
             from plans import store
             from plans.catalog import Limit
-            from sql import users as users_db
             calls = []
 
             async def fake_generate(data_id, insight_type):
                 calls.append(data_id)
-                return {"_id": str(uuid.uuid4()), "user_id": data_id, "content": "## Fake family insight",
+                return {"_id": str(uuid.uuid4()), "book_id": data_id, "content": "## Fake family insight",
                         "generated_at": datetime.now(UTC), "is_placeholder": False}
 
             orig_limits, orig_generate = store.limits, backend_main._generate_insight
@@ -911,12 +903,12 @@ def section_book_scope():
                 return lim
             store.limits, backend_main._generate_insight = counted_limits, fake_generate
             try:
-                mum_book = await get_book(current_user=await users_db.get_user(M["id"]), x_book="family")
-                dad_book = await get_book(current_user=await users_db.get_user(D["id"]), x_book="family")
+                mum_book = await get_book(current_user=await _person_with_book(M["id"]), x_book="family")
+                dad_book = await get_book(current_user=await _person_with_book(D["id"]), x_book="family")
                 before = insight_uses(M["id"], D["id"])
                 await backend_main.regenerate_insights(language="en", ai_provider=AIProvider.OPENAI,
                                                        insight_type="weekly", book=mum_book)
-                db.sql("DELETE FROM insights WHERE user_id = %s AND insight_type = 'weekly'", book_id)
+                db.sql("DELETE FROM insights WHERE book_id = %s AND insight_type = 'weekly'", book_id)
                 await backend_main.get_insights(language="en", ai_provider=AIProvider.OPENAI, insight_type="weekly",
                                                 book=dad_book)
                 return before, insight_uses(M["id"], D["id"]), calls
@@ -936,7 +928,6 @@ def section_book_scope():
             import report_routes
             from families.book import get_book
             from report_models import ReportRequest
-            from sql import users as users_db
             names = []
             orig = report_routes.generate_financial_report_pdf
 
@@ -947,7 +938,7 @@ def section_book_scope():
             try:
                 req = ReportRequest(period="month", currency="usd")
                 for x_book in ("family", "personal"):
-                    book = await get_book(current_user=await users_db.get_user(D["id"]), x_book=x_book)
+                    book = await get_book(current_user=await _person_with_book(D["id"]), x_book=x_book)
                     await report_routes._download_report_pdf(req, book)
             finally:
                 report_routes.generate_financial_report_pdf = orig
@@ -976,7 +967,7 @@ def section_book_scope():
         r = c.delete("/api/insights", headers=H(D), params={"insight_type": "weekly"})
         check(r.status_code == 200, "book scope: Dad still deletes his own personal insights", f"{r.status_code} {r.text[:200]}")
         r = c.post("/api/insights/regenerate", headers=H(M, True), params={"insight_type": "weekly"})
-        check(r.status_code == 200 and r.json().get("user_id") == book_id,
+        check(r.status_code == 200 and r.json().get("book_id") == book_id,
               "book scope: an admin (Mum) regenerates the family's weekly insight", f"{r.status_code} {r.text[:200]}")
         r = c.delete("/api/insights", headers=H(M, True), params={"insight_type": "weekly"})
         check(r.status_code == 200 and book_insights("weekly") == 0,
@@ -1019,7 +1010,7 @@ def section_book_scope():
               and book_insights() == stored,
               "book scope: read-only: Dad's family monthly GET shows the stored insight, generates and counts nothing",
               f"{r.status_code} {r.text[:200]}")
-        db.sql("DELETE FROM insights WHERE user_id = %s AND insight_type = 'monthly'", book_id)
+        db.sql("DELETE FROM insights WHERE book_id = %s AND insight_type = 'monthly'", book_id)
         stored = book_insights()
         r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
         check(_code(r, 403, "family_read_only") and insight_uses(D["id"]) == uses and book_insights() == stored,
@@ -1038,7 +1029,7 @@ def section_book_scope():
 
         # R10: a family custom report is shared, so only an admin deletes it.
         fam_report = str(uuid.uuid4())
-        db.sql("INSERT INTO custom_insights (id, user_id, start_date, end_date, status, content) "
+        db.sql("INSERT INTO custom_insights (id, book_id, start_date, end_date, status, content) "
                "VALUES (%s, %s, current_date - 7, current_date, 'ready', 'Family report')", fam_report, book_id)
         r = c.delete(f"/api/custom-insights/{fam_report}", headers=H(D, True))
         check(_code(r, 403, "not_allowed"), "book scope: a member can't delete a family custom report (not_allowed)",
@@ -1500,7 +1491,7 @@ def section_transfers():
         return c.post("/api/transfers", headers=headers or u["h"], json=body)
 
     def legs(transfer_id):
-        return db.sql("SELECT id, user_id, type, main_category, sub_category, amount, currency, date, description, "
+        return db.sql("SELECT id, book_id, type, main_category, sub_category, amount, currency, date, description, "
                       "transfer_id, added_by_member_id, recurrence_enabled FROM transactions WHERE transfer_id = %s "
                       "ORDER BY type", transfer_id)
 
@@ -1551,8 +1542,8 @@ def section_transfers():
         if inv:
             c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
         d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
-        book_id = (db.sql("SELECT f.book_user_id FROM families f JOIN family_members m ON m.family_id = f.id "
-                          "WHERE m.user_id = %s", M["id"]) or [{}])[0].get("book_user_id")
+        book_id = (db.sql("SELECT b.id FROM books b JOIN family_members m ON m.family_id = b.family_id "
+                          "WHERE m.user_id = %s", M["id"]) or [{}])[0].get("id")
         check(all((m_mid, d_mid, book_id)), "transfers: Mum's family with Dad", (m_mid, d_mid, book_id))
 
         # Mum: K500,000 salary, K10,000 groceries, K200,000 set aside for a goal (available K290,000).
@@ -1587,8 +1578,8 @@ def section_transfers():
         check(all(m1.get(k) == m0.get(k) and f1.get(k) == f0.get(k) for k in ("total_inflow", "total_outflow")),
               "transfers: neither book's total_inflow / total_outflow changes", (m0, m1, f0, f1))
         rows = legs(tid)
-        p = next((x for x in rows if x["user_id"] == M["id"]), {})
-        f = next((x for x in rows if x["user_id"] == book_id), {})
+        p = next((x for x in rows if x["book_id"] == M["book"]), {})
+        f = next((x for x in rows if x["book_id"] == book_id), {})
         check(len(rows) == 2 and p.get("type") == "outflow" and f.get("type") == "inflow"
               and p.get("id") == j.get("personal_transaction_id") and f.get("id") == j.get("family_transaction_id"),
               "transfers: one linked pair -- an outflow in Mum's book, an inflow in the family's", rows)
@@ -1678,14 +1669,14 @@ def section_transfers():
             hi = datetime.now(UTC) + timedelta(days=2)
             return {
                 "cats": {(x["main_category"]) for x in await tdb.category_totals(book_id)}
-                | {(x["main_category"]) for x in await tdb.category_totals(M["id"])},
+                | {(x["main_category"]) for x in await tdb.category_totals(M["book"])},
                 "find": [x.get("transfer_id") for x in await tdb.find_transactions(book_id, include_transfers=False)],
                 "find_all": sum(1 for x in await tdb.find_transactions(book_id) if x.get("transfer_id")),
-                "dad_has": await tdb.has_transactions_between(D["id"], lo, hi),
-                "dad_changed": await tdb.changed_since(D["id"], lo, hi, lo),
+                "dad_has": await tdb.has_transactions_between(D["book"], lo, hi),
+                "dad_changed": await tdb.changed_since(D["book"], lo, hi, lo),
                 "dad_totals": [(x["total_inflow"], x["total_outflow"], x["count"], x["transfer_in"], x["transfer_out"])
-                               for x in await tdb.currency_totals(D["id"])],
-                "dad_summary": (await get_financial_summary(D["id"], lo, hi))["summary"],
+                               for x in await tdb.currency_totals(D["book"])],
+                "dad_summary": (await get_financial_summary(D["book"], lo, hi))["summary"],
             }
         try:
             fig = _backend_async(figures)
@@ -1750,10 +1741,10 @@ def section_transfers():
         # R13: a half pair (one leg gone) can't be undone: removing the other leg would bring money back.
         r = move(M, "to_family", 1000)
         half = r.json().get("transfer_id") if r.status_code == 200 else None
-        db.sql("DELETE FROM transactions WHERE transfer_id = %s AND user_id = %s", half, book_id)
+        db.sql("DELETE FROM transactions WHERE transfer_id = %s AND book_id = %s", half, book_id)
         m_before = bal(M, "mmk")
         r = c.delete(f"/api/transfers/{half}", headers=M["h"])
-        check(_code(r, 409, "transfer_gone") and len(legs(half)) == 1 and legs(half)[0]["user_id"] == M["id"]
+        check(_code(r, 409, "transfer_gone") and len(legs(half)) == 1 and legs(half)[0]["book_id"] == M["book"]
               and bal(M, "mmk") == m_before,
               "transfers: undoing a half pair is 409 transfer_gone; the personal leg and the balance stay",
               f"{r.status_code} {r.text[:200]} {legs(half)}")
@@ -1776,8 +1767,7 @@ def section_transfers():
             import utils
             from families import transfers as tr
             from sql import db as sqldb
-            from sql import users as users_db
-            person = await users_db.get_user(M["id"])
+            person = await _person_with_book(M["id"])
             pool = sqldb.get_engine().sync_engine.pool
             held = []
 
@@ -1785,7 +1775,7 @@ def section_transfers():
                 entered, release = asyncio.Event(), asyncio.Event()
 
                 async def other_request():  # another request moving the family's money (its own task and context)
-                    async with utils.get_user_money_lock(book_id):
+                    async with utils.get_book_money_lock(book_id):
                         entered.set()
                         await release.wait()
                 holder = asyncio.create_task(other_request())
@@ -1838,7 +1828,7 @@ def section_transfers():
         r = c.request("DELETE", "/api/family", headers=M["h"], json={"confirm_name": f"Transfers family {tag}"})
         check(r.status_code == 200, "transfers: Mum deletes the family", f"{r.status_code} {r.text[:200]}")
         rows = legs(kept)
-        check(len(rows) == 1 and rows[0]["user_id"] == M["id"],
+        check(len(rows) == 1 and rows[0]["book_id"] == M["book"],
               "transfers: after the family is deleted Mum's personal leg stays", rows)
         m_before = bal(M, "mmk")
         r = c.delete(f"/api/transfers/{kept}", headers=M["h"])
@@ -2537,7 +2527,7 @@ def section_ai():
         finally:
             db.sql("DELETE FROM ai_usage WHERE id = %s", cap_row)
         r = c.get("/api/insights", headers=H(D, True), params={"insight_type": "monthly"})
-        check(r.status_code == 200 and r.json().get("user_id") == book,
+        check(r.status_code == 200 and r.json().get("book_id") == book,
               "ai: under the cap again, Dad's family GET makes the family's monthly insight", f"{r.status_code} {r.text[:200]}")
 
         # ---- R16: the book's own AI spend counts toward the owner's cap ----
@@ -2557,7 +2547,7 @@ def section_ai():
                   f"{r.status_code} {r.text[:200]}")
             r = c.post("/api/insights/regenerate", headers=H(M), params={"insight_type": "weekly"})
             ok = chat(M, False, f"mum personal again {tag}")
-            check(r.status_code == 200 and r.json().get("user_id") == M["id"] and ok,
+            check(r.status_code == 200 and r.json().get("book_id") == M["book"] and ok,
                   "ai: R16: Mum's own personal insight and chat are unaffected by the book's spend",
                   (f"{r.status_code} {r.text[:200]}", ok))
         finally:
@@ -2601,9 +2591,9 @@ def section_ai():
             rid = str(uuid.uuid4())
             res = quota.Reservation(D["id"], [("insight_custom", "month", today)])
             assert await ci.insert_pending({
-                "_id": rid, "user_id": book, "start_date": start, "end_date": today, "preset": None,
+                "_id": rid, "book_id": book, "start_date": start, "end_date": today, "preset": None,
                 "instruction": None, "instruction_key": cis.instruction_key(None, None),
-                "counter_keys": cis.counter_keys(res, book), "figures": await cis.compute_figures(book, start, today)})
+                "counter_keys": cis.counter_keys(res, family=True), "figures": await cis.compute_figures(book, start, today)})
             orig = cis.run_insight_model
 
             async def fake(feature, system_prompt, context, user_id, label, **kw):

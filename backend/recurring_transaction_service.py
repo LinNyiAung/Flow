@@ -226,7 +226,7 @@ async def _child_exists_on_date(transaction: dict, occ_date: datetime) -> bool:
     (older children have uuid _ids, so the deterministic _id alone can't dedupe them)."""
     day = occ_date.date()
     return await transactions_db.child_exists_between(
-        transaction["user_id"],
+        transaction["book_id"],
         transaction["_id"],
         datetime.combine(day, time.min, tzinfo=UTC),
         datetime.combine(day, time.max, tzinfo=UTC),
@@ -280,12 +280,12 @@ async def _process_recurring_transaction(
         if await _child_exists_on_date(transaction, occ_date):
             # Already created (possibly by an older run with a uuid _id) - just advance the pointer.
             # Still refresh caches/budgets: a crashed run may have skipped that.
-            affected[transaction["user_id"]][transaction.get("currency", "usd")].append(occ_date)
+            affected[transaction["book_id"]][transaction.get("currency", "usd")].append(occ_date)
             await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date)
             continue
         new_transaction = {
             "_id": new_id,
-            "user_id": transaction["user_id"],
+            "book_id": transaction["book_id"],
             "type": transaction["type"],
             "main_category": transaction["main_category"],
             "sub_category": transaction["sub_category"],
@@ -312,7 +312,7 @@ async def _process_recurring_transaction(
             created += 1
             last_new_id = new_id
         # Track even duplicates: a crashed run may have skipped the cache/budget refresh.
-        affected[transaction["user_id"]][new_transaction["currency"]].append(occ_date)
+        affected[transaction["book_id"]][new_transaction["currency"]].append(occ_date)
 
         # Advance the pointer after every occurrence so a crash never re-creates (and the
         # deterministic _id makes a retry harmless anyway).
