@@ -114,7 +114,8 @@ rec(f"burst: {len(res)} requests from 40 clients in {wall:.1f}s (p50 {p50:.2f}s,
 bal = c.get("/api/dashboard/balance", headers=H(tok), params={"currency": "usd"}).json()
 agg = db.sql("SELECT coalesce(sum(amount) FILTER (WHERE type = 'inflow'), 0)::float AS i,"
              " coalesce(sum(amount) FILTER (WHERE type = 'outflow'), 0)::float AS o"
-             " FROM transactions WHERE user_id = %s AND currency = 'usd'", uid)[0]
+             " FROM transactions WHERE book_id = (SELECT id FROM books WHERE person_id = %s) AND currency = 'usd'",
+             uid)[0]
 rec("balance consistent with DB after concurrent writes", "PASS" if abs(bal["balance"] - (agg["i"] - agg["o"])) < 0.01 else "FAIL",
     f"api={bal['balance']:.2f} db={agg['i'] - agg['o']:.2f}")
 
