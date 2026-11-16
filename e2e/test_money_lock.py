@@ -149,15 +149,30 @@ async def main():
     check(done == [True, True] and took >= 0.55, "two books' locks in opposite orders: both blocks finish, one after the other",
           f"done={done}, took {took:.2f}s")
 
-    # 7. A person's id is not a book: locking it holds no book's row (the book's lock is still free).
-    child = subprocess.Popen([sys.executable, "-u", os.path.abspath(__file__), "--hold", uid],
-                             stdout=subprocess.PIPE, text=True, cwd=os.path.dirname(os.path.abspath(__file__)))
-    wait_until_locked(child)
-    t0 = time.monotonic()
-    async with get_book_money_lock(book):
-        waited = time.monotonic() - t0
-    child.wait(timeout=30)
-    check(waited < 0.5, "a lock on the person's id doesn't hold their book's lock", f"waited {waited:.2f}s")
+    # 7. A person's id is not a book: every money lock refuses it (LookupError) and its block never runs, so a wrong
+    #    id can never run money moves unserialised. Nothing written in such a block survives.
+    async def refused(make_lock, label):
+        ran = False
+        try:
+            async with make_lock():
+                ran = True
+                await transactions_db.insert_transaction(tx(book, 1))
+        except LookupError:
+            return not ran
+        except Exception as e:  # noqa: BLE001
+            print(f"  {label}: unexpected {type(e).__name__}: {e}", flush=True)
+        return False
+
+    before = await transactions_db.count_transactions(book)
+    check(await refused(lambda: books_db.money_lock(uid), "money_lock"),
+          "books_db.money_lock refuses a person's id (LookupError, the block doesn't run)")
+    check(await refused(lambda: get_book_money_lock(uid), "get_book_money_lock"),
+          "get_book_money_lock refuses a person's id")
+    check(await refused(lambda: get_books_money_locks((uid, book)), "get_books_money_locks"),
+          "get_books_money_locks refuses a set that holds a person's id (the real book's lock is released too)")
+    check(await transactions_db.count_transactions(book) == before, "nothing from a refused lock block is written")
+    async with get_book_money_lock(book):  # the real book's lock is free again afterwards
+        pass
 
     await users_db.delete_user(uid)  # the personal books and their entries cascade
     await users_db.delete_user(other)

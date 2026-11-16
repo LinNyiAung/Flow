@@ -93,7 +93,12 @@ async def claim_ai_data_fresh(book_id: str) -> bool:
 async def money_lock(book_id: str) -> AsyncIterator[None]:
     """Serialize one book's money-moving operations across every server process: holds the book's row lock
     (SELECT ... FOR UPDATE) for the whole block. All database calls in the block run in that one transaction, so the
-    block also commits or rolls back as a unit."""
+    block also commits or rolls back as a unit.
+
+    Raises LookupError when `book_id` is no book (e.g. a person's id): locking no row would let the block run without
+    any serialisation, so a wrong id is refused instead of silently unprotected."""
     async with transaction() as conn:
-        await conn.execute(select(b.c.id).where(b.c.id == book_id).with_for_update())
+        locked = (await conn.execute(select(b.c.id).where(b.c.id == book_id).with_for_update())).first()
+        if locked is None:
+            raise LookupError(f"no book {book_id}")
         yield
