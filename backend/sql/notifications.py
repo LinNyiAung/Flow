@@ -1,15 +1,20 @@
 """In-app notifications."""
+import logging
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from sqlalchemy import and_, delete, exists as sql_exists, func, insert, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from sql.db import execute, fetch_all, fetch_value, transaction, write_returning
 from sql.docs import row_to_doc
 from sql.tables import books
 from sql.tables import notifications as n
 
+logger = logging.getLogger(__name__)
+
 _COLUMNS = {c.name for c in n.columns}
+FOREIGN_KEY_VIOLATION = "23503"  # PostgreSQL SQLSTATE
 
 # A notice's subject: at most one of these typed links (each a FK, SET NULL when the thing is deleted), the one its
 # type names (notification_service.NOTIFICATION_LINKS). LINKS adds the book the notice is about.
@@ -31,13 +36,45 @@ def _if_exists(link: str, value: str):
     return select(target).where(target == value).scalar_subquery()
 
 
-async def insert_notification(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Store one notice; returns it as stored (a link whose row was already gone is None)."""
+def _is_fk_violation(e: IntegrityError) -> bool:
+    return getattr(e.orig, "sqlstate", None) == FOREIGN_KEY_VIOLATION
+
+
+async def _insert(row: Dict[str, Any]) -> Dict[str, Any]:
+    """INSERT ... RETURNING in a savepoint of the caller's transaction (or its own transaction), so a failed insert
+    leaves the caller's transaction usable."""
+    async with transaction():
+        return await write_returning(insert(n).values(**row).returning(*n.c))
+
+
+async def insert_notification(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Store one notice; returns it as stored (a link whose row was already gone is None, and logged).
+
+    A subject deleted between a link's sub-select and the insert's FK check fails the insert: it is retried once with
+    every link NULL. If that fails too (e.g. the recipient is gone), the notice is skipped and logged, and None is
+    returned: a notice never turns the action that sent it into an error."""
     row = _row(doc)
-    for link in LINKS:
-        if row.get(link) is not None:
-            row[link] = _if_exists(link, row[link])
-    return row_to_doc(await write_returning(insert(n).values(**row).returning(*n.c)))
+    requested = {link: row[link] for link in LINKS if row.get(link) is not None}
+    try:
+        stored = await _insert({**row, **{link: _if_exists(link, v) for link, v in requested.items()}})
+    except IntegrityError as e:
+        if not _is_fk_violation(e):
+            raise
+        logger.warning("Notification %s for %s: a link's row was deleted while it was stored (%s); retrying with no "
+                       "links", row.get("type"), row.get("user_id"), e.orig)
+        try:
+            stored = await _insert({**row, **dict.fromkeys(requested)})
+        except IntegrityError as e2:
+            if not _is_fk_violation(e2):
+                raise
+            logger.warning("Notification %s for %s skipped: it could not be stored even with no links (%s)",
+                           row.get("type"), row.get("user_id"), e2.orig)
+            return None
+    for link, value in requested.items():
+        if stored.get(link) is None:
+            logger.warning("Notification %s for %s: %s %s no longer exists; the link is stored NULL",
+                           row.get("type"), row.get("user_id"), link, value)
+    return row_to_doc(stored)
 
 
 async def insert_many(docs: Iterable[Dict[str, Any]]) -> int:

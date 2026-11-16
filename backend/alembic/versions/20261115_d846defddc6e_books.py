@@ -6,8 +6,11 @@ key points at). transactions, budgets, goals, insights and custom_insights move 
 chat_sessions.book_id becomes NOT NULL (a personal chat points at the personal book); ai_usage gets book_id (a book
 user's spend moves there, user_id becomes nullable); users.ai_data_stale moves to books. notifications.goal_id (an id of
 whatever `type` meant) and notifications.book are replaced by typed links (goal, budget, transaction, custom insight,
-family invite, family; at most one) plus book_id. Finally the book users, families.book_user_id, users.kind and
-users.ai_data_stale go.
+family invite, family; at most one) plus book_id. A weekly / monthly insight notice links its book: a live family
+book, else the recipient's personal book when it had no goal_id (a personal insight notice), else none (a deleted
+family's). Finally the book users, families.book_user_id, users.kind and users.ai_data_stale go. Deleting the book
+users also removes, by cascade, their usage_counters and notification_preferences rows, including those of orphan
+book users (a deleted family's book user, which gets no book).
 
 The downgrade is the exact reverse and works on a populated database: it re-creates the book users with the family book
 ids, maps book_id back to user_id, and collapses the typed links back into goal_id / book. AI spend whose family was
@@ -169,6 +172,7 @@ def upgrade() -> None:
         _sql(f"UPDATE notifications n SET book_id = x.book_id FROM {_LINK_TABLE[link]} x WHERE x.id = n.{link}")
     _sql(f"UPDATE notifications n SET book_id = CASE "
          f"WHEN n.legacy_goal_id IN (SELECT id FROM books WHERE kind = 'family') THEN n.legacy_goal_id "
+         f"WHEN n.legacy_goal_id IS NOT NULL THEN NULL "  # a deleted family's book user: no book (not the personal one)
          f"ELSE (SELECT b.id FROM books b WHERE b.person_id = n.user_id) END "
          f"WHERE n.type IN {_in(_INSIGHT_NOTICES)}")
     op.drop_column('notifications', 'legacy_goal_id')

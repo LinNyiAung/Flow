@@ -378,14 +378,17 @@ async def run_report(report_id: str) -> dict | None:
         book_id, start, end = row["book_id"], row["start_date"], row["end_date"]
         # A family book's report (R21): the prompt shows the family's profile (its name, the owner's currency) as the
         # family's weekly and monthly insights do, and the AI cost is recorded under the person who asked, as for a
-        # family chat. A personal report: the person, both ways.
+        # family chat. A personal report: the person, both ways. A report with no recorded asker (a family report
+        # whose use the plan includes, so its counter_keys are empty) records its cost on the book itself, which
+        # counts toward the family owner's cost cap and shows in the family's admin row.
         user = await insight_profile(book_id) or {}
         goals = await goals_db.list_goals(book_id)
         budgets = await budgets_db.budgets_overlapping(book_id, *day_bounds_utc(start, end))
         context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))
+        asker = await _asker(row)
         result = await asyncio.wait_for(
-            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, "Custom Insight", user_id=await _asker(row),
-                              background=True),
+            run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, "Custom Insight", user_id=asker,
+                              book_id=None if asker else book_id, background=True),
             timeout=MODEL_TIMEOUT.total_seconds())
         text = (result.completion.text or "").strip()
         if is_off_topic(text):

@@ -195,7 +195,9 @@ def _seed_old_shape(ids):
     """Raw SQL in the old (522ad619de76) shape: people A and B, a family whose data sits under a hidden book user."""
     A, B, BU, F = ids["A"], ids["B"], ids["BU"], ids["F"]
     q = db.sql
-    for uid, kind, stale in ((A, "person", False), (B, "person", False), (BU, "family_book", True)):
+    # BU2: the book user of a family already deleted (no families row points at it any more).
+    for uid, kind, stale in ((A, "person", False), (B, "person", False), (BU, "family_book", True),
+                             (ids["BU2"], "family_book", False)):
         q("INSERT INTO users (id, name, email, password, kind, ai_data_stale) VALUES (%s, 'x', %s, '$2b$12$x', %s, %s)",
           uid, f"{uid}@books.test", kind, stale)
     q("INSERT INTO families (id, name, book_user_id) VALUES (%s, 'Fam', %s)", F, BU)
@@ -255,6 +257,7 @@ def _seed_old_shape(ids):
         ("nOwner", A, "family_owner", F, None),
         ("nWeekA", A, "weekly_insights_generated", None, None),
         ("nWeekF", A, "monthly_insights_generated", BU, "family"),
+        ("nWeekGone", A, "weekly_insights_generated", ids["BU2"], "family"),  # a deleted family's insight notice
         ("nUnusual", A, "unusual_spending", None, None),
     )
     for key, rcpt, type_, gid, book in notices:
@@ -276,9 +279,10 @@ def section_migration():
     from plans_subscription_checks import head_revision  # noqa: E402
 
     head = head_revision()
-    keys = ("A", "B", "BU", "F", "MA", "INV", "T", "txA1", "txA2", "txA3", "txA4", "txB1", "txB2", "txF1", "txF2", "trA", "trF",
+    keys = ("A", "B", "BU", "BU2", "F", "MA", "INV", "T", "txA1", "txA2", "txA3", "txA4", "txB1", "txB2", "txF1", "txF2", "trA", "trF",
             "budA", "budA2", "budF", "goalA", "goalF", "insA", "insF", "ciA", "ciF", "chatA", "chatF", "aiA", "aiF",
-            "nGoal", "nGoalF", "nBudget", "nBudgetGone", "nTx", "nCi", "nInv", "nOwner", "nWeekA", "nWeekF", "nUnusual")
+            "nGoal", "nGoalF", "nBudget", "nBudgetGone", "nTx", "nCi", "nInv", "nOwner", "nWeekA", "nWeekF", "nWeekGone",
+            "nUnusual")
     tag = uuid.uuid4().hex[:8]
     ids = {k: (f"bk-{tag}-{k}" if k in ("A", "B") else str(uuid.uuid4())) for k in keys}
     A, B, BU, F = ids["A"], ids["B"], ids["BU"], ids["F"]
@@ -337,7 +341,10 @@ def section_migration():
         check(usage == {ids["aiA"]: A, ids["aiF"]: BU}, "down then up keeps every balance: ai_usage is back under the person / book user", usage)
         rows = {r["id"]: (r["goal_id"], r["book"]) for r in db.sql("SELECT id, goal_id, book FROM notifications WHERE id = ANY(%s)",
                                                                    [ids[k] for k in old_notices])}
-        want = {ids[k]: (None if k == "nBudgetGone" else gid, book) for k, (gid, book) in old_notices.items()}
+        # A link to nothing stays NULL; the deleted family's insight notice had no book after the upgrade, so it comes
+        # back with neither goal_id nor book.
+        want = {ids[k]: ((None, None) if k == "nWeekGone" else (None if k == "nBudgetGone" else gid, book))
+                for k, (gid, book) in old_notices.items()}
         check(rows == want, "down then up keeps every balance: notices' goal_id and book are restored (a link to nothing stays NULL)",
               {k: (rows.get(ids[k]), want[ids[k]]) for k in old_notices if rows.get(ids[k]) != want[ids[k]]})
 
@@ -356,7 +363,7 @@ def _cleanup(conn, ids):
     """Remove everything seeded (works in either shape)."""
     conn.execute("DELETE FROM ai_usage WHERE id = ANY(%s)", ([ids["aiA"], ids["aiF"]],))
     conn.execute("DELETE FROM families WHERE id = %s", (ids["F"],))  # its family book (and data) or nothing
-    conn.execute("DELETE FROM users WHERE id = ANY(%s)", ([ids["A"], ids["B"], ids["BU"]],))  # personal books, notices
+    conn.execute("DELETE FROM users WHERE id = ANY(%s)", ([ids["A"], ids["B"], ids["BU"], ids["BU2"]],))  # personal books, notices
 
 
 def _check_upgraded(ids, sums, goals, label):
@@ -418,7 +425,10 @@ def _check_upgraded(ids, sums, goals, label):
             "nBudget": ("budget_id", ids["budA"], bA), "nBudgetGone": (None, None, None),
             "nTx": ("transaction_id", ids["txA2"], bA), "nCi": ("custom_insight_id", ids["ciA"], bA),
             "nInv": ("family_invite_id", ids["INV"], None), "nOwner": ("family_id", F, None),
-            "nWeekA": (None, None, bA), "nWeekF": (None, None, bF), "nUnusual": (None, None, None)}
+            "nWeekA": (None, None, bA), "nWeekF": (None, None, bF), "nUnusual": (None, None, None),
+            # A deleted family's insight notice gets no book (not the recipient's personal one). After a downgrade it
+            # has neither goal_id nor book, so the second upgrade reads it as a personal insight notice.
+            "nWeekGone": (None, None, None if label == "upgrade" else bA)}
     rows = {r["id"]: r for r in db.sql(f"SELECT id, {', '.join(LINKS)}, book_id FROM notifications WHERE id = ANY(%s)",
                                        [ids[k] for k in link])}
     for key, (col, value, book) in link.items():
@@ -444,6 +454,28 @@ def _backend_async(coro_fn):
         finally:
             await sqldb.dispose_engine()
     return asyncio.run(go())
+
+
+class _captured_logs:
+    """`with _captured_logs("logger.name") as logs:` -> logs gets (level name, message) of every record logged there."""
+
+    def __init__(self, name):
+        import logging
+        self.logger, self.records = logging.getLogger(name), []
+        records = self.records
+
+        class _Keep(logging.Handler):
+            def emit(self, record):
+                records.append((record.levelname, record.getMessage()))
+        self.handler = _Keep(level=logging.DEBUG)
+
+    def __enter__(self):
+        self.logger.addHandler(self.handler)
+        return self.records
+
+    def __exit__(self, *exc):
+        self.logger.removeHandler(self.handler)
+        return False
 
 
 def _books_of(person_id=None, family_id=None):
@@ -1186,16 +1218,75 @@ def section_notification_links():
         async def about_gone():
             import notification_service as ns
             stubenv.patch_loaded_modules()
-            await ns.notify_budget_auto_created(P["book"], gone, f"Gone {tag}", False)
+            with _captured_logs("sql.notifications") as logs:
+                await ns.notify_budget_auto_created(P["book"], gone, f"Gone {tag}", False)
+            return logs
         try:
-            _backend_async(about_gone)
+            logs = _backend_async(about_gone)
             err = None
         except Exception as e:  # noqa: BLE001
-            err = repr(e)[:300]
+            err, logs = repr(e)[:300], []
         ga = rows(P["id"], "budget_auto_created")
         check(err is None and len(ga) == 1 and ga[0]["budget_id"] is None and ga[0]["book_id"] == P["book"]
               and f"Gone {tag}" in ga[0]["message"],
               "a notice about a subject already gone is stored with the link NULL, its caller unharmed", (err, ga))
+        warned = [m for lvl, m in logs if lvl == "WARNING" and "budget_auto_created" in m and "budget_id" in m
+                  and gone in m]
+        check(len(warned) == 1 and not any("book_id" in m for lvl, m in logs if lvl == "WARNING"),
+              "a link stored NULL is logged: one warning names the type (budget_auto_created) and the link (budget_id); "
+              "the book link, which was stored, is not", logs)
+
+        # ---- a subject deleted between the link's sub-select and the insert: retried unlinked, never a 500
+        raced = f"raced-budget-{tag}"
+
+        async def race():
+            import notification_service as ns
+            from sqlalchemy import select as sa_select
+            from sql import notifications as notifications_db
+            from sql.db import fetch_value, transaction
+            stubenv.patch_loaded_modules()
+            real = notifications_db._if_exists
+            # The sub-select saw the row; the delete committed before the FK check: the insert gets the bare id.
+            notifications_db._if_exists = lambda link, value: value
+            out = {}
+            try:
+                with _captured_logs("sql.notifications") as logs:
+                    try:
+                        async with transaction():  # a caller's transaction: it must survive the failed insert
+                            sent = await ns.create_notification_from_key(
+                                P["book"], "budget_auto_created", "budget_auto_created_title",
+                                "budget_auto_created_msg", subject={"budget_id": raced}, goal_name=f"Raced {tag}",
+                                currency="usd", budget_name=f"Raced {tag}")
+                            out["sent"] = len(sent)
+                            out["after"] = await fetch_value(sa_select(1))  # the transaction still works
+                    except Exception as e:  # noqa: BLE001
+                        out["error"] = repr(e)[:300]
+                    try:
+                        out["skipped"] = await ns.create_notification(
+                            f"no-such-person-{tag}", "budget_auto_created", "t", "m", links={"budget_id": raced})
+                    except Exception as e:  # noqa: BLE001
+                        out["skip_error"] = repr(e)[:300]
+            finally:
+                notifications_db._if_exists = real
+            out["logs"] = logs
+            return out
+        out = _backend_async(race)
+        raced_rows = [x for x in rows(P["id"], "budget_auto_created") if f"Raced {tag}" in x["message"]]
+        check("error" not in out and out.get("sent") == 1 and out.get("after") == 1 and len(raced_rows) == 1
+              and all(raced_rows[0][k] is None for k in (*LINKS, "book_id")),
+              "a delete racing a notice insert: the FK violation is retried with every link NULL inside a savepoint; "
+              "no exception escapes, the caller's transaction commits, the notice is stored unlinked", (out, raced_rows))
+        skipped = not db.sql("SELECT 1 FROM notifications WHERE user_id = %s", f"no-such-person-{tag}")
+        check("skip_error" not in out and out.get("skipped") is None and skipped
+              and any(lvl in ("WARNING", "ERROR") and "skipped" in m for lvl, m in out.get("logs", [])),
+              "a delete racing a notice insert: when the unlinked retry fails too, the notice is skipped and logged",
+              out)
+
+        # ---- every notice type has an entry in the type -> link table
+        import notification_service as ns_mod
+        from notification_models import NotificationType
+        missing = [t.value for t in NotificationType if t.value not in ns_mod.NOTIFICATION_LINKS]
+        check(not missing, "every NotificationType has an entry in notification_service.NOTIFICATION_LINKS", missing)
 
         # ---- insight notices dedupe per book
         _seed_tx(fbook, "40.00", "outflow")
@@ -1356,6 +1447,58 @@ def section_ai_spend():
         check(bool(fbook), "ai spend: O (Plus) owns a family book", (fid, fbook))
         if not fbook:
             return
+
+        # ---- a family custom insight's spend: on the asker when one is recorded, else on the book
+        t0 = datetime.now(UTC) - timedelta(seconds=1)
+
+        async def custom_reports():
+            import json
+            import custom_insights_service as cis
+            stubenv.patch_loaded_modules()
+            today = datetime.now(UTC).date()
+            out = []
+            # No recorded asker: insight_custom is included in the plan, so the reservation had no counter keys.
+            for keys in ([], [["insight_custom", "month", today.isoformat(), O["id"]]]):
+                rid = str(uuid.uuid4())
+                db.sql("INSERT INTO custom_insights (id, book_id, start_date, end_date, status, counter_keys) "
+                       "VALUES (%s, %s, current_date - 7, current_date, 'pending', %s::jsonb)",
+                       rid, fbook, json.dumps(keys))
+                row = await cis.run_report(rid)
+                out.append((row or {}).get("status"))
+            return out
+        try:
+            statuses = _backend_async(custom_reports)
+        except Exception as e:  # noqa: BLE001
+            statuses = repr(e)[:300]
+        spend = db.sql("SELECT id, user_id, book_id, estimated_cost_usd FROM ai_usage WHERE created_at >= %s "
+                       "AND (book_id = %s OR user_id = %s) ORDER BY created_at", t0, fbook, O["id"])
+        on_book = [s for s in spend if s["book_id"] == fbook]
+        on_asker = [s for s in spend if s["user_id"] == O["id"]]
+        check(statuses == ["ready", "ready"] and len(on_book) == 1 and on_book[0]["user_id"] is None
+              and len(on_asker) == 1 and on_asker[0]["book_id"] is None,
+              "family custom insight spend: with no recorded asker (counter_keys []) the report's AI spend is on the "
+              "family book (user_id NULL); with an asker it is on the asker", (statuses, spend))
+        db.sql("DELETE FROM ai_usage WHERE id = ANY(%s)", [s["id"] for s in spend])
+
+        # ---- spend on a book deleted while the AI was answering keeps its cost, unowned
+        gone_id = str(uuid.uuid4())
+
+        async def usage_on_gone_book():
+            from sql import ai_usage as ai_usage_db
+            stubenv.patch_loaded_modules()
+            await ai_usage_db.insert_usage({"_id": gone_id, "user_id": None, "book_id": f"no-such-book-{tag}",
+                                            "feature_type": "weekly_insight", "provider": "openai",
+                                            "model_name": "gpt-test", "estimated_cost_usd": 0.0425})
+        try:
+            _backend_async(usage_on_gone_book)
+            err = None
+        except Exception as e:  # noqa: BLE001
+            err = repr(e)[:300]
+        kept = db.sql("SELECT user_id, book_id, estimated_cost_usd FROM ai_usage WHERE id = %s", gone_id)
+        check(err is None and len(kept) == 1 and kept[0]["user_id"] is None and kept[0]["book_id"] is None
+              and float(kept[0]["estimated_cost_usd"]) == 0.0425,
+              "spend on a book already gone is stored with book_id NULL and its cost kept", (err, kept))
+        db.sql("DELETE FROM ai_usage WHERE id = %s", gone_id)
 
         # ---- owner cap counts the book
         async def caps():

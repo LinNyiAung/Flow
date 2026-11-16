@@ -390,6 +390,8 @@ async def create_notification(
             notification.setdefault(key, value)
 
     notification = await notifications_db.insert_notification(notification)
+    if notification is None:  # it could not be stored (logged by insert_notification): no push either
+        return None
     print(f"✅ Created notification {notification_type} for user {user_id}")
     subject_id = next((notification[k] for k in notifications_db.SUBJECT_LINKS if notification.get(k)), None)
     family = bool(notification.get("book_id")) and await books_db.is_family_book(notification["book_id"])
