@@ -160,6 +160,47 @@ def insight_row(doc: Dict[str, Any]) -> Dict[str, Any]:
     return row
 
 
+# ---------------------------------------------------------------- notifications
+# A notice's subject is one typed link (each a FK, SET NULL when the thing is deleted), chosen by its type. Types not
+# listed link nothing (unusual_spending, payment_reminder, the subscription / plan types, broadcasts). The weekly /
+# monthly insight notices link only their book (book_id). The books migration (d846defddc6e) holds a frozen copy.
+NOTIFICATION_SUBJECT_LINKS = ("goal_id", "budget_id", "transaction_id", "custom_insight_id", "family_invite_id", "family_id")
+NOTIFICATION_LINKS: Dict[str, str] = {
+    **dict.fromkeys(("goal_progress", "goal_achieved", "goal_milestone", "goal_approaching_date"), "goal_id"),
+    **dict.fromkeys(("budget_threshold", "budget_exceeded", "budget_ending_soon", "budget_now_active", "budget_started",
+                     "budget_auto_created"), "budget_id"),
+    **dict.fromkeys(("large_transaction", "recurring_transaction_created", "recurring_transaction_ended",
+                     "recurring_transaction_disabled"), "transaction_id"),
+    **dict.fromkeys(("custom_insight_ready", "custom_insight_failed"), "custom_insight_id"),
+    "family_invite": "family_invite_id",
+    **dict.fromkeys(("family_invite_accepted", "family_removed", "family_owner"), "family_id"),
+    **dict.fromkeys(("weekly_insights_generated", "monthly_insights_generated"), "book_id"),
+}
+
+
+def notification_row(doc: Dict[str, Any], columns: Iterable[str]) -> Dict[str, Any]:
+    """A notification doc -> a row of the given columns ("_id" -> "id"; unknown keys are dropped)."""
+    columns = set(columns)
+    row = {("id" if k == "_id" else k): v for k, v in doc.items() if ("id" if k == "_id" else k) in columns}
+    # TEMPORARY until Task 5 (books plan): the notification writers still put every subject id (budget, transaction,
+    # report, invite, family, family book) into the legacy `goal_id` key. Route it by type into its typed column so the
+    # insert doesn't hit the goals FK. The legacy `book == 'family'` key is dropped above (no such column).
+    legacy = row.pop("goal_id", None)
+    if legacy is not None:
+        link = NOTIFICATION_LINKS.get(doc.get("type"))
+        if link and row.get(link) is None:
+            row[link] = legacy
+    return row
+
+
+def notification_doc(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    doc = row_to_doc(row)
+    if doc is not None and doc.get("goal_id") is None:
+        # TEMPORARY until Task 5 (books plan): readers still expect the subject in `goal_id`, whatever its type.
+        doc["goal_id"] = next((doc[c] for c in NOTIFICATION_SUBJECT_LINKS if doc.get(c) is not None), None)
+    return doc
+
+
 # ---------------------------------------------------------------- categories
 def categories_docs(rows: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Category rows -> {"inflow": {"_id": "inflow", "categories": [...]}, "outflow": {...}}."""

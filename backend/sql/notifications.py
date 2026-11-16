@@ -5,14 +5,14 @@ from typing import Any, Dict, Iterable, List, Optional, Union
 from sqlalchemy import and_, delete, exists as sql_exists, func, insert, or_, select, update
 
 from sql.db import execute, fetch_all, fetch_value, transaction
-from sql.docs import rows_to_docs
+from sql.docs import notification_doc, notification_row
 from sql.tables import notifications as n
 
 _COLUMNS = {c.name for c in n.columns}
 
 
 def _row(doc: Dict[str, Any]) -> Dict[str, Any]:
-    row = {("id" if k == "_id" else k): v for k, v in doc.items() if ("id" if k == "_id" else k) in _COLUMNS}
+    row = notification_row(doc, _COLUMNS)
     if isinstance(row.get("reminder_target_date"), str):  # stored as "YYYY-MM-DD" by the code
         row["reminder_target_date"] = date.fromisoformat(row["reminder_target_date"])
     return row
@@ -35,7 +35,7 @@ async def list_for_user(user_id: str, unread_only: bool, limit: int) -> List[Dic
     stmt = select(n).where(n.c.user_id == user_id)
     if unread_only:
         stmt = stmt.where(n.c.is_read.is_(False))
-    return rows_to_docs(await fetch_all(stmt.order_by(n.c.created_at.desc(), n.c.id).limit(limit)))
+    return [notification_doc(r) for r in await fetch_all(stmt.order_by(n.c.created_at.desc(), n.c.id).limit(limit))]
 
 
 async def mark_read(user_id: str, notification_id: str) -> int:

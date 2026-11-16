@@ -7,6 +7,8 @@ Conventions (see docs/postgres-migration-plan.md):
   meaning: local time stored with a UTC label, in timestamptz. Instants are real UTC.
 - Statuses/types are TEXT + CHECK constraints rather than Postgres enum types.
 - user_id foreign keys cascade on delete, so deleting a user is one atomic operation.
+- Book data (transactions, budgets, goals, insights, custom insights) is keyed by book_id -> books.id, never by a
+  person's id: a person's personal book has its own id. users holds people only.
 """
 from sqlalchemy import (
     Boolean, CheckConstraint, Column, Date, DateTime, Double, ForeignKey, Index, Integer, MetaData,
@@ -29,6 +31,15 @@ CURRENCIES = "('usd','mmk','thb')"
 
 def _user_fk(nullable: bool = False) -> Column:
     return Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=nullable, index=True)
+
+
+def _notice_link(name: str, table: str) -> Column:
+    return Column(name, Text, ForeignKey(f"{table}.id", ondelete="SET NULL"), index=True)
+
+
+def _book_fk(index: bool = True) -> Column:
+    """The owner of a row of book data: deleting the book (its person or family) deletes the row."""
+    return Column("book_id", Text, ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=index)
 
 
 users = Table(
@@ -66,11 +77,7 @@ users = Table(
     Column("password_reset_token", Text),  # sha256 of the reset token
     Column("password_reset_token_expiry", TS),
     Column("fcm_token", Text),
-    Column("ai_data_stale", Boolean, nullable=False, server_default=text("false")),
-    # 'family_book' rows are the hidden owner of a family's data (see families); they never log in.
-    Column("kind", Text, nullable=False, server_default="person"),
     Column("created_at", TS, nullable=False, server_default=func.now()),
-    CheckConstraint("kind IN ('person','family_book')", name="kind"),
     CheckConstraint("subscription_type IN ('free','plus','pro')", name="subscription_type"),
     CheckConstraint(f"default_currency IN {CURRENCIES}", name="default_currency"),
     CheckConstraint("language IN ('en','my')", name="language"),
@@ -84,7 +91,7 @@ Index("ix_users_created_at", users.c.created_at)
 transactions = Table(
     "transactions", metadata,
     Column("id", Text, primary_key=True),
-    _user_fk(),
+    _book_fk(),
     Column("type", Text, nullable=False),
     Column("main_category", Text, nullable=False),
     Column("sub_category", Text, nullable=False),
@@ -113,25 +120,40 @@ transactions = Table(
                     name="recurrence_frequency"),
     CheckConstraint("NOT recurrence_enabled OR recurrence_frequency IS NOT NULL", name="recurrence_needs_frequency"),
 )
-Index("ix_transactions_user_date", transactions.c.user_id, transactions.c.date)
-Index("ix_transactions_user_type_date", transactions.c.user_id, transactions.c.type, transactions.c.date)
-Index("ix_transactions_user_currency", transactions.c.user_id, transactions.c.currency)
+Index("ix_transactions_book_date", transactions.c.book_id, transactions.c.date)
+Index("ix_transactions_book_type_date", transactions.c.book_id, transactions.c.type, transactions.c.date)
+Index("ix_transactions_book_currency", transactions.c.book_id, transactions.c.currency)
 Index("ix_transactions_parent_date", transactions.c.parent_transaction_id, transactions.c.date)
 Index("ix_transactions_recurring", transactions.c.recurrence_enabled, postgresql_where=transactions.c.recurrence_enabled)
 Index("ix_transactions_created_at", transactions.c.created_at)
 Index("ix_transactions_transfer_id", transactions.c.transfer_id)
 Index("ix_transactions_added_by_member_id", transactions.c.added_by_member_id)  # the SET NULL FK's index
 
-# Family book. Each family owns a hidden users row (kind 'family_book'); its transactions, budgets, goals and insights
-# are stored under that user id. family_members.user_id is SET NULL so deleting a person never deletes family history.
+# Family book. Each family owns one books row (kind 'family'); its transactions, budgets, goals and insights are stored
+# under that book id. family_members.user_id is SET NULL so deleting a person never deletes family history.
 families = Table(
     "families", metadata,
     Column("id", Text, primary_key=True),
     Column("name", Text, nullable=False),
-    Column("book_user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("updated_at", TS, nullable=False, server_default=func.now()),
 )
+
+# Books own the book data. Every person has exactly one personal book and every family exactly one family book; a book's
+# id is a uuid4 of its own, never equal to a user id. ai_data_stale: Ko Toe Pwar's cached view of the book is out of date.
+books = Table(
+    "books", metadata,
+    Column("id", Text, primary_key=True),
+    Column("kind", Text, nullable=False),
+    Column("person_id", Text, ForeignKey("users.id", ondelete="CASCADE")),  # personal books only
+    Column("family_id", Text, ForeignKey("families.id", ondelete="CASCADE")),  # family books only
+    Column("ai_data_stale", Boolean, nullable=False, server_default=text("false")),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    CheckConstraint("(kind = 'personal' AND person_id IS NOT NULL AND family_id IS NULL) OR "
+                    "(kind = 'family' AND family_id IS NOT NULL AND person_id IS NULL)", name="kind_owner"),
+)
+Index("uq_books_person_id", books.c.person_id, unique=True, postgresql_where=books.c.person_id.isnot(None))
+Index("uq_books_family_id", books.c.family_id, unique=True, postgresql_where=books.c.family_id.isnot(None))
 
 family_members = Table(
     "family_members", metadata,
@@ -180,7 +202,7 @@ Index("ix_transaction_beneficiaries_member_id", transaction_beneficiaries.c.memb
 goals = Table(
     "goals", metadata,
     Column("id", Text, primary_key=True),
-    _user_fk(),
+    _book_fk(),
     Column("name", Text, nullable=False),
     Column("goal_type", Text, nullable=False),
     Column("status", Text, nullable=False, server_default="active"),
@@ -197,13 +219,13 @@ goals = Table(
     CheckConstraint("current_amount >= 0 AND current_amount < 1e16", name="current_non_negative_finite"),
     CheckConstraint(f"currency IN {CURRENCIES}", name="currency"),
 )
-Index("ix_goals_user_status_currency", goals.c.user_id, goals.c.status, goals.c.currency)
+Index("ix_goals_book_status_currency", goals.c.book_id, goals.c.status, goals.c.currency)
 Index("ix_goals_status_target_date", goals.c.status, goals.c.target_date)
 
 budgets = Table(
     "budgets", metadata,
     Column("id", Text, primary_key=True),
-    _user_fk(),
+    _book_fk(),
     Column("name", Text, nullable=False),
     Column("description", Text),
     Column("period", Text, nullable=False),
@@ -236,11 +258,11 @@ budgets = Table(
     CheckConstraint("total_spent < 1e16 AND remaining_budget > -1e16 AND remaining_budget < 1e16 AND percentage_used < 1e7",
                     name="totals_finite"),
 )
-Index("uq_budgets_rollover_child", budgets.c.user_id, budgets.c.parent_budget_id, budgets.c.start_date,
+Index("uq_budgets_rollover_child", budgets.c.book_id, budgets.c.parent_budget_id, budgets.c.start_date,
       unique=True, postgresql_where=budgets.c.parent_budget_id.isnot(None))
 Index("ix_budgets_parent", budgets.c.parent_budget_id)
 Index("ix_budgets_rollover_candidates", budgets.c.end_date, postgresql_where=budgets.c.auto_create_enabled)
-Index("ix_budgets_user_window", budgets.c.user_id, budgets.c.currency, budgets.c.start_date, budgets.c.end_date)
+Index("ix_budgets_book_window", budgets.c.book_id, budgets.c.currency, budgets.c.start_date, budgets.c.end_date)
 
 budget_allocations = Table(
     "budget_allocations", metadata,
@@ -262,17 +284,24 @@ notifications = Table(
     Column("type", Text, nullable=False),
     Column("title", Text, nullable=False, server_default=""),
     Column("message", Text, nullable=False, server_default=""),
-    # goal_id holds a goal, budget or transaction id depending on `type` (no FK).
-    Column("goal_id", Text),
+    # The notice's subject: at most one typed link, set by `type` (sql.docs.NOTIFICATION_LINKS). SET NULL: a notice
+    # outlives the thing it was about and keeps its text, it just stops opening it.
+    _notice_link("goal_id", "goals"),
+    _notice_link("budget_id", "budgets"),
+    _notice_link("transaction_id", "transactions"),
+    _notice_link("custom_insight_id", "custom_insights"),
+    _notice_link("family_invite_id", "family_invites"),
+    _notice_link("family_id", "families"),
+    # The book the notice is about (a family book: the app opens it in Family mode); NULL: no book.
+    _notice_link("book_id", "books"),
     Column("goal_name", Text),
     Column("currency", Text),
     Column("is_read", Boolean, nullable=False, server_default=text("false")),
     Column("reminder_threshold", SmallInteger),
     Column("reminder_target_date", Date),
-    # 'family' on a notice a family book sent to one of its members (the app opens it in Family mode); NULL: personal.
-    Column("book", Text),
     Column("created_at", TS, nullable=False, server_default=func.now()),
-    CheckConstraint("book IS NULL OR book = 'family'", name="book"),
+    CheckConstraint("num_nonnulls(goal_id, budget_id, transaction_id, custom_insight_id, family_invite_id, family_id) <= 1",
+                    name="one_subject"),
 )
 Index("ix_notifications_user_created", notifications.c.user_id, notifications.c.created_at.desc())
 Index("ix_notifications_user_unread", notifications.c.user_id, postgresql_where=~notifications.c.is_read)
@@ -289,7 +318,7 @@ notification_preferences = Table(
 insights = Table(
     "insights", metadata,
     Column("id", Text, primary_key=True),
-    _user_fk(),
+    _book_fk(),
     Column("insight_type", Text, nullable=False),
     Column("ai_provider", Text, nullable=False),
     Column("content", Text, nullable=False),
@@ -309,18 +338,18 @@ insights = Table(
     CheckConstraint("ai_provider IN ('openai','gemini','claude')", name="ai_provider"),
     CheckConstraint("btrim(content) <> ''", name="content_not_blank"),
 )
-Index("ix_insights_latest", insights.c.user_id, insights.c.ai_provider, insights.c.insight_type,
+Index("ix_insights_latest", insights.c.book_id, insights.c.ai_provider, insights.c.insight_type,
       insights.c.generated_at.desc())
 
 # Custom insights (Pro): an AI report on a date range the user picks, optionally with a preset question or free-text
-# instruction. A row is created `pending` and moves once to ready / failed / refused. At most one pending row per user.
+# instruction. A row is created `pending` and moves once to ready / failed / refused. At most one pending row per book.
 # counter_keys: the quota counter rows the report reserved, as [feature, period, "YYYY-MM-DD"] lists (given back on failure).
 # A deleted failed / refused row is kept hidden (deleted_at set, its text cleared) so it still counts as an attempt.
 custom_insights = Table(
     "custom_insights", metadata,
     Column("id", Text, primary_key=True),
-    # Not _user_fk(): no single-column user_id index, ix_custom_insights_user_created below leads with user_id.
-    Column("user_id", Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    # No single-column book_id index: ix_custom_insights_book_created below leads with book_id.
+    _book_fk(index=False),
     Column("start_date", Date, nullable=False),
     Column("end_date", Date, nullable=False),
     Column("preset", Text),
@@ -347,15 +376,15 @@ custom_insights = Table(
     CheckConstraint("status <> 'ready' OR (content IS NOT NULL AND btrim(content) <> '')", name="ready_has_content"),
     CheckConstraint("deleted_at IS NULL OR status IN ('failed','refused')", name="deleted_only_failed_refused"),
 )
-Index("ix_custom_insights_user_created", custom_insights.c.user_id, custom_insights.c.created_at.desc())
-Index("uq_custom_insights_pending_user", custom_insights.c.user_id, unique=True,
+Index("ix_custom_insights_book_created", custom_insights.c.book_id, custom_insights.c.created_at.desc())
+Index("uq_custom_insights_pending_book", custom_insights.c.book_id, unique=True,
       postgresql_where=custom_insights.c.status == "pending")
 
 chat_sessions = Table(
     "chat_sessions", metadata,
     Column("id", Text, primary_key=True),
-    _user_fk(),
-    Column("book_id", Text, ForeignKey("users.id", ondelete="CASCADE")),  # the family book chatted about; NULL = personal
+    _user_fk(),  # the person: chat history is private per person
+    Column("book_id", Text, ForeignKey("books.id", ondelete="CASCADE"), nullable=False),  # the book chatted about
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("updated_at", TS, nullable=False, server_default=func.now()),
 )
@@ -377,7 +406,10 @@ Index("ix_chat_messages_session", chat_messages.c.session_id, chat_messages.c.id
 ai_usage = Table(
     "ai_usage", metadata,
     Column("id", Text, primary_key=True),
-    _user_fk(),
+    # Who the spend is recorded under: the person (user_id), or a family book's own work (book_id, user_id NULL; it
+    # counts toward the owner's cost cap). No CHECK: a deleted family's rows keep their cost with both NULL.
+    _user_fk(nullable=True),
+    Column("book_id", Text, ForeignKey("books.id", ondelete="SET NULL"), index=True),
     Column("feature_type", Text, nullable=False),
     Column("provider", Text, nullable=False),
     Column("model_name", Text, nullable=False),

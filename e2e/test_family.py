@@ -73,25 +73,24 @@ def _violates(sql, *params):
 
 
 def section_schema():
-    _expect_cols("users", {"kind": "NO"})
-    _expect_cols("families", {"id": "NO", "name": "NO", "book_user_id": "NO", "created_at": "NO", "updated_at": "NO"})
+    # The family's book is a books row (kind 'family'), not a hidden users row: users.kind and families.book_user_id are gone.
+    check("kind" not in _columns("users"), "schema: users.kind is gone (users holds people only)")
+    check("book_user_id" not in _columns("families"), "schema: families.book_user_id is gone (books.family_id instead)")
+    _expect_cols("families", {"id": "NO", "name": "NO", "created_at": "NO", "updated_at": "NO"})
+    _expect_cols("books", {"id": "NO", "kind": "NO", "person_id": "YES", "family_id": "YES"})
     _expect_cols("family_members", {"id": "NO", "family_id": "NO", "user_id": "YES", "display_name": "NO", "kind": "NO",
                                     "role": "YES", "status": "NO", "joined_at": "NO", "left_at": "YES"})
     _expect_cols("family_invites", {"id": "NO", "family_id": "NO", "email": "NO", "invited_by_member_id": "YES",
                                     "link_member_id": "YES", "status": "NO", "created_at": "NO", "expires_at": "NO"})
     _expect_cols("transactions", {"added_by_member_id": "YES", "transfer_id": "YES"})
     _expect_cols("transaction_beneficiaries", {"transaction_id": "NO", "member_id": "NO"})
-    _expect_cols("chat_sessions", {"book_id": "YES"})
-    _expect_cols("notifications", {"book": "YES"})
+    _expect_cols("chat_sessions", {"book_id": "NO"})  # every chat is about a book (a personal chat: the personal book)
+    _expect_cols("notifications", {"book_id": "YES", "family_id": "YES", "family_invite_id": "YES"})
     _expect_cols("plan_settings", {"family_max_members": "NO", "family_max_placeholders": "NO"})
-
-    kind = _columns("users").get("kind")
-    check(kind is not None and "person" in (kind["column_default"] or ""), "schema: users.kind defaults to 'person'",
-          kind and kind["column_default"])
 
     idx = {r["indexname"] for r in db.sql("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")}
     for name in ("uq_family_members_user_active", "uq_family_members_owner_active", "uq_family_invites_pending_email",
-                 "ix_transactions_transfer_id", "uq_families_book_user_id",
+                 "ix_transactions_transfer_id", "uq_books_family_id",
                  "ix_transactions_added_by_member_id", "ix_chat_sessions_book_id"):  # R21 (I3): the two FKs' indexes
         check(name in idx, f"schema: index {name}", "missing")
 
@@ -106,22 +105,22 @@ def section_schema():
         check(False, "schema: constraint behaviour", "families table missing")
         return
     tag = uuid.uuid4().hex[:8]
-    ids = {k: f"t-{tag}-{k}" for k in ("u1", "u2", "f", "m1", "m2", "m3")}
+    ids = {k: f"t-{tag}-{k}" for k in ("u1", "f", "b1", "b2", "m1", "m2", "m3")}
     try:
-        for k in ("u1", "u2"):
-            db.sql("INSERT INTO users (id, name, email, password, kind) VALUES (%s, 'x', %s, 'x', 'family_book')",
-                   ids[k], f"{ids[k]}@book.invalid")
-        db.sql("INSERT INTO families (id, name, book_user_id) VALUES (%s, 'F', %s)", ids["f"], ids["u1"])
+        db.sql("INSERT INTO users (id, name, email, password) VALUES (%s, 'x', %s, 'x')", ids["u1"], f"{ids['u1']}@family.test")
+        db.sql("INSERT INTO families (id, name) VALUES (%s, 'F')", ids["f"])
+        db.sql("INSERT INTO books (id, kind, family_id) VALUES (%s, 'family', %s)", ids["b1"], ids["f"])
         db.sql("INSERT INTO family_members (id, family_id, display_name, kind, role) VALUES (%s, %s, 'A', 'placeholder', 'owner')",
                ids["m1"], ids["f"])
         err = _violates("INSERT INTO family_members (id, family_id, display_name, kind, role) VALUES (%s, %s, 'B', 'placeholder', 'owner')",
                         ids["m2"], ids["f"])
         check(err is not None, "schema: two active owners in one family are refused", "second owner was accepted")
-        check(_violates("INSERT INTO families (id, name, book_user_id) VALUES (%s, 'G', %s)", ids["m3"], ids["u1"]) is not None,
-              "schema: book_user_id is unique")
+        check(_violates("INSERT INTO books (id, kind, family_id) VALUES (%s, 'family', %s)", ids["b2"], ids["f"]) is not None,
+              "schema: a family has at most one family book")
+        check(_violates("INSERT INTO books (id, kind, person_id, family_id) VALUES (%s, 'personal', %s, %s)",
+                        ids["b2"], ids["u1"], ids["f"]) is not None, "schema: books.kind is tied to exactly one owner")
         check(_violates("INSERT INTO family_members (id, family_id, display_name, kind, role) VALUES (%s, %s, 'C', 'bogus', NULL)",
                         ids["m3"], ids["f"]) is not None, "schema: family_members.kind is checked")
-        check(_violates("UPDATE users SET kind = 'robot' WHERE id = %s", ids["u2"]) is not None, "schema: users.kind is checked")
         db.sql("INSERT INTO family_invites (id, family_id, email, status, expires_at) VALUES (%s, %s, 'a@b.c', 'pending', now())",
                ids["m1"], ids["f"])
         check(_violates("INSERT INTO family_invites (id, family_id, email, status, expires_at) VALUES (%s, %s, 'a@b.c', 'pending', now())",
@@ -129,7 +128,8 @@ def section_schema():
         check(_violates("UPDATE plan_settings SET family_max_members = 51 WHERE plan = 'plus'") is not None,
               "schema: family_max_members capped at 50")
     finally:
-        db.sql("DELETE FROM users WHERE id IN (%s, %s)", ids["u1"], ids["u2"])  # cascades to the family and its rows
+        db.sql("DELETE FROM families WHERE id = %s", ids["f"])  # cascades to its book, members and invites
+        db.sql("DELETE FROM users WHERE id = %s", ids["u1"])
 
 def _backend_async(coro_fn):
     """Run backend async code (its DB engine binds to the loop, so one asyncio.run per call and a fresh engine)."""
@@ -3039,20 +3039,32 @@ def section_account_deletion():
         db.admins.delete_many({"email": sup_email})
 
 
+SECTIONS = {
+    "schema": section_schema,
+    "book_users": section_book_users,
+    "family_rules": section_family_rules,
+    "book_scope": section_book_scope,
+    "entries_breakdown": section_entries_breakdown,
+    "breakdown_rounding": section_breakdown_rounding,
+    "recurring_children": section_recurring_children,
+    "transfers": section_transfers,
+    "budgets_goals": section_budgets_goals,
+    "notifications": section_notifications,
+    "ai": section_ai,
+    "limits": section_limits,
+    "account_deletion": section_account_deletion,
+}
+
+
 def main():
-    section_schema()
-    section_book_users()
-    section_family_rules()
-    section_book_scope()
-    section_entries_breakdown()
-    section_breakdown_rounding()
-    section_recurring_children()
-    section_transfers()
-    section_budgets_goals()
-    section_notifications()
-    section_ai()
-    section_limits()
-    section_account_deletion()
+    """Runs every section, or only the ones named on the command line (e.g. `test_family.py schema transfers`)."""
+    wanted = sys.argv[1:] or list(SECTIONS)
+    unknown = [w for w in wanted if w not in SECTIONS]
+    if unknown:
+        print(f"unknown section(s) {unknown}; choose from {list(SECTIONS)}")
+        sys.exit(2)
+    for name in wanted:
+        SECTIONS[name]()
     sys.exit(1 if failures else 0)
 
 

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 
 from passlib.context import CryptContext
-from sqlalchemy import and_, delete, func, insert, or_, select, update
+from sqlalchemy import and_, delete, func, insert, or_, select, true, update
 from sqlalchemy.sql import ColumnElement
 
 from plans.catalog import PAID_PLANS
@@ -17,8 +17,9 @@ from sql.tables import users
 _COLUMNS = {c.name for c in users.columns}
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Family-book users are hidden rows: every listing, count and all-user job sees people only.
-IS_PERSON = users.c.kind == "person"
+# TEMPORARY until the books plan removes IS_PERSON (Task 2): users.kind is gone with the books migration, so users holds
+# people only and the filter is always true. Kept only so this module still imports during the P1 red window.
+IS_PERSON = true()
 
 
 def _values(fields: Dict[str, Any]) -> Dict[str, Any]:
