@@ -133,8 +133,9 @@ class _MyAppState extends State<MyApp> {
     noLongerMemberText: () => AppLocalizations(_locale).familyNoLongerMember,
   );
 
-  /// Web only: there is no push, so refresh when the browser tab becomes
-  /// visible again (plan changed elsewhere, new notifications).
+  /// Back in the foreground. Web: there is no push, so refresh when the
+  /// browser tab becomes visible again (plan changed elsewhere, new
+  /// notifications). Mobile: renew the sign-in when it is due.
   AppLifecycleListener? _lifecycleListener;
 
   /// User the plan was last loaded for (see [_onAuthChanged]).
@@ -143,9 +144,9 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    if (PlatformInfo.isWeb) {
-      _lifecycleListener = AppLifecycleListener(onResume: _refreshOnResume);
-    }
+    _lifecycleListener = AppLifecycleListener(
+      onResume: PlatformInfo.isWeb ? _refreshOnResume : _renewOnResume,
+    );
     _authProvider.onSessionReset = _resetUserState;
     _authProvider.onLanguagePreference =
         (code) => _changeLanguage(Locale(code));
@@ -224,6 +225,11 @@ class _MyAppState extends State<MyApp> {
       // The family couldn't be loaded yet (a failed request): try again.
       if (!_familyProvider.loaded && !_familyProvider.isLoading) _familyProvider.refresh();
     }
+  }
+
+  void _renewOnResume() {
+    // Does nothing when signed out; never throws.
+    unawaited(_authProvider.renewSessionIfDue());
   }
 
   /// Logout, session expiry or another account: every per-user provider.

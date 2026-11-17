@@ -240,7 +240,9 @@ class CustomInsightRequestException extends ApiException {
 /// HTTP client used for every API call: applies per-endpoint timeouts and
 /// reports invalidated sessions (401 / unverified 403) to [ApiService].
 class _ApiClient extends http.BaseClient {
-  final http.Client _inner = http.Client();
+  final http.Client _network = http.Client();
+
+  http.Client get _inner => ApiService.httpClientOverride ?? _network;
 
   static const Duration defaultTimeout = Duration(seconds: 20);
   static const Duration longTimeout = Duration(seconds: 90);
@@ -380,6 +382,12 @@ class ApiService {
   );
 
   static final _ApiClient _client = _ApiClient();
+
+  /// Test seam: when set, every call goes to this client (e.g. a
+  /// `MockClient`) instead of the network, still through the app's
+  /// timeouts and session-expired handling.
+  @visibleForTesting
+  static http.Client? httpClientOverride;
 
   /// Client-side timeout applied to a request for [url].
   @visibleForTesting
@@ -583,6 +591,23 @@ class ApiService {
     }
   }
 
+  /// Stores [replacement] only if the stored token is still [expected] and
+  /// [cancelled] (when given) is false. Both are checked in the same
+  /// synchronous step as the write, so a logout or sign-in that starts
+  /// before it always wins. Returns whether the token was stored.
+  static Future<bool> replaceTokenIfMatches(
+    String expected,
+    String replacement, {
+    bool Function()? cancelled,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('access_token') != expected) return false;
+    if (cancelled != null && cancelled()) return false;
+    // setString updates the cache before it returns its future.
+    await prefs.setString('access_token', replacement);
+    return true;
+  }
+
   /// The headers of every call. [book] overrides [bookMode] for this one
   /// call (an entry added to the other book).
   static Future<Map<String, String>> _getHeaders({BookMode? book}) async {
@@ -640,11 +665,17 @@ class ApiService {
 
   // ==================== FCM ====================
 
-  static Future<void> updateFCMToken(String fcmToken) async {
+  /// Registers this device's push token for the signed-in person.
+  /// [previousToken]: the token this device registered before (Firebase
+  /// replaced it); the server moves that device's row to [fcmToken].
+  static Future<void> updateFCMToken(String fcmToken, {String? previousToken}) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/api/auth/update-fcm-token'),
       headers: await _getHeaders(),
-      body: jsonEncode({'fcm_token': fcmToken}),
+      body: jsonEncode({
+        'fcm_token': fcmToken,
+        if (previousToken != null) 'previous_token': previousToken,
+      }),
     );
 
     if (response.statusCode != 200) {
@@ -654,14 +685,15 @@ class ApiService {
 
   /// Test seam: when set, [deleteFCMToken] calls it instead of the request.
   @visibleForTesting
-  static Future<void> Function(String authToken)? deleteFcmTokenOverride;
+  static Future<void> Function(String authToken, String fcmToken)? deleteFcmTokenOverride;
 
-  /// Unregisters this device's FCM token so the previous user stops
-  /// receiving pushes after logout. Must be called while the token is valid.
-  static Future<void> deleteFCMToken({String? authToken}) async {
+  /// Unregisters this device ([fcmToken]) so the previous user stops
+  /// receiving pushes on it after logout. Must be called while the token is
+  /// valid.
+  static Future<void> deleteFCMToken({String? authToken, required String fcmToken}) async {
     final override = deleteFcmTokenOverride;
     if (override != null && authToken != null) {
-      await override(authToken);
+      await override(authToken, fcmToken);
       return;
     }
     final headers = await _getHeaders();
@@ -669,6 +701,7 @@ class ApiService {
     final response = await _client.delete(
       Uri.parse('$baseUrl/api/auth/fcm-token'),
       headers: headers,
+      body: jsonEncode({'fcm_token': fcmToken}),
     );
 
     if (response.statusCode != 200 && response.statusCode != 204) {
@@ -819,6 +852,27 @@ class ApiService {
     }
   }
 
+  /// `POST /api/auth/renew-session` with the stored token: a fresh token
+  /// with the full lifetime. Returned, not stored: the caller stores it only
+  /// if that session is still the current one. A 401 (expired / revoked)
+  /// goes to [onSessionExpired] like any other call.
+  static Future<String> renewSession() async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/auth/renew-session'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode != 200) {
+      throw apiError(response, 'Failed to renew the session');
+    }
+    final data = jsonDecode(response.body);
+    final token = data is Map ? data['access_token'] : null;
+    if (token is! String || token.isEmpty) {
+      throw ApiException('Failed to renew the session');
+    }
+    return token;
+  }
+
   static Future<User> getCurrentUser() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/auth/me'),
@@ -862,10 +916,13 @@ class ApiService {
     }
   }
 
+  /// [fcmToken]: this device's push token. The server signs out every
+  /// other device and keeps only this one (without it, every device).
   static Future<void> changePassword({
     required String currentPassword,
     required String newPassword,
     required String confirmPassword,
+    String? fcmToken,
   }) async {
     final response = await _client.put(
       Uri.parse('$baseUrl/api/auth/change-password'),
@@ -874,6 +931,7 @@ class ApiService {
         'current_password': currentPassword,
         'new_password': newPassword,
         'confirm_password': confirmPassword,
+        if (fcmToken != null) 'fcm_token': fcmToken,
       }),
     );
 

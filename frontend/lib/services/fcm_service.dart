@@ -6,6 +6,7 @@ import 'package:frontend/platform/platform_info.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/utils/custom_insight_push.dart';
 import 'package:frontend/utils/push_tap.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:frontend/services/notification_event_bus.dart';
 
@@ -13,8 +14,10 @@ import 'package:frontend/services/notification_event_bus.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('📨 Background message received: ${message.notification?.title}');
-  // Background subscription_updated is handled when the app next foregrounds.
-  // The app will call checkAuthStatus() on resume which re-fetches the user.
+  // Nothing to do here: the system shows the notification itself, and a
+  // background subscription_updated is not acted on. The app re-fetches the
+  // user when it next starts (checkAuthStatus) or, on the web, when the tab
+  // becomes visible again.
 }
 
 class FCMService {
@@ -52,11 +55,7 @@ class FCMService {
         _fcmToken = await _fcm.getToken();
         print('📱 FCM Token: $_fcmToken');
 
-        _fcm.onTokenRefresh.listen((newToken) {
-          _fcmToken = newToken;
-          print('🔄 FCM Token refreshed: $newToken');
-          _sendTokenToBackend(newToken);
-        });
+        _fcm.onTokenRefresh.listen(_onTokenRefresh);
 
         // Handle foreground messages
         FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
@@ -112,17 +111,43 @@ class FCMService {
     }
   }
 
+  Future<void> _onTokenRefresh(String newToken) {
+    _fcmToken = newToken;
+    print('🔄 FCM Token refreshed');
+    return _sendTokenToBackend(newToken);
+  }
+
+  /// The push token this device last registered with the server, kept
+  /// across app starts: when Firebase hands out a new one (even while the
+  /// app was closed), it is sent as `previous_token` so the server moves
+  /// this device's row instead of adding a second one.
+  static const String _lastRegisteredTokenKey = 'fcm_last_registered_token';
+
   Future<void> _sendTokenToBackend(String token) async {
     // Only registered for a signed-in user (token refreshes can fire while
     // logged out).
     if (await ApiService.getToken() == null) return;
     try {
-      await ApiService.updateFCMToken(token);
+      final prefs = await SharedPreferences.getInstance();
+      final last = prefs.getString(_lastRegisteredTokenKey);
+      await ApiService.updateFCMToken(
+        token,
+        previousToken: last != null && last != token ? last : null,
+      );
+      await prefs.setString(_lastRegisteredTokenKey, token);
       print('✅ FCM token sent to backend');
     } catch (e) {
       print('❌ Failed to send FCM token to backend: $e');
     }
   }
+
+  /// Test seam: this device's push token, as if Firebase had issued it.
+  @visibleForTesting
+  void setTokenForTest(String? token) => _fcmToken = token;
+
+  /// Test seam: Firebase replaced this device's push token.
+  @visibleForTesting
+  Future<void> handleTokenRefreshForTest(String newToken) => _onTokenRefresh(newToken);
 
   void _handleForegroundMessage(RemoteMessage message) {
     print('📨 Foreground message: type=${message.data['type']}');

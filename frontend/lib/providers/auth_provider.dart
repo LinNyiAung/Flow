@@ -6,6 +6,7 @@ import 'package:frontend/services/fcm_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/services/pending_fcm_unregister.dart';
+import 'package:frontend/utils/jwt_claims.dart';
 import '../models/plan_status.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
@@ -141,8 +142,18 @@ class AuthProvider with ChangeNotifier {
           await PendingFcmUnregister.clear();
           return;
         }
+        final fcmToken = pending.fcmToken;
+        if (fcmToken == null) {
+          // No push token to name (saved by an older app version, which
+          // unregistered by account): nothing this app can send.
+          await PendingFcmUnregister.clearIfAuthToken(pending.authToken);
+          return;
+        }
         try {
-          await ApiService.deleteFCMToken(authToken: pending.authToken);
+          await ApiService.deleteFCMToken(
+            authToken: pending.authToken,
+            fcmToken: fcmToken,
+          );
           await PendingFcmUnregister.clearIfAuthToken(pending.authToken);
         } catch (e) {
           // 401/403: that session is gone server-side — nothing left to
@@ -512,22 +523,25 @@ class AuthProvider with ChangeNotifier {
     unawaited(_unregisterFcm(token: token, userId: userId));
   }
 
-  /// `DELETE /api/auth/fcm-token` as the signed-out session. Waits at most
-  /// 5 s; if it fails or is still running, it is persisted as a
-  /// [PendingFcmUnregister] and retried later. A late success clears that
-  /// entry again. The request itself stays tracked in [_fcmDeleteInFlight]
-  /// so a quick re-login registers its token only after it has landed.
+  /// `DELETE /api/auth/fcm-token` for this device's push token, as the
+  /// signed-out session. Waits at most 5 s; if it fails or is still
+  /// running, it is persisted as a [PendingFcmUnregister] and retried later.
+  /// A late success clears that entry again. The request itself stays
+  /// tracked in [_fcmDeleteInFlight] so a quick re-login registers its
+  /// token only after it has landed.
   Future<void> _unregisterFcm({required String token, String? userId}) async {
-    // Never on the web: the DELETE would unregister the push token of the
-    // same account's phone.
+    // Never on the web: it has no push token.
     if (PlatformInfo.isWeb) return;
     String? fcmToken;
     try {
       fcmToken = FCMService().fcmToken;
     } catch (_) {
-      // Firebase unavailable — the token is informational only.
+      // Firebase unavailable: no push token.
     }
-    final settled = ApiService.deleteFCMToken(authToken: token)
+    // No push token (notifications denied, Firebase unavailable): this
+    // device was never registered, so there is nothing to remove.
+    if (fcmToken == null) return;
+    final settled = ApiService.deleteFCMToken(authToken: token, fcmToken: fcmToken)
         .then<Object?>((_) => null, onError: (Object e) => e);
     _fcmDeleteInFlight = settled;
     var succeeded = false;
@@ -593,6 +607,57 @@ class AuthProvider with ChangeNotifier {
     return wasSignedIn;
   }
 
+  /// A stored token older than this is renewed (at session restore and when
+  /// the app returns to the foreground), so a person who uses the app stays
+  /// signed in.
+  static const Duration sessionRenewalAge = Duration(days: 1);
+
+  /// The running renewal (session restore and a resume can ask at once).
+  Future<bool>? _renewal;
+
+  /// Renews the sign-in if the stored token is more than [sessionRenewalAge]
+  /// old, then registers this device again so its row follows the new
+  /// token's expiry. Called when the app returns to the foreground. Never
+  /// throws.
+  Future<void> renewSessionIfDue() async {
+    if (!await _renewSessionIfDue()) return;
+    final userId = _user?.id;
+    if (userId != null) await _registerFcmFor(userId);
+  }
+
+  /// The renewal itself; true when a new token was stored.
+  Future<bool> _renewSessionIfDue() =>
+      _renewal ??= _renewSession().whenComplete(() => _renewal = null);
+
+  Future<bool> _renewSession() async {
+    // Same guard as checkAuthStatus: a logout / session expiry since this
+    // started drops the answer.
+    final generation = _authGeneration;
+    bool superseded() => generation != _authGeneration;
+    try {
+      final token = await ApiService.getToken();
+      if (token == null || _user == null || superseded()) return false;
+      final issuedAt = jwtIssuedAt(token);
+      if (issuedAt == null ||
+          DateTime.now().difference(issuedAt) < sessionRenewalAge) {
+        return false;
+      }
+      final renewed = await ApiService.renewSession();
+      // Stored only for the session that asked: not after a logout / expiry
+      // (generation), nor over another account's token (stored token).
+      return await ApiService.replaceTokenIfMatches(
+        token,
+        renewed,
+        cancelled: superseded,
+      );
+    } catch (e) {
+      // Offline / server error: keep the token, try again next time. A 401
+      // has already gone to ApiService.onSessionExpired, which signs out.
+      debugPrint('AuthProvider: session renewal failed: $e');
+      return false;
+    }
+  }
+
   /// Restores the saved session on app start (and from the retry screen).
   ///
   /// Only a definite rejection (401 / 403 "Email not verified") signs the
@@ -625,7 +690,12 @@ class AuthProvider with ChangeNotifier {
           _user = user;
           _sessionRestoreFailed = false;
           _sessionRestoreError = null;
-          unawaited(_registerFcmFor(user.id));
+          // Renew first, so the device registers with the token it will
+          // keep using; not awaited, so the start is not held up by it.
+          unawaited(() async {
+            await _renewSessionIfDue();
+            if (!superseded()) await _registerFcmFor(user.id);
+          }());
         }
       } else {
         _sessionRestoreFailed = false;
@@ -680,7 +750,14 @@ class AuthProvider with ChangeNotifier {
         currentPassword: currentPassword,
         newPassword: newPassword,
         confirmPassword: confirmPassword,
+        // The server keeps only this device's row (every other device is
+        // signed out by the change).
+        fcmToken: PlatformInfo.isWeb ? null : FCMService().fcmToken,
       );
+      // Register again with the new token, so this device's row follows the
+      // new token's expiry.
+      final userId = _user?.id;
+      if (userId != null) unawaited(_registerFcmFor(userId));
       _setLoading(false);
       return true;
     } catch (e) {

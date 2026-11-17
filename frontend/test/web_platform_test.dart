@@ -13,14 +13,15 @@ void main() {
 
   setUp(() {
     deleteCalls.clear();
-    ApiService.deleteFcmTokenOverride = (String authToken) async {
-      deleteCalls.add(authToken);
+    ApiService.deleteFcmTokenOverride = (String authToken, String fcmToken) async {
+      deleteCalls.add('$authToken/$fcmToken');
     };
   });
 
   tearDown(() {
     PlatformInfo.isWeb = kIsWeb;
     ApiService.deleteFcmTokenOverride = null;
+    FCMService().setTokenForTest(null);
   });
 
   Future<AuthProvider> signedInProvider() async {
@@ -30,6 +31,7 @@ void main() {
 
   test('logout on web does not unregister the FCM token', () async {
     PlatformInfo.isWeb = true;
+    FCMService().setTokenForTest('push-1');
     final auth = await signedInProvider();
 
     await auth.logout();
@@ -42,12 +44,13 @@ void main() {
 
   test('logout on Android still unregisters', () async {
     PlatformInfo.isWeb = false;
+    FCMService().setTokenForTest('push-1');
     final auth = await signedInProvider();
 
     await auth.logout();
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    expect(deleteCalls, ['old-token']);
+    expect(deleteCalls, ['old-token/push-1']);
   });
 
   test('FCMService on web is inert', () async {
