@@ -484,7 +484,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 title: localizations.categoriesOverTitle(_budget.categoriesOver.length),
                 body: localizations.categoriesOverBody(
                   _budget.categoriesOver.length,
-                  _budget.categoriesOver.map((c) => c.mainCategory).join(', '),
+                  _budget.categoriesOver.map((c) => c.label).join(', '),
                 ),
               ),
             ] else if (_budget.displayStatus == BudgetStatus.exceeded) ...[
@@ -751,12 +751,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 height: 32,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(color: Theme.of(context).colorScheme.secondaryContainer, shape: BoxShape.circle),
-                child: Icon(iconForCategoryName(catBudget.mainCategory), color: statusColor, size: 18),
+                child: Icon(iconForCategoryName(catBudget.label), color: statusColor, size: 18),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  catBudget.mainCategory,
+                  catBudget.label,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,

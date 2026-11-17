@@ -505,7 +505,7 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        catBudget.mainCategory,
+                        catBudget.label,
                         style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: scheme.onSurface),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

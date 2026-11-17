@@ -68,15 +68,9 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     for (int i = 0; i < _categoryBudgets.length; i++) {
       if (excludeIndex != null && i == excludeIndex) continue;
 
-      var existingCat = _categoryBudgets[i];
-      String existingMain = existingCat.mainCategory;
-      String? existingSubStr;
-
-      if (existingMain.contains(' - ')) {
-        final parts = existingMain.split(' - ');
-        existingMain = parts[0];
-        existingSubStr = parts[1];
-      }
+      final existingCat = _categoryBudgets[i];
+      final existingMain = existingCat.mainCategory;
+      final existingSubStr = existingCat.subCategory;
 
       if (existingMain == mainCategory) {
         if ((subCategory == null || subCategory == 'All') &&
@@ -106,16 +100,15 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     return edited < sumNow ? sumNow : edited;
   }
 
-  /// Sum of the caps, counting a "Main - Sub" cap only when "Main" itself
+  /// Sum of the caps, counting a (Main, Sub) cap only when "Main" itself
   /// has no cap (the backend's rule for a total computed from categories).
   static double _sumOfCaps(List<CategoryBudget> categoryBudgets) {
     Set<String> mainCategories = {};
     List<MapEntry<String, double>> subCategories = [];
 
     for (var cat in categoryBudgets) {
-      if (cat.mainCategory.contains(' - ')) {
-        final parts = cat.mainCategory.split(' - ');
-        subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
+      if (cat.subCategory != null) {
+        subCategories.add(MapEntry(cat.mainCategory, cat.allocatedAmount));
       } else {
         mainCategories.add(cat.mainCategory);
       }
@@ -124,7 +117,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     double total = 0.0;
 
     for (var cat in categoryBudgets) {
-      if (!cat.mainCategory.contains(' - ')) {
+      if (cat.subCategory == null) {
         total += cat.allocatedAmount;
       }
     }
@@ -147,7 +140,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
     for (final cat in _categoryBudgets) {
       CategoryBudget? original;
       for (final orig in widget.budget.categoryBudgets) {
-        if (orig.mainCategory == cat.mainCategory) {
+        if (orig.mainCategory == cat.mainCategory && orig.subCategory == cat.subCategory) {
           original = orig;
           break;
         }
@@ -473,7 +466,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            '${belowSpent.map((c) => c.mainCategory).join(', ')} ${belowSpent.length > 1 ? localizations.alreadyHaveMoreSpent : localizations.alreadyHasMoreSpent}',
+                            '${belowSpent.map((c) => c.label).join(', ')} ${belowSpent.length > 1 ? localizations.alreadyHaveMoreSpent : localizations.alreadyHasMoreSpent}',
                             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onErrorContainer, height: 1.5),
                           ),
                         ],
@@ -702,7 +695,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
               height: 36,
               alignment: Alignment.center,
               decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
-              child: Icon(iconForCategoryName(catBudget.mainCategory), color: scheme.onSecondaryContainer, size: 20),
+              child: Icon(iconForCategoryName(catBudget.label), color: scheme.onSecondaryContainer, size: 20),
             ),
             const SizedBox(width: 12),
             // Name gets its own full-width line instead of sharing one with
@@ -714,7 +707,7 @@ class _EditBudgetScreenState extends State<EditBudgetScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    catBudget.mainCategory,
+                    catBudget.label,
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -792,10 +785,10 @@ class _CategoryCapSheetState extends State<_CategoryCapSheet> {
 
         if (widget.initialCategory != null) {
           final categoryName = widget.initialCategory!.mainCategory;
-          if (categoryName.contains(' - ')) {
-            final parts = categoryName.split(' - ');
-            final mainCat = parts[0];
-            final subCat = parts[1];
+          final initialSub = widget.initialCategory!.subCategory;
+          if (initialSub != null) {
+            final mainCat = categoryName;
+            final subCat = initialSub;
 
             if (_categories.any((cat) => cat.mainCategory == mainCat)) {
               _selectedMainCategory = mainCat;
@@ -846,11 +839,6 @@ class _CategoryCapSheetState extends State<_CategoryCapSheet> {
     }
     setState(() => _amountError = null);
 
-    String displayName = _selectedMainCategory!;
-    if (_selectedSubCategory != null) {
-      displayName += ' - $_selectedSubCategory';
-    }
-
     final error = widget.validateDuplicate(_selectedMainCategory!, _selectedSubCategory);
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
@@ -859,7 +847,8 @@ class _CategoryCapSheetState extends State<_CategoryCapSheet> {
 
     widget.onSave(
       CategoryBudget(
-        mainCategory: displayName,
+        mainCategory: _selectedMainCategory!,
+        subCategory: _selectedSubCategory,
         allocatedAmount: amount,
         spentAmount: 0,
         percentageUsed: 0,

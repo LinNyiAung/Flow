@@ -33,8 +33,9 @@ class _RecordingBudgetProvider extends BudgetProvider {
   }
 }
 
-CategoryBudget _cat(String name, double cap, double spent) => CategoryBudget(
+CategoryBudget _cat(String name, double cap, double spent, {String? sub}) => CategoryBudget(
       mainCategory: name,
+      subCategory: sub,
       allocatedAmount: cap,
       spentAmount: spent,
       percentageUsed: cap > 0 ? spent / cap * 100 : 0,
@@ -43,7 +44,7 @@ CategoryBudget _cat(String name, double cap, double spent) => CategoryBudget(
 
 /// Total $1,500 while the caps add up to $860; Entertainment is already over
 /// its cap before any edit.
-Budget _budget({double total = 1500}) {
+Budget _budget({double total = 1500, List<CategoryBudget>? lines}) {
   final now = DateTime.now();
   return Budget(
     id: 'b1',
@@ -52,11 +53,12 @@ Budget _budget({double total = 1500}) {
     period: BudgetPeriod.monthly,
     startDate: DateTime(now.year, now.month, 1),
     endDate: DateTime(now.year, now.month + 1, 0),
-    categoryBudgets: [
-      _cat('Food & Dining', 500, 200),
-      _cat('Entertainment & Leisure', 60, 106.84),
-      _cat('Transportation', 300, 0),
-    ],
+    categoryBudgets: lines ??
+        [
+          _cat('Food & Dining', 500, 200),
+          _cat('Entertainment & Leisure', 60, 106.84),
+          _cat('Transportation', 300, 0),
+        ],
     totalBudget: total,
     totalSpent: 306.84,
     remainingBudget: 1193.16,
@@ -76,7 +78,17 @@ Future<List<Category>> _categories(TransactionType _) async => [
       Category(mainCategory: 'Shopping', subCategories: const []),
     ];
 
-Future<_RecordingBudgetProvider> _open(WidgetTester tester, {double total = 1500}) async {
+Future<List<Category>> _subCategories(TransactionType _) async => [
+      Category(mainCategory: 'Main1', subCategories: const ['Sub1', 'Sub2']),
+      Category(mainCategory: 'A', subCategories: const ['X', 'Y']),
+    ];
+
+Future<_RecordingBudgetProvider> _open(
+  WidgetTester tester, {
+  double total = 1500,
+  List<CategoryBudget>? lines,
+  Future<List<Category>> Function(TransactionType)? loader,
+}) async {
   tester.view.physicalSize = const Size(390 * 3, 1600 * 3);
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
@@ -98,7 +110,7 @@ Future<_RecordingBudgetProvider> _open(WidgetTester tester, {double total = 1500
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => EditBudgetScreen(budget: _budget(total: total), categoriesLoader: _categories),
+                  builder: (_) => EditBudgetScreen(budget: _budget(total: total, lines: lines), categoriesLoader: loader ?? _categories),
                 ),
               ),
               child: const Text('open'),
@@ -204,5 +216,64 @@ void main() {
     expect(find.text(r'$960.00'), findsOneWidget);
     await _saveScreen(tester);
     expect(provider.sentTotal, 960);
+  });
+
+  testWidgets('edit sends main and sub separately', (tester) async {
+    final provider = await _open(
+      tester,
+      total: 100,
+      lines: [_cat('Main1', 100, 0, sub: 'Sub1')],
+      loader: _subCategories,
+    );
+    await _editCap(tester, 'Main1 - Sub1', '120');
+    await _saveScreen(tester);
+
+    expect(provider.calls, 1);
+    final line = provider.sentCategories!.single;
+    expect(line.mainCategory, 'Main1');
+    expect(line.subCategory, 'Sub1');
+  });
+
+  testWidgets('a main-only line is sent with a null sub category', (tester) async {
+    final provider = await _open(
+      tester,
+      total: 100,
+      lines: [_cat('Main1', 100, 0)],
+      loader: _subCategories,
+    );
+    await _editCap(tester, 'Main1', '120');
+    await _saveScreen(tester);
+
+    final line = provider.sentCategories!.single;
+    expect(line.mainCategory, 'Main1');
+    expect(line.subCategory, isNull);
+  });
+
+  testWidgets('below-spent check compares main and sub', (tester) async {
+    await _open(
+      tester,
+      total: 200,
+      lines: [_cat('A', 100, 50), _cat('A', 100, 80, sub: 'X')],
+      loader: _subCategories,
+    );
+    // 70 is under the {A, X} line's 80 spent, though above the {A} line's 50.
+    await _editCap(tester, 'A - X', '70');
+    expect(find.text('This cap is already spent'), findsOneWidget);
+
+    // 90 is above 80 spent: matched to its own line, no warning.
+    await _editCap(tester, 'A - X', '90');
+    expect(find.text('This cap is already spent'), findsNothing);
+  });
+
+  testWidgets('a main line below its own spent is not judged by the sub line', (tester) async {
+    await _open(
+      tester,
+      total: 200,
+      lines: [_cat('A', 100, 50), _cat('A', 100, 80, sub: 'X')],
+      loader: _subCategories,
+    );
+    // 60 is under the sub line's 80 but above the main line's own 50.
+    await _editCap(tester, 'A', '60');
+    expect(find.text('This cap is already spent'), findsNothing);
   });
 }

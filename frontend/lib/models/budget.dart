@@ -9,6 +9,7 @@ enum BudgetStatus { active, completed, exceeded, upcoming }
 
 class CategoryBudget {
   final String mainCategory;
+  final String? subCategory;
   final double allocatedAmount;
   final double spentAmount;
   final double percentageUsed;
@@ -16,6 +17,7 @@ class CategoryBudget {
 
   CategoryBudget({
     required this.mainCategory,
+    this.subCategory,
     required this.allocatedAmount,
     required this.spentAmount,
     required this.percentageUsed,
@@ -25,6 +27,7 @@ class CategoryBudget {
   factory CategoryBudget.fromJson(Map<String, dynamic> json) {
     return CategoryBudget(
       mainCategory: json['main_category'],
+      subCategory: json['sub_category'],
       allocatedAmount: json['allocated_amount'].toDouble(),
       spentAmount: json['spent_amount'].toDouble(),
       percentageUsed: json['percentage_used'].toDouble(),
@@ -32,9 +35,13 @@ class CategoryBudget {
     );
   }
 
+  /// Display text: "Main - Sub" for a sub line, "Main" for a main-only line.
+  String get label => subCategory == null ? mainCategory : '$mainCategory - $subCategory';
+
   Map<String, dynamic> toJson() {
     return {
       'main_category': mainCategory,
+      'sub_category': subCategory,
       'allocated_amount': allocatedAmount,
       'spent_amount': spentAmount,
       'percentage_used': percentageUsed,

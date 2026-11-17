@@ -303,14 +303,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   String? _validateDuplicateCategory(String mainCategory, String? subCategory) {
     final localizations = AppLocalizations.of(context);
     for (var existingCat in _categoryBudgets) {
-      String existingMain = existingCat.mainCategory;
-      String? existingSubStr;
-
-      if (existingMain.contains(' - ')) {
-        final parts = existingMain.split(' - ');
-        existingMain = parts[0];
-        existingSubStr = parts[1];
-      }
+      final existingMain = existingCat.mainCategory;
+      final existingSubStr = existingCat.subCategory;
 
       if (existingMain == mainCategory) {
         if ((subCategory == null || subCategory == 'All') &&
@@ -332,9 +326,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     List<MapEntry<String, double>> subCategories = [];
 
     for (var cat in _categoryBudgets) {
-      if (cat.mainCategory.contains(' - ')) {
-        final parts = cat.mainCategory.split(' - ');
-        subCategories.add(MapEntry(parts[0], cat.allocatedAmount));
+      if (cat.subCategory != null) {
+        subCategories.add(MapEntry(cat.mainCategory, cat.allocatedAmount));
       } else {
         mainCategories.add(cat.mainCategory);
       }
@@ -343,7 +336,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     double total = 0.0;
 
     for (var cat in _categoryBudgets) {
-      if (!cat.mainCategory.contains(' - ')) {
+      if (cat.subCategory == null) {
         total += cat.allocatedAmount;
       }
     }
@@ -983,7 +976,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
               height: 36,
               alignment: Alignment.center,
               decoration: BoxDecoration(color: scheme.secondaryContainer, shape: BoxShape.circle),
-              child: Icon(iconForCategoryName(catBudget.mainCategory), color: scheme.onSecondaryContainer, size: 20),
+              child: Icon(iconForCategoryName(catBudget.label), color: scheme.onSecondaryContainer, size: 20),
             ),
             const SizedBox(width: 12),
             // Name gets its own full-width line instead of sharing one with
@@ -995,7 +988,7 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    catBudget.mainCategory,
+                    catBudget.label,
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: scheme.onSurface),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1071,10 +1064,10 @@ class _CategoryCapSheetState extends State<_CategoryCapSheet> {
 
         if (widget.initialCategory != null) {
           final categoryName = widget.initialCategory!.mainCategory;
-          if (categoryName.contains(' - ')) {
-            final parts = categoryName.split(' - ');
-            final mainCat = parts[0];
-            final subCat = parts[1];
+          final initialSub = widget.initialCategory!.subCategory;
+          if (initialSub != null) {
+            final mainCat = categoryName;
+            final subCat = initialSub;
 
             if (_categories.any((cat) => cat.mainCategory == mainCat)) {
               _selectedMainCategory = mainCat;
@@ -1125,11 +1118,6 @@ class _CategoryCapSheetState extends State<_CategoryCapSheet> {
     }
     setState(() => _amountError = null);
 
-    String displayName = _selectedMainCategory!;
-    if (_selectedSubCategory != null) {
-      displayName += ' - $_selectedSubCategory';
-    }
-
     final error = widget.validateDuplicate(_selectedMainCategory!, _selectedSubCategory);
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
@@ -1138,7 +1126,8 @@ class _CategoryCapSheetState extends State<_CategoryCapSheet> {
 
     widget.onSave(
       CategoryBudget(
-        mainCategory: displayName,
+        mainCategory: _selectedMainCategory!,
+        subCategory: _selectedSubCategory,
         allocatedAmount: amount,
         spentAmount: 0,
         percentageUsed: 0,
