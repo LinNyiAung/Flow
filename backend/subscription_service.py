@@ -17,8 +17,9 @@ from typing import Optional
 from plans import store
 from plans.catalog import PAID_PLANS
 from plans.contact import link_display
+from sql import devices as devices_db
 from sql import users as users_db
-from firebase_service import send_fcm_data_message
+from firebase_service import send_push
 from notification_service import create_notification, translate
 from plans.access import format_date, user_language
 from utils import ensure_utc_datetime
@@ -71,7 +72,7 @@ async def expire_paid_plans(now: Optional[datetime] = None) -> int:
     """
     now = now or datetime.now(UTC)
     candidates = await users_db.list_fields(
-        ["subscription_type", "subscription_expires_at", "fcm_token", "language"],
+        ["subscription_type", "subscription_expires_at", "language"],
         users_db.users.c.subscription_type.in_(PAID_PLANS),
         users_db.users.c.subscription_expires_at.isnot(None),
     )
@@ -107,15 +108,16 @@ async def expire_paid_plans(now: Optional[datetime] = None) -> int:
         except Exception as e:
             logger.error(f"Could not create plan-ended notification for user {user['_id']}: {e}")
 
-        # Silent data message: the app reloads the profile and drops paid UI at once.
-        if user.get("fcm_token"):
-            try:
-                await asyncio.to_thread(
-                    send_fcm_data_message, user["fcm_token"],
-                    {"type": "subscription_updated", "subscription_type": "free"},
+        # Silent data message to every signed-in device: the app reloads the profile and drops paid UI at once.
+        try:
+            tokens = await devices_db.active_tokens(user["_id"], datetime.now(UTC))
+            if tokens:
+                result = await asyncio.to_thread(
+                    send_push, tokens, None, None, {"type": "subscription_updated", "subscription_type": "free"},
                 )
-            except Exception as e:
-                logger.warning(f"Could not send subscription refresh push to user {user['_id']}: {e}")
+                await devices_db.delete_tokens(result.get("unregistered") or [])
+        except Exception as e:
+            logger.warning(f"Could not send subscription refresh push to user {user['_id']}: {e}")
 
     if downgraded:
         logger.info(f"Plan expiry job: downgraded {downgraded} user(s)")

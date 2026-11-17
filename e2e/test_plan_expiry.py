@@ -41,8 +41,11 @@ def user(tag, sub="free", expires=None, lang="en", fcm=None):
     email = f"px-{tag}-{uuid.uuid4().hex[:5]}@example.com"
     c.post("/api/auth/register", json={"name": tag, "email": email, "password": "secret123"})
     db.users.update_one({"email": email}, {"$set": {"is_verified": True, "subscription_type": sub, "subscription_expires_at": expires,
-                                                   "language": lang, "fcm_token": fcm}})
+                                                   "language": lang}})
     u = db.users.find_one({"email": email})
+    if fcm:  # a signed-in device
+        db.sql("INSERT INTO user_devices (id, user_id, token, session_expires_at) VALUES (%s, %s, %s, %s)",
+               str(uuid.uuid4()), u["_id"], fcm, datetime.now(UTC) + timedelta(days=30))
     return u["_id"], c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json()["access_token"]
 
 
@@ -80,7 +83,8 @@ async def downgrade_after_admin_extension(user_id, stored_expiry, ended_at):
     return await real_downgrade(user_id, stored_expiry, ended_at)
 
 pushes = []
-ss.send_fcm_data_message = lambda token, data=None: pushes.append((token, data)) or True
+ss.send_push = lambda tokens, title, body, data: (pushes.append((tokens, title, data))
+                                                  or {"success": len(tokens), "failure": 0, "unregistered": []})
 ss.users_db.downgrade_if_unchanged = downgrade_after_admin_extension
 
 
@@ -115,8 +119,8 @@ check("Pro" in my.get("title", "") and any("က" <= ch <= "႟" for ch in my.get
 print("   EN:", en.get("message"))
 print("   MY:", my.get("message"))
 
-check(pushes == [("fcm-token-expired-en", {"type": "subscription_updated", "subscription_type": "free"})],
-      "silent refresh push sent once, only to the recently-ended user with a device token (not the lapsed one)", f"{pushes}")
+check(pushes == [(["fcm-token-expired-en"], None, {"type": "subscription_updated", "subscription_type": "free"})],
+      "silent (data-only) refresh push sent once, only to the recently-ended user's device (not the lapsed one)", f"{pushes}")
 
 check(n2 == 0 and db.notifications.count_documents({"type": "subscription_expired", "user_id": {"$in": ids}}) == 2,
       "second run changes nothing and sends no duplicate notification")

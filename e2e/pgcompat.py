@@ -26,7 +26,8 @@ from sql import tables as T  # noqa: E402
 PG_DSN = os.environ.get("E2E_PG_DSN", "postgresql://flow@127.0.0.1:54329/flow_e2e")
 TABLES = {"users", "transactions", "goals", "budgets", "notifications", "notification_preferences", "insights",
           "custom_insights", "chat_sessions", "ai_usage", "admins", "admin_action_logs", "feedback", "categories",
-          "app_versions", "families", "family_members", "family_invites", "transaction_beneficiaries", "books"}
+          "app_versions", "families", "family_members", "family_invites", "transaction_beneficiaries", "books",
+          "user_devices"}
 
 # Book data is keyed by book_id (a books.id, never a person's id). Suites written when it was keyed by the person keep
 # saying `user_id`: on these tables a `user_id` key, in an insert or a filter, means that person's personal book (created

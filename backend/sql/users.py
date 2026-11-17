@@ -6,7 +6,8 @@ from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.sql import ColumnElement
 
 from plans.catalog import PAID_PLANS
-from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, write_returning
+from sql import devices as devices_db
+from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
 from sql.docs import row_to_doc, rows_to_docs
 from sql.tables import books, users
 
@@ -46,7 +47,7 @@ def not_on_trial(now: datetime) -> ColumnElement:
     return or_(users.c.trial_ends_at.is_(None), users.c.trial_ends_at <= now)
 
 
-HAS_DEVICE = users.c.fcm_token.isnot(None)
+HAS_DEVICE = devices_db.HAS_DEVICE  # at least one device row (sql.devices)
 
 
 # ------------------------------------------------------------------ reads
@@ -231,17 +232,3 @@ async def downgrade_if_unchanged(user_id: str, stored_expiry: datetime, ended_at
     return await update_user(user_id, users.c.subscription_type.in_(PAID_PLANS),
                              users.c.subscription_expires_at == stored_expiry,
                              subscription_type="free", premium_ended_at=ended_at) > 0
-
-
-async def set_device_token(user_id: str, token: str) -> int:
-    """Give this device token to user_id only; returns how many other accounts lost it."""
-    async with transaction() as conn:
-        released = (await conn.execute(
-            update(users).where(users.c.fcm_token == token, users.c.id != user_id).values(fcm_token=None)
-        )).rowcount
-        await conn.execute(update(users).where(users.c.id == user_id).values(fcm_token=token))
-    return released
-
-
-async def clear_device_token(user_id: str) -> None:
-    await update_user(user_id, fcm_token=None)

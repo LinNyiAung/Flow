@@ -87,6 +87,15 @@ def verify_token(token: str) -> str:
     return _decode_user_token(token)["sub"]
 
 
+async def get_token_expiry(credentials: HTTPAuthorizationCredentials = Depends(security)) -> datetime:
+    """The expiry (exp) of the request's user token, as an aware UTC datetime. Use next to get_current_user, which
+    does the account checks; this only decodes the token."""
+    exp = _decode_user_token(credentials.credentials).get("exp")
+    if not isinstance(exp, (int, float)):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+    return datetime.fromtimestamp(exp, UTC)
+
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Get current authenticated (and e-mail verified) user: the users row plus `personal_book_id`, the id of the
     person's personal book (loaded in the same query; a person row without one, e.g. written by older code, gets it

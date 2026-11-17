@@ -1124,7 +1124,8 @@ def section_notification_links():
         if not (P and Q):
             return
         for u, name in ((P, "p"), (Q, "q")):
-            db.sql("UPDATE users SET fcm_token = %s WHERE id = %s", f"fcm-links-{name}-{tag}", u["id"])
+            db.sql("INSERT INTO user_devices (id, user_id, token, session_expires_at) "
+                   "VALUES (%s, %s, %s, now() + interval '30 days')", str(uuid.uuid4()), u["id"], f"fcm-links-{name}-{tag}")
         r = c.post("/api/family", json={"name": f"Links {tag}"}, headers=P["h"])
         fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
         fbook = (_books_of(family_id=fid) or [{}])[0].get("id") if fid else None

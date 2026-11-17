@@ -638,7 +638,13 @@ try:
         record("fcm_multicast", n=len(toks))
         return _BatchResp(len(toks))
 
+    def _send_each(msgs, *a, **k):
+        for m in msgs:
+            _send(m)
+        return _BatchResp(len(msgs))
+
     messaging.send = _send
+    messaging.send_each = _send_each
     messaging.send_each_for_multicast = _send_multi
     messaging.send_multicast = _send_multi
 except Exception:
@@ -655,22 +661,31 @@ def patch_loaded_modules():
     def fake_init():
         record("firebase_init")
 
-    def fake_send(*a, **k):
-        names = ("fcm_token", "title", "body", "data")
+    # A token starting with "dead-" is one Firebase reports as unregistered: the fakes return it in "unregistered".
+    def _result(tokens):
+        dead = [t for t in tokens if str(t).startswith("dead-")]
+        return {"success": len(tokens) - len(dead), "failure": len(dead), "unregistered": dead}
+
+    def fake_send_push(*a, **k):
+        """send_push(tokens, title, body, data): one fcm_send line per token (title None: a data-only message)."""
+        names = ("tokens", "title", "body", "data")
         args = dict(zip(names, a)) | k
-        record("fcm_send", **{n: args.get(n) for n in names})
-        return True
+        tokens = list(args.get("tokens") or [])
+        for token in tokens:
+            record("fcm_send", token=token, fcm_token=token, title=args.get("title"), body=args.get("body"),
+                   data=args.get("data"))
+        return _result(tokens)
 
     def fake_send_multi(*a, **k):
-        tokens = k.get("fcm_tokens", a[0] if a else [])
-        record("fcm_multicast", n=len(tokens or []), title=k.get("title", a[1] if len(a) > 1 else None))
-        return {"success": len(tokens or []), "failure": 0}
+        tokens = list(k.get("fcm_tokens", a[0] if a else []) or [])
+        record("fcm_multicast", n=len(tokens), title=k.get("title", a[1] if len(a) > 1 else None), tokens=tokens)
+        return _result(tokens)
 
     for mod in list(sys.modules.values()):
         f = getattr(mod, "__file__", "") or ""
         if not f.startswith(BACKEND):
             continue
-        for name, fn in (("initialize_firebase", fake_init), ("send_fcm_notification", fake_send),
+        for name, fn in (("initialize_firebase", fake_init), ("send_push", fake_send_push),
                          ("send_fcm_to_multiple", fake_send_multi)):
             if hasattr(mod, name):
                 setattr(mod, name, fn)

@@ -76,7 +76,6 @@ users = Table(
     Column("password_reset_locked_until", TS),
     Column("password_reset_token", Text),  # sha256 of the reset token
     Column("password_reset_token_expiry", TS),
-    Column("fcm_token", Text),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     CheckConstraint("subscription_type IN ('free','plus','pro')", name="subscription_type"),
     CheckConstraint(f"default_currency IN {CURRENCIES}", name="default_currency"),
@@ -84,9 +83,22 @@ users = Table(
     CheckConstraint("password_version >= 0", name="password_version"),
 )
 Index("uq_users_lower_email", func.lower(users.c.email), unique=True)
-Index("uq_users_fcm_token", users.c.fcm_token, unique=True, postgresql_where=users.c.fcm_token.isnot(None))
 Index("ix_users_premium", users.c.subscription_type, users.c.subscription_expires_at)
 Index("ix_users_created_at", users.c.created_at)
+
+# One row per device a person is signed in on (its push token). A token belongs to exactly one account.
+user_devices = Table(
+    "user_devices", metadata,
+    Column("id", Text, primary_key=True),
+    _user_fk(),
+    Column("token", Text, nullable=False),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    Column("last_seen_at", TS, nullable=False, server_default=func.now()),  # every registration of the token
+    # The exp of the sign-in token the device last registered with: after it, the device gets no pushes.
+    Column("session_expires_at", TS, nullable=False),
+    Column("sign_in_reminder_sent_at", TS),  # the "sign in again" reminder for the current expiry; NULL: not sent
+    UniqueConstraint("token"),
+)
 
 transactions = Table(
     "transactions", metadata,

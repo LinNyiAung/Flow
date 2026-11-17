@@ -42,7 +42,7 @@ from admin_models import (
     UserListResponse,
     UserStatsResponse
 )
-from firebase_service import send_fcm_data_message, send_fcm_to_multiple
+from firebase_service import send_fcm_to_multiple, send_push
 from notification_service import should_send_notification
 from subscription_service import active_paid_filter, active_plan_filter, effectively_free_filter, notify_plan_activated
 from models import Currency, SubscriptionType
@@ -53,6 +53,7 @@ from sql import plans as plans_db
 from sql import upgrade_requests as upgrade_requests_db
 from sqlalchemy.exc import IntegrityError
 from sql import admins as admins_db
+from sql import devices as devices_db
 from sql import users as users_db
 from sql import feedback as feedback_db
 from sql import ai_usage as ai_usage_db
@@ -706,23 +707,27 @@ async def update_user_subscription(
     if new_plan != "free" and not unchanged:
         await notify_plan_activated(user, new_plan, expires_at)
 
-    # Send a silent FCM data-only message so the app refreshes instantly.
+    # Send a silent FCM data-only message to every signed-in device so the app refreshes instantly.
     # Blocking firebase call runs in a threadpool so the event loop isn't blocked.
-    fcm_token = user.get("fcm_token")
+    tokens = await devices_db.active_tokens(user_id, datetime.now(UTC))
     fcm_sent = False
-    if fcm_token:
-        fcm_sent = await run_in_threadpool(
-            send_fcm_data_message,
-            fcm_token,
+    if tokens:
+        result = await run_in_threadpool(
+            send_push,
+            tokens,
+            None,
+            None,
             {
                 "type": "subscription_updated",
                 "subscription_type": subscription_data.subscription_type.value,
             },
         )
+        await devices_db.delete_tokens(result.get("unregistered") or [])
+        fcm_sent = result.get("success", 0) > 0  # at least one device got it
         if fcm_sent:
             print(f"✅ Subscription refresh FCM sent to user {user_id}")
         else:
-            print(f"⚠️  Could not send FCM refresh to user {user_id} (token may be stale)")
+            print(f"⚠️  Could not send FCM refresh to user {user_id} (tokens may be stale)")
     # ────────────────────────────────────────────────────────────────────────────
 
     await log_admin_action(
@@ -951,7 +956,7 @@ async def broadcast_notification(
         elif broadcast_data.target_users in ("plus", "pro"):
             conditions.append(active_plan_filter(broadcast_data.target_users))
 
-        users = await users_db.list_fields(["fcm_token"], *conditions)
+        users = await users_db.list_fields([], *conditions)
         total_users = len(users)
 
         if total_users == 0:
@@ -961,7 +966,7 @@ async def broadcast_notification(
             )
 
         notifications_sent = 0
-        fcm_tokens = []
+        recipients = []
         pending_docs = []
         now = datetime.now(UTC)
 
@@ -983,8 +988,7 @@ async def broadcast_notification(
                 "is_read": False
             })
 
-            if user.get("fcm_token"):
-                fcm_tokens.append(user["fcm_token"])
+            recipients.append(user_id)
 
             if len(pending_docs) >= 500:
                 notifications_sent += await notifications_db.insert_many(pending_docs)
@@ -994,6 +998,8 @@ async def broadcast_notification(
             notifications_sent += await notifications_db.insert_many(pending_docs)
 
         fcm_result = {"success": 0, "failure": 0}
+        # Every signed-in device of every recipient (active_tokens_for lists each token once).
+        fcm_tokens = await devices_db.active_tokens_for(recipients, now)
         if fcm_tokens:
             fcm_data = {
                 "type": notification_type,
@@ -1002,11 +1008,12 @@ async def broadcast_notification(
             # Blocking firebase calls (chunked by 500 inside) run in a threadpool
             fcm_result = await run_in_threadpool(
                 send_fcm_to_multiple,
-                fcm_tokens=list(dict.fromkeys(fcm_tokens)),
+                fcm_tokens=fcm_tokens,
                 title=broadcast_data.title,
                 body=broadcast_data.message,
                 data=fcm_data
             )
+            await devices_db.delete_tokens(fcm_result.get("unregistered") or [])
 
         await log_admin_action(
             admin_id=current_admin["_id"],

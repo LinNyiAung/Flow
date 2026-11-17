@@ -646,13 +646,14 @@ def t_notifications():
     r = c.post("/api/auth/update-fcm-token", headers=H(A), json={"fcm_token": "tok-alice"})
     ok("update fcm token", r.status_code == 200, r.text)
     r = c.post("/api/auth/update-fcm-token", headers=H(A), json={})
-    bug("update-fcm-token with missing field -> 500", r.status_code == 500, r.status_code)
+    ok("update-fcm-token with missing field -> 422", r.status_code == 422, r.status_code)
     c.post("/api/auth/update-fcm-token", headers=H(S["B"]), json={"fcm_token": "tok-alice"})
-    a_tok = db.users.find_one({"_id": S["A_id"]}).get("fcm_token")
-    bug("same device token stays on two accounts (pushes leak across accounts)", a_tok == "tok-alice", f"alice token={a_tok}")
-    r = c.delete("/api/auth/fcm-token", headers=H(S["B"]))
-    b_tok = db.users.find_one({"_id": S["B_id"]}).get("fcm_token")
-    ok("DELETE /api/auth/fcm-token clears the token on logout", r.status_code == 200 and not b_tok, f"{r.status_code} token={b_tok}")
+    owners = [d["user_id"] for d in db.user_devices.find({"token": "tok-alice"})]
+    bug("same device token stays on two accounts (pushes leak across accounts)", owners != [S["B_id"]], f"owners={owners}")
+    r = c.request("DELETE", "/api/auth/fcm-token", headers=H(S["B"]), json={"fcm_token": "tok-alice"})
+    b_toks = [d["token"] for d in db.user_devices.find({"user_id": S["B_id"]})]
+    ok("DELETE /api/auth/fcm-token removes this device on logout", r.status_code == 200 and "tok-alice" not in b_toks,
+       f"{r.status_code} tokens={b_toks}")
     c.post("/api/auth/update-fcm-token", headers=H(A), json={"fcm_token": "tok-alice"})
 
     r = c.get("/api/notifications", headers=H(A))

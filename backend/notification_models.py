@@ -50,7 +50,27 @@ def parse_notification_type(value) -> NotificationType:
 
 
 class FcmTokenUpdate(BaseModel):
-    """Body for POST /api/auth/update-fcm-token"""
+    """Body for POST /api/auth/update-fcm-token. previous_token: the token this device registered before (after a
+    Firebase token refresh), so its row takes the new token."""
+    fcm_token: str = Field(..., min_length=1, max_length=4096)
+    previous_token: Optional[str] = Field(None, max_length=4096)
+
+    @field_validator("fcm_token")
+    @classmethod
+    def _strip_non_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("fcm_token must not be empty")
+        return v
+
+    @field_validator("previous_token")
+    @classmethod
+    def _blank_is_none(cls, v: Optional[str]) -> Optional[str]:
+        return (v or "").strip() or None
+
+
+class FcmTokenRemove(BaseModel):
+    """Body for DELETE /api/auth/fcm-token (logout): the token of the device signing out."""
     fcm_token: str = Field(..., min_length=1, max_length=4096)
 
     @field_validator("fcm_token")

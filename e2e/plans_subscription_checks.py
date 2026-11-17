@@ -71,6 +71,11 @@ async def run(t):
             body["subscription_expires_at"] = expires.isoformat()
         return c.put(f"/api/admin/users/{uid}/subscription", headers=AD, json=body).status_code == 200
 
+    def add_device(uid, token):
+        """A signed-in device (push token) for the user."""
+        db.sql("INSERT INTO user_devices (id, user_id, token, session_expires_at) "
+               "VALUES (%s, %s, %s, now() + interval '30 days')", str(uuid.uuid4()), uid, token)
+
     def row(uid, *columns):
         with t.connect() as conn:
             return conn.execute(f"SELECT {', '.join(columns)} FROM users WHERE id = %s", (uid,)).fetchone()
@@ -190,7 +195,7 @@ async def run(t):
             check(code == 200 and marked and ok and after == (plan, None) and s.get("is_trial") is False,
                   f"admin_set_plan_clears_trial: the admin setting {plan} clears the trial marker", (code, marked, ok, after, s))
         uid2, h2, _ = trial_user("clear-fcm", timedelta(days=10))
-        db.users.update_one({"_id": uid2}, {"$set": {"fcm_token": f"t4s-token-{tag}"}})
+        add_device(uid2, f"t4s-token-{tag}")
         r = c.put(f"/api/admin/users/{uid2}/subscription", headers=AD, json={"subscription_type": "pro"})
         check(r.status_code == 200 and "fcm_refresh_sent" in r.json(),
               "admin_set_plan_clears_trial: the subscription update still reports the push refresh", r.text[:200])
@@ -539,7 +544,7 @@ async def run(t):
         set_plan(d_exp, "plus", base - timedelta(minutes=3))
         set_plan(d_life, "pro")
         for d in (d_plus, d_pro):
-            db.users.update_one({"_id": d}, {"$set": {"fcm_token": f"t4s-push-{d}"}})
+            add_device(d, f"t4s-push-{d}")
         u1, s1, b1 = counts()
         delta = lambda a, b, k: b[k] - a[k]  # noqa: E731
         check(delta(u0, u1, "total_users") == 5 and delta(u0, u1, "free_users") == 2 and delta(u0, u1, "plus_users") == 1

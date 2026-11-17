@@ -1,10 +1,10 @@
 import asyncio
 from datetime import date, datetime, UTC, timedelta
-import threading
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
-from firebase_service import send_fcm_notification
+from firebase_service import send_push
 from sql import budgets as budgets_db
+from sql import devices as devices_db
 from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
@@ -396,49 +396,36 @@ async def create_notification(
     subject_id = next((notification[k] for k in notifications_db.SUBJECT_LINKS if notification.get(k)), None)
     family = bool(notification.get("book_id")) and await books_db.is_family_book(notification["book_id"])
 
-    # [FIX] Fetch user data ASYNC before starting the thread
-    # This prevents running async DB calls inside the sync thread
-    user = await users_db.get_user(user_id)
-    fcm_token = user.get("fcm_token") if user else None
+    # The push goes to every device of the user whose sign-in has not expired. The tokens are read here, on the event
+    # loop: the worker thread that sends never touches the database.
+    tokens = await devices_db.active_tokens(user_id, datetime.now(UTC))
+    if not tokens:
+        print(f"⚠️  User {user_id} has no signed-in device")
+        return notification
 
-    # Send FCM push notification in a separate thread
-    def send_background_fcm():
+    fcm_data = {
+        "notification_id": notification_id,
+        "type": notification_type,
+        "subject_id": subject_id or "",
+        "goal_name": goal_name or "",
+        "currency": currency or "",
+    }
+    if family:
+        # A family book's notice: the app's push-tap handler switches to Family mode first.
+        fcm_data["book"] = "family"
+
+    async def push():
         try:
-            if fcm_token:
-                fcm_data = {
-                    "notification_id": notification_id,
-                    "type": notification_type,
-                    "subject_id": subject_id or "",
-                    "goal_name": goal_name or "",
-                    "currency": currency or "",
-                }
-                if family:
-                    # A family book's notice: the app's push-tap handler switches to Family mode first.
-                    fcm_data["book"] = "family"
-
-                send_fcm_notification(
-                    fcm_token=fcm_token,
-                    title=title,
-                    body=message,
-                    data=fcm_data
-                )
-            else:
-                print(f"⚠️  User {user_id} has no FCM token")
+            # The blocking Firebase call runs in a worker thread; the dead-token clean-up runs back on the loop.
+            result = await asyncio.to_thread(send_push, tokens, title, message, fcm_data)
+            await devices_db.delete_tokens(result.get("unregistered") or [])
         except Exception as e:
             print(f"❌ Error sending background FCM: {e}")
 
-    # [FIX] Fire and forget using the event loop's thread pool
-    # This prevents blocking the async loop while keeping execution managed
-    try:
-        loop = asyncio.get_running_loop()
-        # Schedule the blocking sync function in a separate thread, managed by the loop.
-        # Keep a strong reference until it completes so it can't be garbage-collected.
-        task = loop.create_task(asyncio.to_thread(send_background_fcm))
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-    except RuntimeError:
-        # Fallback if no loop is running (e.g., synchronous testing context)
-        threading.Thread(target=send_background_fcm, daemon=True).start()
+    # Fire and forget, keeping a strong reference until it completes so it can't be garbage-collected.
+    task = asyncio.get_running_loop().create_task(push())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return notification
 

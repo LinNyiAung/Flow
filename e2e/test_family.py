@@ -166,7 +166,9 @@ def section_book_users():
 
     try:
         O = register("Bookowner", "plus")
-        db.sql("UPDATE users SET fcm_token = 'owner-fcm-token' WHERE id = %s", O["id"])
+        db.sql("INSERT INTO user_devices (id, user_id, token, session_expires_at) "
+               "VALUES (%s, %s, 'owner-fcm-token', now() + interval '30 days') "
+               "ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id", str(uuid.uuid4()), O["id"])
         before = counts()
         r = c.post("/api/family", headers=O["h"], json={"name": f"Books {tag}"})
         fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
@@ -2090,8 +2092,10 @@ def section_notifications():
                        "WHERE m.user_id = %s AND m.status = 'active'", M["id"]) or [{}])[0].get("b")
         d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
         check(book and d_mid, "notifications: Mum (owner, en) and Dad (member, my) share a family", (book, d_mid))
-        db.sql("UPDATE users SET language = 'my', fcm_token = %s WHERE id = %s", f"fcm-dad-{tag}", D["id"])
-        db.sql("UPDATE users SET language = 'en', fcm_token = %s WHERE id = %s", f"fcm-mum-{tag}", M["id"])
+        for u, lang, token in ((D, "my", f"fcm-dad-{tag}"), (M, "en", f"fcm-mum-{tag}")):
+            db.sql("UPDATE users SET language = %s WHERE id = %s", lang, u["id"])
+            db.sql("INSERT INTO user_devices (id, user_id, token, session_expires_at) "
+                   "VALUES (%s, %s, %s, now() + interval '30 days')", str(uuid.uuid4()), u["id"], token)
         db.sql("DELETE FROM notifications WHERE user_id = ANY(%s)", [M["id"], D["id"]])  # the invite notices
         tx(M, 1000000, "Employment Income", "Salary", type_="inflow")
 

@@ -38,76 +38,21 @@ def initialize_firebase():
         return None
 
 
-def send_fcm_notification(
-    fcm_token: str,
-    title: str,
-    body: str,
-    data: dict = None
-) -> bool:
-    """Send FCM push notification to a specific device"""
-    if _firebase_app is None:
-        print("⚠️  Firebase not initialized, skipping FCM notification")
-        return False
-    
-    try:
-        # Build the message
-        message = messaging.Message(
-            notification=messaging.Notification(
-                title=title,
-                body=body,
-            ),
-            data=data or {},
-            token=fcm_token,
-            android=messaging.AndroidConfig(
-                priority='high',
-                notification=messaging.AndroidNotification(
-                    sound='default',
-                    channel_id='toe_pwar_notifications',
-                ),
-            ),
-            apns=messaging.APNSConfig(
-                payload=messaging.APNSPayload(
-                    aps=messaging.Aps(
-                        sound='default',
-                        badge=1,
-                    ),
-                ),
-            ),
-        )
-        
-        # Send the message
-        response = messaging.send(message)
-        print(f'✅ FCM notification sent successfully: {response}')
-        return True
-        
-    except messaging.UnregisteredError:
-        print(f'❌ FCM token is invalid or unregistered: {fcm_token}')
-        # TODO: Remove this token from database
-        return False
-    except Exception as e:
-        print(f'❌ FCM error: {e}')
-        return False
-
-
 def _stringify_data(data: dict | None) -> dict:
     """FCM data payload values must all be strings."""
     return {str(k): ("" if v is None else str(v)) for k, v in (data or {}).items()}
 
 
-def send_fcm_data_message(fcm_token: str, data: dict = None) -> bool:
-    """
-    Send a data-only ("silent") FCM message: no Notification block, no badge, no
-    sound. The app receives it in its message handler and can refresh state.
-    Blocking — call via run_in_threadpool from async code.
-    """
-    if _firebase_app is None:
-        print("⚠️  Firebase not initialized, skipping FCM data message")
-        return False
+FCM_MULTICAST_LIMIT = 500
 
-    try:
-        message = messaging.Message(
+
+def _push_message(token: str, title: str | None, body: str | None, data: dict | None) -> messaging.Message:
+    """A visible notification (title set), or a data-only ("silent") message when title is None: no Notification
+    block, no badge, no sound; the app receives it in its message handler and can refresh state."""
+    if title is None:
+        return messaging.Message(
             data=_stringify_data(data),
-            token=fcm_token,
+            token=token,
             android=messaging.AndroidConfig(priority='high'),
             apns=messaging.APNSConfig(
                 headers={
@@ -119,19 +64,69 @@ def send_fcm_data_message(fcm_token: str, data: dict = None) -> bool:
                 ),
             ),
         )
-        response = messaging.send(message)
-        print(f'✅ FCM data message sent successfully: {response}')
-        return True
+    return messaging.Message(
+        notification=messaging.Notification(
+            title=title,
+            body=body,
+        ),
+        data=_stringify_data(data),
+        token=token,
+        android=messaging.AndroidConfig(
+            priority='high',
+            notification=messaging.AndroidNotification(
+                sound='default',
+                channel_id='toe_pwar_notifications',
+            ),
+        ),
+        apns=messaging.APNSConfig(
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(
+                    sound='default',
+                    badge=1,
+                ),
+            ),
+        ),
+    )
 
-    except messaging.UnregisteredError:
-        print('❌ FCM token is invalid or unregistered (data message)')
-        return False
-    except Exception as e:
-        print(f'❌ FCM data message error: {e}')
-        return False
 
+def send_push(tokens: list[str], title: str | None, body: str | None, data: dict | None) -> dict:
+    """
+    Send one push to each of these device tokens (a person's devices). title None = a data-only ("silent") message.
 
-FCM_MULTICAST_LIMIT = 500
+    Returns {"success": n, "failure": n, "unregistered": [tokens Firebase reports as unregistered]}: the caller
+    deletes those device rows (other failures keep them).
+    Blocking — call via asyncio.to_thread / run_in_threadpool from async code.
+    """
+    tokens = list(dict.fromkeys(t for t in tokens if t))
+    result = {"success": 0, "failure": 0, "unregistered": []}
+    if not tokens:
+        return result
+
+    if _firebase_app is None:
+        print("⚠️  Firebase not initialized, skipping FCM push")
+        result["failure"] = len(tokens)
+        return result
+
+    for start in range(0, len(tokens), FCM_MULTICAST_LIMIT):
+        chunk = tokens[start:start + FCM_MULTICAST_LIMIT]
+        try:
+            response = messaging.send_each([_push_message(t, title, body, data) for t in chunk])
+            result["success"] += response.success_count
+            result["failure"] += response.failure_count
+            for token, resp in zip(chunk, response.responses):
+                if resp.success:
+                    continue
+                if isinstance(resp.exception, messaging.UnregisteredError):
+                    result["unregistered"].append(token)
+                    print('❌ FCM token is unregistered; its device will be removed')
+                else:
+                    print(f'❌ FCM error: {resp.exception}')
+        except Exception as e:
+            print(f'❌ FCM push error (chunk starting at {start}): {e}')
+            result["failure"] += len(chunk)
+
+    print(f'✅ FCM push sent: {result["success"]} success, {result["failure"]} failure')
+    return result
 
 
 def send_fcm_to_multiple(
@@ -143,18 +138,22 @@ def send_fcm_to_multiple(
     """
     Send FCM notification to multiple devices using send_each_for_multicast,
     in chunks of at most 500 tokens (the FCM multicast limit).
+
+    Returns {"success": n, "failure": n, "unregistered": [tokens Firebase reports as unregistered]}: the caller
+    deletes those device rows (other failures keep them).
     Blocking — call via run_in_threadpool from async code.
     """
     if not fcm_tokens:
-        return {"success": 0, "failure": 0}
+        return {"success": 0, "failure": 0, "unregistered": []}
 
     if _firebase_app is None:
         print("⚠️  Firebase not initialized, skipping FCM notifications")
-        return {"success": 0, "failure": len(fcm_tokens)}
+        return {"success": 0, "failure": len(fcm_tokens), "unregistered": []}
 
     payload_data = _stringify_data(data)
     total_success = 0
     total_failure = 0
+    unregistered = []
 
     for start in range(0, len(fcm_tokens), FCM_MULTICAST_LIMIT):
         chunk = fcm_tokens[start:start + FCM_MULTICAST_LIMIT]
@@ -190,6 +189,8 @@ def send_fcm_to_multiple(
             if response.failure_count > 0:
                 for idx, resp in enumerate(response.responses):
                     if not resp.success:
+                        if isinstance(resp.exception, messaging.UnregisteredError):
+                            unregistered.append(chunk[idx])
                         print(f'❌ Failed to send to token {start + idx}: {resp.exception}')
 
         except Exception as e:
@@ -199,4 +200,4 @@ def send_fcm_to_multiple(
             total_failure += len(chunk)
 
     print(f'✅ FCM multicast sent: {total_success} success, {total_failure} failure')
-    return {"success": total_success, "failure": total_failure}
+    return {"success": total_success, "failure": total_failure, "unregistered": unregistered}

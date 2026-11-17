@@ -16,7 +16,7 @@ from starlette.background import BackgroundTask
 from finite_utils import SafeJSONResponse, json_safe
 
 from firebase_service import initialize_firebase
-from utils import ensure_paid, get_current_user, get_book_balance
+from utils import ensure_paid, get_current_user, get_book_balance, get_token_expiry
 from families.book import Book, get_book, require_admin, require_writable
 from families.service import owner_plan
 from notification_preferences_models import NotificationPreferences, NotificationPreferencesResponse, NotificationPreferencesUpdate
@@ -32,7 +32,7 @@ from chat_models import (
     AIProvider, ChatRequest, ChatResponse, ChatMessage, MessageRole,
 )
 
-from notification_models import FcmTokenUpdate, NotificationResponse, NotificationType, parse_notification_type
+from notification_models import FcmTokenRemove, FcmTokenUpdate, NotificationResponse, NotificationType, parse_notification_type
 from notification_service import (
     analyze_unusual_spending,
     notify_budget_started
@@ -41,6 +41,7 @@ from notification_service import (
 from database import initialize_admin, initialize_categories
 from sql.categories import get_categories_doc
 from sql import books as books_db
+from sql import devices as devices_db
 from sql import users as users_db
 from sql import notification_prefs as prefs_db
 from sql import notifications as notifications_db
@@ -1110,16 +1111,18 @@ async def manually_generate_weekly_insights(
 @app.post("/api/auth/update-fcm-token")
 async def update_fcm_token(
     payload: FcmTokenUpdate,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    session_expires_at: datetime = Depends(get_token_expiry),
 ):
-    """Register the device's FCM token for the current user (body: {"fcm_token": "..."})"""
-    try:
-        token = payload.fcm_token
-        user_id = current_user["_id"]
+    """Register this device's FCM token for the current user (body: {"fcm_token": "...", "previous_token": "..."}).
 
-        # A device token belongs to exactly one account: detach it from any other user
-        # first so a shared device never receives another account's pushes.
-        released = await users_db.set_device_token(user_id, token)
+    The device gets the user's pushes until the sign-in token this request was made with expires."""
+    try:
+        user_id = current_user["_id"]
+        # A device token belongs to exactly one account: registering moves it from any other user, so a shared
+        # device never receives another account's pushes.
+        released = await devices_db.register(user_id, payload.fcm_token, payload.previous_token, session_expires_at,
+                                             datetime.now(UTC))
         if released:
             print(f"🔁 FCM token detached from {released} other user(s)")
         return {"message": "FCM token updated successfully"}
@@ -1129,10 +1132,11 @@ async def update_fcm_token(
 
 
 @app.delete("/api/auth/fcm-token")
-async def delete_fcm_token(current_user: dict = Depends(get_current_user)):
-    """Unregister the current user's FCM token (call on logout)"""
+async def delete_fcm_token(payload: FcmTokenRemove, current_user: dict = Depends(get_current_user)):
+    """Unregister this device on logout (body: {"fcm_token": "..."}): removes the token's row only if it is the
+    current user's, and answers 200 either way, so a retry is harmless."""
     try:
-        await users_db.clear_device_token(current_user["_id"])
+        await devices_db.remove(current_user["_id"], payload.fcm_token)
         return {"message": "FCM token removed successfully"}
     except Exception as e:
         print(f"Error removing FCM token: {str(e)}")
