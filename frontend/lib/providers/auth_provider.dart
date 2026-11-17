@@ -762,7 +762,7 @@ class AuthProvider with ChangeNotifier {
         confirmPassword: confirmPassword,
         // The server keeps only this device's row (every other device is
         // signed out by the change).
-        fcmToken: PlatformInfo.isWeb ? null : FCMService().fcmToken,
+        fcmToken: PlatformInfo.isWeb ? null : await FCMService().deviceToken(),
       );
       // Register again with the new token, so this device's row follows the
       // new token's expiry.

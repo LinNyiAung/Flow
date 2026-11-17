@@ -280,6 +280,33 @@ void main() {
     expect(registration.body, {'fcm_token': 'push-1'});
   });
 
+  test('change password keeps this device by its stored token when Firebase has none', () async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'auth-1',
+      'fcm_last_registered_token': 'stored-1',
+    });
+    FCMService().setTokenForTest(null);
+    final auth = AuthProvider();
+    await auth.checkAuthStatus();
+    await settle();
+    seen.clear();
+
+    final ok = await auth.changePassword(
+      currentPassword: 'old-pass',
+      newPassword: 'new-pass',
+      confirmPassword: 'new-pass',
+    );
+    await settle();
+
+    expect(ok, isTrue);
+    expect(requestsTo('/api/auth/change-password').single.body, {
+      'current_password': 'old-pass',
+      'new_password': 'new-pass',
+      'confirm_password': 'new-pass',
+      'fcm_token': 'stored-1',
+    });
+  });
+
   test('sign_in_reminder opens nothing', () {
     expect(notificationOpensSomething('sign_in_reminder'), isFalse);
   });
