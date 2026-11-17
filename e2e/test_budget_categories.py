@@ -9,6 +9,11 @@ Sections:
     a blank sub is stored as NULL, a GET's category_budgets PUT back as-is is accepted, and a PUT keys each line's
     stored spend on (main, sub) so a main line and its own sub line keep their own spent values (Task 1). Needs the
     stub server on 127.0.0.1:8765.
+  parity -- spending, totals, alerts, AI and rollover read (main, sub) lines exactly as the old "Main - Sub" texts
+    did: a main line counts every sub of its main and a sub line only its own (a purchase in both counts once toward
+    total_spent), the default total skips a sub line whose main has its own line, a sub line's alert names it
+    'Main - Sub', the AI's "Main - Sub" answer is split into (main, sub), and the non-AI rollover copies keep the sub
+    (Task 2). Needs the stub server on 127.0.0.1:8765.
 """
 import os
 import sys
@@ -284,7 +289,165 @@ def _put_keeps_each_lines_spent(create, P):
                          "spent / percentage / exceeded (no collision on main_category)", (got, seeded))
 
 
-SECTIONS = {"migration": section_migration, "api": section_api}
+# ---------------------------------------------------------------------------------------------------------- parity
+def _alloc_rows(budget_id):
+    """{(main, sub): spent} of a budget's stored lines."""
+    return {(r["main_category"], r["sub_category"]): float(r["spent_amount"])
+            for r in db.sql("SELECT main_category, sub_category, spent_amount FROM budget_allocations "
+                            "WHERE budget_id = %s ORDER BY position", budget_id)}
+
+
+def section_parity():
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    now = datetime.now(UTC)
+    som = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    other1, other2 = "Restaurants", "Taxi"  # another seeded sub of MAIN1 / MAIN2
+    lines = [{"main_category": MAIN1, "sub_category": None, "allocated_amount": 300},
+             {"main_category": MAIN1, "sub_category": SUB1, "allocated_amount": 100},
+             {"main_category": MAIN2, "sub_category": SUB2, "allocated_amount": 50}]
+    _ai_answer_split()  # in-process, no account needed
+    try:
+        P = _register(c, tag, made, "Parity")
+        if P is None:
+            return
+
+        def tx(main, sub, amount):
+            r = c.post("/api/transactions", headers=P["h"], json={
+                "type": "outflow", "main_category": main, "sub_category": sub, "amount": amount, "currency": "usd",
+                "date": now.isoformat(), "description": "bc parity"})
+            check(r.status_code == 200, f"parity: outflow {main}/{sub} {amount} is added", (r.status_code, r.text[:200]))
+
+        name = "BC parity"
+        r = c.post("/api/budgets", headers=P["h"], json={
+            "name": name, "period": "monthly", "start_date": som.isoformat(), "currency": "usd",
+            "total_budget": 1000, "category_budgets": lines})
+        bid = (r.json() if r.status_code == 200 else {}).get("id")
+        check(bool(bid), "parity: the budget with a main line, its own sub line and another main's sub line is created",
+              (r.status_code, r.text[:200]))
+        if not bid:
+            return
+
+        # ---- spent per line
+        for main, sub, amount in ((MAIN1, SUB1, 40), (MAIN1, other1, 20), (MAIN2, SUB2, 10), (MAIN2, other2, 5)):
+            tx(main, sub, amount)
+        r = c.post(f"/api/budgets/{bid}/refresh", headers=P["h"])
+        check(r.status_code == 200, "spent per line: refresh answers 200", (r.status_code, r.text[:200]))
+        got = _alloc_rows(bid)
+        want = {(MAIN1, None): 60.0, (MAIN1, SUB1): 40.0, (MAIN2, SUB2): 10.0}
+        check(got == want, "spent per line: a main line counts every sub of its main, a sub line only its own sub",
+              (got, want))
+        b = c.get(f"/api/budgets/{bid}", headers=P["h"]).json()
+        check(abs((b.get("total_spent") or 0) - 70) < 1e-9,
+              "spent per line: total_spent is 70 (a purchase in a main line and its sub line counts once; an "
+              "untracked sub of a sub-only main counts nothing)", b.get("total_spent"))
+
+        # ---- default total
+        import budget_service as bs
+        total = bs.calculate_total_budget_excluding_subcategories([dict(x) for x in lines])
+        check(total == 350, "default total: a sub line counts only when its main has no line of its own (300 + 50)",
+              total)
+        r = c.put(f"/api/budgets/{bid}", headers=P["h"], json={"category_budgets": lines})
+        stored = db.sql("SELECT total_budget FROM budgets WHERE id = %s", bid)
+        check(r.status_code == 200 and stored and float(stored[0]["total_budget"]) == 350,
+              "default total: a PUT of the lines without total_budget stores total_budget 350",
+              (r.status_code, r.text[:200], stored))
+
+        # ---- sub alert text
+        tx(MAIN1, SUB1, 70)  # Main1 > Sub1: 110 of 100
+        c.post(f"/api/budgets/{bid}/refresh", headers=P["h"])
+        label = f"'{MAIN1} - {SUB1}'"
+        from notification_service import translate
+        want_msg = translate("budget_exceeded_msg", "en", label=label, budget_name=name)
+        notes = db.sql("SELECT message FROM notifications WHERE budget_id = %s AND type = 'budget_exceeded' "
+                       "ORDER BY created_at DESC", bid)
+        msg = notes[0]["message"] if notes else None
+        check(msg is not None and label in msg and msg == want_msg,
+              "sub alert text: the sub line's exceeded notice names it 'Main - Sub', in today's exact text",
+              (msg, want_msg))
+
+        # ---- rollover keeps sub
+        _rollover_keeps_sub(c, P)
+    finally:
+        if made:
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+
+
+def _ai_answer_split():
+    import json
+    import budget_service as bs
+    from ai_providers.types import Completion
+
+    structure = [{"main_category": MAIN1, "sub_categories": [SUB1, "Restaurants"]},
+                 {"main_category": MAIN2, "sub_categories": [SUB2]}]
+
+    def item(text):
+        return {"main_category": text, "allocated_amount": 10, "spent_amount": 0, "percentage_used": 0,
+                "is_exceeded": False}
+    answer = json.dumps({"categories": [item(f"{MAIN1} - {SUB1}"), item("food & daily living"), item("Nope"),
+                                        item(f"{MAIN1} - Nope")], "reasoning": "r"})
+    try:
+        res = bs._parse_budget_answer(structure)(Completion(answer, 1, 1, "stop"))
+        got = [(x.main_category, x.sub_category) for x in res["categories"]]
+    except Exception as e:  # noqa: BLE001
+        got = repr(e)[:300]
+    want = [(MAIN1, SUB1), (MAIN1, None)]
+    check(got == want, "AI answer split: 'Main - Sub' becomes (main, sub), a main matches case-insensitively, an "
+                       "unknown main or sub is dropped", (got, want))
+
+
+def _rollover_keeps_sub(c, P):
+    """The non-AI copies of a parent's lines keep each line's sub_category: the adjusted budgets (in-process) and a
+    real auto-create without AI (in-process, on a completed parent made through the API)."""
+    import budget_service as bs
+
+    parent = {"category_budgets": [
+        {"main_category": MAIN1, "sub_category": SUB1, "allocated_amount": 100.0, "spent_amount": 90.0},
+        {"main_category": MAIN1, "allocated_amount": 300.0, "spent_amount": 0.0},  # an older doc: no sub key
+        {"main_category": MAIN2, "sub_category": SUB2, "allocated_amount": 50.0, "spent_amount": 10.0}]}
+    try:
+        got = [(x.main_category, x.sub_category) for x in bs._generate_adjusted_budgets(parent, 31)]
+    except Exception as e:  # noqa: BLE001
+        got = repr(e)[:300]
+    want = [(MAIN1, SUB1), (MAIN1, None), (MAIN2, SUB2)]
+    check(got == want, "rollover keeps sub: the adjusted (non-AI) budgets keep each line's sub_category", (got, want))
+
+    # A last-month parent, created with auto-create off (so the server never rolls it over itself), then switched on
+    # and completed in the database; the auto-create runs in-process.
+    last = (datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)).replace(day=1)
+    lines = [{"main_category": MAIN1, "sub_category": SUB1, "allocated_amount": 100},
+             {"main_category": MAIN1, "sub_category": None, "allocated_amount": 300},
+             {"main_category": MAIN2, "sub_category": SUB2, "allocated_amount": 50}]
+    r = c.post("/api/budgets", headers=P["h"], json={
+        "name": "BC rollover", "period": "monthly", "start_date": last.isoformat(), "currency": "usd",
+        "total_budget": 350, "category_budgets": lines})
+    pid = (r.json() if r.status_code == 200 else {}).get("id")
+    check(bool(pid), "rollover keeps sub: the last-month parent is created", (r.status_code, r.text[:200]))
+    if not pid:
+        return
+    db.sql("UPDATE budgets SET auto_create_enabled = true, auto_create_with_ai = false, status = 'completed' "
+           "WHERE id = %s", pid)
+
+    async def roll():
+        from sql import budgets as budgets_db
+        stubenv.patch_loaded_modules()
+        return await bs.auto_create_next_budget(await budgets_db.get_budget(pid))
+    try:
+        child = _backend_async(roll)
+    except Exception as e:  # noqa: BLE001
+        check(False, "rollover keeps sub: the in-process auto-create runs", repr(e)[:300])
+        return
+    rows = db.sql("SELECT main_category, sub_category, allocated_amount FROM budget_allocations WHERE budget_id = %s "
+                  "ORDER BY position", child) if child else []
+    got = [(r["main_category"], r["sub_category"], float(r["allocated_amount"])) for r in rows]
+    want = [(MAIN1, SUB1, 100.0), (MAIN1, None, 300.0), (MAIN2, SUB2, 50.0)]
+    check(got == want, "rollover keeps sub: a non-AI auto-create copies each line with its sub_category", (child, got))
+
+
+SECTIONS = {"migration": section_migration, "api": section_api, "parity": section_parity}
 
 
 def main():

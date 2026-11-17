@@ -19,6 +19,7 @@ from sql.categories import get_categories_doc
 from budget_models import (
     BudgetPeriod, CategoryBudget, CategoryBudgetIn, AIBudgetSuggestion, BudgetStatus
 )
+from budget_categories import allocation_key, allocation_label, split_legacy_label
 from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
@@ -102,34 +103,34 @@ def _budget_call(feature: str, system: str, user: str):
 
 
 def _valid_budget_categories(raw_categories: List, categories_structure: List[Dict]) -> List[CategoryBudget]:
-    """The AI's categories that exist in the system ("Main" or "Main - Sub", main matched case-insensitively)."""
+    """The AI's categories that exist in the system, as (main, sub) lines. The AI answers "Main" or "Main - Sub" in
+    `main_category`; that text is split here (and only here) before validation. A main-only answer's main is matched
+    case-insensitively."""
     valid: List[CategoryBudget] = []
     available_main_categories = [cat["main_category"] for cat in categories_structure]
 
     for cat in raw_categories:
         if not isinstance(cat, dict) or not isinstance(cat.get("main_category"), str):
             continue
-        category_name = cat["main_category"]
+        main_cat, sub_cat = split_legacy_label(cat["main_category"])
 
-        if " - " in category_name:  # a sub-category budget
-            main_cat, sub_cat = category_name.split(" - ", 1)
+        if sub_cat is not None:  # a sub-category budget
             if main_cat not in available_main_categories:
                 logger.warning(f"AI suggested invalid main category '{main_cat}', skipping")
                 continue
             category_struct = next((c for c in categories_structure if c["main_category"] == main_cat), None)
             if category_struct and sub_cat in category_struct["sub_categories"]:
-                _append_valid_category(valid, cat)
+                _append_valid_category(valid, {**cat, "main_category": main_cat, "sub_category": sub_cat})
             else:
                 logger.warning(f"AI suggested invalid sub-category '{sub_cat}' for '{main_cat}', skipping")
-        elif category_name in available_main_categories:  # a main category budget
-            _append_valid_category(valid, cat)
+        elif main_cat in available_main_categories:  # a main category budget
+            _append_valid_category(valid, {**cat, "sub_category": None})
         else:
-            match = next((a for a in available_main_categories if a.lower() == category_name.lower()), None)
+            match = next((a for a in available_main_categories if a.lower() == main_cat.lower()), None)
             if match is None:
-                logger.warning(f"AI suggested invalid category '{category_name}', skipping")
+                logger.warning(f"AI suggested invalid category '{main_cat}', skipping")
             else:
-                cat["main_category"] = match
-                _append_valid_category(valid, cat)
+                _append_valid_category(valid, {**cat, "main_category": match, "sub_category": None})
     return valid
 
 
@@ -337,10 +338,11 @@ class BudgetAnalyzer:
                 analysis, days_in_period, include_categories, currency
             )
 
-        # Calculate totals. Same rule as stored budgets: a "Main - Sub" line is part of
-        # its main category's budget when that main is also listed, so it isn't added twice.
+        # Calculate totals. Same rule as stored budgets: a sub line is part of its main
+        # category's budget when that main is also listed, so it isn't added twice.
         total_budget = calculate_total_budget_excluding_subcategories(
-            [{"main_category": cat.main_category, "allocated_amount": cat.allocated_amount}
+            [{"main_category": cat.main_category, "sub_category": cat.sub_category,
+              "allocated_amount": cat.allocated_amount}
              for cat in suggestions["categories"]]
         )
 
@@ -773,7 +775,7 @@ async def update_budget_spent_amounts(
             # Categories that are new to the budget have no previous value -> 0.
             old_total_percentage = budget.get("percentage_used") or 0
             old_category_percentages = {
-                cat["main_category"]: (cat.get("percentage_used") or 0)
+                allocation_key(cat): (cat.get("percentage_used") or 0)
                 for cat in budget["category_budgets"]
             }
 
@@ -789,8 +791,8 @@ async def update_budget_spent_amounts(
             ]
 
             # 3. Process Results in Memory
-            # Create a lookup set for categories actually in the budget
-            budget_category_keys = set(cat["main_category"] for cat in budget["category_budgets"])
+            # Lookup set of the budget's lines, each keyed (main, sub or None)
+            budget_category_keys = set(allocation_key(cat) for cat in budget["category_budgets"])
 
             # Temporary storage for calculations
             category_spent_map = defaultdict(float)
@@ -806,32 +808,30 @@ async def update_budget_spent_amounts(
                 main_cat = group_key.get("main")
                 sub_cat = group_key.get("sub")
 
-                # Construct keys matching budget format
-                main_key = main_cat
-                sub_key = f"{main_cat} - {sub_cat}"
+                # Keys matching the budget lines
+                main_key = (main_cat, None)
+                sub_key = (main_cat, sub_cat) if sub_cat else None
 
                 # Determine if this transaction group matches ANY bucket in the budget
                 is_relevant = False
 
-                # 1. Match Main Category (e.g., "Food")
+                # 1. A main-only line (e.g. Food) counts every transaction of its main
                 if main_key in budget_category_keys:
                     category_spent_map[main_key] += amount
                     is_relevant = True
 
-                # 2. Match Specific Sub-Category (e.g., "Food - Groceries")
-                if sub_key in budget_category_keys:
+                # 2. A sub line (e.g. Food > Groceries) counts only its own sub
+                if sub_key is not None and sub_key in budget_category_keys:
                     category_spent_map[sub_key] += amount
                     is_relevant = True
 
-                # Only add to total spent if it matched a tracked category
+                # Only add to total spent if it matched a tracked category (once, even when it matched both)
                 if is_relevant:
                     total_spent_accum += amount
 
             # Update category objects in the budget dictionary
             for cat_budget in budget["category_budgets"]:
-                budget_category = cat_budget["main_category"]
-
-                spent = round(category_spent_map.get(budget_category, 0.0), 2)
+                spent = round(category_spent_map.get(allocation_key(cat_budget), 0.0), 2)
                 allocated = cat_budget["allocated_amount"]
 
                 # Percentages are stored with 2 decimals; round here so the threshold checks
@@ -880,9 +880,8 @@ async def update_budget_spent_amounts(
 
                 # Check notifications (Async - fire and forget if needed, but here we await)
                 for cat_budget in budget["category_budgets"]:
-                    cat_name = cat_budget["main_category"]
                     new_pct = cat_budget["percentage_used"]
-                    old_pct = old_category_percentages.get(cat_name, 0)
+                    old_pct = old_category_percentages.get(allocation_key(cat_budget), 0)
 
                     if new_pct != old_pct:
                         await check_budget_notifications(
@@ -891,7 +890,7 @@ async def update_budget_spent_amounts(
                             old_percentage=old_pct,
                             new_percentage=new_pct,
                             budget_name=budget["name"],
-                            category_name=cat_name
+                            category_name=allocation_label(cat_budget)
                         )
 
                 # Check total budget notifications
@@ -1069,34 +1068,23 @@ async def update_budgets_in_range(book_id: str, start: datetime, end: datetime, 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
     """
     Calculate total budget excluding sub-categories that fall under main categories.
-    For example, if we have "Shopping" and "Shopping - Clothing", only count "Shopping".
+    For example, if we have Shopping and Shopping > Clothing lines, only count Shopping.
+    A line is a sub line when its sub_category is set (allocation_key).
     """
-    main_categories = set()
-    sub_category_pairs = []
-
-    # First, identify all categories
-    for cat_budget in category_budgets:
-        category_name = cat_budget["main_category"]
-        if " - " in category_name:
-            parts = category_name.split(" - ", 1)
-            main_cat = parts[0]
-            sub_cat = parts[1]
-            sub_category_pairs.append((main_cat, sub_cat, cat_budget["allocated_amount"]))
-        else:
-            main_categories.add(category_name)
+    keys = [allocation_key(cat_budget) for cat_budget in category_budgets]
+    main_categories = {main for main, sub in keys if sub is None}
 
     total = 0.0
 
     # Add all main category budgets
-    for cat_budget in category_budgets:
-        category_name = cat_budget["main_category"]
-        if " - " not in category_name:
+    for (main, sub), cat_budget in zip(keys, category_budgets):
+        if sub is None:
             total += cat_budget["allocated_amount"]
 
-    # Add sub-category budgets only if their main category doesn't exist
-    for main_cat, sub_cat, amount in sub_category_pairs:
-        if main_cat not in main_categories:
-            total += amount
+    # Add sub-category budgets only if their main category has no line of its own
+    for (main, sub), cat_budget in zip(keys, category_budgets):
+        if sub is not None and main not in main_categories:
+            total += cat_budget["allocated_amount"]
 
     return total
 
@@ -1179,7 +1167,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
             category_dicts.append(d)
 
         if budget.get("auto_create_with_ai", False):
-            # Don't double count "Main" + "Main - Sub" allocations.
+            # Don't double count a main line and its own sub lines.
             total_budget = calculate_total_budget_excluding_subcategories(category_dicts)
         else:
             # Plain copy keeps the user's own total.
@@ -1328,10 +1316,11 @@ async def _ai_category_budgets(
             _append_valid_category(fallback, cat)
         return fallback, False
 
-    # Calculate actual spending per category from parent budget
+    # Calculate actual spending per category from parent budget, keyed by each line's "Main" / "Main - Sub"
+    # label (the shape the prompt asks the AI to answer in; a sub line no longer overwrites its main's entry)
     category_spending = {}
     for cat_budget in parent_budget["category_budgets"]:
-        category_spending[cat_budget["main_category"]] = cat_budget.get("spent_amount", 0)
+        category_spending[allocation_label(cat_budget)] = cat_budget.get("spent_amount", 0)
 
     # The AI path is for owners on a paid plan who are under their cost cap; everyone else gets the non-AI adjusted
     # budgets, with no AI call. A scheduled job: it never uses an allowance, but its spend counts toward the cap.
@@ -1444,8 +1433,10 @@ def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List
             # Good utilization (80-100%) - keep same
             new_amount = allocated
 
+        main, sub = allocation_key(cat_budget)
         adjusted_budgets.append(CategoryBudget(
-            main_category=cat_budget["main_category"],
+            main_category=main,
+            sub_category=sub,
             allocated_amount=round(new_amount, 2),
             spent_amount=0,
             percentage_used=0,

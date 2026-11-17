@@ -17,6 +17,7 @@ from langchain_core.documents import Document
 from ai_providers import runner as ai_runner
 from ai_providers.errors import AllProvidersFailed, redact
 from ai_providers.types import Prompt
+from budget_categories import allocation_label
 from budget_service import get_running_budgets
 from families.breakdown import family_breakdown
 from models import Currency
@@ -572,7 +573,7 @@ class FinancialDataProcessor:
 
                     budgets_text += f"\nCategory Breakdown:\n"
                     for cat in b['category_budgets']:
-                        cat_name = cat['main_category']
+                        cat_name = allocation_label(cat)
                         cat_allocated = cat['allocated_amount']
                         cat_spent = cat['spent_amount']
                         cat_remaining = cat_allocated - cat_spent
@@ -792,7 +793,7 @@ class FinancialDataProcessor:
 
             budget_text += f"\n📋 CATEGORY BUDGETS:\n\n"
             for cat in budget['category_budgets']:
-                cat_name = cat['main_category']
+                cat_name = allocation_label(cat)
                 cat_allocated = cat['allocated_amount']
                 cat_spent = cat['spent_amount']
                 cat_remaining = cat_allocated - cat_spent

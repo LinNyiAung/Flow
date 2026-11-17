@@ -131,7 +131,7 @@ def allocation_rows(budget_id: str, category_budgets: Iterable[Any]) -> List[Dic
             "budget_id": budget_id,
             "position": position,
             "main_category": cat["main_category"],
-            "sub_category": cat.get("sub_category") or None,  # blank -> NULL
+            "sub_category": (cat.get("sub_category") or "").strip() or None,  # blank / whitespace-only -> NULL
             "allocated_amount": money(cat.get("allocated_amount") or 0),
             "spent_amount": money(cat.get("spent_amount") or 0),
             "percentage_used": Decimal(str(round(float(cat.get("percentage_used") or 0), 2))),

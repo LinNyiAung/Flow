@@ -20,6 +20,7 @@ from tz_utils import (
     current_week_to_date_range, current_month_to_date_range,
 )
 from ai_chatbot import FinancialDataProcessor
+from budget_categories import allocation_label
 from budget_service import get_running_budgets
 import logging
 from typing import List, Optional, Tuple
@@ -638,7 +639,7 @@ def goals_budgets_context(goals, budgets, money=_weekly_money) -> str:
                 # Show category breakdowns
                 for cat_budget in budget.get('category_budgets', [])[:5]:
                     cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {money(sym, cat_budget['spent_amount'])} / {money(sym, cat_budget['allocated_amount'])} ({cat_util:.1f}%)\n"
+                    context += f"       - {allocation_label(cat_budget)}: {money(sym, cat_budget['spent_amount'])} / {money(sym, cat_budget['allocated_amount'])} ({cat_util:.1f}%)\n"
                 context += "\n"
     return context
 
@@ -1483,7 +1484,7 @@ Total Transactions: {total_tx}
                 # Show category breakdowns
                 for cat_budget in budget.get('category_budgets', [])[:8]:
                     cat_util = cat_budget.get('percentage_used', 0)
-                    context += f"       - {cat_budget['main_category']}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
+                    context += f"       - {allocation_label(cat_budget)}: {sym}{cat_budget['spent_amount']:,.2f} / {sym}{cat_budget['allocated_amount']:,.2f} ({cat_util:.1f}%)\n"
                 context += "\n"
 
     # Previous insight
