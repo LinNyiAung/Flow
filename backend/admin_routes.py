@@ -560,6 +560,8 @@ async def get_all_users(
     now = datetime.now(UTC)
     users = await users_db.admin_list(search, subscription_type.value if subscription_type else None, skip, limit, now)
 
+    device_counts = await devices_db.count_for(u["_id"] for u in users)
+
     user_list = []
     for user in users:
         # Counts and the last entry are the person's personal book (never their family's, and never every book: a
@@ -595,7 +597,8 @@ async def get_all_users(
             created_at=user["created_at"],
             total_transactions=transaction_count,
             total_goals=goals_count,
-            last_active=last_active
+            last_active=last_active,
+            device_count=device_counts.get(user["_id"], 0)
         ))
 
     return user_list
@@ -621,6 +624,7 @@ async def get_user_detail(
     goals_count = await goals_db.count_goals(book_id) if book_id else 0
     budgets_count = await budgets_db.count_budgets(book_id) if book_id else 0
     chat_sessions_count = await chat_db.count_sessions(user_id)
+    devices = await devices_db.list_for(user_id)
 
     last_tx_at = await transactions_db.latest_created_at(book_id) if book_id else None
     last_transaction = {"created_at": last_tx_at} if last_tx_at else None
@@ -652,7 +656,9 @@ async def get_user_detail(
         total_goals=goals_count,
         total_budgets=budgets_count,
         total_chat_sessions=chat_sessions_count,
-        last_active=last_active
+        last_active=last_active,
+        device_count=len(devices),
+        devices=devices
     )
 
 

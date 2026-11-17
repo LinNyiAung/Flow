@@ -24,6 +24,9 @@ Sections:
     (Task 5).
   password -- a password reset removes every device of the person; a password change keeps only the device whose token
     is sent as fcm_token (no token, or a blank one: removes all) (Task 5). Needs the stub server.
+  admin -- the admin panel API: the user list and detail show device_count, the detail lists each device's created_at
+    and last_seen_at, no token appears in either response, and "push enabled" counts a person with 2 devices once
+    (Task 6). Needs the stub server.
 """
 import json
 import os
@@ -618,9 +621,71 @@ def section_password():
         _drop_people(made)
 
 
+def section_admin():
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _people(c, tag, made)
+    t1, t2 = f"ad1-{tag}", f"ad2-{tag}"
+    AD, admin_email = _admin_headers(c)
+    try:
+        P = register("Pia", "free")
+        if not P:
+            return
+        email = f"dv-pia-{tag}@example.com"
+
+        def push_enabled():
+            r = c.get("/api/admin/broadcast-stats", headers=AD)
+            return r.json().get("users_with_push_enabled") if r.status_code == 200 else None
+
+        before = push_enabled()
+        _reg(c, P, t1)
+        _reg(c, P, t2)
+
+        # ---- list shows device count
+        r = c.get("/api/admin/users", headers=AD, params={"search": email})
+        rows = r.json() if r.status_code == 200 else []
+        row = next((u for u in rows if u.get("id") == P["id"]), {})
+        check(r.status_code == 200 and row.get("device_count") == 2,
+              "list shows device count: a user with 2 devices has device_count 2 in the user list",
+              (r.status_code, row.get("device_count")))
+
+        # ---- detail lists devices without tokens
+        r = c.get(f"/api/admin/users/{P['id']}", headers=AD)
+        body = r.json() if r.status_code == 200 else {}
+        devs = body.get("devices") or []
+        check(r.status_code == 200 and body.get("device_count") == 2 and len(devs) == 2
+              and all(d.get("created_at") and d.get("last_seen_at") for d in devs),
+              "detail lists devices without tokens: 2 devices, each with created_at and last_seen_at",
+              (r.status_code, body.get("device_count"), devs))
+        check(t1 not in r.text and t2 not in r.text and all(set(d) == {"created_at", "last_seen_at"} for d in devs),
+              "detail lists devices without tokens: the response text holds neither token")
+        r = c.get("/api/admin/users", headers=AD, params={"search": email})
+        check(t1 not in r.text and t2 not in r.text, "detail lists devices without tokens: nor does the user list")
+
+        # ---- a person with no device
+        Q = register("Quin", "free")
+        if Q:
+            r = c.get(f"/api/admin/users/{Q['id']}", headers=AD)
+            body = r.json() if r.status_code == 200 else {}
+            check(body.get("device_count") == 0 and body.get("devices") == [],
+                  "detail of a person with no device: device_count 0 and an empty list", (r.status_code, body))
+
+        # ---- push enabled counts people
+        after = push_enabled()
+        check(before is not None and after == before + 1,
+              "push enabled counts people: a person with 2 devices adds exactly 1", (before, after))
+    finally:
+        _drop_people(made)
+        db.admins.delete_many({"email": admin_email})
+
+
 SECTIONS = {"migration": section_migration, "register": section_register, "logout": section_logout,
             "dead_tokens": section_dead_tokens, "expired_session": section_expired_session,
-            "reminder": section_reminder, "stale": section_stale, "password": section_password}
+            "reminder": section_reminder, "stale": section_stale, "password": section_password,
+            "admin": section_admin}
 
 
 def main():

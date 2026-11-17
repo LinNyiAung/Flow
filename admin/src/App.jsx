@@ -1255,14 +1255,23 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     handleUpdateSubscription(user.id, plan, new Date(base + days * 24 * 60 * 60 * 1000).toISOString());
   };
 
-  const openUser = (user) => {
+  const showUser = (user) => {
     setPlanPick(user.subscription_type === 'free' ? 'plus' : user.subscription_type);
     setSelectedUser(user);
   };
 
+  // The list row has no detail fields (devices, budgets...): show it at once, then fill in the detail.
+  const openUser = async (user) => {
+    showUser(user);
+    try {
+      const detail = await api.getUser(token, user.id);
+      setSelectedUser((cur) => (cur && cur.id === user.id ? { ...cur, ...detail } : cur));
+    } catch (error) { /* the row stays; the device list just stays empty */ }
+  };
+
   // Open a user's detail panel from elsewhere (the upgrade requests list) by id.
   const openUserById = async (userId) => {
-    try { openUser(await api.getUser(token, userId)); }
+    try { showUser(await api.getUser(token, userId)); }
     catch (error) { alert(errorMessage(error, 'Failed to load the user')); }
   };
 
@@ -1529,6 +1538,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                             <td className="px-6 py-5">
                               <div className="text-sm text-slate-300 mb-1">{fmtNum(user.total_transactions)} transactions</div>
                               <div className="text-xs text-slate-500">{fmtNum(user.total_goals)} goals</div>
+                              <div className="text-xs text-slate-500">{fmtNum(user.device_count)} {user.device_count === 1 ? 'device' : 'devices'}</div>
                             </td>
                             <td className="px-6 py-5 text-sm text-slate-400">
                               {user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
@@ -1837,6 +1847,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                   { label: 'Transactions', value: fmtNum(selectedUser.total_transactions), icon: DollarSign },
                   { label: 'Goals', value: fmtNum(selectedUser.total_goals), icon: Target },
                   { label: 'Currency', value: String(selectedUser.default_currency || '—').toUpperCase(), icon: DollarSign },
+                  { label: 'Devices', value: fmtNum(selectedUser.device_count), icon: Smartphone },
                   { label: 'Joined', value: selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—', icon: Calendar },
                 ].map((stat) => (
                   <div key={stat.label} className="p-4 bg-slate-900/40 rounded-xl border border-white/5">
@@ -1845,6 +1856,16 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                   </div>
                 ))}
               </div>
+              {(selectedUser.devices || []).length > 0 && (
+                <div className="mt-4 rounded-xl border border-white/5 divide-y divide-white/5">
+                  {selectedUser.devices.map((dev, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 px-4 py-3 text-[13px]">
+                      <span className="text-slate-400">Added {new Date(dev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      <span className="text-slate-500">Last seen {new Date(dev.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {isSuper && (

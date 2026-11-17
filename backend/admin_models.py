@@ -63,6 +63,13 @@ class UserListResponse(BaseModel):
     total_transactions: int = 0
     total_goals: int = 0
     last_active: Optional[datetime] = None
+    device_count: int = 0  # devices the person is signed in on (push tokens)
+
+
+class DeviceInfo(BaseModel):
+    """One device of a person. Never carries the push token."""
+    created_at: datetime
+    last_seen_at: datetime
 
 
 class UserStatsResponse(BaseModel):
@@ -92,6 +99,8 @@ class UserDetailResponse(BaseModel):
     total_budgets: int
     total_chat_sessions: int
     last_active: Optional[datetime] = None
+    device_count: int = 0
+    devices: List[DeviceInfo] = []
 
 
 class UpdateUserSubscriptionRequest(BaseModel):
