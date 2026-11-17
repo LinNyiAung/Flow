@@ -12,6 +12,7 @@ from finite_utils import finite_or
 from families.book import Book, get_book, require_admin, require_writable
 from plans import quota
 
+from budget_categories import allocation_key
 from budget_models import AIBudgetRequest, AIBudgetSuggestion, BudgetCreate, BudgetPeriod, BudgetResponse, BudgetStatus, BudgetSummary, BudgetUpdate, CategoryBudget, CurrencyBudgetSummary, MultiCurrencyBudgetSummary
 from budget_service import (
     AIRequestRejected,
@@ -404,8 +405,8 @@ async def update_budget(
 
     total_budget rule: total_budget is the user's value. If the request sends
     total_budget it is stored as-is. If it sends category_budgets WITHOUT total_budget,
-    the total is recomputed from the allocations (a "Main - Sub" allocation is not added
-    when "Main" itself is budgeted). Spent-amount recalculation never changes it.
+    the total is recomputed from the allocations (a sub-category line is not added
+    when its main category has a line of its own). Spent-amount recalculation never changes it.
     """
     require_writable(book)
     require_admin(book)
@@ -427,19 +428,20 @@ async def update_budget(
             update_data["description"] = budget_data.description
 
         if budget_data.category_budgets is not None:
-            # Spend is recomputed right below. Categories that already existed (matched by
-            # main_category) keep their stored spent/percentage so the recompute compares
-            # the new percentage with the REAL previous one: renaming/editing a budget must
-            # not re-send 80%/exceeded alerts. Only categories new to the budget start at 0.
+            # Spend is recomputed right below. Lines that already existed (matched by
+            # (main_category, sub_category), so a main line and its own sub line never collide)
+            # keep their stored spent/percentage so the recompute compares the new percentage
+            # with the REAL previous one: renaming/editing a budget must not re-send
+            # 80%/exceeded alerts. Only lines new to the budget start at 0.
             previous = {
-                c.get("main_category"): c
+                allocation_key(c): c
                 for c in (budget.get("category_budgets") or [])
                 if isinstance(c, dict) and c.get("main_category")
             }
             category_budgets = []
             for cat in budget_data.category_budgets:
                 cat_dict = cat.model_dump()
-                old = previous.get(cat_dict.get("main_category"))
+                old = previous.get(allocation_key(cat_dict))
                 if old is not None:
                     cat_dict["spent_amount"] = old.get("spent_amount") or 0
                     cat_dict["percentage_used"] = old.get("percentage_used") or 0

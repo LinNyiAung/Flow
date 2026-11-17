@@ -268,7 +268,8 @@ budget_allocations = Table(
     "budget_allocations", metadata,
     Column("budget_id", Text, ForeignKey("budgets.id", ondelete="CASCADE"), primary_key=True),
     Column("position", SmallInteger, primary_key=True),
-    Column("main_category", Text, nullable=False),  # "Main" or "Main - Sub"
+    Column("main_category", Text, nullable=False),  # the main category only
+    Column("sub_category", Text),  # NULL for a main-only line (never '')
     Column("allocated_amount", MONEY, nullable=False),
     Column("spent_amount", MONEY, nullable=False, server_default="0"),
     Column("percentage_used", Numeric(9, 2), nullable=False, server_default="0"),

@@ -31,15 +31,29 @@ class BudgetStatus(str, Enum):
 
 class CategoryBudget(BaseModel):
     """Stored / response shape (lenient so legacy documents never break reads)."""
-    main_category: str
+    main_category: str  # the main category only
+    sub_category: Optional[str] = None  # None for a main-only line
     allocated_amount: float
     spent_amount: float = 0.0
     percentage_used: float = 0.0
     is_exceeded: bool = False
 
 class CategoryBudgetIn(CategoryBudget):
-    """Client / AI input: allocated_amount must be finite and >= 0."""
+    """Client / AI input: allocated_amount must be finite and >= 0, main_category holds only the main category
+    (the old "Main - Sub" text is refused) and a blank sub_category means a main-only line."""
     allocated_amount: NonNegativeAmount
+
+    @field_validator("main_category", mode="after")
+    @classmethod
+    def _main_only(cls, v: str) -> str:
+        if " - " in v:
+            raise ValueError('main_category must not contain " - "; send the sub-category in sub_category')
+        return v
+
+    @field_validator("sub_category", mode="after")
+    @classmethod
+    def _blank_sub_is_none(cls, v: Optional[str]) -> Optional[str]:
+        return v if v and v.strip() else None
 
 class BudgetCreate(BaseModel):
     name: str

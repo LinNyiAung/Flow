@@ -233,9 +233,9 @@ class PgCollection:
     def _insert_allocations(self, cur, allocations):
         for a in allocations:
             a = {k: (Decimal(str(v)) if isinstance(v, float) else v) for k, v in a.items()}
-            cur.execute("INSERT INTO budget_allocations (budget_id, position, main_category, allocated_amount, spent_amount,"
-                        " percentage_used, is_exceeded) VALUES (%(budget_id)s, %(position)s, %(main_category)s, %(allocated_amount)s,"
-                        " %(spent_amount)s, %(percentage_used)s, %(is_exceeded)s)", a)
+            cur.execute("INSERT INTO budget_allocations (budget_id, position, main_category, sub_category, allocated_amount,"
+                        " spent_amount, percentage_used, is_exceeded) VALUES (%(budget_id)s, %(position)s, %(main_category)s,"
+                        " %(sub_category)s, %(allocated_amount)s, %(spent_amount)s, %(percentage_used)s, %(is_exceeded)s)", a)
 
     def _insert_budget(self, doc):
         """Budget row + one allocation row per entry of category_budgets."""

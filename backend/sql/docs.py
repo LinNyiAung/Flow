@@ -102,6 +102,7 @@ def budget_doc(row: Optional[Dict[str, Any]], allocations: Iterable[Dict[str, An
     doc["category_budgets"] = [
         {
             "main_category": a["main_category"],
+            "sub_category": a["sub_category"],
             "allocated_amount": _plain(a["allocated_amount"]),
             "spent_amount": _plain(a["spent_amount"]),
             "percentage_used": _plain(a["percentage_used"]),
@@ -130,6 +131,7 @@ def allocation_rows(budget_id: str, category_budgets: Iterable[Any]) -> List[Dic
             "budget_id": budget_id,
             "position": position,
             "main_category": cat["main_category"],
+            "sub_category": cat.get("sub_category") or None,  # blank -> NULL
             "allocated_amount": money(cat.get("allocated_amount") or 0),
             "spent_amount": money(cat.get("spent_amount") or 0),
             "percentage_used": Decimal(str(round(float(cat.get("percentage_used") or 0), 2))),
