@@ -155,6 +155,7 @@ class AuthProvider with ChangeNotifier {
             fcmToken: fcmToken,
           );
           await PendingFcmUnregister.clearIfAuthToken(pending.authToken);
+          await FCMService.forgetRegisteredToken(fcmToken);
         } catch (e) {
           // 401/403: that session is gone server-side — nothing left to
           // unregister with it. Anything else: keep it for the next try.
@@ -523,34 +524,42 @@ class AuthProvider with ChangeNotifier {
     unawaited(_unregisterFcm(token: token, userId: userId));
   }
 
-  /// `DELETE /api/auth/fcm-token` for this device's push token, as the
-  /// signed-out session. Waits at most 5 s; if it fails or is still
-  /// running, it is persisted as a [PendingFcmUnregister] and retried later.
-  /// A late success clears that entry again. The request itself stays
+  /// `DELETE /api/auth/fcm-token` for this device's push token (Firebase's,
+  /// else the one last registered), as the signed-out session. Waits at
+  /// most 5 s; if it fails or is still running, it is persisted as a
+  /// [PendingFcmUnregister] and retried later. A late success clears that
+  /// entry again, and forgets the registered token. The request itself stays
   /// tracked in [_fcmDeleteInFlight] so a quick re-login registers its
   /// token only after it has landed.
   Future<void> _unregisterFcm({required String token, String? userId}) async {
     // Never on the web: it has no push token.
     if (PlatformInfo.isWeb) return;
+    // This device's push token: Firebase's, else the one last registered.
     String? fcmToken;
-    try {
-      fcmToken = FCMService().fcmToken;
-    } catch (_) {
-      // Firebase unavailable: no push token.
-    }
-    // No push token (notifications denied, Firebase unavailable): this
-    // device was never registered, so there is nothing to remove.
-    if (fcmToken == null) return;
-    final settled = ApiService.deleteFCMToken(authToken: token, fcmToken: fcmToken)
-        .then<Object?>((_) => null, onError: (Object e) => e);
+    // Tracked from the first moment (before any await), so a quick
+    // re-login always waits for it.
+    final settled = () async {
+      try {
+        fcmToken = await FCMService().deviceToken();
+      } catch (_) {
+        // Firebase / storage unavailable: no push token.
+      }
+      final pushToken = fcmToken;
+      // No push token at all (notifications denied, never registered):
+      // there is nothing to remove.
+      if (pushToken == null) return;
+      await ApiService.deleteFCMToken(authToken: token, fcmToken: pushToken);
+    }().then<Object?>((_) => null, onError: (Object e) => e);
     _fcmDeleteInFlight = settled;
     var succeeded = false;
     unawaited(settled.then((error) async {
       if (identical(_fcmDeleteInFlight, settled)) _fcmDeleteInFlight = null;
-      if (error == null) {
+      final pushToken = fcmToken;
+      if (error == null && pushToken != null) {
         succeeded = true;
         try {
           await PendingFcmUnregister.clearIfAuthToken(token);
+          await FCMService.forgetRegisteredToken(pushToken);
         } catch (_) {}
       }
     }));
@@ -561,7 +570,8 @@ class AuthProvider with ChangeNotifier {
     } on TimeoutException catch (e) {
       error = e;
     }
-    if (error == null) return;
+    final pushToken = fcmToken;
+    if (error == null || pushToken == null) return;
     debugPrint('Could not unregister FCM token: $error');
     // A rejected token can never unregister anything — don't retry it.
     if (ApiService.isSessionRejection(error) ||
@@ -572,7 +582,7 @@ class AuthProvider with ChangeNotifier {
       await PendingFcmUnregister.save(PendingFcmUnregister(
         authToken: token,
         userId: userId,
-        fcmToken: fcmToken,
+        fcmToken: pushToken,
       ));
       // The request may have succeeded while the entry was being written.
       if (succeeded) await PendingFcmUnregister.clearIfAuthToken(token);

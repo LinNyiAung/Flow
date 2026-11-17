@@ -150,6 +150,63 @@ void main() {
     expect(await PendingFcmUnregister.load(), isNull);
   });
 
+  test('logout uses the last registered token when Firebase has none', () async {
+    // Firebase gave no token this run (e.g. offline at start), but the
+    // server still has this device from an earlier run.
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'auth-1',
+      'fcm_last_registered_token': 'stored-1',
+    });
+    recordDeletes();
+    final auth = AuthProvider();
+
+    await auth.logout();
+    await settle();
+
+    expect(deleteCalls, [('auth-1', 'stored-1')]);
+    expect(await PendingFcmUnregister.load(), isNull);
+    // Removed from the server: the next sign-in names no previous token.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('fcm_last_registered_token'), isNull);
+  });
+
+  test('a failed logout DELETE saves the last registered token for the retry', () async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'auth-1',
+      'fcm_last_registered_token': 'stored-1',
+    });
+    ApiService.httpClientOverride = MockClient((request) async => http.Response('{"detail": "down"}', 503));
+    final auth = AuthProvider();
+
+    await auth.logout();
+    await settle();
+
+    final pending = await PendingFcmUnregister.load();
+    expect(pending?.authToken, 'auth-1');
+    expect(pending?.fcmToken, 'stored-1');
+    // Still on the server until the retry goes through.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('fcm_last_registered_token'), 'stored-1');
+  });
+
+  test('a successful pending retry forgets the registered token', () async {
+    SharedPreferences.setMockInitialValues({
+      'fcm_last_registered_token': 'f1',
+      'pending_fcm_unregister': jsonEncode(
+        const PendingFcmUnregister(authToken: 'a1', userId: 'u9', fcmToken: 'f1').toJson(),
+      ),
+    });
+    recordDeletes();
+    final auth = AuthProvider();
+
+    await auth.checkAuthStatus();
+    await settle();
+
+    expect(deleteCalls, [('a1', 'f1')]);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('fcm_last_registered_token'), isNull);
+  });
+
   test('logout without a push token makes no DELETE and saves no pending retry', () async {
     SharedPreferences.setMockInitialValues({'access_token': 'auth-1'});
     recordDeletes();

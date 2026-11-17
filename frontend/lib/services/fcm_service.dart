@@ -141,6 +141,25 @@ class FCMService {
     }
   }
 
+  /// This device's push token: Firebase's current one, else the one it last
+  /// registered with the server (Firebase may have none this run, e.g. its
+  /// getToken failed offline, while the server still has this device).
+  Future<String?> deviceToken() async {
+    final current = _fcmToken;
+    if (current != null) return current;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_lastRegisteredTokenKey);
+  }
+
+  /// The server no longer has [token] for this device (a logout removed
+  /// it): the next sign-in registers fresh, naming no previous token.
+  static Future<void> forgetRegisteredToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString(_lastRegisteredTokenKey) == token) {
+      await prefs.remove(_lastRegisteredTokenKey);
+    }
+  }
+
   /// Test seam: this device's push token, as if Firebase had issued it.
   @visibleForTesting
   void setTokenForTest(String? token) => _fcmToken = token;
