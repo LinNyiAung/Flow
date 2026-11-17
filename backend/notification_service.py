@@ -144,6 +144,9 @@ NOTIFICATION_TRANSLATIONS = {
         "family_use_transfer_undo_msg": "This is a transfer. Undo the transfer to remove both sides together.",
         "family_transfer_not_found_msg": "That transfer wasn't found.",
         "family_transfer_gone_msg": "This transfer can't be undone because one side of it no longer exists.",
+        # Push-only (no in-app notification, so not in NOTIFICATION_LINKS): sent once to a device whose sign-in expired.
+        "sign_in_reminder_title": "Sign in to Toe Pwar",
+        "sign_in_reminder_msg": "You've been signed out. Sign in to keep getting your budget and goal alerts.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -258,6 +261,9 @@ NOTIFICATION_TRANSLATIONS = {
         "family_use_transfer_undo_msg": "ဤစာရင်းသည် ငွေလွှဲမှုဖြစ်ပါသည်။ နှစ်ဘက်လုံးကို အတူဖယ်ရှားရန် ငွေလွှဲမှုကို ပြန်ရုပ်သိမ်းပါ။",
         "family_transfer_not_found_msg": "ထိုငွေလွှဲမှုကို မတွေ့ပါ။",
         "family_transfer_gone_msg": "ဤငွေလွှဲမှု၏ တစ်ဘက်မှာ မရှိတော့သဖြင့် ပြန်ရုပ်သိမ်း၍ မရပါ။",
+        # needs native review
+        "sign_in_reminder_title": "Toe Pwar သို့ ဝင်ရောက်ပါ",
+        "sign_in_reminder_msg": "သင် ထွက်သွားပါပြီ။ ဘတ်ဂျက်နှင့် ရည်မှန်းချက် သတိပေးချက်များ ဆက်လက်ရရှိရန် ပြန်လည်ဝင်ရောက်ပါ။",
     }
 }
 

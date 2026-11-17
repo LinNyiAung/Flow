@@ -17,6 +17,13 @@ Sections:
     notice's push and after a broadcast; a live token's row stays (Task 4). Needs the stub server.
   expired_session -- a device whose session_expires_at has passed gets no notice push; the active one still does
     (Task 4). Needs the stub server.
+  reminder -- device_jobs.send_sign_in_reminders (in-process, send_push faked): a device whose sign-in expired gets one
+    push with the English (or Myanmar) text and data {"type": "sign_in_reminder"} and no notification row; a second run
+    sends nothing; re-registering re-arms it; an active device gets none (Task 5).
+  stale -- device_jobs.delete_stale_devices: a device last seen 61 days ago is deleted, one seen 59 days ago stays
+    (Task 5).
+  password -- a password reset removes every device of the person; a password change keeps only the device whose token
+    is sent as fcm_token (no token, or a blank one: removes all) (Task 5). Needs the stub server.
 """
 import json
 import os
@@ -419,8 +426,201 @@ def section_expired_session():
         _drop_people(made)
 
 
+# ----------------------------------------------------------------------------------------------- in-process helpers
+_loop = None
+
+
+def run(coro):
+    """Runs a backend coroutine in-process on one loop (the backend's DB engine belongs to the loop it first ran on)."""
+    global _loop
+    if _loop is None:
+        _loop = __import__("asyncio").new_event_loop()
+    return _loop.run_until_complete(coro)
+
+
+def _expire(token, ago="1 hour"):
+    db.sql(f"UPDATE user_devices SET session_expires_at = now() - interval '{ago}', sign_in_reminder_sent_at = NULL "
+           "WHERE token = %s", token)
+
+
+# ------------------------------------------------------------------------------------------------------- reminder
+def section_reminder():
+    import httpx
+
+    import device_jobs
+    from notification_service import translate
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _people(c, tag, made)
+    sent = []  # (tokens, title, body, data) of every push the job made
+
+    def fake_send_push(tokens, title, body, data=None):
+        sent.append((list(tokens), title, body, data))
+        return {"success": len(tokens), "failure": 0, "unregistered": []}
+
+    real = device_jobs.send_push
+    device_jobs.send_push = fake_send_push
+    try:
+        A, B = register("Rem", "free"), register("Ria", "free")
+        if not (A and B):
+            return
+        db.sql("UPDATE users SET language = 'my' WHERE id = %s", B["id"])
+        ra, rb, rc = f"ra-{tag}", f"rb-{tag}", f"rc-{tag}"
+        _reg(c, A, ra)
+        _reg(c, B, rb)
+        _reg(c, A, rc)
+        _expire(ra)
+        _expire(rb)  # rc stays active
+
+        def pushes_to(token):
+            return [s for s in sent if token in s[0]]
+
+        before = db.sql("SELECT count(*) AS n FROM notifications WHERE user_id = ANY(%s)", made)[0]["n"]
+        n = run(device_jobs.send_sign_in_reminders())
+        check(n >= 2, "expired device gets one reminder: the job reports the pushes it sent", n)
+        pa = pushes_to(ra)
+        check(len(pa) == 1 and pa[0][1] == "Sign in to Toe Pwar"
+              and pa[0][2] == "You've been signed out. Sign in to keep getting your budget and goal alerts."
+              and pa[0][3] == {"type": "sign_in_reminder"},
+              "expired device gets one reminder: English title, body and data exactly {type: sign_in_reminder}", pa)
+        after = db.sql("SELECT count(*) AS n FROM notifications WHERE user_id = ANY(%s)", made)[0]["n"]
+        check(after == before, "expired device gets one reminder: no notification row is created", (before, after))
+        check((device(ra) or {}).get("sign_in_reminder_sent_at") is not None,
+              "expired device gets one reminder: the device is stamped")
+
+        pb = pushes_to(rb)
+        check(len(pb) == 1 and pb[0][1] == translate("sign_in_reminder_title", "my")
+              and pb[0][2] == translate("sign_in_reminder_msg", "my") and pb[0][1] != "Sign in to Toe Pwar",
+              "Myanmar user gets the Myanmar text", pb)
+
+        check(pushes_to(rc) == [], "active device gets none", pushes_to(rc))
+
+        # ---- sent once
+        sent.clear()
+        run(device_jobs.send_sign_in_reminders())
+        check(pushes_to(ra) == [] and pushes_to(rb) == [], "sent once: a second run sends nothing to those devices",
+              sent)
+
+        # ---- re-register resets
+        r = _reg(c, A, ra)
+        check(r.status_code == 200 and (device(ra) or {}).get("sign_in_reminder_sent_at") is None,
+              "re-register resets: registering clears the stamp", r.status_code)
+        sent.clear()
+        run(device_jobs.send_sign_in_reminders())
+        check(pushes_to(ra) == [], "re-register resets: the re-registered (active) device gets none yet", sent)
+        _expire(ra)
+        run(device_jobs.send_sign_in_reminders())
+        check(len(pushes_to(ra)) == 1, "re-register resets: expiring it again sends the next reminder",
+              pushes_to(ra))
+    finally:
+        device_jobs.send_push = real
+        _drop_people(made)
+
+
+# ---------------------------------------------------------------------------------------------------------- stale
+def section_stale():
+    import httpx
+
+    import device_jobs
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _people(c, tag, made)
+    old, fresh = f"old-{tag}", f"fresh-{tag}"
+    try:
+        A = register("Sta", "free")
+        if not A:
+            return
+        _reg(c, A, old)
+        _reg(c, A, fresh)
+        db.sql("UPDATE user_devices SET last_seen_at = now() - interval '61 days' WHERE token = %s", old)
+        db.sql("UPDATE user_devices SET last_seen_at = now() - interval '59 days' WHERE token = %s", fresh)
+        n = run(device_jobs.delete_stale_devices())
+        check(n >= 1 and devices(A["id"]) == {fresh},
+              "stale: the device last seen 61 days ago is deleted and the one seen 59 days ago is kept",
+              (n, devices(A["id"])))
+    finally:
+        _drop_people(made)
+
+
+# -------------------------------------------------------------------------------------------------------- password
+def _latest_otp(email):
+    code = None
+    with open(stubenv.OUTBOX, encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line)
+            if rec.get("kind") != "smtp":
+                continue
+            body = " ".join(rec.get("args", []))
+            if email in body and "Password Reset" in body:
+                m = __import__("re").search(r"verification code is:\s+(\d{6})", body.replace("\\n", "\n"))
+                if m:
+                    code = m.group(1)
+    return code
+
+
+def section_password():
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _people(c, tag, made)
+    d1, d2, d3 = f"pw1-{tag}", f"pw2-{tag}", f"pw3-{tag}"
+    try:
+        A = register("Pat", "free")
+        if not A:
+            return
+        email = f"dv-pat-{tag}@example.com"
+        _reg(c, A, d1)
+        _reg(c, A, d2)
+        check(devices(A["id"]) == {d1, d2}, "password: the person has two devices", devices(A["id"]))
+
+        # ---- reset removes every device
+        c.post("/api/auth/forgot-password/request-otp", json={"email": email})
+        otp = wait_for(lambda: _latest_otp(email))
+        r = c.post("/api/auth/forgot-password/verify-otp", json={"email": email, "otp": otp})
+        rt = r.json().get("reset_token") if r.status_code == 200 else None
+        r = c.post("/api/auth/forgot-password/reset-password",
+                   json={"email": email, "reset_token": rt, "new_password": "secret456", "confirm_password": "secret456"})
+        check(r.status_code == 200 and devices(A["id"]) == set(),
+              "reset removes every device: after the reset flow the person has 0 rows", (r.status_code, devices(A["id"])))
+
+        def signed_in(password):
+            tok = c.post("/api/auth/login", json={"email": email, "password": password}).json().get("access_token")
+            return {"id": A["id"], "h": {"Authorization": f"Bearer {tok}"}}
+
+        # ---- change keeps the sender's device
+        U = signed_in("secret456")
+        for t in (d1, d2, d3):
+            _reg(c, U, t)
+        r = c.put("/api/auth/change-password", headers=U["h"], json={
+            "current_password": "secret456", "new_password": "secret789", "confirm_password": "secret789",
+            "fcm_token": d1})
+        check(r.status_code == 200 and devices(A["id"]) == {d1},
+              "change keeps the sender's device: change-password with fcm_token d1 leaves rows {d1}",
+              (r.status_code, r.text[:200], devices(A["id"])))
+
+        # ---- change without a token removes all (absent, then blank)
+        for label, extra, pw_from, pw_to in (("without token", {}, "secret789", "secret000"),
+                                             ("with a blank token", {"fcm_token": "  "}, "secret000", "secret111")):
+            U = signed_in(pw_from)
+            _reg(c, U, d1)
+            _reg(c, U, d2)
+            r = c.put("/api/auth/change-password", headers=U["h"], json={
+                "current_password": pw_from, "new_password": pw_to, "confirm_password": pw_to} | extra)
+            check(r.status_code == 200 and devices(A["id"]) == set(),
+                  f"change {label} removes all", (r.status_code, r.text[:200], devices(A["id"])))
+    finally:
+        _drop_people(made)
+
+
 SECTIONS = {"migration": section_migration, "register": section_register, "logout": section_logout,
-            "dead_tokens": section_dead_tokens, "expired_session": section_expired_session}
+            "dead_tokens": section_dead_tokens, "expired_session": section_expired_session,
+            "reminder": section_reminder, "stale": section_stale, "password": section_password}
 
 
 def main():

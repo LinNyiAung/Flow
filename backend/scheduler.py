@@ -13,6 +13,7 @@ from insights_service import generate_weekly_insights_for_all_users, generate_mo
 from custom_insights_service import fail_stuck_reports
 from insight_schedule import WEEKLY_INSIGHT_CRON, MONTHLY_INSIGHT_CRON
 from subscription_service import expire_paid_plans, send_plan_renewal_reminders, send_trial_reminders
+from device_jobs import delete_stale_devices, send_sign_in_reminders
 from tz_utils import get_app_timezone
 
 logging.basicConfig(level=logging.INFO)
@@ -117,6 +118,29 @@ def start_scheduler():
         name="Send paid plan renewal reminders",
         replace_existing=True,
         misfire_grace_time=3600,
+        coalesce=True,
+    )
+
+    # Tell each device whose sign-in has expired that it was signed out, hourly. The reminder is stamped in the database
+    # as it is claimed, so each device gets at most one however often this runs (registering again re-arms it).
+    scheduler.add_job(
+        send_sign_in_reminders,
+        trigger=CronTrigger(timezone=app_tz, minute=35),
+        id="sign_in_reminders",
+        name="Send sign-in reminders to signed-out devices",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+
+    # Forget devices not seen for 60 days, daily at 03:15 (app timezone).
+    scheduler.add_job(
+        delete_stale_devices,
+        trigger=CronTrigger(timezone=app_tz, hour=3, minute=15),
+        id="stale_devices",
+        name="Delete stale devices",
+        replace_existing=True,
+        misfire_grace_time=6 * 3600,
         coalesce=True,
     )
 

@@ -113,6 +113,8 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str
     confirm_password: str
+    # The push token of the device making the change: its row is kept, every other device is signed out.
+    fcm_token: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str

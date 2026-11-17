@@ -4,10 +4,10 @@ A device gets the person's pushes while its sign-in has not expired (session_exp
 it last registered with).
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterable, List, Optional
 
-from sqlalchemy import case, delete, exists, select
+from sqlalchemy import case, delete, exists, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from sql.db import execute, fetch_all, fetch_value, transaction
@@ -86,6 +86,25 @@ async def delete_tokens(tokens: Iterable[str]) -> int:
     for chunk in _chunks(list(dict.fromkeys(t for t in tokens if t))):
         deleted += await execute(delete(d).where(d.c.token.in_(chunk)))
     return deleted
+
+
+async def claim_sign_in_reminders(now: datetime) -> List[dict]:
+    """Claims the sign-in reminders due at `now`: the devices whose sign-in has expired and that have not been
+    reminded. Each is stamped in the same statement that returns it, so two runs never claim the same device (a crash
+    after the claim loses that reminder rather than sending it twice). Returns {token, user_id, language} rows;
+    language is the person's, "en" when they have none.
+    """
+    stmt = (update(d).values(sign_in_reminder_sent_at=now)
+            .where(d.c.user_id == users.c.id, d.c.session_expires_at <= now, d.c.sign_in_reminder_sent_at.is_(None))
+            .returning(d.c.token, d.c.user_id, users.c.language))
+    async with transaction():
+        rows = await fetch_all(stmt)
+    return [{"token": r["token"], "user_id": r["user_id"], "language": r["language"] or "en"} for r in rows]
+
+
+async def delete_stale(now: datetime, days: int = 60) -> int:
+    """Deletes the devices not seen for more than `days` days; returns the count."""
+    return await execute(delete(d).where(d.c.last_seen_at < now - timedelta(days=days)))
 
 
 _CHUNK = 5000  # ids per IN list (a statement takes at most 32767 parameters)

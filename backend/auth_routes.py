@@ -43,6 +43,7 @@ from config import settings
 from plans.access import effective_plan, is_trial
 from plans.catalog import PAID_PLANS
 from sql import books as books_db
+from sql import devices as devices_db
 from sql import users as users_db
 from sql.db import transaction
 from families import service as families_service
@@ -420,6 +421,9 @@ async def reset_password(request: ResetPasswordRequest):
     if not await users_db.reset_password_with_token(user["_id"], stored_token_hash, hashed_pw, password_changed_now()):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=GENERIC_RESET_ERROR)
 
+    # Every device is signed out by the reset (its tokens are revoked), so none of them should be pushed to or reminded.
+    await devices_db.remove_all(user["_id"])
+
     return {"message": "Password reset successfully. You can now log in."}
 
 
@@ -492,6 +496,9 @@ async def change_password(
     hashed_password = await run_in_threadpool(get_password_hash, password_data.new_password)
 
     updated_user = await users_db.change_password(current_user["_id"], hashed_password, password_changed_now())
+
+    # The change signs out every other device; the one making it (its push token, if sent) stays registered.
+    await devices_db.remove_all(current_user["_id"], keep_token=(password_data.fcm_token or "").strip() or None)
 
     return {
         "message": "Password changed successfully",
